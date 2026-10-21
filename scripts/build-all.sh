@@ -62,7 +62,9 @@ else
 fi
 
 D8_BIN=""
-if [ -n "$LATEST_BUILD_TOOLS" ] && [ -x "$LATEST_BUILD_TOOLS/d8" ]; then
+if [ -x "/opt/toolchain/sdk/build-tools/34.0.0/d8" ]; then
+    D8_BIN="/opt/toolchain/sdk/build-tools/34.0.0/d8"
+elif [ -n "$LATEST_BUILD_TOOLS" ] && [ -x "$LATEST_BUILD_TOOLS/d8" ]; then
     D8_BIN="$LATEST_BUILD_TOOLS/d8"
 fi
 
@@ -71,6 +73,8 @@ DFODA="${DFODA:-/opt/toolchain/jars/dfoda0.0.9.jar}"
 
 if [ -f "/opt/toolchain/jars/apksigner.jar" ]; then
     APKSIGNER_JAR="${APKSIGNER:-/opt/toolchain/jars/apksigner.jar}"
+elif [ -f "/opt/toolchain/sdk/build-tools/34.0.0/lib/apksigner.jar" ]; then
+    APKSIGNER_JAR="${APKSIGNER:-/opt/toolchain/sdk/build-tools/34.0.0/lib/apksigner.jar}"
 elif [ -n "$LATEST_BUILD_TOOLS" ] && [ -f "$LATEST_BUILD_TOOLS/lib/apksigner.jar" ]; then
     APKSIGNER_JAR="${APKSIGNER:-$LATEST_BUILD_TOOLS/lib/apksigner.jar}"
 else
@@ -103,7 +107,7 @@ compile_java_and_dex() {
     shift 2
 
     if [ -f "$ECJ" ]; then
-        "$JAVA_BIN" -jar "$ECJ" -1.7 -source 1.7 -target 1.7 \
+        "$JAVA_BIN" -jar "$ECJ" -1.8 -source 1.8 -target 1.8 \
             -bootclasspath "$ANDROID_JAR" \
             -d "$out_classes" \
             "$@"
@@ -211,7 +215,11 @@ public class RunDexer {
     }
 }
 JEOF
-    "$JAVA_BIN" -jar "$ECJ" -1.8 -cp "$DFODA" -d build/ build/RunDexer.java
+    if [ -f "$ECJ" ]; then
+        "$JAVA_BIN" -jar "$ECJ" -1.8 -cp "$DFODA" -d build/ build/RunDexer.java
+    else
+        "$JAVAC_BIN" -source 1.8 -target 1.8 -Xlint:-options -cp "$DFODA" -d build/ build/RunDexer.java
+    fi
 fi
 
 echo "==> [3/7] Building standalone Stock Android 4.2 Home Launcher (VanillaAndroid4Home.apk)..."
@@ -290,7 +298,9 @@ echo "==> [5/7] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2)
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/7] Writing SHA256SUMS.txt..."
-(cd releases && sha256sum KoboArc7Freedom.apk VanillaAndroid4Home.apk > SHA256SUMS.txt)
+echo "==> [6/7] Generating static Web Portals & writing SHA256SUMS.txt..."
+rm -f releases/*.idsig
+"$PY_BIN" tools/serve-over-wifi.py --write-static
+(cd releases && sha256sum KoboArc7Freedom.apk VanillaAndroid4Home.apk Start-Kobo-WiFi-Server.bat Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
-ls -lh releases/KoboArc7Freedom.apk releases/VanillaAndroid4Home.apk
+ls -lh releases/KoboArc7Freedom.apk releases/VanillaAndroid4Home.apk releases/Start-Kobo-WiFi-Server.bat releases/Start-Kobo-WiFi-Server.sh docs/index.html

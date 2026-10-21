@@ -455,7 +455,7 @@ def generate_logo_banner():
         )
         d.text(
             (238, 124),
-            "ZERO-BRICK VERIFIED SUITE  v1.5.0   •   MT8125 & TEGRA 3",
+            "ZERO-BRICK VERIFIED SUITE  v1.6.0   •   MT8125 & TEGRA 3",
             fill=(134, 239, 172, 255),
             font=f_tag,
         )
@@ -508,7 +508,7 @@ def generate_logo_banner():
             buf[di + 3] = 255
     draw_text_block(buf, w, h, 232, 56, "KOBO ARC 7 FREEDOM", 6, (255, 255, 255))
     draw_text_block(buf, w, h, 232, 122, "ANDROID 4.2 + ROOT + TLS 1.3 + APPS", 3, (88, 206, 250))
-    draw_text_block(buf, w, h, 232, 160, "ZERO-BRICK VERIFIED SUITE V1.5.0", 3, (134, 239, 172))
+    draw_text_block(buf, w, h, 232, 160, "ZERO-BRICK VERIFIED SUITE V1.6.0", 3, (134, 239, 172))
     write_rgba_png(os.path.join(ROOT, "docs", "logo-banner.png"), w, h, buf)
 
 

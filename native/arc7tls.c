@@ -821,6 +821,22 @@ static void send_portal_home(int client_fd) {
     sock_send_all(client_fd, page, strlen(page));
 }
 
+static void url_encode_component(const char *src, char *dst, size_t cap) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t o = 0;
+    for (size_t i = 0; src[i] && o + 4 < cap; i++) {
+        unsigned char c = (unsigned char)src[i];
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~' || c == ':' || c == '/') {
+            dst[o++] = (char)c;
+        } else {
+            dst[o++] = '%';
+            dst[o++] = hex[(c >> 4) & 0x0F];
+            dst[o++] = hex[c & 0x0F];
+        }
+    }
+    dst[o] = '\0';
+}
+
 static void stream_rewritten_html(int client_fd, const parsed_url_t *base, const char *html, size_t len) {
     char hdr[6144];
     snprintf(hdr, sizeof(hdr),
@@ -834,36 +850,54 @@ static void stream_rewritten_html(int client_fd, const parsed_url_t *base, const
              base->host, base->path);
     sock_send_all(client_fd, hdr, strlen(hdr));
 
+    char outbuf[32768];
+    size_t outlen = 0;
+
     size_t i = 0;
     while (i < len) {
         if ((strncasecmp(html + i, "href=\"", 6) == 0 ||
              strncasecmp(html + i, "href='", 6) == 0 ||
              strncasecmp(html + i, "action=\"", 8) == 0 ||
              strncasecmp(html + i, "action='", 8) == 0)) {
+            if (outlen > 0) {
+                if (sock_send_all(client_fd, outbuf, outlen) != 0) return;
+                outlen = 0;
+            }
             const char *eq = strchr(html + i, '=');
             char quote = *(eq + 1);
             size_t attr_prefix = (size_t)((eq + 2) - (html + i));
-            sock_send_all(client_fd, html + i, attr_prefix);
+            if (sock_send_all(client_fd, html + i, attr_prefix) != 0) return;
             i += attr_prefix;
             const char *endq = strchr(html + i, quote);
             if (!endq) continue;
             size_t ulen = (size_t)(endq - (html + i));
-            if (ulen > 0 && ulen < 2000 && html[i] != '#' && strncasecmp(html + i, "javascript:", 11) != 0) {
+            if (ulen > 0 && ulen < 2000 && html[i] != '#' &&
+                strncasecmp(html + i, "javascript:", 11) != 0 &&
+                strncasecmp(html + i, "data:", 5) != 0 &&
+                strncasecmp(html + i, "mailto:", 7) != 0) {
                 char raw_link[2048];
                 memcpy(raw_link, html + i, ulen);
                 raw_link[ulen] = '\0';
                 char full_link[MAX_URL_LEN];
                 resolve_redirect(base, raw_link, full_link, sizeof(full_link));
+                char enc_link[MAX_URL_LEN * 3];
+                url_encode_component(full_link, enc_link, sizeof(enc_link));
                 sock_send_all(client_fd, "/go?u=", 6);
-                sock_send_all(client_fd, full_link, strlen(full_link));
+                sock_send_all(client_fd, enc_link, strlen(enc_link));
             } else {
                 sock_send_all(client_fd, html + i, ulen);
             }
             i += ulen;
             continue;
         }
-        sock_send_all(client_fd, html + i, 1);
-        i++;
+        outbuf[outlen++] = html[i++];
+        if (outlen >= sizeof(outbuf)) {
+            if (sock_send_all(client_fd, outbuf, outlen) != 0) return;
+            outlen = 0;
+        }
+    }
+    if (outlen > 0) {
+        sock_send_all(client_fd, outbuf, outlen);
     }
 }
 

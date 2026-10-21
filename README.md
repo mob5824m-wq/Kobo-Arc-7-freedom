@@ -10,10 +10,14 @@
 
 Both pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** signed APKs are ready right now in:
 
-1. **[GitHub Releases (`v1.5.0` Latest)](../../releases/tag/v1.5.0)** — direct one-click download (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`)
-2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 **8-App + 4-Service + 4-ARMv7-Binary** suite (`~12.3 MB` — custom multi-DPI app icons for every app, 6 deep anti-brick hardware safety guards, **all 120 modern 2026 Root CAs offline**, **Full `Arc7 Clock` (`Alarms` + `Countdown Timers` + `Stopwatch` + `World Time` + `Nightstand Dock`)**, **`Arc7 Wallpapers` (`12 Built-In HD Art Themes` + `Custom MicroSD Photos`)**, **Wi-Fi File Drive + Remote `.APK` Installer + Live Screenshot Server (`:8080`)**, **`2026 Reader Lite` + TLS 1.3 Web Browser**, **System-Wide `TLS 1.3` Upgrade Proxy (`127.0.0.1:8118`)**, **Pre-Bundled Offline `F-Droid Classic` App Store**, **`Arc7 E-Reader` (`.epub`/`.txt`/`.html` + **70,000+ Free Project Gutenberg Storefront** + **Color `.CBZ` Comic/Manga Reader**)**, **`Arc7 Audio` Screen-Off Music & Audiobook Player**, **`Arc7 App Manager` + Wireless `ADB over Wi-Fi (:5555)`**, **Floating Soft-Button Pill**, **`64 GB / 128 GB / 256 GB` MicroSDXC `FAT32` Card Formatter**, ARMv7 root engine, `su`, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`!)
-3. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`~40 KB`, includes its own built-in **12 HD Wallpapers** & custom Home icon, automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
-4. **[`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)** — SHA-256 verification digests
+1. **[Live Web Installer & Wi-Fi Launcher Portal (`docs/index.html`)](https://mob5824m-wq.github.io/Kobo-Arc-7-freedom/)** — download APKs directly or grab the 1-click Windows/Mac/Linux local home Wi-Fi server!
+2. **[GitHub Releases (`v1.6.0` Latest)](../../releases/tag/v1.6.0)** — direct one-click downloads:
+   - **`KoboArc7Freedom.apk`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`)
+   - **`Start-Kobo-WiFi-Server.bat`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Start-Kobo-WiFi-Server.bat` — Windows 10/11 1-click home Wi-Fi server, **zero Python needed**, auto-unlocks Windows Firewall!)
+   - **`Start-Kobo-WiFi-Server.sh`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Start-Kobo-WiFi-Server.sh` — macOS / Linux 1-click home Wi-Fi server)
+3. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 **8-App + 4-Service + 4-ARMv7-Binary** suite (`~12.3 MB` — custom multi-DPI app icons for every app, 6 deep anti-brick hardware safety guards, **all 120 modern 2026 Root CAs offline**, **Full `Arc7 Clock` (`Alarms` + `Countdown Timers` + `Stopwatch` + `World Time` + `Nightstand Dock`)**, **`Arc7 Wallpapers` (`12 Built-In HD Art Themes` + `Custom MicroSD Photos`)**, **Instant Auto-Start Foreground Wi-Fi File Drive + Remote `.APK` Installer + Live Screenshot Server (`:8080`)**, **`2026 Reader Lite` + TLS 1.3 Web Browser**, **System-Wide `TLS 1.3` Upgrade Proxy (`127.0.0.1:8118`)**, **Pre-Bundled Offline `F-Droid Classic` App Store**, **`Arc7 E-Reader` (`.epub`/`.txt`/`.html` + **70,000+ Free Project Gutenberg Storefront** + **Color `.CBZ` Comic/Manga Reader**)**, **`Arc7 Audio` Screen-Off Music & Audiobook Player**, **`Arc7 App Manager` + Wireless `ADB over Wi-Fi (:5555)`**, **Floating Soft-Button Pill**, **`64 GB / 128 GB / 256 GB` MicroSDXC `FAT32` Card Formatter**, ARMv7 root engine, `su`, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`!)
+4. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`~40 KB`, includes its own built-in **12 HD Wallpapers** & custom Home icon, automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
+5. **[`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)** — SHA-256 verification digests
 
 ---
 
@@ -33,13 +37,17 @@ Worse, generic Android root/debloat scripts often soft-brick Kobo Arc 7 tablets 
 
 > **Important Tip:** Before `KoboArc7Freedom.apk` is installed, Kobo's stock 2013 Browser cannot open `https://github.com/...` directly because it lacks modern SSL certs & TLS 1.3. Use **any** of the 3 zero-hassle ways below once — after that, your tablet has its own **120 pre-downloaded 2026 CAs** + **`Arc7 Browser (TLS 1.3)`** right on the tablet!
 
-### Method A — Zero-Cable Home Wi-Fi Installer *(Fastest — No USB Cable or MicroSD Card Needed!)*
-1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7 and connect it to the same home Wi-Fi as your computer.
-2. On your PC / Mac / Linux laptop, run:
-   ```bash
-   python3 tools/serve-over-wifi.py
-   ```
-3. Open Kobo's built-in Browser on the tablet and type the plain **`http://192.168.x.x:8000`** address shown in your terminal (plain local HTTP uses zero SSL certs — opens immediately!), then tap **Download KoboArc7Freedom.apk**!
+### Method A — Zero-Cable Home Wi-Fi Installer *(Fastest — No USB Cable, No MicroSD, Even Zero Python on Windows!)*
+1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7 and connect it to the **same home Wi-Fi network** as your computer (not a isolated Guest Wi-Fi network).
+2. Start the local home Wi-Fi server on your computer:
+   - **Windows 10 / 11 (1-Click, Auto-Firewall, Zero Python Needed):** Download & double-click **`Start-Kobo-WiFi-Server.bat`** (or `tools\serve-over-wifi.bat` in this repo). It automatically opens Windows Defender Firewall port `8000` and shows your real Wi-Fi `http://192.168.x.x:8000` address!
+   - **macOS / Linux:** Run `bash tools/serve-over-wifi.sh` or `python3 tools/serve-over-wifi.py`.
+3. Open Kobo's built-in Browser on the tablet and type the exact plain **`http://192.168.x.x:8000`** address shown in your terminal (**must start with `http://`, NOT `https://`**!), then tap **Download KoboArc7Freedom.apk** (or the **Alternate Direct Binary Stream** button if Kobo's Download Manager asks for a raw stream), and tap the finished download in Kobo's top-left notification shade!
+
+> **Troubleshooting `http://192.168.x.x:8000` (Installer) or `http://<tablet-ip>:8080` (On-Tablet Wi-Fi Drive):**
+> - **Always include `http://` at the front** (`http://192.168.1.50:8000` or `http://192.168.1.75:8080`). In `v1.6.0`, both servers also fast-reject Chrome/Edge/Safari HTTPS-First `ClientHello` packets in `<1 ms` so modern browsers fall back to plain HTTP immediately instead of hanging for 30 seconds!
+> - **Don't run inside a remote Cloud VM or WSL2 without Windows host networking:** A server started in a cloud workspace (`169.254.x.x` / `172.x.x.x`) or unbridged WSL2 subnet is not on your home router's LAN — double-click **`Start-Kobo-WiFi-Server.bat`** (Windows) or run **`Start-Kobo-WiFi-Server.sh`** (Mac/Linux) directly on a computer on your home Wi-Fi!
+> - **On-Tablet Wi-Fi Drive (`:8080`):** Updating to `v1.6.0` starts `Arc7WifiDriveService` **immediately** as a persistent Android Foreground Service (`WifiLock` + `WakeLock`) the moment you tap **Tab 5 -> Wi-Fi Drive**, gives you a **1-Step Auto-Unlock URL (`http://<ip>:8080/?pin=XXXX`)** plus a **Disable PIN** button, and stays alive even when the tablet screen turns off!
 
 ### Method B — MicroSD Card (`file://` Browser Trick — No Computer Needed After Copying!)
 1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7.

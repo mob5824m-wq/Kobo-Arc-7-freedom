@@ -112,7 +112,10 @@ public class TabletOptimizerManager {
         String adbPort = shell.execSh("getprop service.adb.tcp.port 2>/dev/null", null).stdout.trim();
         sb.append("CPU Governor: ").append(cpuGov)
           .append(" • Wireless ADB: ").append("5555".equals(adbPort) ? ("ACTIVE (" + Arc7WifiDriveService.detectLanIp(ctx) + ":5555)") : "USB mode")
-          .append(" • Wi-Fi Drive: ").append(Arc7WifiDriveService.isRunning() ? ("http://" + Arc7WifiDriveService.detectLanIp(ctx) + ":8080") : "OFF")
+          .append(" • Wi-Fi Drive: ").append(Arc7WifiDriveService.isRunning()
+                  ? ("http://" + Arc7WifiDriveService.detectLanIp(ctx) + ":" + Arc7WifiDriveService.getActivePort()
+                     + (Arc7WifiDriveService.isPinRequired(ctx) ? " (PIN " + Arc7WifiDriveService.getOrCreatePin(ctx) + ")" : " (Open)"))
+                  : "OFF")
           .append("\n");
 
         sb.append("Night / Warm Reading Filter: ").append(NightFilterService.modeLabel(NightFilterService.currentMode(ctx)))

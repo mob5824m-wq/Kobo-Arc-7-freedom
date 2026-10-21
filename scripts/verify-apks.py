@@ -56,7 +56,13 @@ if SDK_ROOT and os.path.isdir(os.path.join(SDK_ROOT, "build-tools")):
 JAVA = "/opt/toolchain/jdk/bin/java" if os.path.exists("/opt/toolchain/jdk/bin/java") else shutil.which("java")
 JAVAC = "/opt/toolchain/jdk/bin/javac" if os.path.exists("/opt/toolchain/jdk/bin/javac") else shutil.which("javac")
 ZIPALIGN = "/opt/toolchain/bin/zipalign" if os.path.exists("/opt/toolchain/bin/zipalign") else os.path.join(LATEST_BT, "zipalign")
-APKSIGNER = "/opt/toolchain/jars/apksigner.jar" if os.path.exists("/opt/toolchain/jars/apksigner.jar") else os.path.join(LATEST_BT, "lib/apksigner.jar")
+APKSIGNER = (
+    "/opt/toolchain/jars/apksigner.jar"
+    if os.path.exists("/opt/toolchain/jars/apksigner.jar")
+    else "/opt/toolchain/sdk/build-tools/34.0.0/lib/apksigner.jar"
+    if os.path.exists("/opt/toolchain/sdk/build-tools/34.0.0/lib/apksigner.jar")
+    else os.path.join(LATEST_BT, "lib/apksigner.jar")
+)
 ANDROID_JAR = (
     "/opt/toolchain/sdk/platforms/android-17/android.jar"
     if os.path.exists("/opt/toolchain/sdk/platforms/android-17/android.jar")
@@ -95,8 +101,8 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.5.0", f"Expected 1.5.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "150", f"Expected 150, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.6.0", f"Expected 1.6.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "160", f"Expected 160, got {apk.get_androidversion_code()}"
         acts = apk.get_activities()
         for req_act in (
             "ca.arc7freedom.app.MainActivity",
@@ -526,7 +532,7 @@ public class JvmLogicSelfTest {{
         cp = f"{ROOT}/build/app/classes:{ANDROID_JAR}"
         if os.path.exists("/opt/toolchain/jars/ecj-4.8.jar"):
             comp = subprocess.run(
-                [JAVA, "-jar", "/opt/toolchain/jars/ecj-4.8.jar", "-1.7", "-cp", cp, "-d", tmp, java_test_src],
+                [JAVA, "-jar", "/opt/toolchain/jars/ecj-4.8.jar", "-1.8", "-cp", cp, "-d", tmp, java_test_src],
                 capture_output=True, text=True,
             )
         else:
@@ -568,6 +574,79 @@ def verify_icons_and_logo(main_apk: str, home_apk: str) -> None:
         print("  [PASS] VanillaAndroid4Home multi-DPI ic_launcher_home.png verified")
 
 
+def verify_wifi_server_and_drive_fixes() -> None:
+    print("\n=== Verifying Wi-Fi Installer (:8000), Static Portals & Wi-Fi Drive (:8080) ===")
+    import http.client
+    import socket
+    import time
+
+    for rel in ("docs/index.html", "docs/Start-Kobo-WiFi-Server.bat", "docs/Start-Kobo-WiFi-Server.sh",
+                "releases/index.html", "releases/Start-Kobo-WiFi-Server.bat", "releases/Start-Kobo-WiFi-Server.sh"):
+        p = os.path.join(ROOT, rel)
+        assert os.path.isfile(p) and os.path.getsize(p) > 512, f"Missing or empty {rel}"
+
+    # Verify compiled Arc7WifiDriveService has new methods & fast-reject logic
+    drive_cls = os.path.join(ROOT, "build/app/classes/ca/arc7freedom/app/Arc7WifiDriveService.class")
+    with open(drive_cls, "rb") as f:
+        cls_bytes = f.read()
+    for sym in (b"ensureStartedAndWait", b"isPinRequired", b"detectAllLanIps", b"getActivePort", b"startForeground"):
+        assert sym in cls_bytes, f"Missing symbol {sym!r} in Arc7WifiDriveService.class!"
+    print("  [PASS] Arc7WifiDriveService (:8080) Foreground + Auto-Start + Port Fallback bytecode verified")
+
+    # Spin up live tools/serve-over-wifi.py on ephemeral test port 18891 and verify HTTP/1.1, HEAD, Range, /raw/, & TLS fast-reject
+    proc = subprocess.Popen(
+        [sys.executable, os.path.join(ROOT, "tools/serve-over-wifi.py"), "18891"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        for _ in range(30):
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", 18891, timeout=2)
+                c.request("HEAD", "/?cachebust=1")
+                r = c.getresponse()
+                r.read()
+                c.close()
+                if r.status == 200:
+                    break
+            except OSError:
+                time.sleep(0.1)
+
+        c = http.client.HTTPConnection("127.0.0.1", 18891, timeout=5)
+        c.request("GET", "/?from=kobo")
+        r = c.getresponse()
+        body = r.read().decode("utf-8")
+        c.close()
+        assert r.status == 200 and "KoboArc7Freedom.apk" in body and "Start-Kobo-WiFi-Server.bat" in body
+
+        c = http.client.HTTPConnection("127.0.0.1", 18891, timeout=5)
+        c.request("GET", "/KoboArc7Freedom.apk", headers={"Range": "bytes=0-3"})
+        r = c.getresponse()
+        sig4 = r.read()
+        c.close()
+        assert r.status == 206 and sig4 == b"PK\x03\x04", f"Expected 206 ZIP magic, got {r.status} {sig4!r}"
+
+        c = http.client.HTTPConnection("127.0.0.1", 18891, timeout=5)
+        c.request("HEAD", "/raw/KoboArc7Freedom.apk")
+        r = c.getresponse()
+        ctype = r.getheader("Content-Type", "")
+        r.read()
+        c.close()
+        assert r.status == 200 and "application/octet-stream" in ctype
+
+        # Verify Chrome/Safari HTTPS-First binary TLS ClientHello (`0x16 0x03 0x01 ...`) closes in < 0.25s instead of hanging 30s!
+        t0 = time.monotonic()
+        s = socket.create_connection(("127.0.0.1", 18891), timeout=2.0)
+        s.sendall(b"\x16\x03\x01\x00\x20" + b"\x01" * 32)
+        rem = s.recv(16)
+        s.close()
+        elapsed = time.monotonic() - t0
+        assert rem == b"" and elapsed < 0.5, f"TLS fast-reject took {elapsed:.3f}s ({rem!r})"
+        print(f"  [PASS] Live Wi-Fi Server (:8000): GET, HEAD, 206 Range, /raw/ binary stream & TLS fast-reject ({elapsed * 1000:.1f} ms) verified!")
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def main() -> None:
     home_apk = os.path.join(ROOT, "releases/VanillaAndroid4Home.apk")
     check_apk(
@@ -593,6 +672,7 @@ def main() -> None:
     verify_icons_and_logo(main_apk, home_apk)
     check_bundled_cacerts_and_tls_engine(main_apk)
     check_boot_inspector_and_java_logic()
+    verify_wifi_server_and_drive_fixes()
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

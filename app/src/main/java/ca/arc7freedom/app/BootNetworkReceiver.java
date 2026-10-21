@@ -57,6 +57,13 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         NightFilterService.applyMode(context, NightFilterService.currentMode(context));
                     }
 
+                    // Restore Wi-Fi File Drive (:8080) HTTP server automatically if previously enabled
+                    if (context.getSharedPreferences(Arc7WifiDriveService.PREFS, Context.MODE_PRIVATE)
+                            .getBoolean(Arc7WifiDriveService.KEY_ACTIVE, false)
+                            && !Arc7WifiDriveService.isRunning()) {
+                        context.startService(new Intent(context, Arc7WifiDriveService.class));
+                    }
+
                     ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
                     NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
                     if (active != null && active.isConnected()) {

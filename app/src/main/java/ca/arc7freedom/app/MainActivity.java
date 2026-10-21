@@ -108,7 +108,7 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.5.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v1.6.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Anti-Brick Hardened + Custom App Icons + Clock/Alarms/Timers/Stopwatch + 12 HD Wallpapers + 120 2026 CAs + TLS 1.3 + 256GB SDXC).");
         refreshDeviceSnapshotAsync();
     }
@@ -164,7 +164,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.5");
+        title.setText("Kobo Arc 7 Freedom  v1.6");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -2523,34 +2523,78 @@ public class MainActivity extends Activity {
     /* ==================== v1.4.0 NEW DIALOGS & CONTROLS ==================== */
 
     private void showWifiDriveDialog() {
-        String ip = Arc7WifiDriveService.detectLanIp(this);
-        String pin = Arc7WifiDriveService.getOrCreatePin(this);
-        String url = "http://" + ip + ":" + Arc7WifiDriveService.PORT;
-        new AlertDialog.Builder(this)
-                .setTitle("Wi-Fi File Drive & Remote APK Installer")
-                .setMessage("Status: " + (Arc7WifiDriveService.isRunning() ? "ACTIVE & LISTENING" : "Stopped") + "\n\n"
-                        + "Browser URL:  " + url + "\n"
-                        + "Security PIN: " + pin + "\n\n"
-                        + "Open that address on any computer, Mac, iPhone, or Android browser on your Wi-Fi network to upload `.epub`/`.cbz`/movies/ROMs, remote-install `.apk` apps, download full OS backups, or grab live tablet screenshots!")
-                .setPositiveButton("Start Wi-Fi Drive", new DialogInterface.OnClickListener() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final boolean listening = Arc7WifiDriveService.ensureStartedAndWait(MainActivity.this, 900L);
+                uiHandler.post(new Runnable() {
                     @Override
-                    public void onClick(DialogInterface d, int w) {
-                        startService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
-                        appendLog("Started Wi-Fi Drive on http://" + Arc7WifiDriveService.detectLanIp(MainActivity.this)
-                                + ":8080 (PIN: " + Arc7WifiDriveService.getOrCreatePin(MainActivity.this) + ")");
+                    public void run() {
                         refreshDeviceSnapshotAsync();
+                        final String ip = Arc7WifiDriveService.detectLanIp(MainActivity.this);
+                        final List<String> allIps = Arc7WifiDriveService.detectAllLanIps(MainActivity.this);
+                        final int port = Arc7WifiDriveService.getActivePort();
+                        final String pin = Arc7WifiDriveService.getOrCreatePin(MainActivity.this);
+                        final boolean pinReq = Arc7WifiDriveService.isPinRequired(MainActivity.this);
+                        final String url = "http://" + ip + ":" + port;
+                        final String directUrl = pinReq ? (url + "/?pin=" + pin) : url;
+
+                        StringBuilder extraIps = new StringBuilder();
+                        if (allIps.size() > 1) {
+                            extraIps.append("\nAlternate LAN IPs: ");
+                            for (int i = 1; i < allIps.size(); i++) {
+                                if (i > 1) extraIps.append(", ");
+                                extraIps.append("http://").append(allIps.get(i)).append(":").append(port);
+                            }
+                        }
+
+                        if (listening) {
+                            appendLog("Wi-Fi Drive LIVE now on " + directUrl);
+                        } else {
+                            appendLog("Wi-Fi Drive bind error: " + Arc7WifiDriveService.getLastBindError());
+                        }
+
+                        String msg = "Status: " + (listening
+                                ? "ACTIVE & LISTENING RIGHT NOW!"
+                                : ("Starting / Check Wi-Fi (" + Arc7WifiDriveService.getLastBindError() + ")")) + "\n\n"
+                                + "Type in Computer/Phone Browser (include http://):\n"
+                                + "  " + url + "\n\n"
+                                + "1-Step Auto-Unlock URL (skips PIN prompt):\n"
+                                + "  " + directUrl + "\n\n"
+                                + "Security PIN: " + (pinReq ? (pin + "  (Required)") : "OFF (Open LAN Access)")
+                                + extraIps.toString() + "\n\n"
+                                + "Note: Make sure your computer/phone is on the SAME Wi-Fi network and starts with plain http:// (not https://).";
+
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Wi-Fi File Drive & Remote APK Installer")
+                                .setMessage(msg)
+                                .setPositiveButton("Keep Running", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        refreshDeviceSnapshotAsync();
+                                    }
+                                })
+                                .setNeutralButton(pinReq ? "Disable PIN" : "Require PIN", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        Arc7WifiDriveService.setPinRequired(MainActivity.this, !pinReq);
+                                        startService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
+                                        showWifiDriveDialog();
+                                    }
+                                })
+                                .setNegativeButton("Stop Server", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        stopService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
+                                        appendLog("Stopped Wi-Fi Drive HTTP server.");
+                                        refreshDeviceSnapshotAsync();
+                                    }
+                                })
+                                .show();
                     }
-                })
-                .setNeutralButton("Stop Server", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int w) {
-                        stopService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
-                        appendLog("Stopped Wi-Fi Drive HTTP server.");
-                        refreshDeviceSnapshotAsync();
-                    }
-                })
-                .setNegativeButton("Close", null)
-                .show();
+                });
+            }
+        }).start();
     }
 
     private void showWirelessAdbDialog() {
