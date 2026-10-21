@@ -8,8 +8,8 @@
 
 Both pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** signed APKs are ready right now in:
 
-1. **[GitHub Releases (`v1.0.0`)](../../releases)** — direct one-click download for your tablet or PC
-2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Full all-in-one Android app (`346 KB`, embeds ARMv7 root engine, `su` binary/daemon, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`)
+1. **[GitHub Releases (`v1.1.0` Latest)](../../releases)** — direct one-click download for your tablet or PC
+2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Full all-in-one Android app (`~2.2 MB`, pre-bundles **all 120 modern 2026 Root CA certificates offline**, modern **ARMv7 TLS 1.3 downloader & Browser Portal**, ARMv7 root engine, `su` binary/daemon, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`)
 3. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`33 KB`, also automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
 4. **[`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)** — SHA-256 verification digests
 
@@ -61,7 +61,18 @@ This installs `KoboArc7Freedom.apk` over USB AND launches `MainActivity` directl
   - Remounts `/system` read-write, installs static ARMv7 `su` (`06755` setuid root) to `/system/xbin/su` and `/system/bin/su`, writes `/system/etc/install-recovery.sh` so root daemon persistence survives reboots even on `nosuid` mounts, and verifies `uid=0(root)` execution live in the console.
 - Includes one-tap **Unroot / Remove Persistent `su`** at any time.
 
-### Tab `2. BACKUP OS` — Full Factory OS & Partition Backup / Restore
+### Tab `2. CERTS & NET` — Pre-Downloaded 2026 Network Certificates & TLS 1.3 Downloader
+Stock Android 4.2.2 (`2013`) cannot connect to almost any modern website in 2026 for **four** reasons: missing modern Root CAs (*Let's Encrypt ISRG Root X1/X2, Google GTS R1, DigiCert G2, USERTrust*), expired cross-sign CAs (`DST Root CA X3`, which breaks Android 4.2's OpenSSL 1.0.1 chain validator), dead-battery clocks reset to `2013`, and disabled/missing `TLS 1.2` & `TLS 1.3` ciphers. **All four are solved offline right inside the APK:**
+- **120 Pre-Downloaded 2026 Mozilla Root CA Certificates (`assets/cacerts/`):** Bundled **100% offline** inside `KoboArc7Freedom.apk` in exact Android `<subject_hash_old>.<n>` format — **zero internet connection needed to install them!**
+- **`Install All 120 Pre-Downloaded Certs & Fix Internet Now`:**
+  - Installs all 120 modern 2026 Root CAs into `/system/etc/security/cacerts/` and `/data/misc/keychain/cacerts-added/` (and also supports Android's non-root `KeyChain` Certificate Installer UI if tapped before rooting!).
+  - Automatically backs up stock CAs and quarantines every expired `2013–2023` certificate (`DST Root CA X3`, `AddTrust`, etc.).
+  - Syncs dead-battery `2013` clocks automatically over raw IPv4 UDP **NTP** (`162.159.200.1`, `216.239.35.0`) with plain HTTP port-80 `Date:` header fallback, and sets clean IPv4 DNS (`1.1.1.1`, `8.8.8.8`).
+- **Built-In ARMv7 MbedTLS 3.6 (`TLS 1.3` + `TLS 1.2`) Downloader & Local Browser Gateway (`libarc7tls.so`):**
+  - Paste any `https://...` URL to download Android `.zip` ROMs, `recovery.img`, or `.apk` apps over modern `TLS 1.3` using the bundled 2026 CAs (works even before rooting!), then jump straight to flashing/installing with one tap.
+  - Tap **`Open TLS 1.3 Browser Portal`** (`http://127.0.0.1:8118/`) to browse modern HTTPS websites, run web searches, and click `.zip` / `.apk` downloads directly inside Kobo Arc 7's stock Browser!
+
+### Tab `3. BACKUP OS` — Full Factory OS & Partition Backup / Restore
 - Auto-selects your **External MicroSD card (`/storage/sdcard1`)** when inserted (or internal storage otherwise) and verifies free space before starting.
 - **Full Factory OS Backup (Recommended First Step)** creates a timestamped folder `/storage/sdcard1/KoboArc7Backups/<YYYYMMDD-HHMMSS>/` containing:
   - Raw streaming SHA-256 verified dumps of critical partitions (`mbr`, `ebr1`, `pro_info`, `nvram`, `protect_f`, `protect_s`, `sec_ro`, `uboot`/`lk`, `logo`, `boot`, `recovery` on MT8125; `LNX`, `SOS` on Tegra 3)
@@ -70,7 +81,7 @@ This installs `KoboArc7Freedom.apk` over USB AND launches `MainActivity` directl
 - **Verify Backup Integrity** recomputes every SHA-256 digest byte-for-byte against `SHA256SUMS.txt`.
 - **Restore Backup** verifies checksums first and restores `/system` + `boot` + `recovery` (or boot/recovery only) back to factory state.
 
-### Tab `3. ANDROID 4` — Install Normal Stock Android 4 (Both Modes Included!)
+### Tab `4. ANDROID 4` — Install Normal Stock Android 4 (Both Modes Included!)
 
 #### Mode A — One-Tap Clean Stock Android 4.2 Jelly Bean Conversion *(Recommended — Safest)*
 Converts your Kobo Arc 7 into a fast, pure **Stock Android 4.2.2 Holo Tablet** while keeping 100% of your working hardware drivers (Wi-Fi, Bluetooth, touchscreen, audio, cameras, microSD, and PowerVR GPU acceleration):
@@ -83,7 +94,7 @@ For power users installing custom AOSP / CyanogenMod 10.1 / Lineage Android 4 `.
 - **Custom ROM `.zip` Installer:** Built-in storage browser inspects `META-INF/com/google/android/updater-script` inside the `.zip`, checks for **MT8125 vs Tegra 3 board mismatches**, stages the `.zip` for recovery, writes `/cache/recovery/openrecoveryscript` + `/cache/recovery/command`, and reboots straight into `recovery` to flash automatically (with optional `wipe data` / `wipe cache`).
 - **`recovery.img` / `boot.img` Flasher:** Validates the 2048-byte `ANDROID!` kernel+ramdisk header (`arc7tool inspect-boot`), automatically backs up your existing partition first, flashes + verifies SHA-256 readback, and reboots into recovery.
 
-### Tab `4. TOOLS` — Power Utilities
+### Tab `5. TOOLS` — Power Utilities
 - **Bypass Stuck Kobo Setup Wizard Now** (fixes disabled Home button & notification shade instantly)
 - **Mount `/system` Read-Write (`RW`) / Read-Only (`RO`)**
 - **Install Any `.apk` as System or User App** (handy for sideloading Aurora Store / F-Droid Classic / NewPipe Legacy / Firefox / VLC on Android 4.2)

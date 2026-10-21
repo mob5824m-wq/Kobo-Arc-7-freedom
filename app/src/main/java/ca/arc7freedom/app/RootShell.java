@@ -42,7 +42,7 @@ public class RootShell {
         if (!binDir.exists()) binDir.mkdirs();
 
         String nativeDirPath = appContext.getApplicationInfo().nativeLibraryDir;
-        String[] libs = new String[]{"libarc7root.so", "libarc7su.so", "libarc7tool.so"};
+        String[] libs = new String[]{"libarc7root.so", "libarc7su.so", "libarc7tool.so", "libarc7tls.so"};
         for (String name : libs) {
             File src = new File(nativeDirPath, name);
             File dst = new File(binDir, name);
@@ -66,6 +66,10 @@ public class RootShell {
 
     public File getPartitionToolBinary() {
         return resolveBinary("libarc7tool.so");
+    }
+
+    public File getTlsEngineBinary() {
+        return resolveBinary("libarc7tls.so");
     }
 
     private File resolveBinary(String name) {

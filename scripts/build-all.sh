@@ -3,14 +3,16 @@
 # Kobo Arc 7 Freedom — Reproducible Full Native + Dalvik (DEX 035) Build Script
 #
 # Builds BOTH signed Android 4.2.2 (API 17 / minSdk 15) APKs from pure source:
-#   1. releases/VanillaAndroid4Home.apk  (Clean Stock Android 4 Holo Launcher)
-#   2. releases/KoboArc7Freedom.apk      (Root + OS Backup/Restore + Android 4)
-#   3. releases/SHA256SUMS.txt
-#
-# Supports BOTH:
-#   - Standard Android SDK environments ($ANDROID_SDK_ROOT / $ANDROID_HOME,
-#     GitHub Actions ubuntu-latest, Linux/macOS workstations with JDK + SDK)
-#   - Hermetic /opt/toolchain sandbox environments (ECJ + DFODA DEX 035)
+#   1. Pre-packages all 120 modern 2026 Mozilla Root CA certificates offline
+#      into `app/src/main/assets/cacerts/` (`<subject_hash_old>.<idx>` + bundle)
+#   2. Cross-compiles all 4 static ARMv7 EABI5 native binaries:
+#        - `libarc7su.so`   (Setuid + daemon fallback `su`)
+#        - `libarc7root.so` (Multi-stage Linux 3.4 ARMv7 kernel root engine)
+#        - `libarc7tool.so` (Streaming zlib + FIPS-180-4 SHA-256 partition tool)
+#        - `libarc7tls.so`  (Mbed-TLS 3.6 LTS full TLS 1.3 + TLS 1.2 engine,
+#                            UDP NTP clock sync & local Browser Gateway)
+#   3. Builds & v1/v2/v3 signs `releases/VanillaAndroid4Home.apk` &
+#      `releases/KoboArc7Freedom.apk` + `releases/SHA256SUMS.txt`
 # ==============================================================================
 set -euo pipefail
 
@@ -93,6 +95,7 @@ else
 fi
 
 ZLIB_DIR="${ZLIB_DIR:-/tmp/zlib-src}"
+MBEDTLS_DIR="${MBEDTLS_DIR:-/tmp/mbedtls-src}"
 
 compile_java_and_dex() {
     local out_classes="$1"
@@ -125,16 +128,45 @@ compile_java_and_dex() {
     fi
 }
 
-echo "==> [1/6] Generating multi-density launcher & Android 4 Home PNG icons..."
+echo "==> [1/7] Pre-packaging offline 2026 Mozilla Root CA certificates & launcher icons..."
+"$PY_BIN" scripts/generate-cacerts.py
 "$PY_BIN" scripts/generate-icons.py
 
-echo "==> [2/6] Cross-compiling static ARMv7 EABI5 native binaries (libarc7su.so, libarc7root.so, libarc7tool.so)..."
+echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls)..."
 if [ ! -d "$ZLIB_DIR" ]; then
     git clone --depth 1 https://github.com/madler/zlib.git "$ZLIB_DIR"
 fi
+if [ ! -d "$MBEDTLS_DIR" ]; then
+    git clone --depth 1 --branch v3.6.2 https://github.com/Mbed-TLS/mbedtls.git "$MBEDTLS_DIR"
+fi
 
-mkdir -p build/native/armeabi-v7a build/native/armeabi build/keystore releases
+mkdir -p build/native/armeabi-v7a build/native/armeabi build/mbedtls-arm build/keystore releases
 CFLAGS_ARM="-target arm-linux-musleabi -march=armv7-a -mcpu=cortex_a8 -Os -s -static -Wall -Wextra -Wno-unused-parameter"
+
+if [ ! -f build/mbedtls-arm/libmbedtls_all.a ]; then
+    "$PY_BIN" - "$MBEDTLS_DIR" << 'PYEOF'
+import concurrent.futures, glob, os, shutil, subprocess, sys
+mbed = sys.argv[1]
+zig = [sys.executable, "-m", "ziglang"]
+try:
+    import ziglang  # noqa
+except ImportError:
+    zig = ["zig"]
+srcs = sorted(glob.glob(os.path.join(mbed, "library/*.c")))
+def comp(s):
+    o = os.path.join("build/mbedtls-arm", os.path.basename(s)[:-2] + ".o")
+    subprocess.run(
+        zig + ["cc", "-target", "arm-linux-musleabi", "-march=armv7-a", "-mcpu=cortex_a8",
+               "-Os", "-ffunction-sections", "-fdata-sections",
+               f"-I{mbed}/include", f"-I{mbed}/library", "-c", s, "-o", o],
+        check=True,
+    )
+    return o
+with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+    objs = list(ex.map(comp, srcs))
+subprocess.run(zig + ["ar", "rcs", "build/mbedtls-arm/libmbedtls_all.a", *objs], check=True)
+PYEOF
+fi
 
 $ZIG_CMD cc $CFLAGS_ARM native/su.c -o build/native/armeabi-v7a/libarc7su.so
 $ZIG_CMD cc $CFLAGS_ARM native/arc7root.c -o build/native/armeabi-v7a/libarc7root.so -lpthread
@@ -145,6 +177,9 @@ $ZIG_CMD cc $CFLAGS_ARM -DHAVE_UNISTD_H=1 -DHAVE_STDARG_H=1 -I"$ZLIB_DIR" native
     "$ZLIB_DIR"/inffast.c "$ZLIB_DIR"/inflate.c "$ZLIB_DIR"/inftrees.c \
     "$ZLIB_DIR"/trees.c "$ZLIB_DIR"/uncompr.c "$ZLIB_DIR"/zutil.c \
     -o build/native/armeabi-v7a/libarc7tool.so
+$ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
+    -I"$MBEDTLS_DIR/include" native/arc7tls.c build/mbedtls-arm/libmbedtls_all.a -lpthread \
+    -o build/native/armeabi-v7a/libarc7tls.so
 
 cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
@@ -170,7 +205,7 @@ JEOF
     "$JAVA_BIN" -jar "$ECJ" -1.8 -cp "$DFODA" -d build/ build/RunDexer.java
 fi
 
-echo "==> [3/6] Building standalone Stock Android 4.2 Home Launcher (VanillaAndroid4Home.apk)..."
+echo "==> [3/7] Building standalone Stock Android 4.2 Home Launcher (VanillaAndroid4Home.apk)..."
 rm -rf build/launcher && mkdir -p build/launcher/{res_compiled,gen,classes,dex}
 "$AAPT2" compile --dir launcher-android4/res -o build/launcher/res_compiled/res.zip
 "$AAPT2" link \
@@ -206,7 +241,7 @@ compile_java_and_dex \
 mkdir -p app/src/main/assets
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/6] Compiling & packaging KoboArc7Freedom.apk (API 17 + DEX 035 + ARMv7 native binaries)..."
+echo "==> [4/7] Compiling & packaging KoboArc7Freedom.apk (API 17 + 120 2026 CAs + TLS 1.3 + ARMv7 binaries)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -231,7 +266,7 @@ cp build/native/armeabi/*.so build/app/stage/lib/armeabi/
 (cd build/app/dex && zip -qj ../unsigned.apk classes.dex)
 (cd build/app/stage && zip -qr -0 ../unsigned.apk lib)
 
-echo "==> [5/6] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2) + v2 + v3 schemes..."
+echo "==> [5/7] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2) + v2 + v3 schemes..."
 "$ZIPALIGN" -f -p 4 build/app/unsigned.apk build/app/aligned.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks build/keystore/arc7freedom.jks \
@@ -245,7 +280,7 @@ echo "==> [5/6] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2)
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/6] Writing SHA256SUMS.txt..."
+echo "==> [6/7] Writing SHA256SUMS.txt..."
 (cd releases && sha256sum KoboArc7Freedom.apk VanillaAndroid4Home.apk > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh releases/KoboArc7Freedom.apk releases/VanillaAndroid4Home.apk
