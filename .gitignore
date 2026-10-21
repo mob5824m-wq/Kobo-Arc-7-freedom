@@ -1,0 +1,12 @@
+# Build outputs & intermediate artifacts (release APKs under releases/ ARE tracked intentionally!)
+/build/
+/**/build/
+.gradle/
+local.properties
+*.iml
+.idea/
+.vscode/
+__pycache__/
+*.pyc
+*.keystore.tmp
+Unselected files/

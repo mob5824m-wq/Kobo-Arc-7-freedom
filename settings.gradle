@@ -1,0 +1,3 @@
+rootProject.name = "KoboArc7Freedom"
+include ":launcher-android4"
+include ":app"

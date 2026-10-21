@@ -1,0 +1,40 @@
+name: Build & Verify Kobo Arc 7 APKs
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android API 17 (4.2.2) platform & Zig + Androguard
+        run: |
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
+          python3 -m pip install --upgrade pip ziglang pillow androguard loguru
+
+      - name: Build KoboArc7Freedom.apk & VanillaAndroid4Home.apk from source
+        run: ./scripts/build-all.sh
+
+      - name: Run full APK signature, DEX 035, ELF32 ARMv7 & functional test suite
+        run: python3 scripts/verify-apks.py
+
+      - name: Upload built APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: kobo-arc-7-freedom-apks
+          path: |
+            releases/KoboArc7Freedom.apk
+            releases/VanillaAndroid4Home.apk
+            releases/SHA256SUMS.txt
