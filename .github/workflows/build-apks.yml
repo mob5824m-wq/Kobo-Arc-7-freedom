@@ -141,11 +141,16 @@ jobs:
   deploy-pages:
     if: github.event_name != 'pull_request' && !contains(github.event.head_commit.message, '[skip ci]')
     needs: build-and-verify
+    continue-on-error: true
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Configure & Auto-Enable GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Deploy Web Installer Portal to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
