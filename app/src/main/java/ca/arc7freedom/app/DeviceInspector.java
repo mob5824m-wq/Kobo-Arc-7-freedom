@@ -160,9 +160,24 @@ public class DeviceInspector {
     }
 
     private static void discoverPartitions(Snapshot s, RootShell shell) {
-        // 1. Parse MediaTek /proc/dumchar_info (gold-standard exact offsets & sizes on Kobo Arc 7 MT8125!)
+        // 1. Parse MediaTek /proc/dumchar_info (gold-standard sizes on Kobo Arc 7 MT8125!)
+        // CRITICAL HARDWARE BRICK GUARD:
+        // On MT8125 / MT6589 kernels, `preloader` resides on hardware boot partition `mmcblk0boot0`,
+        // yet `/proc/dumchar_info` adds `preloader`'s size onto `StartAddr` of `mbr` and every
+        // subsequent partition! Always subtract `mbrStartAddr` so raw offsets on `/dev/block/mmcblk0`
+        // align to exact physical user-area LBA 0!
         if (!s.rawDumcharText.isEmpty()) {
             String[] lines = s.rawDumcharText.split("\n");
+            long mbrStartAddr = 0L;
+            for (String line : lines) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty() || trimmed.startsWith("Part_Name")) continue;
+                String[] tok = trimmed.split("\\s+");
+                if (tok.length >= 5 && "mbr".equalsIgnoreCase(tok[0])) {
+                    mbrStartAddr = parseHex(tok[2]);
+                    break;
+                }
+            }
             for (String line : lines) {
                 String trimmed = line.trim();
                 if (trimmed.isEmpty() || trimmed.startsWith("Part_Name")) continue;
@@ -174,8 +189,9 @@ public class DeviceInspector {
                     String mapTo = tok[4]; // e.g. /dev/block/mmcblk0
                     String role = mapMtkNameToRole(partName);
                     if (role != null && size > 0) {
-                        String directDev = mapMtkDirectDevice(partName, mapTo, startAddr);
-                        long useOffset = directDev.equals(mapTo) ? startAddr : 0L;
+                        String directDev = mapMtkDirectDevice(partName, mapTo, startAddr, shell);
+                        long adjustedOff = (startAddr >= mbrStartAddr) ? (startAddr - mbrStartAddr) : startAddr;
+                        long useOffset = directDev.equals(mapTo) ? adjustedOff : 0L;
                         s.partitions.put(role, new PartitionTarget(role, directDev, useOffset, size));
                     }
                 }
@@ -278,11 +294,18 @@ public class DeviceInspector {
         return null;
     }
 
-    private static String mapMtkDirectDevice(String partName, String mapTo, long startAddr) {
+    private static String mapMtkDirectDevice(String partName, String mapTo, long startAddr, RootShell shell) {
         String emmcSym = "/emmc@" + partName;
         if (new File(emmcSym).exists()) return emmcSym;
         String charDev = "/dev/" + partName;
         if (new File(charDev).exists()) return charDev;
+        if (shell != null && shell.isRootAvailable()) {
+            RootShell.ExecResult chk = shell.execRoot(
+                    "if [ -e '" + emmcSym + "' ]; then echo EMMC; elif [ -e '" + charDev + "' ]; then echo DEV; fi",
+                    null);
+            if (chk.stdout.contains("EMMC")) return emmcSym;
+            if (chk.stdout.contains("DEV")) return charDev;
+        }
         return mapTo;
     }
 

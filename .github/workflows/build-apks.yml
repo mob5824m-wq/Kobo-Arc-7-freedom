@@ -30,10 +30,12 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru
 
-      - name: Build KoboArc7Freedom.apk & VanillaAndroid4Home.apk v1.4.0 from source
-        run: ./scripts/build-all.sh
+      - name: Generate vector logo & 8 multi-DPI app icons and build v1.5.0 APKs from source
+        run: |
+          python3 scripts/generate-icons.py
+          ./scripts/build-all.sh
 
-      - name: Run full APK signature, 2026 CA store, TLS 1.3 Proxy, 128 GB SDXC FAT32, MT8125 Patcher & 7-App Suite verification
+      - name: Run full APK signature, Anti-Brick Guards, Logo/Icons, Clock/Alarms/Timers, 12 HD Wallpapers & TLS 1.3 verification
         run: python3 scripts/verify-apks.py
 
       - name: Commit refreshed signed APKs & pre-bundled offline assets back to branch
@@ -42,13 +44,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
+            docs/logo-banner.png \
             releases/KoboArc7Freedom.apk \
             releases/VanillaAndroid4Home.apk \
             releases/SHA256SUMS.txt \
             app/src/main/assets/VanillaAndroid4Home.apk \
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v1.4.0 APKs & offline starter pack [skip ci]"
+            git commit -m "chore: update pre-built signed v1.5.0 APKs, logo & custom app icons [skip ci]"
             git push origin HEAD
           fi
 
@@ -61,60 +64,52 @@ jobs:
             releases/VanillaAndroid4Home.apk
             releases/SHA256SUMS.txt
 
-      - name: Publish signed APKs to GitHub Releases (v1.4.0 latest + update earlier tags)
+      - name: Publish signed APKs to GitHub Releases (v1.5.0 latest + update earlier tags)
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v1.4.0 (`ca.arc7freedom.app`)
+          ## Kobo Arc 7 Freedom v1.5.0 (`ca.arc7freedom.app`)
 
-          **The Ultimate All-in-One Android 4.2 Revival, 2026 `TLS 1.3` Internet, Wireless Control & 7-App Suite for Kobo Arc 7 (`MT8125`) & Arc 7HD (`Tegra 3`)!**
+          **The Complete Anti-Brick Verified Android 4.2 Revival, 2026 `TLS 1.3` Internet, 8-App Suite, Full Clock/Alarms/Timers & 12 HD Wallpapers Release for Kobo Arc 7 (`MT8125`) & Arc 7HD (`Tegra 3`)!**
 
-          ### New in `v1.4.0` — All 10 Power Upgrades Included!
-          1. **Built-In Wi-Fi File Drive, Backup Downloader, Remote `.APK` Installer & Live Screenshot Server (`http://<tablet-ip>:8080`):**
-             - Open `http://<tablet-ip>:8080` (4-digit PIN protected) in any PC/Mac/iPhone/Android browser on home Wi-Fi to drag-and-drop `.epub`/`.cbz`/movies/ROMs, **upload & silently root-install `.apk` apps directly onto the tablet**, download multi-hundred-MB factory OS backups, or grab live `screencap -p` tablet screenshots — zero micro-USB cable needed!
-          2. **`2026 Reader / Web Lite Mode` (`Lite: ON`) + Automatic Lightweight Domain Rewrites (`Arc7 Browser`):**
-             - Strips heavy 5 MB 2026 JavaScript/trackers & rewrites bloated sites like `reddit.com` -> `old.reddit.com` so modern articles, docs, Reddit threads, and Hacker News render in `<0.4s` on `1 GB RAM` without ever freezing!
-          3. **`MT8125` 4-Core CPU Governor Power Profiles & Deep-Sleep Standby Battery Saver (`Tab 5: TOOLS`):**
-             - Switch in one tap between **E-Book Ultra Battery Saver** (2 active Cortex-A7 cores + powersave scaling), **Balanced Adaptive**, and **Max Quad-Core Performance**, plus automatic **Deep-Sleep Wi-Fi Standby** when the screen turns off.
-          4. **Floating Draggable Soft-Button Pill (`Save Worn 13-Year-Old Power & Volume Buttons!`):**
-             - Compact `[≡]` edge pill with **Screen Off / Lock**, **Home**, **Back**, **Vol-**, **Vol+**, and **Instant Screenshot**.
-          5. **Wireless Root `ADB over Wi-Fi` (`:5555`) + Standalone `Arc7 App Manager` (`Freeze / Export APK / Trim Caches`):**
-             - Toggle `adb connect <ip>:5555` wirelessly in one tap, and inspect User / System / Frozen packages to freeze background battery drainers, back up any installed app's `.apk` to MicroSD, or trim all app caches at once.
-          6. **64 GB / 128 GB / 256 GB MicroSDXC `FAT32` Card Formatter (`arc7tool format-sdxc-card`):**
-             - Android 4.2 rejects `exFAT` on `>=64 GB` cards! Wipes `exFAT` & stale GPT headers, lays down a clean `1 MiB` erase-block-aligned `0x0C FAT32 LBA` MBR, formats full `64 GB / 128 GB / 256 GB` capacity with `32 KB` clusters in seconds, and mounts immediately at `/storage/sdcard1`!
-          7. **Built-In 70,000+ Free Classic E-Book Storefront (`Arc7 E-Reader` -> `Free Store`):**
-             - Search or browse *Project Gutenberg* directly over native ARMv7 `TLS 1.3`, download any `.epub` straight into `Books/`, and read Chapter 1 in one tap with zero account!
-          8. **Full Color Comic & Manga `.CBZ` Reader Mode (`Arc7 E-Reader`):**
-             - Reads full-color `.cbz` comics, graphic novels, and manga crisp on the `1024x600` IPS screen with natural page sorting, downsampled `1 GB RAM`-safe decoding, and page bookmark resume!
-          9. **Standalone `Arc7 Audio` — Screen-Off Music & Audiobook Player:**
-             - Plays `MP3 / M4A / AAC / OGG / FLAC / WAV` with the screen completely OFF (`PARTIAL_WAKE_LOCK`) over 3.5mm jack, speaker, or Bluetooth — with **automatic audiobook position resume**, `-30s / +30s` skip, folder queue auto-advance, and **15m / 30m / 60m Bedtime Sleep Timer**!
-          10. **Standalone `Arc7 Desk Clock` — Smart Stand, Live `TLS 1.3` Weather & MicroSD Photo Frame:**
-              - Turns your docked Kobo Arc 7 into a smart desk/bedside display with anti-burn-in pixel shift, live `°C` weather via `wttr.in` over `TLS 1.3`, MicroSD photo slideshow, and ultra-dim **Amber Nightstand Mode**!
-
-          *(Plus 100% of `v1.0.0–v1.3.0`: One-Tap ARMv7 Root, Full Verified eMMC/NVRAM OS Backup & Restore, Clean Stock Android 4.2 Conversion + `VanillaAndroid4Home.apk`, All 120 Pre-Downloaded 2026 Root CAs Offline, System-Wide `TLS 1.3` Upgrade Proxy, Pre-Bundled `F-Droid Classic`, MicroSD Bind Mounts, Anti-Brick `MT8125` `boot.img` Root-ADB Patcher, `/etc/hosts` Ad-Blocker, and Warm Night Filter!)*
+          ### New in `v1.5.0`
+          1. **Brand Logo Banner + 9 Custom Multi-DPI App Icons (`mdpi`/`hdpi`/`xhdpi`/`xxhdpi`):**
+             - Custom unlocked cyan hardware-shield emblem + bespoke app icons across every launcher icon: **Kobo Arc 7 Freedom**, **Arc7 Browser (TLS 1.3)**, **Arc7 E-Reader**, **Arc7 Audio**, **Arc7 Clock**, **Arc7 Wallpapers**, **Arc7 App Manager**, **Arc7 Terminal**, and **Android 4 Home**.
+          2. **6 Deep Anti-Brick Hardware Safety Fixes Audited & Hardened:**
+             - **MediaTek `MT8125` `/proc/dumchar_info` `preloader` `mbrStartAddr` Offset Normalization** (`DeviceInspector.java`) + root-privileged `/emmc@*` & `/dev/*` resolution.
+             - **Partition Boundary Overflow Stopper (`max_bytes`) + Live `ANDROID!` Header Verification** (`native/arc7tool.c`, `Android4Installer.java`, `BackupManager.java`).
+             - **Self-Preserving `/system/app` Archiver (`set -e` + `>= 64 MB` free check + `[ -s "$backup" ]` verified non-empty backup before delete + framework/Freedom/SystemUI/Settings/Keyboard protection)**.
+             - **Zero-Brick Streaming Recovery ROM Installer (`#!/sbin/sh` `META-INF/com/google/android/update-binary`)** — streams directly onto `/system` without `delete_recursive("/system")` or `/tmp` RAM exhaustion, and verifies `/system/bin/linker`, `/system/build.prop`, and `/system/app/VanillaAndroid4Home.apk` before unmount!
+             - **Core Android 4.2 System Package & Last-Launcher Freeze Guard** (`Arc7AppManagerActivity.java`).
+             - **Triple Hardware Bus Identity Guard (`SD` vs soldered `MMC` + active mount check)** on `64/128/256 GB` MicroSDXC `FAT32` formatter (`TabletOptimizerManager.java`).
+          3. **Full Standalone `Arc7 Clock` App — Alarms, Countdown Timers, Stopwatch & World Time:**
+             - Scheduled wake-up **Alarms** (Every Day / Weekdays / Weekends / One-Time, custom labels, 5-min Snooze, reboot persistence via `BootNetworkReceiver`, plus dual **System Ringtone + 44.1 kHz Harmonic Chime Synthesizer on `STREAM_ALARM`** so even debloated tablets ALWAYS ring loud!).
+             - Background screen-wake **Countdown Timers** (`+1m`, `+3m`, `+5m`, `+10m`, `+15m`, `+30m`, `+1h`), **Centisecond Lap Stopwatch**, **World Clocks**, and **1-Tap Fullscreen Nightstand Dock**!
+          4. **Expanded HD Wallpaper Studio — 12 Built-In `1280x800` Art Themes + Custom Photo Picker:**
+             - Standalone **`Arc7 Wallpapers`** studio (`ACTION_SET_WALLPAPER` + App Drawer) AND built directly into **`VanillaAndroid4Home.apk`** (`Holo Phase Beam`, `Northern Aurora Borealis`, `Misty Blue Ridge`, `Nexus Jelly Bean Silk Ribbons`, `Pacific Ocean Coral Dusk`, `Outrun Neon Horizon Grid`, `Kobo Zen Sumi-e Ink Wash`, `Deep Cosmos & Spiral Nebula`, `Emerald Forest Sunbeams`, `Sahara Golden Twilight Dunes`, `Low-Poly Sapphire Crystal`, `Battery-Saver Pure Obsidian Glow`, plus any `.jpg`/`.png`/`.webp` from MicroSD!).
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v1.4.0 >/dev/null 2>&1; then
-            gh release upload v1.4.0 \
+          if gh release view v1.5.0 >/dev/null 2>&1; then
+            gh release upload v1.5.0 \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v1.4.0 \
+            gh release create v1.5.0 \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v1.4.0 — Wi-Fi Drive, 2026 Reader Lite, 256GB SDXC FAT32, 70k Free Books, Comics, Audio & Desk Clock" \
+              --title "Kobo Arc 7 Freedom v1.5.0 — Custom Icons & Logo, Anti-Brick Audit, Alarms/Timers/Clock & 12 HD Wallpapers" \
               --notes-file /tmp/release-notes.md
           fi
 
-          for TAG in v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
+          for TAG in v1.4.0 v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" \
                 releases/KoboArc7Freedom.apk \

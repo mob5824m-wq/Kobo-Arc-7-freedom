@@ -1,6 +1,8 @@
 # Kobo Arc 7 Freedom (`ca.arc7freedom.app`)
 
-**Root, Full OS Partition Backup & Restore, and Clean Stock Android 4.2 Jelly Bean Installer for the Kobo Arc 7 (`T647` / `apollojr`, MediaTek MT8125) & Kobo Arc 7HD (`T416`, NVIDIA Tegra 3).**
+![Kobo Arc 7 Freedom Logo Banner](docs/logo-banner.png)
+
+**Anti-Brick Verified Root, Full OS Partition Backup & Restore, Clean Stock Android 4.2 Jelly Bean Installer, 2026 `TLS 1.3` Internet, Full Alarms/Timers Clock, 12 HD Wallpapers & Complete 8-App Suite for the Kobo Arc 7 (`T647` / `apollojr`, MediaTek MT8125) & Kobo Arc 7HD (`T416`, NVIDIA Tegra 3).**
 
 ---
 
@@ -8,9 +10,9 @@
 
 Both pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** signed APKs are ready right now in:
 
-1. **[GitHub Releases (`v1.4.0` Latest)](../../releases/tag/v1.4.0)** — direct one-click download (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`)
-2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 **7-App + 4-Service + 4-ARMv7-Binary** suite (`~11.7 MB` — pre-bundles **all 120 modern 2026 Root CAs offline**, **Wi-Fi File Drive + Remote `.APK` Installer + Live Screenshot Server (`:8080`)**, **`2026 Reader Lite` + TLS 1.3 Web Browser**, **System-Wide `TLS 1.3` Upgrade Proxy (`127.0.0.1:8118`)**, **Pre-Bundled Offline `F-Droid Classic` App Store**, **`Arc7 E-Reader` (`.epub`/`.txt`/`.html` + **70,000+ Free Project Gutenberg Storefront** + **Color `.CBZ` Comic/Manga Reader**)**, **`Arc7 Audio` Screen-Off Music & Audiobook Player (Auto-Bookmark + Sleep Timer)**, **`Arc7 Desk Clock` Smart Stand + Live TLS 1.3 Weather + Photo Frame**, **`Arc7 App Manager` (`Freeze / Export APK / Trim Caches`) + Wireless `ADB over Wi-Fi (:5555)`**, **Floating Soft-Button Pill (`Save Worn Power/Vol Buttons`)**, **`64 GB / 128 GB / 256 GB` MicroSDXC `FAT32` Card Formatter**, **`MT8125` CPU Power Profiles & Deep-Sleep Saver**, **MicroSD Storage Expander**, **On-Device Anti-Brick `MT8125` Root-ADB Patcher**, **Speed/RAM/Ad-Block/Night Filter/Battery Suite**, ARMv7 root engine, `su`, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`!)
-3. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`33 KB`, also automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
+1. **[GitHub Releases (`v1.5.0` Latest)](../../releases/tag/v1.5.0)** — direct one-click download (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`)
+2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 **8-App + 4-Service + 4-ARMv7-Binary** suite (`~12.3 MB` — custom multi-DPI app icons for every app, 6 deep anti-brick hardware safety guards, **all 120 modern 2026 Root CAs offline**, **Full `Arc7 Clock` (`Alarms` + `Countdown Timers` + `Stopwatch` + `World Time` + `Nightstand Dock`)**, **`Arc7 Wallpapers` (`12 Built-In HD Art Themes` + `Custom MicroSD Photos`)**, **Wi-Fi File Drive + Remote `.APK` Installer + Live Screenshot Server (`:8080`)**, **`2026 Reader Lite` + TLS 1.3 Web Browser**, **System-Wide `TLS 1.3` Upgrade Proxy (`127.0.0.1:8118`)**, **Pre-Bundled Offline `F-Droid Classic` App Store**, **`Arc7 E-Reader` (`.epub`/`.txt`/`.html` + **70,000+ Free Project Gutenberg Storefront** + **Color `.CBZ` Comic/Manga Reader**)**, **`Arc7 Audio` Screen-Off Music & Audiobook Player**, **`Arc7 App Manager` + Wireless `ADB over Wi-Fi (:5555)`**, **Floating Soft-Button Pill**, **`64 GB / 128 GB / 256 GB` MicroSDXC `FAT32` Card Formatter**, ARMv7 root engine, `su`, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`!)
+3. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`~40 KB`, includes its own built-in **12 HD Wallpapers** & custom Home icon, automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
 4. **[`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)** — SHA-256 verification digests
 
 ---

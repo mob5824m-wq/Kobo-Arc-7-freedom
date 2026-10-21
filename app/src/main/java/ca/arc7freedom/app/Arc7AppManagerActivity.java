@@ -269,12 +269,61 @@ public class Arc7AppManagerActivity extends Activity {
     }
 
     private void toggleFreezeApp(final AppEntry app) {
-        if ("ca.arc7freedom.app".equals(app.pkg) || "ca.arc7freedom.launcher".equals(app.pkg)) {
-            Toast.makeText(this, "Protected core launcher/freedom package!", Toast.LENGTH_SHORT).show();
+        if (app.enabled && isCriticalBootEssentialPackage(app.pkg)) {
+            new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
+                    .setTitle("Brick-Guard: Critical Android Package Protected!")
+                    .setMessage("Freezing `" + app.pkg + "` would break Android 4.2's boot process, "
+                            + "navigation bar, settings UI, keyboard, or Home screen!\n\n"
+                            + "Arc7 Freedom automatically protects all core Android & hardware driver packages.")
+                    .setPositiveButton("Got It (Keep Safe)", null)
+                    .show();
             return;
         }
         String sub = app.enabled ? "disable" : "enable";
         runRootPkgCmd("pm " + sub + " " + app.pkg, (app.enabled ? "Froze " : "Re-enabled ") + app.label);
+    }
+
+    /**
+     * Prevents users from accidentally soft-bricking Android 4.2 by disabling core system_server,
+     * SystemUI, Settings, PackageInstaller, InputMethod keyboard, hardware HALs, or the last Home launcher!
+     */
+    private boolean isCriticalBootEssentialPackage(String pkg) {
+        if (pkg == null) return true;
+        String p = pkg.toLowerCase(Locale.US);
+        if (p.equals("android")
+                || p.startsWith("ca.arc7freedom.")
+                || p.equals("com.android.systemui")
+                || p.equals("com.android.settings")
+                || p.equals("com.android.packageinstaller")
+                || p.equals("com.android.defcontainer")
+                || p.equals("com.android.keychain")
+                || p.equals("com.android.certinstaller")
+                || p.equals("com.android.shell")
+                || p.equals("com.android.phone")
+                || p.equals("com.android.bluetooth")
+                || p.equals("com.android.nfc")
+                || p.startsWith("com.android.providers.")
+                || p.startsWith("com.android.inputmethod")
+                || p.startsWith("com.mediatek")
+                || p.startsWith("com.nvidia")) {
+            return true;
+        }
+        /* Never allow freezing the ONLY active CATEGORY_HOME launcher on the tablet! */
+        Intent home = new Intent(Intent.ACTION_MAIN);
+        home.addCategory(Intent.CATEGORY_HOME);
+        List<android.content.pm.ResolveInfo> homes = getPackageManager().queryIntentActivities(home, 0);
+        if (homes != null) {
+            boolean isHome = false;
+            int enabledHomeCount = 0;
+            for (android.content.pm.ResolveInfo ri : homes) {
+                if (ri.activityInfo != null && ri.activityInfo.applicationInfo.enabled) {
+                    enabledHomeCount++;
+                    if (pkg.equals(ri.activityInfo.packageName)) isHome = true;
+                }
+            }
+            if (isHome && enabledHomeCount <= 1) return true;
+        }
+        return false;
     }
 
     private void trimAllCaches() {

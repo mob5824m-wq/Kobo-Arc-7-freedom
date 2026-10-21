@@ -338,14 +338,16 @@ public class BackupManager {
                 DeviceInspector.PartitionTarget live = snap.partitions.get(role);
                 String dstDev = live != null ? live.sourcePath : savedDest;
                 long dstOff = live != null ? live.offsetBytes : savedOffset;
+                long maxSz = live != null ? live.sizeBytes : p.optLong("rawBytes", 0L);
                 File srcImg = new File(backup.directory, fname);
 
                 cb.onLog("Restoring [" + role + "] from " + fname + " -> " + dstDev + "...");
-                String cmd = String.format(Locale.US, "%s flash %s %s %d",
+                String cmd = String.format(Locale.US, "%s flash %s %s %d %d",
                         RootShell.shellQuote(toolBin.getAbsolutePath()),
                         RootShell.shellQuote(srcImg.getAbsolutePath()),
                         RootShell.shellQuote(dstDev),
-                        dstOff);
+                        dstOff,
+                        maxSz);
 
                 RootShell.ExecResult res = shell.execRoot(cmd, new RootShell.LineListener() {
                     @Override

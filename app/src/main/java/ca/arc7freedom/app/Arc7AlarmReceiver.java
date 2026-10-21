@@ -1,0 +1,64 @@
+package ca.arc7freedom.app;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.os.PowerManager;
+import java.util.List;
+
+/**
+ * Wakes the Kobo Arc 7 / 7HD CPU + screen on scheduled `RTC_WAKEUP` Alarm or Countdown Timer
+ * completion, advances repeating alarms (or disables one-shot alarms), starts the loud
+ * dual-source alarm chime, and opens `Arc7AlarmAlertActivity` over the lockscreen!
+ */
+public class Arc7AlarmReceiver extends BroadcastReceiver {
+
+    @Override
+    public void onReceive(Context context, Intent intent) {
+        if (intent == null) return;
+        String action = intent.getAction();
+        boolean isTimer = Arc7ClockStore.ACTION_TIMER_TRIGGER.equals(action);
+        String label = intent.getStringExtra("label");
+        int alarmId = intent.getIntExtra("alarm_id", -1);
+
+        PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        if (pm != null) {
+            @SuppressWarnings("deprecation")
+            PowerManager.WakeLock wl = pm.newWakeLock(
+                    PowerManager.FULL_WAKE_LOCK
+                            | PowerManager.ACQUIRE_CAUSES_WAKEUP
+                            | PowerManager.ON_AFTER_RELEASE,
+                    "Arc7Freedom:AlarmTriggerWake");
+            wl.setReferenceCounted(false);
+            wl.acquire(45000L);
+        }
+
+        if (isTimer) {
+            Arc7ClockStore.saveTimerState(context, false, 0L, 0L, label);
+        } else if (alarmId > 0) {
+            List<Arc7ClockStore.AlarmEntry> alarms = Arc7ClockStore.loadAlarms(context);
+            for (Arc7ClockStore.AlarmEntry e : alarms) {
+                if (e.id == alarmId) {
+                    if (e.repeatMask == Arc7ClockStore.REPEAT_ONCE) {
+                        e.enabled = false;
+                        Arc7ClockStore.saveAlarms(context, alarms);
+                    } else {
+                        // Automatically schedule next occurrence!
+                        Arc7ClockStore.scheduleOrCancelAlarm(context, e);
+                    }
+                    break;
+                }
+            }
+        }
+
+        Arc7ClockStore.startAlarmRinging(context.getApplicationContext());
+
+        Intent alert = new Intent(context, Arc7AlarmAlertActivity.class);
+        alert.putExtra("is_timer", isTimer);
+        alert.putExtra("label", label == null ? (isTimer ? "Countdown Timer Finished!" : "Alarm") : label);
+        alert.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                | Intent.FLAG_ACTIVITY_NO_USER_ACTION);
+        context.startActivity(alert);
+    }
+}

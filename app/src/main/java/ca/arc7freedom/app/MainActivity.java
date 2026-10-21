@@ -108,8 +108,8 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.4.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", 120 2026 CAs + TLS 1.3 Proxy + Wi-Fi Drive :8080 + 70k Free Books + .CBZ Comics + Audio + Desk Clock + 256GB SDXC FAT32).");
+        appendLog("Kobo Arc 7 Freedom v1.5.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Anti-Brick Hardened + Custom App Icons + Clock/Alarms/Timers/Stopwatch + 12 HD Wallpapers + 120 2026 CAs + TLS 1.3 + 256GB SDXC).");
         refreshDeviceSnapshotAsync();
     }
 
@@ -146,18 +146,25 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG_PAGE);
 
-        // 1. Top App Header Bar
+        // 1. Top App Header Bar (with crisp vector-rendered Freedom shield logo badge)
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
         topBar.setBackgroundColor(BG_SURFACE);
-        topBar.setPadding(dp(16), dp(12), dp(16), dp(12));
+        topBar.setPadding(dp(14), dp(10), dp(16), dp(10));
+
+        android.widget.ImageView logoImg = new android.widget.ImageView(this);
+        logoImg.setImageResource(R.drawable.arc7_logo_header);
+        logoImg.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        logoLp.rightMargin = dp(10);
+        topBar.addView(logoImg, logoLp);
 
         LinearLayout titleCol = new LinearLayout(this);
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom");
+        title.setText("Kobo Arc 7 Freedom  v1.5");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -892,9 +899,25 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Desk Clock — Smart Stand, Live TLS 1.3 Weather & Photos",
-                "Fullscreen 1024x600 digital clock + live °C weather + MicroSD photo slideshow + Amber Nightstand mode!",
-                "Desk Clock", new View.OnClickListener() {
+        addToolActionRow(packCard, "Open Arc7 Clock — Alarms, Countdown Timers, Stopwatch & World Time",
+                "Unlimited wake-up Alarms (with Snooze & loud chime), screen-off Countdown Timers, Centisecond Lap Stopwatch & Nightstand!",
+                "Open Clock", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7ClockActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Wallpapers — 12 Built-In HD Art Themes + Custom Photos",
+                "Apply 12 crisp 1280x800 procedural HD wallpapers or any photo from MicroSD / Internal Storage in one tap!",
+                "Wallpapers", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7WallpaperPickerActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Nightstand Dock — Live TLS 1.3 Weather & Photo Stand",
+                "Fullscreen 1024x600 digital nightstand clock + live °C weather + MicroSD photo slideshow + Amber Night mode!",
+                "Nightstand", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7DeskClockActivity.class));
                     }

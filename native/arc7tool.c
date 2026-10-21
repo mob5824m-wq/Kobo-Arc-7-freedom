@@ -296,7 +296,13 @@ static int cmd_dump_gz(const char *src_path, const char *dst_path, uint64_t offs
     return 0;
 }
 
-static int cmd_flash_image(const char *src_path, const char *dst_block, uint64_t offset_bytes) {
+static int cmd_flash_image(const char *src_path, const char *dst_block, uint64_t offset_bytes, uint64_t max_bytes) {
+    /* Safety guard: NEVER allow raw device writes at offset 0 on internal mmcblk0 whole disk by mistake */
+    if (strcmp(dst_block, "/dev/block/mmcblk0") == 0 && offset_bytes == 0 && max_bytes == 0) {
+        fprintf(stderr, "ERROR: safety guard blocked unbounded write at offset 0 on /dev/block/mmcblk0\n");
+        return 1;
+    }
+
     gzFile gzf = gzopen(src_path, "rb");
     if (!gzf) {
         fprintf(stderr, "ERROR: cannot open image %s: %s\n", src_path, strerror(errno));
@@ -309,13 +315,22 @@ static int cmd_flash_image(const char *src_path, const char *dst_block, uint64_t
 
     int out_fd = open(dst_block, O_WRONLY | O_SYNC);
     if (out_fd < 0) {
-        /* Allow creating regular file during test / simulation */
+        /* Allow creating regular file during test / simulation only outside /dev/ */
+        if (strncmp(dst_block, "/dev/", 5) == 0) {
+            fprintf(stderr, "ERROR: cannot open block device %s: %s\n", dst_block, strerror(errno));
+            gzclose(gzf);
+            return 1;
+        }
         out_fd = open(dst_block, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (out_fd < 0) {
             fprintf(stderr, "ERROR: cannot open target %s for writing: %s\n", dst_block, strerror(errno));
             gzclose(gzf);
             return 1;
         }
+    }
+    uint64_t dev_capacity = get_entity_size(out_fd);
+    if (max_bytes == 0 && offset_bytes == 0 && dev_capacity > 0 && strncmp(dst_block, "/dev/", 5) == 0) {
+        max_bytes = dev_capacity;
     }
     if (offset_bytes > 0 && lseek(out_fd, (off_t)offset_bytes, SEEK_SET) < 0) {
         fprintf(stderr, "ERROR: lseek target failed: %s\n", strerror(errno));
@@ -341,6 +356,13 @@ static int cmd_flash_image(const char *src_path, const char *dst_block, uint64_t
             return 1;
         }
         if (n == 0) break;
+
+        if (max_bytes > 0 && written + (uint64_t)n > max_bytes) {
+            fprintf(stderr, "ERROR: partition boundary guard stopped write (%llu + %d > max %llu bytes)!\n",
+                    (unsigned long long)written, n, (unsigned long long)max_bytes);
+            free(buf); close(out_fd); gzclose(gzf);
+            return 1;
+        }
 
         sha256_update(&raw_sha, buf, (size_t)n);
         size_t off = 0;
@@ -1130,7 +1152,8 @@ int main(int argc, char **argv) {
     }
     if (argc >= 4 && strcmp(argv[1], "flash") == 0) {
         uint64_t off = (argc >= 5) ? strtoull(argv[4], NULL, 0) : 0;
-        return cmd_flash_image(argv[2], argv[3], off);
+        uint64_t maxb = (argc >= 6) ? strtoull(argv[5], NULL, 0) : 0;
+        return cmd_flash_image(argv[2], argv[3], off, maxb);
     }
     if (argc >= 3 && strcmp(argv[1], "inspect-boot") == 0) {
         return cmd_inspect_boot(argv[2]);

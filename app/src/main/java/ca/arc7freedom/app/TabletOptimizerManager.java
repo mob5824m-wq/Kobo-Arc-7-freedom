@@ -565,14 +565,27 @@ public class TabletOptimizerManager {
         File tool = shell.getPartitionToolBinary();
         String wholeDisk = null;
         for (String cand : new String[]{"/dev/block/mmcblk1", "/dev/block/sda"}) {
-            RootShell.ExecResult chk = shell.execRoot("[ -b '" + cand + "' ] && echo FOUND", null);
-            if (chk.stdout.contains("FOUND")) {
+            /* TRIPLE HARDWARE BRICK GUARD:
+             *   1. Block node must exist
+             *   2. Zero partitions of `cand` may back `/`, `/system`, `/data`, `/cache`, `/protect_f`, or `/boot`
+             *   3. On Linux MMC bus, soldered internal eMMC ALWAYS reports `/sys/block/<dev>/device/type` == `MMC`,
+             *      whereas removable MicroSD/SDHC/SDXC cards ALWAYS report `SD`! Never format `MMC`!
+             */
+            String devShort = cand.substring("/dev/block/".length());
+            String safeProbe =
+                "[ -b '" + cand + "' ] || exit 1; " +
+                "if grep -E '^" + cand + "(p[0-9]+)? (/|/system|/data|/cache|/protect_f|/protect_s|/boot|/recovery) ' /proc/mounts >/dev/null 2>&1; then echo INTERNAL_OS_DISK; exit 2; fi; " +
+                "DEV_TYPE=$(cat /sys/block/" + devShort + "/device/type 2>/dev/null || echo UNKNOWN); " +
+                "if [ \"$DEV_TYPE\" = \"MMC\" ]; then echo SOLDERED_EMMC; exit 3; fi; " +
+                "echo SAFE_REMOVABLE_SD";
+            RootShell.ExecResult chk = shell.execRoot(safeProbe, null);
+            if (chk.stdout.contains("SAFE_REMOVABLE_SD")) {
                 wholeDisk = cand;
                 break;
             }
         }
         if (wholeDisk == null) {
-            log.onLog("ERROR: No removable MicroSD block device (`/dev/block/mmcblk1`) detected in card slot! Insert your 64 GB / 128 GB / 256 GB MicroSDXC card firmly first.");
+            log.onLog("ERROR: No removable external MicroSD card detected! (Hardware safety guard also verified soldered internal eMMC was NOT touched.) Insert your 64 GB / 128 GB / 256 GB MicroSDXC card firmly first.");
             return false;
         }
         log.onLog("=== Formatting " + wholeDisk + " as 1 MiB-Aligned MBR + Large-Cluster FAT32 (" + volumeLabel + ") ===");

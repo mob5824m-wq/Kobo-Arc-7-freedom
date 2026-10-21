@@ -49,6 +49,9 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         TabletOptimizerManager.applyMicroSdBindMounts(context, shell, null, false);
                     }
 
+                    // Re-arm all scheduled Arc7 Clock Alarms & running Countdown Timers after reboot!
+                    Arc7ClockStore.rescheduleAllOnBoot(context);
+
                     // Restore Warm Night / Amber Reading Filter overlay across reboots if active
                     if (NightFilterService.currentMode(context) != NightFilterService.MODE_OFF) {
                         NightFilterService.applyMode(context, NightFilterService.currentMode(context));

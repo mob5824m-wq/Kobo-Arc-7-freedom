@@ -95,15 +95,18 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.4.0", f"Expected 1.4.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "140", f"Expected 140, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.5.0", f"Expected 1.5.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "150", f"Expected 150, got {apk.get_androidversion_code()}"
         acts = apk.get_activities()
         for req_act in (
             "ca.arc7freedom.app.MainActivity",
             "ca.arc7freedom.app.Arc7BrowserActivity",
             "ca.arc7freedom.app.Arc7EbookReaderActivity",
             "ca.arc7freedom.app.Arc7AudioPlayerActivity",
+            "ca.arc7freedom.app.Arc7ClockActivity",
             "ca.arc7freedom.app.Arc7DeskClockActivity",
+            "ca.arc7freedom.app.Arc7AlarmAlertActivity",
+            "ca.arc7freedom.app.Arc7WallpaperPickerActivity",
             "ca.arc7freedom.app.Arc7AppManagerActivity",
             "ca.arc7freedom.app.Arc7TerminalActivity",
         ):
@@ -116,7 +119,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7AudioService",
         ):
             assert req_svc in svcs, f"Missing service {req_svc} in compiled AndroidManifest.xml!"
-        assert "ca.arc7freedom.app.BootNetworkReceiver" in apk.get_receivers(), "Missing BootNetworkReceiver!"
+        recs = apk.get_receivers()
+        assert "ca.arc7freedom.app.BootNetworkReceiver" in recs, "Missing BootNetworkReceiver!"
+        assert "ca.arc7freedom.app.Arc7AlarmReceiver" in recs, "Missing Arc7AlarmReceiver!"
+        perms = set(apk.get_permissions())
+        assert "android.permission.SET_WALLPAPER" in perms, "Missing SET_WALLPAPER permission!"
     print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, v={apk.get_androidversion_name()}, minSdk=15, targetSdk=17")
 
     with zipfile.ZipFile(apk_path, "r") as zf:
@@ -482,7 +489,37 @@ public class JvmLogicSelfTest {{
         if (!"clean-arc7-rom.zip".equals(NetworkCertManager.guessFilenameFromUrl("https://example.org/dl/clean-arc7-rom.zip?token=123"))) {{
             throw new RuntimeException("URL filename parser check failed!");
         }}
-        System.out.println("  [PASS] JVM self-test passed: MT8125 scatter generator + Tegra/MT8125 brick guard + NetworkCertManager verified!");
+
+        // Verify v1.5.0 Anti-Brick Self-Preservation Guards
+        if (Android4Installer.shouldArchiveKoboApk("KoboArc7Freedom.apk", false)
+                || Android4Installer.shouldArchiveKoboApk("VanillaAndroid4Home.apk", false)
+                || Android4Installer.shouldArchiveKoboApk("framework-res.apk", false)
+                || Android4Installer.shouldArchiveKoboApk("SystemUI.apk", false)
+                || Android4Installer.shouldArchiveKoboApk("Settings.apk", false)
+                || Android4Installer.shouldArchiveKoboApk("LatinIME.apk", false)) {{
+            throw new RuntimeException("CRITICAL: Anti-brick APK guard failed!");
+        }}
+        if (!Android4Installer.shouldArchiveKoboApk("KoboSetupWizard.apk", false)
+                || !Android4Installer.shouldArchiveKoboApk("Tapestry.apk", false)) {{
+            throw new RuntimeException("Kobo bloatware detection check failed!");
+        }}
+
+        // Verify v1.5.0 Alarm scheduler + 12 HD Wallpaper themes
+        Arc7ClockStore.AlarmEntry testAlarm = new Arc7ClockStore.AlarmEntry();
+        testAlarm.id = 77;
+        testAlarm.hour = 7;
+        testAlarm.minute = 30;
+        testAlarm.repeatMask = Arc7ClockStore.REPEAT_EVERY_DAY;
+        testAlarm.enabled = true;
+        long nowMs = 1792580000000L;
+        long nextMs = Arc7ClockStore.computeNextTriggerMillis(testAlarm, nowMs);
+        if (nextMs <= nowMs || nextMs - nowMs > 86400000L + 3600000L) {{
+            throw new RuntimeException("Alarm computeNextTriggerMillis out of bounds: " + (nextMs - nowMs));
+        }}
+        if (Arc7WallpaperCatalog.TITLES.length < 12) {{
+            throw new RuntimeException("Expected >=12 HD built-in wallpapers!");
+        }}
+        System.out.println("  [PASS] JVM self-test passed: Anti-brick guards + MT8125 scatter + Clock/Alarms + 12 HD Wallpapers verified!");
     }}
 }}
 """)
@@ -503,9 +540,38 @@ public class JvmLogicSelfTest {{
         print("  " + run.stdout.strip())
 
 
+def verify_icons_and_logo(main_apk: str, home_apk: str) -> None:
+    print("\n=== Verifying Project Logo Banner & 8 Distinct Multi-DPI App Icons ===")
+    logo_banner = os.path.join(ROOT, "docs", "logo-banner.png")
+    assert os.path.isfile(logo_banner) and os.path.getsize(logo_banner) > 2000, "Missing docs/logo-banner.png!"
+    with open(logo_banner, "rb") as f:
+        sig = f.read(24)
+        assert sig[:8] == b"\x89PNG\r\n\x1a\n"
+    print(f"  [PASS] docs/logo-banner.png present ({os.path.getsize(logo_banner)} bytes)")
+
+    import hashlib
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        names = set(zf.namelist())
+        assert "res/drawable-xhdpi-v4/arc7_logo_header.png" in names or "res/drawable-xhdpi/arc7_logo_header.png" in names
+        seen_hashes = set()
+        for icon in ("ic_launcher", "ic_browser", "ic_ereader", "ic_audio", "ic_clock", "ic_wallpaper", "ic_appmgr", "ic_terminal"):
+            matches = [n for n in names if n.endswith(f"/{icon}.png")]
+            assert len(matches) >= 4, f"Expected multi-DPI drawables for {icon}, got {matches}"
+            xhdpi = [n for n in matches if "xhdpi" in n and "xxhdpi" not in n][0]
+            seen_hashes.add(hashlib.sha256(zf.read(xhdpi)).hexdigest())
+        assert len(seen_hashes) == 8, f"Expected 8 distinct app icons, got {len(seen_hashes)} unique hashes!"
+        print("  [PASS] All 8 multi-DPI app icons + header logo verified & 100% distinct")
+
+    with zipfile.ZipFile(home_apk, "r") as zf:
+        hnames = [n for n in zf.namelist() if n.endswith("ic_launcher_home.png")]
+        assert len(hnames) >= 4, f"Missing multi-DPI ic_launcher_home.png in VanillaAndroid4Home.apk: {hnames}"
+        print("  [PASS] VanillaAndroid4Home multi-DPI ic_launcher_home.png verified")
+
+
 def main() -> None:
+    home_apk = os.path.join(ROOT, "releases/VanillaAndroid4Home.apk")
     check_apk(
-        os.path.join(ROOT, "releases/VanillaAndroid4Home.apk"),
+        home_apk,
         "ca.arc7freedom.launcher",
         [],
     )
@@ -524,6 +590,7 @@ def main() -> None:
             "lib/armeabi/libarc7tls.so",
         ],
     )
+    verify_icons_and_logo(main_apk, home_apk)
     check_bundled_cacerts_and_tls_engine(main_apk)
     check_boot_inspector_and_java_logic()
     print("\nALL VERIFICATION GATES PASSED 100%!")

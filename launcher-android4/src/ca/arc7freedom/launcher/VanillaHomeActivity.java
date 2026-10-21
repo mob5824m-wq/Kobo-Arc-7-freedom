@@ -238,11 +238,7 @@ public class VanillaHomeActivity extends Activity {
         wallpaperBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                try {
-                    startActivity(Intent.createChooser(new Intent(Intent.ACTION_SET_WALLPAPER), "Set Wallpaper"));
-                } catch (Throwable t) {
-                    Toast.makeText(VanillaHomeActivity.this, "No wallpaper picker found", Toast.LENGTH_SHORT).show();
-                }
+                showLauncherWallpaperMenu();
             }
         });
         topBar.addView(wallpaperBtn, new LinearLayout.LayoutParams(
@@ -594,13 +590,20 @@ public class VanillaHomeActivity extends Activity {
 
     private void rebuildHotseatDock() {
         dockContainer.removeAllViews();
-        PinnedShortcutsStore.AppEntry browser = findApp("com.android.browser", "com.android.chrome", "org.mozilla.firefox");
-        PinnedShortcutsStore.AppEntry market = findApp("com.android.vending", "com.fdroid.fdroid");
-        PinnedShortcutsStore.AppEntry gallery = findApp("com.android.gallery3d", "com.android.providers.downloads.ui");
-        PinnedShortcutsStore.AppEntry freedom = findApp("ca.arc7freedom.app", "com.android.settings");
+        PinnedShortcutsStore.AppEntry browser = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity");
+        if (browser == null) browser = findApp("com.android.browser", "com.android.chrome", "org.mozilla.firefox");
+
+        PinnedShortcutsStore.AppEntry readerOrStore = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7EbookReaderActivity");
+        if (readerOrStore == null) readerOrStore = findApp("org.fdroid.fdroid", "com.android.vending");
+
+        PinnedShortcutsStore.AppEntry clockOrGallery = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ClockActivity");
+        if (clockOrGallery == null) clockOrGallery = findApp("com.android.gallery3d", "com.android.providers.downloads.ui");
+
+        PinnedShortcutsStore.AppEntry freedom = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.MainActivity");
+        if (freedom == null) freedom = findApp("ca.arc7freedom.app", "com.android.settings");
 
         addDockAppSlot(browser, "Browser", Intent.ACTION_WEB_SEARCH);
-        addDockAppSlot(market, "Store", null);
+        addDockAppSlot(readerOrStore, "E-Reader", null);
 
         // Center Jelly Bean All-Apps 6-dot Circle Icon
         View allAppsBtn = new AllAppsCircleView(this);
@@ -612,7 +615,7 @@ public class VanillaHomeActivity extends Activity {
         });
         dockContainer.addView(allAppsBtn, new LinearLayout.LayoutParams(0, dp(56), 1f));
 
-        addDockAppSlot(gallery, "Files", null);
+        addDockAppSlot(clockOrGallery, "Clock", null);
         if (freedom != null) {
             addDockAppSlot(freedom, "Freedom", null);
         } else {
@@ -667,6 +670,56 @@ public class VanillaHomeActivity extends Activity {
         dockContainer.addView(iv, new LinearLayout.LayoutParams(0, dp(54), 1f));
     }
 
+    private PinnedShortcutsStore.AppEntry findExactComponent(String pkg, String cls) {
+        for (PinnedShortcutsStore.AppEntry e : allApps) {
+            if (pkg.equals(e.packageName) && cls.equals(e.className)) return e;
+        }
+        return null;
+    }
+
+    private void showLauncherWallpaperMenu() {
+        final String[] options = new String[LauncherWallpapers.TITLES.length + 2];
+        options[0] = "★ Open Visual HD Wallpaper Studio & Custom Photos...";
+        for (int i = 0; i < LauncherWallpapers.TITLES.length; i++) {
+            options[i + 1] = LauncherWallpapers.TITLES[i];
+        }
+        options[options.length - 1] = "System Wallpaper Chooser...";
+        new AlertDialog.Builder(this)
+                .setTitle("Choose Home Wallpaper (12 Built-In HD Themes)")
+                .setItems(options, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) {
+                            PinnedShortcutsStore.AppEntry wp = findExactComponent(
+                                    "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7WallpaperPickerActivity");
+                            if (wp != null) {
+                                launchComponent(new ComponentName(wp.packageName, wp.className));
+                            } else {
+                                try {
+                                    startActivity(Intent.createChooser(
+                                            new Intent(Intent.ACTION_SET_WALLPAPER), "Set Wallpaper"));
+                                } catch (Throwable ignored) {}
+                            }
+                        } else if (which <= LauncherWallpapers.TITLES.length) {
+                            try {
+                                LauncherWallpapers.applyTheme(VanillaHomeActivity.this, which - 1);
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        "Applied " + LauncherWallpapers.TITLES[which - 1],
+                                        Toast.LENGTH_SHORT).show();
+                            } catch (Throwable t) {
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        "Wallpaper error: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            try {
+                                startActivity(Intent.createChooser(
+                                        new Intent(Intent.ACTION_SET_WALLPAPER), "Set Wallpaper"));
+                            } catch (Throwable ignored) {}
+                        }
+                    }
+                })
+                .show();
+    }
     private PinnedShortcutsStore.AppEntry findApp(String... pkgs) {
         for (String p : pkgs) {
             for (PinnedShortcutsStore.AppEntry e : allApps) {
@@ -701,6 +754,11 @@ public class VanillaHomeActivity extends Activity {
     }
 
     private void openClockOrDateSettings() {
+        PinnedShortcutsStore.AppEntry arcClk = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ClockActivity");
+        if (arcClk != null) {
+            launchComponent(new ComponentName(arcClk.packageName, arcClk.className));
+            return;
+        }
         PinnedShortcutsStore.AppEntry clk = findApp("com.android.deskclock", "com.google.android.deskclock");
         if (clk != null) {
             launchComponent(new ComponentName(clk.packageName, clk.className));

@@ -8,8 +8,8 @@ android {
         applicationId "ca.arc7freedom.app"
         minSdkVersion 15
         targetSdkVersion 17
-        versionCode 140
-        versionName "1.4.0"
+        versionCode 150
+        versionName "1.5.0"
         ndk {
             abiFilters "armeabi-v7a", "armeabi"
         }

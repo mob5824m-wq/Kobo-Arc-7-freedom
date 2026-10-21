@@ -94,7 +94,14 @@ public class Android4Installer {
             cb.onProgress(5, "Extracting bundled Vanilla Android 4.2 Home Launcher...");
             File launcherApk = extractBundledLauncherApk();
             File archiveDir = new File(archiveVolumeRoot, "Arc7Freedom/kobo-system-archive");
-            if (!archiveDir.exists()) archiveDir.mkdirs();
+            if (!archiveDir.exists() && !archiveDir.mkdirs()) {
+                throw new IllegalStateException("Cannot create Kobo archive folder at " + archiveDir.getAbsolutePath());
+            }
+            long freeSpace = archiveDir.getUsableSpace();
+            if (freeSpace > 0 && freeSpace < 64L * 1024L * 1024L) {
+                throw new IllegalStateException("Brick-Guard: Less than 64 MB free at " + archiveDir.getAbsolutePath()
+                        + " — refusing to modify /system until sufficient archive space is free!");
+            }
 
             cb.onProgress(15, "Installing Stock Android 4.2 Launcher into /system/app & registering...");
             String sysMountDev = resolveSystemMountDevice(snap);
@@ -128,6 +135,7 @@ public class Android4Installer {
 
             String[] scanDirs = new String[]{"/system/app", "/system/priv-app"};
             StringBuilder moveScript = new StringBuilder();
+            moveScript.append("set -e\n");
             moveScript.append("mount -o rw,remount ").append(RootShell.shellQuote(sysMountDev))
                       .append(" /system 2>/dev/null || mount -o rw,remount /system\n");
 
@@ -144,6 +152,7 @@ public class Android4Installer {
                     File backedApk = new File(archiveDir, name);
                     moveScript.append("cp -f ").append(RootShell.shellQuote(f.getAbsolutePath()))
                               .append(" ").append(RootShell.shellQuote(backedApk.getAbsolutePath())).append("\n");
+                    moveScript.append("[ -s ").append(RootShell.shellQuote(backedApk.getAbsolutePath())).append(" ]\n");
                     moveScript.append("rm -f ").append(RootShell.shellQuote(f.getAbsolutePath())).append("\n");
                     archiveManifest.append(f.getAbsolutePath()).append("\t").append(name).append("\n");
 
@@ -154,6 +163,7 @@ public class Android4Installer {
                         File backedOdex = new File(archiveDir, odexName);
                         moveScript.append("cp -f ").append(RootShell.shellQuote(odexPath))
                                   .append(" ").append(RootShell.shellQuote(backedOdex.getAbsolutePath())).append("\n");
+                        moveScript.append("[ -s ").append(RootShell.shellQuote(backedOdex.getAbsolutePath())).append(" ]\n");
                         moveScript.append("rm -f ").append(RootShell.shellQuote(odexPath)).append("\n");
                         archiveManifest.append(odexPath).append("\t").append(odexName).append("\n");
                     }
@@ -302,6 +312,17 @@ public class Android4Installer {
                     recoveryImg.length(), recPart.sizeBytes));
         }
 
+        if (recPart.offsetBytes > 0L && "/dev/block/mmcblk0".equals(recPart.sourcePath)) {
+            long skipBlocks = recPart.offsetBytes / 512L;
+            RootShell.ExecResult slotHdr = shell.execRoot(
+                    "dd if=/dev/block/mmcblk0 bs=512 skip=" + skipBlocks + " count=2 2>/dev/null | grep -a 'ANDROID!' | head -n 1",
+                    null);
+            if (!slotHdr.stdout.contains("ANDROID!")) {
+                throw new IllegalStateException("Brick-Guard: Raw offset 0x" + Long.toHexString(recPart.offsetBytes)
+                        + " on /dev/block/mmcblk0 does NOT contain an existing ANDROID! recovery header! Aborting cleanly.");
+            }
+        }
+
         // Auto-backup existing recovery first!
         File preBackup = new File(safetyBackupVolume, "Arc7Freedom/pre-flash-stock-recovery.img.gz");
         if (preBackup.getParentFile() != null) preBackup.getParentFile().mkdirs();
@@ -316,11 +337,12 @@ public class Android4Installer {
 
         String expectedSha = backupManager.computeSha256ViaTool(recoveryImg, 0L);
         cb.onProgress(55, "Flashing " + recoveryImg.getName() + " to " + recPart.describe() + "...");
-        RootShell.ExecResult flashRes = shell.execRoot(String.format(Locale.US, "%s flash %s %s %d",
+        RootShell.ExecResult flashRes = shell.execRoot(String.format(Locale.US, "%s flash %s %s %d %d",
                 RootShell.shellQuote(tool.getAbsolutePath()),
                 RootShell.shellQuote(recoveryImg.getAbsolutePath()),
                 RootShell.shellQuote(recPart.sourcePath),
-                recPart.offsetBytes), new RootShell.LineListener() {
+                recPart.offsetBytes,
+                recPart.sizeBytes), new RootShell.LineListener() {
             @Override public void onLine(String line) { cb.onLog(line); }
         });
         if (flashRes.exitCode != 0) {
@@ -464,7 +486,9 @@ public class Android4Installer {
         cb.onProgress(15, "Packing clean de-Kobo'd Android 4.2 /system tree (preserving all MT8125/Tegra hardware drivers)...");
         String tarScript = "rm -f " + RootShell.shellQuote(tmpSystemTar.getAbsolutePath()) + "\n"
                 + "tar -czf " + RootShell.shellQuote(tmpSystemTar.getAbsolutePath())
-                + " --exclude='Kobo*' --exclude='*Tapestry*' --exclude='install-recovery.sh'"
+                + " --exclude='KoboSetup*' --exclude='KoboHome*' --exclude='KoboLauncher*'"
+                + " --exclude='KoboReader*' --exclude='KoboJIT*' --exclude='KoboStubs*'"
+                + " --exclude='KoboOTA*' --exclude='*Tapestry*' --exclude='install-recovery.sh'"
                 + " -C / system\n";
         RootShell.ExecResult tr = shell.execRoot(tarScript, new RootShell.LineListener() {
             @Override public void onLine(String line) { cb.onLog(line); }
@@ -474,28 +498,62 @@ public class Android4Installer {
         }
 
         String sysBlock = resolveSystemMountDevice(snap);
-        String edify = "ui_print(\"==========================================\");\n"
-                + "ui_print(\"  Vanilla Android 4.2.2 (Jelly Bean) ROM  \");\n"
-                + "ui_print(\"  Built by Kobo Arc 7 Freedom             \");\n"
-                + "ui_print(\"==========================================\");\n"
-                + "ui_print(\"Mounting /system (" + sysBlock + ")...\");\n"
-                + "run_program(\"/sbin/mount\", \"/system\");\n"
-                + "delete_recursive(\"/system\");\n"
-                + "ui_print(\"Extracting clean Android 4.2.2 OS + hardware drivers...\");\n"
-                + "package_extract_file(\"system_clean.tar.gz\", \"/tmp/system_clean.tar.gz\");\n"
-                + "run_program(\"/sbin/tar\", \"-xzf\", \"/tmp/system_clean.tar.gz\", \"-C\", \"/\");\n"
-                + "delete(\"/tmp/system_clean.tar.gz\");\n"
-                + "ui_print(\"Installing Stock Android 4 Home Launcher & Root su...\");\n"
-                + "package_extract_file(\"VanillaAndroid4Home.apk\", \"/system/app/VanillaAndroid4Home.apk\");\n"
-                + "set_perm(0, 0, 0644, \"/system/app/VanillaAndroid4Home.apk\");\n"
-                + "package_extract_file(\"su\", \"/system/xbin/su\");\n"
-                + "set_perm(0, 0, 06755, \"/system/xbin/su\");\n"
-                + "run_program(\"/sbin/umount\", \"/system\");\n"
-                + "ui_print(\"Done! Wipe Dalvik/Cache & Reboot to enjoy Normal Android 4.2!\");\n";
+        String edify = "# Executed safely via portable #!/sbin/sh META-INF/com/google/android/update-binary\n"
+                + "ui_print(\"Vanilla Android 4.2.2 (Jelly Bean) ROM — Built by Kobo Arc 7 Freedom\");\n";
+
+        String updateBinarySh =
+                "#!/sbin/sh\n"
+                + "# Portable CWM / TWRP / PhilZ / CTR Recovery Installer for Kobo Arc 7 / 7HD\n"
+                + "# Zero-brick streaming design: never wipes /system empty and never fills /tmp RAM!\n"
+                + "OUTFD=\"$2\"\n"
+                + "ZIP=\"$3\"\n"
+                + "ui_print() {\n"
+                + "  if [ -n \"$OUTFD\" ]; then\n"
+                + "    echo \"ui_print $1\" >&\"$OUTFD\"\n"
+                + "    echo \"ui_print\" >&\"$OUTFD\"\n"
+                + "  else\n"
+                + "    echo \"$1\"\n"
+                + "  fi\n"
+                + "}\n"
+                + "ui_print \"==========================================\"\n"
+                + "ui_print \"  Vanilla Android 4.2.2 (Jelly Bean) ROM  \"\n"
+                + "ui_print \"  Safe Zero-Brick Streaming Installer     \"\n"
+                + "ui_print \"==========================================\"\n"
+                + "mkdir -p /system\n"
+                + "mount /system 2>/dev/null || mount -t ext4 '" + sysBlock + "' /system 2>/dev/null || mount -t ext4 /emmc@android /system 2>/dev/null || mount -t ext4 /dev/block/mmcblk0p5 /system 2>/dev/null || true\n"
+                + "mount -o remount,rw /system 2>/dev/null || true\n"
+                + "ui_print \"Streaming clean Android 4.2.2 OS + hardware drivers...\"\n"
+                + "if ! unzip -p \"$ZIP\" system_clean.tar.gz | tar -xzpf - -C /; then\n"
+                + "  ui_print \"ERROR: stream extract failed — aborting cleanly without brick!\"\n"
+                + "  exit 1\n"
+                + "fi\n"
+                + "ui_print \"Installing Stock Android 4 Home Launcher & Root su...\"\n"
+                + "unzip -p \"$ZIP\" VanillaAndroid4Home.apk > /system/app/VanillaAndroid4Home.apk\n"
+                + "unzip -p \"$ZIP\" su > /system/xbin/su\n"
+                + "chown 0:0 /system/app/VanillaAndroid4Home.apk /system/xbin/su 2>/dev/null || true\n"
+                + "chmod 0644 /system/app/VanillaAndroid4Home.apk\n"
+                + "chmod 06755 /system/xbin/su\n"
+                + "ln -sf /system/xbin/su /system/bin/su 2>/dev/null || true\n"
+                + "cat << 'HOOK_EOF' > /system/etc/install-recovery.sh\n"
+                + "#!/system/bin/sh\n"
+                + "/system/xbin/su --daemon &\n"
+                + "(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) &\n"
+                + "exit 0\n"
+                + "HOOK_EOF\n"
+                + "chmod 0755 /system/etc/install-recovery.sh\n"
+                + "if [ ! -s /system/bin/linker ] || [ ! -s /system/build.prop ] || [ ! -s /system/app/VanillaAndroid4Home.apk ]; then\n"
+                + "  ui_print \"ERROR: /system post-install integrity check failed!\"\n"
+                + "  exit 2\n"
+                + "fi\n"
+                + "sync\n"
+                + "umount /system 2>/dev/null || true\n"
+                + "ui_print \"Done! Wipe Dalvik/Cache & Reboot to enjoy Normal Android 4.2!\"\n"
+                + "exit 0\n";
 
         cb.onProgress(70, "Assembling recovery-flashable Vanilla-Android-4.2.2-KoboArc7.zip...");
         ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(outZip));
         try {
+            addBytesEntry(zos, "META-INF/com/google/android/update-binary", updateBinarySh.getBytes("UTF-8"));
             addBytesEntry(zos, "META-INF/com/google/android/updater-script", edify.getBytes("UTF-8"));
             addFileEntry(zos, "VanillaAndroid4Home.apk", launcherApk);
             addFileEntry(zos, "su", suBin);
@@ -519,8 +577,29 @@ public class Android4Installer {
         }
     }
 
-    private static boolean shouldArchiveKoboApk(String apkFileName, boolean keepReader) {
+    public static boolean shouldArchiveKoboApk(String apkFileName, boolean keepReader) {
         String low = apkFileName.toLowerCase(Locale.US);
+        /* CRITICAL BRICK GUARD: NEVER archive KoboArc7Freedom.apk, VanillaAndroid4Home.apk,
+         * Android framework resources, SystemUI, Settings, keyboard, or MTK/NVIDIA HALs! */
+        if (low.contains("arc7freedom")
+                || low.contains("vanillaandroid4")
+                || low.contains("framework")
+                || low.endsWith("-res.apk")
+                || low.contains("systemui")
+                || low.contains("settings")
+                || low.contains("packageinstaller")
+                || low.contains("providers")
+                || low.contains("latinime")
+                || low.contains("keyboard")
+                || low.contains("keychain")
+                || low.contains("certinstaller")
+                || low.contains("webview")
+                || low.contains("bluetooth")
+                || low.contains("mediatek")
+                || low.contains("mtk")
+                || low.contains("nvram")) {
+            return false;
+        }
         if (keepReader && (low.equals("koboreader.apk") || low.contains("kobobooks"))) {
             return false;
         }
