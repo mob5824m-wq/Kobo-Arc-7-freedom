@@ -107,7 +107,17 @@ public class TabletOptimizerManager {
         boolean adblockActive = new File("/system/etc/hosts.arc7.bak").exists();
         sb.append("System Ad & Tracker /etc/hosts Shield: ").append(adblockActive ? "ACTIVE (backup saved)" : "Stock /etc/hosts").append("\n");
 
-        sb.append("Night / Warm Reading Filter: ").append(NightFilterService.modeLabel(NightFilterService.currentMode(ctx))).append("\n");
+        String cpuGov = firstNonEmpty(
+                readSysFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"), "hotplug");
+        String adbPort = shell.execSh("getprop service.adb.tcp.port 2>/dev/null", null).stdout.trim();
+        sb.append("CPU Governor: ").append(cpuGov)
+          .append(" • Wireless ADB: ").append("5555".equals(adbPort) ? ("ACTIVE (" + Arc7WifiDriveService.detectLanIp(ctx) + ":5555)") : "USB mode")
+          .append(" • Wi-Fi Drive: ").append(Arc7WifiDriveService.isRunning() ? ("http://" + Arc7WifiDriveService.detectLanIp(ctx) + ":8080") : "OFF")
+          .append("\n");
+
+        sb.append("Night / Warm Reading Filter: ").append(NightFilterService.modeLabel(NightFilterService.currentMode(ctx)))
+          .append(" • Floating Soft-Keys: ").append(SoftKeysOverlayService.isActive() ? "ON" : "OFF")
+          .append("\n");
 
         /* Live Kobo Arc 7 / Linux 3.4 `/sys/class/power_supply/battery` telemetry */
         String cap = firstNonEmpty(
@@ -463,5 +473,131 @@ public class TabletOptimizerManager {
             return true;
         }
         return false;
+    }
+
+    /* ========================================================================
+     * v1.4.0 Upgrade #3: MT8125 4-Core CPU Governor Profiles & Deep-Sleep Saver
+     * ======================================================================== */
+
+    public boolean applyCpuPowerProfile(int mode, LogSink log) {
+        if (!shell.isRootAvailable()) {
+            log.onLog("ERROR: Tap 'Root Kobo Arc 7 Now' on Tab 1 first.");
+            return false;
+        }
+        String cmd;
+        String desc;
+        if (mode == 0) {
+            desc = "E-Book Ultra Battery Saver (2 active Cortex-A7 cores + powersave/ondemand)";
+            cmd = "for g in powersave conservative ondemand hotplug; do " +
+                  "  grep -qw \"$g\" /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null && { echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; break; }; " +
+                  "done; " +
+                  "echo 0 > /sys/devices/system/cpu/cpu2/online 2>/dev/null || true; " +
+                  "echo 0 > /sys/devices/system/cpu/cpu3/online 2>/dev/null || true; " +
+                  "echo CPU_PROFILE_OK";
+        } else if (mode == 2) {
+            desc = "Max Quad-Core Performance (all 4 MT8125/Tegra cores online + performance governor)";
+            cmd = "for c in 0 1 2 3; do " +
+                  "  echo 1 > /sys/devices/system/cpu/cpu$c/online 2>/dev/null || true; " +
+                  "  echo performance > /sys/devices/system/cpu/cpu$c/cpufreq/scaling_governor 2>/dev/null || true; " +
+                  "done; echo CPU_PROFILE_OK";
+        } else {
+            desc = "Balanced Adaptive Daily Mode (hotplug / interactive dynamic scaling)";
+            cmd = "for c in 0 1 2 3; do echo 1 > /sys/devices/system/cpu/cpu$c/online 2>/dev/null || true; done; " +
+                  "for g in hotplug interactive ondemand; do " +
+                  "  grep -qw \"$g\" /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null && { echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; break; }; " +
+                  "done; echo CPU_PROFILE_OK";
+        }
+        RootShell.ExecResult r = shell.execRoot(cmd, null);
+        log.onLog(r.stdout.trim());
+        log.onLog("Applied CPU profile -> " + desc);
+        return r.stdout.contains("CPU_PROFILE_OK");
+    }
+
+    public boolean setDeepSleepWifiStandby(boolean sleepWhenScreenOff, LogSink log) {
+        if (!shell.isRootAvailable()) {
+            log.onLog("ERROR: Root access required to configure kernel Wi-Fi sleep policy.");
+            return false;
+        }
+        /* Android WIFI_SLEEP_POLICY: 0 = DEFAULT (sleep on screen off), 2 = NEVER sleep */
+        int val = sleepWhenScreenOff ? 0 : 2;
+        String cmd = "settings put global wifi_sleep_policy " + val + " 2>/dev/null || true; " +
+                     "settings put system wifi_sleep_policy " + val + " 2>/dev/null || true; " +
+                     "echo SLEEP_OK";
+        RootShell.ExecResult r = shell.execRoot(cmd, null);
+        log.onLog(sleepWhenScreenOff
+                ? "Deep-Sleep Standby ENABLED: Wi-Fi automatically powers down during standby so an older battery lasts days longer!"
+                : "Always-On Wi-Fi RESTORED: Wi-Fi stays awake when screen is off (great when running Wi-Fi Drive or Audio streaming).");
+        return r.stdout.contains("SLEEP_OK");
+    }
+
+    /* ========================================================================
+     * v1.4.0 Upgrade #5: Wireless Root ADB over Wi-Fi (`:5555` — Zero USB Cable!)
+     * ======================================================================== */
+
+    public boolean setWirelessAdbOverWifi(boolean enable, LogSink log) {
+        if (!shell.isRootAvailable()) {
+            log.onLog("ERROR: Root access required to switch `adbd` TCP port.");
+            return false;
+        }
+        int port = enable ? 5555 : -1;
+        String cmd = "setprop service.adb.tcp.port " + port +
+                     " && stop adbd && sleep 1 && start adbd && echo ADB_WIFI_OK";
+        RootShell.ExecResult r = shell.execRoot(cmd, null);
+        String ip = Arc7WifiDriveService.detectLanIp(ctx);
+        if (r.stdout.contains("ADB_WIFI_OK")) {
+            log.onLog(enable
+                    ? ("SUCCESS! Wireless Root ADB is LIVE — on any PC/Mac/Linux run:\n    adb connect " + ip + ":5555")
+                    : "Wireless ADB turned OFF (returned `adbd` to standard USB cable mode).");
+            return true;
+        }
+        return false;
+    }
+
+    /* ========================================================================
+     * v1.4.0 Upgrade #6: 64 GB / 128 GB / 256 GB MicroSDXC `FAT32` Formatter
+     * ======================================================================== */
+
+    public boolean formatMicroSdCardFat32(String volumeLabel, LogSink log) {
+        if (!shell.isRootAvailable()) {
+            log.onLog("ERROR: Root access required to format `/dev/block/mmcblk1`.");
+            return false;
+        }
+        File tool = shell.getPartitionToolBinary();
+        String wholeDisk = null;
+        for (String cand : new String[]{"/dev/block/mmcblk1", "/dev/block/sda"}) {
+            RootShell.ExecResult chk = shell.execRoot("[ -b '" + cand + "' ] && echo FOUND", null);
+            if (chk.stdout.contains("FOUND")) {
+                wholeDisk = cand;
+                break;
+            }
+        }
+        if (wholeDisk == null) {
+            log.onLog("ERROR: No removable MicroSD block device (`/dev/block/mmcblk1`) detected in card slot! Insert your 64 GB / 128 GB / 256 GB MicroSDXC card firmly first.");
+            return false;
+        }
+        log.onLog("=== Formatting " + wholeDisk + " as 1 MiB-Aligned MBR + Large-Cluster FAT32 (" + volumeLabel + ") ===");
+        log.onLog("[1/3] Unmounting any stale exFAT/vfat mounts on " + wholeDisk + "...");
+        shell.execRoot("umount /storage/sdcard1 2>/dev/null || true; umount " + wholeDisk + "p1 2>/dev/null || true; umount " + wholeDisk + " 2>/dev/null || true", null);
+
+        log.onLog("[2/3] Writing clean MBR (`0x0C FAT32 LBA` @ LBA 2048) + formatting full capacity with `libarc7tool.so`...");
+        RootShell.ExecResult fmt = shell.execRoot(
+                "'" + tool.getAbsolutePath() + "' format-sdxc-card '" + wholeDisk + "' " + RootShell.shellQuote(volumeLabel),
+                null);
+        log.onLog(fmt.stdout.trim());
+        if (fmt.exitCode != 0 || !fmt.stdout.contains("FORMAT_FAT32=OK")) {
+            log.onLog("ERROR formatting SDXC card: " + fmt.stdout);
+            return false;
+        }
+
+        log.onLog("[3/3] Mounting freshly formatted MicroSDXC card at `/storage/sdcard1`...");
+        String mountCmd =
+                "mkdir -p /storage/sdcard1 && " +
+                "(mount -t vfat -o rw,dirsync,nosuid,nodev,noexec,relatime,uid=1000,gid=1015,fmask=0702,dmask=0702,allow_utime=0020 " +
+                wholeDisk + "p1 /storage/sdcard1 2>/dev/null || " +
+                "vdc volume mount /storage/sdcard1 2>/dev/null || true) && echo MOUNT_DONE";
+        RootShell.ExecResult m = shell.execRoot(mountCmd, null);
+        log.onLog(m.stdout.trim());
+        log.onLog("COMPLETE! Your full 64 GB / 128 GB / 256 GB MicroSDXC card is now native Android 4.2 FAT32 at `/storage/sdcard1`: " + formatDiskUsage("/storage/sdcard1"));
+        return true;
     }
 }

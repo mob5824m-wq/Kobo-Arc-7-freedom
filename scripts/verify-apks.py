@@ -95,17 +95,27 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.3.0", f"Expected 1.3.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "130", f"Expected 130, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.4.0", f"Expected 1.4.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "140", f"Expected 140, got {apk.get_androidversion_code()}"
         acts = apk.get_activities()
         for req_act in (
             "ca.arc7freedom.app.MainActivity",
             "ca.arc7freedom.app.Arc7BrowserActivity",
             "ca.arc7freedom.app.Arc7EbookReaderActivity",
+            "ca.arc7freedom.app.Arc7AudioPlayerActivity",
+            "ca.arc7freedom.app.Arc7DeskClockActivity",
+            "ca.arc7freedom.app.Arc7AppManagerActivity",
             "ca.arc7freedom.app.Arc7TerminalActivity",
         ):
             assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
-        assert "ca.arc7freedom.app.NightFilterService" in apk.get_services(), "Missing NightFilterService!"
+        svcs = apk.get_services()
+        for req_svc in (
+            "ca.arc7freedom.app.NightFilterService",
+            "ca.arc7freedom.app.Arc7WifiDriveService",
+            "ca.arc7freedom.app.SoftKeysOverlayService",
+            "ca.arc7freedom.app.Arc7AudioService",
+        ):
+            assert req_svc in svcs, f"Missing service {req_svc} in compiled AndroidManifest.xml!"
         assert "ca.arc7freedom.app.BootNetworkReceiver" in apk.get_receivers(), "Missing BootNetworkReceiver!"
     print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, v={apk.get_androidversion_name()}, minSdk=15, targetSdk=17")
 
@@ -401,6 +411,27 @@ def check_boot_inspector_and_java_logic() -> None:
         infl = gzip.decompress(out_b[roff + 512 : roff + rsz])
         assert b"ro.secure=0\n" in infl and b"ro.debuggable=1\n" in infl
         print("  [PASS] Anti-Brick MT8125 0x58881688 boot.img Root-ADB patcher verified end-to-end!")
+
+        # Verify v1.4.0 Upgrade #6: 128 GB MicroSDXC exFAT/GPT Wipe + 1 MiB-Aligned MBR `0x0C FAT32 LBA` Formatter!
+        sdxc_img = os.path.join(tmp, "sdxc_128gb.img")
+        with open(sdxc_img, "wb") as f:
+            f.truncate(128 * 1024 * 1024 * 1024)
+            f.seek(446 + 4)
+            f.write(b"\x07")  # exFAT partition type
+            f.seek(512)
+            f.write(b"EFI PART")  # stale GPT header
+        rfmt = subprocess.run([arc7tool, "format-sdxc-card", sdxc_img, "KOBO_128GB"],
+                              capture_output=True, text=True, check=True)
+        assert "FORMAT_FAT32=OK" in rfmt.stdout and "CLUSTER_BYTES=32768" in rfmt.stdout, rfmt.stdout
+        with open(sdxc_img, "rb") as f:
+            mbr = f.read(512)
+            lba1 = f.read(512)
+            assert mbr[446 + 4] == 0x0C and mbr[510:512] == b"\x55\xaa"
+            assert lba1[:8] == b"\x00" * 8
+            f.seek(2048 * 512)
+            bpb = f.read(512)
+            assert bpb[82:90] == b"FAT32   " and bpb[71:82] == b"KOBO_128GB "
+        print("  [PASS] 128 GB MicroSDXC exFAT/GPT wipe + 32 KB-cluster FAT32 formatter verified end-to-end!")
 
         tegra_zip = os.path.join(tmp, "wrong-tegra-cardhu-rom.zip")
         with zipfile.ZipFile(tegra_zip, "w") as zf:

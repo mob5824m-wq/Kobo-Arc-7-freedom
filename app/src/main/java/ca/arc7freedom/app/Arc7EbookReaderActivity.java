@@ -5,11 +5,16 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -17,21 +22,31 @@ import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserFactory;
 
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.StringReader;
+import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
@@ -41,8 +56,13 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 /**
- * Standalone Offline EPUB / TXT / HTML E-Book Reader (`Arc7 E-Reader`) built natively
- * for the Kobo Arc 7 (`1024x600`, Android 4.2.2 `API 17`).
+ * Standalone Offline EPUB / TXT / HTML E-Book Reader (`Arc7 E-Reader`) — upgraded in v1.4.0 with:
+ *   - **Upgrade #7:** Built-in **70,000+ Free Classic E-Book Storefront** (`Project Gutenberg` /
+ *     `Gutendex` over native `arc7tls` `TLS 1.3` — search any title/author OR browse Top Classics,
+ *     1-tap download `.epub` straight to `Books/` and read immediately!).
+ *   - **Upgrade #8:** Full **Offline Color Comic / Manga (`.cbz`) Reader Mode** on the `1024x600`
+ *     IPS display (natural page sorting, memory-safe downsampled Bitmap decoding on `1 GB RAM`,
+ *     full-width page scroll, and per-comic page bookmark resume!).
  */
 public class Arc7EbookReaderActivity extends Activity {
 
@@ -51,14 +71,22 @@ public class Arc7EbookReaderActivity extends Activity {
     private static final String KEY_FONT_ZOOM = "font_zoom_pct";
     private static final String KEY_THEME     = "reader_theme"; // 0=Paper, 1=Sepia, 2=Night
 
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private RootShell rootShell;
+    private NetworkCertManager certManager;
+
     private TextView lblBookTitle;
     private TextView lblChapterPos;
     private WebView readerWebView;
+    private ScrollView comicScrollView;
+    private ImageView comicPageImage;
 
     private String currentBookPath = "";
     private String currentBookTitle = "Kobo Arc 7 Freedom Owner's Handbook";
+    private boolean isComicMode = false;
     private final List<String> chapterTitles = new ArrayList<String>();
     private final List<File> chapterFiles = new ArrayList<File>();
+    private final List<String> comicEntryNames = new ArrayList<String>();
     private int currentChapter = 0;
     private int fontZoom = 115;
     private int themeIndex = 1;
@@ -66,6 +94,8 @@ public class Arc7EbookReaderActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        rootShell = new RootShell(this);
+        certManager = new NetworkCertManager(this, rootShell);
 
         SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         fontZoom = sp.getInt(KEY_FONT_ZOOM, 115);
@@ -81,8 +111,12 @@ public class Arc7EbookReaderActivity extends Activity {
         topBar.setPadding(dp(8), dp(6), dp(8), dp(6));
         topBar.setBackgroundColor(Color.parseColor("#1E293B"));
 
-        topBar.addView(navButton("Open Book", "#0284C7", new View.OnClickListener() {
+        topBar.addView(navButton("Open Book/.CBZ", "#0284C7", new View.OnClickListener() {
             @Override public void onClick(View v) { openBookPicker(); }
+        }));
+        /* Upgrade #7: 1-Tap 70,000+ Free Classic E-Book Storefront */
+        topBar.addView(navButton("Free Store", "#16A34A", new View.OnClickListener() {
+            @Override public void onClick(View v) { openFreeBookStoreDialog(); }
         }));
         topBar.addView(navButton("TOC", "#475569", new View.OnClickListener() {
             @Override public void onClick(View v) { showTableOfContents(); }
@@ -97,17 +131,16 @@ public class Arc7EbookReaderActivity extends Activity {
         lblBookTitle = new TextView(this);
         lblBookTitle.setTextColor(Color.WHITE);
         lblBookTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        lblBookTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        lblBookTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
         lblBookTitle.setSingleLine(true);
-        lblBookTitle.setPadding(dp(8), 0, dp(8), 0);
-        LinearLayout.LayoutParams titleLp = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        topBar.addView(lblBookTitle, titleLp);
+        lblBookTitle.setPadding(dp(6), 0, dp(6), 0);
+        topBar.addView(lblBookTitle, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         lblChapterPos = new TextView(this);
         lblChapterPos.setTextColor(Color.parseColor("#94A3B8"));
-        lblChapterPos.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        lblChapterPos.setPadding(0, 0, dp(8), 0);
+        lblChapterPos.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        lblChapterPos.setPadding(0, 0, dp(6), 0);
         topBar.addView(lblChapterPos);
 
         topBar.addView(navButton("A-", "#334155", new View.OnClickListener() {
@@ -124,6 +157,8 @@ public class Arc7EbookReaderActivity extends Activity {
         }));
         root.addView(topBar);
 
+        FrameLayout contentFrame = new FrameLayout(this);
+
         readerWebView = new WebView(this);
         WebSettings ws = readerWebView.getSettings();
         ws.setJavaScriptEnabled(false);
@@ -132,7 +167,28 @@ public class Arc7EbookReaderActivity extends Activity {
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
         ws.setTextZoom(fontZoom);
-        root.addView(readerWebView, new LinearLayout.LayoutParams(
+        contentFrame.addView(readerWebView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        /* Upgrade #8: Color Comic / Manga `.cbz` Full-Width Page Viewer */
+        comicScrollView = new ScrollView(this);
+        comicScrollView.setBackgroundColor(Color.BLACK);
+        comicScrollView.setVisibility(View.GONE);
+        comicPageImage = new ImageView(this);
+        comicPageImage.setAdjustViewBounds(true);
+        comicPageImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        comicPageImage.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                jumpChapter(1);
+            }
+        });
+        comicScrollView.addView(comicPageImage, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        contentFrame.addView(comicScrollView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        root.addView(contentFrame, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
@@ -157,9 +213,9 @@ public class Arc7EbookReaderActivity extends Activity {
         Button b = new Button(this);
         b.setText(label);
         b.setTextColor(Color.WHITE);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
         b.setAllCaps(false);
-        b.setPadding(dp(9), dp(5), dp(9), dp(5));
+        b.setPadding(dp(8), dp(5), dp(8), dp(5));
         GradientDrawable bg = new GradientDrawable();
         bg.setCornerRadius(dp(5));
         bg.setColor(Color.parseColor(colorHex));
@@ -176,8 +232,8 @@ public class Arc7EbookReaderActivity extends Activity {
         String sd = TabletOptimizerManager.findMicroSdRoot();
         File startDir = sd != null ? new File(sd) : new File("/sdcard");
         FilePickerDialog.show(this, startDir,
-                new String[]{".epub", ".txt", ".md", ".html", ".htm", ".xhtml"},
-                "Open Offline Book (.epub / .txt / .html)",
+                new String[]{".epub", ".cbz", ".txt", ".md", ".html", ".htm", ".xhtml"},
+                "Open Offline Book (.epub / .txt) or Color Comic / Manga (.cbz)",
                 new FilePickerDialog.OnFilePicked() {
                     @Override
                     public void onPicked(File file) {
@@ -186,44 +242,252 @@ public class Arc7EbookReaderActivity extends Activity {
                 });
     }
 
+    /* ========================================================================
+     * Upgrade #7: Built-In 70,000+ Free Classic E-Book Storefront (Gutendex TLS 1.3)
+     * ======================================================================== */
+
+    private void openFreeBookStoreDialog() {
+        final EditText searchInput = new EditText(this);
+        searchInput.setSingleLine(true);
+        searchInput.setHint("Leave blank for Top Popular Classics, or type e.g. Sherlock Holmes / Jules Verne");
+
+        new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
+                .setTitle("Free Classic E-Book Storefront (70,000+ Books — Zero Account!)")
+                .setMessage("Search Project Gutenberg's entire public-domain EPUB catalog directly over TLS 1.3 and download straight into your Kobo Arc 7 `Books/` library:")
+                .setView(searchInput)
+                .setPositiveButton("Search / Browse Top Books", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        queryGutendexCatalog(searchInput.getText().toString().trim());
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void queryGutendexCatalog(final String query) {
+        Toast.makeText(this, "Searching 70,000+ free EPUB books via TLS 1.3...", Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String apiUrl = query.isEmpty()
+                            ? "https://gutendex.com/books/?mime_type=application%2Fepub%2Bzip"
+                            : ("https://gutendex.com/books/?mime_type=application%2Fepub%2Bzip&search="
+                               + URLEncoder.encode(query, "UTF-8"));
+                    File bundle = certManager.ensureCaBundleFile();
+                    File outJson = new File(getCacheDir(), "gutendex_results.json");
+                    RootShell.ExecResult r = rootShell.execCommandArray(new String[]{
+                        rootShell.getTlsEngineBinary().getAbsolutePath(),
+                        "fetch", bundle.getAbsolutePath(), apiUrl, outJson.getAbsolutePath()
+                    }, null);
+                    if (r.exitCode != 0 || !outJson.exists()) {
+                        throw new RuntimeException("Check Wi-Fi connection (" + r.stdout.trim() + ")");
+                    }
+                    String raw = readTextFile(outJson);
+                    JSONObject obj = new JSONObject(raw);
+                    JSONArray arr = obj.getJSONArray("results");
+
+                    final List<String> displayItems = new ArrayList<String>();
+                    final List<String> epubUrls = new ArrayList<String>();
+                    final List<String> bookTitles = new ArrayList<String>();
+
+                    for (int i = 0; i < Math.min(25, arr.length()); i++) {
+                        JSONObject b = arr.getJSONObject(i);
+                        String title = b.optString("title", "Untitled");
+                        String author = "";
+                        JSONArray authors = b.optJSONArray("authors");
+                        if (authors != null && authors.length() > 0) {
+                            author = authors.getJSONObject(0).optString("name", "");
+                        }
+                        JSONObject formats = b.optJSONObject("formats");
+                        if (formats == null) continue;
+                        String epubUrl = formats.optString("application/epub+zip", "");
+                        if (epubUrl.isEmpty()) continue;
+
+                        displayItems.add(title + (author.isEmpty() ? "" : (" — " + author)));
+                        epubUrls.add(epubUrl);
+                        bookTitles.add(title);
+                    }
+
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (displayItems.isEmpty()) {
+                                Toast.makeText(Arc7EbookReaderActivity.this, "No matching EPUBs found.", Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            new AlertDialog.Builder(Arc7EbookReaderActivity.this, AlertDialog.THEME_HOLO_DARK)
+                                    .setTitle("Tap Any Book to Download & Read Immediately")
+                                    .setItems(displayItems.toArray(new String[displayItems.size()]),
+                                            new DialogInterface.OnClickListener() {
+                                                @Override
+                                                public void onClick(DialogInterface d, int idx) {
+                                                    downloadAndOpenFreeBook(bookTitles.get(idx), epubUrls.get(idx));
+                                                }
+                                            })
+                                    .setNegativeButton("Close", null)
+                                    .show();
+                        }
+                    });
+                } catch (final Throwable t) {
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(Arc7EbookReaderActivity.this,
+                                    "Store query failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void downloadAndOpenFreeBook(final String title, final String epubUrl) {
+        Toast.makeText(this, "Downloading \"" + title + "\" over TLS 1.3...", Toast.LENGTH_LONG).show();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String sd = TabletOptimizerManager.findMicroSdRoot();
+                    File booksDir = new File(sd != null ? sd : Environment.getExternalStorageDirectory().getAbsolutePath(), "Books");
+                    booksDir.mkdirs();
+                    String safeName = title.replaceAll("[^A-Za-z0-9._ -]", "_").trim();
+                    if (safeName.length() > 64) safeName = safeName.substring(0, 64).trim();
+                    if (safeName.isEmpty()) safeName = "Gutenberg_Book";
+                    final File outEpub = new File(booksDir, safeName + ".epub");
+
+                    File bundle = certManager.ensureCaBundleFile();
+                    RootShell.ExecResult r = rootShell.execCommandArray(new String[]{
+                        rootShell.getTlsEngineBinary().getAbsolutePath(),
+                        "fetch", bundle.getAbsolutePath(), epubUrl, outEpub.getAbsolutePath()
+                    }, null);
+                    if (r.exitCode == 0 && outEpub.exists() && outEpub.length() > 512) {
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                Toast.makeText(Arc7EbookReaderActivity.this,
+                                        "Saved to " + outEpub.getAbsolutePath() + " — opening now!",
+                                        Toast.LENGTH_SHORT).show();
+                                loadBookFile(outEpub);
+                            }
+                        });
+                    }
+                } catch (Throwable ignored) {}
+            }
+        }).start();
+    }
+
+    /* ========================================================================
+     * Book & Color `.CBZ` Comic Loader
+     * ======================================================================== */
+
     private void loadBookFile(File file) {
         try {
             chapterTitles.clear();
             chapterFiles.clear();
+            comicEntryNames.clear();
             currentBookPath = file.getAbsolutePath();
             currentBookTitle = file.getName();
 
             String lower = file.getName().toLowerCase(Locale.US);
-            if (lower.endsWith(".epub")) {
-                parseEpubArchive(file);
-            } else {
-                File singleOut = new File(getBookCacheDir(file), "single.html");
-                String raw = readTextFile(file);
-                if (!lower.endsWith(".html") && !lower.endsWith(".htm") && !lower.endsWith(".xhtml")) {
-                    raw = "<pre style='white-space:pre-wrap;font-family:Georgia,serif;line-height:1.65;'>"
-                            + escapeHtml(raw) + "</pre>";
+            if (lower.endsWith(".cbz")) {
+                /* Upgrade #8: Color Comic / Manga `.cbz` Mode */
+                isComicMode = true;
+                parseCbzComicArchive(file);
+                if (comicEntryNames.isEmpty()) {
+                    Toast.makeText(this, "No image pages found inside " + file.getName(), Toast.LENGTH_LONG).show();
+                    isComicMode = false;
+                    loadBuiltInStarterBook();
+                    return;
                 }
-                writeTextFile(singleOut, wrapStyledHtml(currentBookTitle, raw));
-                chapterTitles.add(file.getName());
-                chapterFiles.add(singleOut);
-            }
-
-            if (chapterFiles.isEmpty()) {
-                Toast.makeText(this, "No readable chapters found in " + file.getName(), Toast.LENGTH_LONG).show();
-                loadBuiltInStarterBook();
-                return;
+            } else {
+                isComicMode = false;
+                if (lower.endsWith(".epub")) {
+                    parseEpubArchive(file);
+                } else {
+                    File singleOut = new File(getBookCacheDir(file), "single.html");
+                    String raw = readTextFile(file);
+                    if (!lower.endsWith(".html") && !lower.endsWith(".htm") && !lower.endsWith(".xhtml")) {
+                        raw = "<pre style='white-space:pre-wrap;font-family:Georgia,serif;line-height:1.65;'>"
+                                + escapeHtml(raw) + "</pre>";
+                    }
+                    writeTextFile(singleOut, wrapStyledHtml(currentBookTitle, raw));
+                    chapterTitles.add(file.getName());
+                    chapterFiles.add(singleOut);
+                }
+                if (chapterFiles.isEmpty()) {
+                    Toast.makeText(this, "No readable chapters found in " + file.getName(), Toast.LENGTH_LONG).show();
+                    loadBuiltInStarterBook();
+                    return;
+                }
             }
 
             SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
             sp.edit().putString(KEY_LAST_BOOK, currentBookPath).commit();
+            int total = totalSections();
             int savedChap = sp.getInt("chap_" + currentBookPath.hashCode(), 0);
-            if (savedChap < 0 || savedChap >= chapterFiles.size()) savedChap = 0;
+            if (savedChap < 0 || savedChap >= total) savedChap = 0;
             currentChapter = savedChap;
             renderCurrentChapter();
         } catch (Throwable t) {
-            Toast.makeText(this, "Failed opening book: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Failed opening file: " + t.getMessage(), Toast.LENGTH_LONG).show();
             loadBuiltInStarterBook();
         }
+    }
+
+    private int totalSections() {
+        return isComicMode ? comicEntryNames.size() : chapterFiles.size();
+    }
+
+    private void parseCbzComicArchive(File cbzFile) throws Exception {
+        ZipFile zf = new ZipFile(cbzFile);
+        try {
+            Enumeration<? extends ZipEntry> en = zf.entries();
+            while (en.hasMoreElements()) {
+                ZipEntry ze = en.nextElement();
+                if (ze.isDirectory()) continue;
+                String n = ze.getName();
+                String low = n.toLowerCase(Locale.US);
+                if (low.contains("__macosx")) continue;
+                if (low.endsWith(".jpg") || low.endsWith(".jpeg") || low.endsWith(".png")
+                        || low.endsWith(".webp") || low.endsWith(".gif")) {
+                    comicEntryNames.add(n);
+                }
+            }
+        } finally {
+            zf.close();
+        }
+        /* Natural alphanumeric page sort so `page_2.jpg` always precedes `page_10.jpg`! */
+        Collections.sort(comicEntryNames, new Comparator<String>() {
+            @Override
+            public int compare(String a, String b) {
+                return naturalCompare(a, b);
+            }
+        });
+        for (int i = 0; i < comicEntryNames.size(); i++) {
+            chapterTitles.add("Page " + (i + 1) + "  (" + comicEntryNames.get(i) + ")");
+        }
+    }
+
+    private static int naturalCompare(String a, String b) {
+        int ia = 0, ib = 0, la = a.length(), lb = b.length();
+        while (ia < la && ib < lb) {
+            char ca = a.charAt(ia), cb = b.charAt(ib);
+            if (Character.isDigit(ca) && Character.isDigit(cb)) {
+                int sa = ia, sb = ib;
+                while (ia < la && Character.isDigit(a.charAt(ia))) ia++;
+                while (ib < lb && Character.isDigit(b.charAt(ib))) ib++;
+                long na = Long.parseLong(a.substring(sa, Math.min(ia, sa + 16)));
+                long nb = Long.parseLong(b.substring(sb, Math.min(ib, sb + 16)));
+                if (na != nb) return na < nb ? -1 : 1;
+            } else {
+                char ua = Character.toLowerCase(ca), ub = Character.toLowerCase(cb);
+                if (ua != ub) return ua - ub;
+                ia++; ib++;
+            }
+        }
+        return la - lb;
     }
 
     private File getBookCacheDir(File src) {
@@ -318,59 +582,91 @@ public class Arc7EbookReaderActivity extends Activity {
     }
 
     private void loadBuiltInStarterBook() {
+        isComicMode = false;
         currentBookPath = "";
-        currentBookTitle = "Kobo Arc 7 Freedom — Offline Reader & Tablet Guide";
+        currentBookTitle = "Kobo Arc 7 Freedom v1.4 — E-Reader, Free Store & Comic Guide";
         chapterTitles.clear();
         chapterFiles.clear();
         try {
             File c1 = new File(getCacheDir(), "handbook_ch1.html");
-            writeTextFile(c1, wrapStyledHtml("Welcome to Arc7 E-Reader",
-                    "<h1>Welcome to Arc7 E-Reader</h1>" +
-                    "<p>Your Kobo Arc 7's original factory reading app was permanently locked to dead 2013 Kobo servers — " +
-                    "even refusing to open DRM-free books until setup succeeded.</p>" +
-                    "<p><b>Arc7 E-Reader</b> replaces it cleanly with a zero-account, 100% offline reader built for your " +
-                    "1024&times;600 IPS screen:</p>" +
+            writeTextFile(c1, wrapStyledHtml("Welcome to Arc7 E-Reader + Comic Viewer",
+                    "<h1>Welcome to Arc7 E-Reader v1.4</h1>" +
+                    "<p>Your Kobo Arc 7's factory reader is permanently bricked against dead 2013 servers — " +
+                    "and even black-and-white E-Ink readers cannot display color comics or magazines!</p>" +
                     "<ul>" +
-                    "<li><b>Open any DRM-free <code>.epub</code>, <code>.txt</code>, <code>.md</code>, or <code>.html</code> book</b> from your MicroSD card (<code>/storage/sdcard1</code>) or <code>Download</code> folder using <b>Open Book</b> above.</li>" +
-                    "<li><b>Download tens of thousands of free classic <code>.epub</code> books right over Wi-Fi</b> from <i>Project Gutenberg</i> or <i>Standard Ebooks</i> inside <b>Arc7 Browser (TLS 1.3)</b>!</li>" +
-                    "<li>Tap <b>Theme</b> anytime to switch between <b>Warm Sepia</b>, <b>Crisp Paper</b>, and <b>AMOLED Night</b> reading modes, or use <b>A- / A+</b> to set your preferred font size.</li>" +
+                    "<li><b>NEW — 70,000+ Free Classic E-Books Built Right In:</b> Tap the green <b>Free Store</b> button above to search or browse <i>Project Gutenberg</i> over TLS 1.3 and download any <code>.epub</code> straight into <code>Books/</code>!</li>" +
+                    "<li><b>NEW — Full Color Comic &amp; Manga <code>.CBZ</code> Reader:</b> Tap <b>Open Book/.CBZ</b> to read full-color comics, graphic novels, and manga crisp on your <code>1024&times;600</code> IPS screen (tap the page or <b>Next &gt;</b> to turn pages!).</li>" +
+                    "<li><b>Warm Sepia / Crisp Paper / Night Themes:</b> Tap <b>Theme</b> or <b>A- / A+</b> anytime.</li>" +
                     "</ul>"));
-            chapterTitles.add("1. Welcome & Reading DRM-Free EPUB Books");
+            chapterTitles.add("1. Welcome, Free 70,000-Book Store & .CBZ Comics");
             chapterFiles.add(c1);
-
-            File c2 = new File(getCacheDir(), "handbook_ch2.html");
-            writeTextFile(c2, wrapStyledHtml("Getting the Most Out of Your Upgraded Kobo Arc 7",
-                    "<h1>Getting the Most Out of Your Upgraded Kobo Arc 7</h1>" +
-                    "<ol>" +
-                    "<li><b>Root + Full Factory Backup First:</b> Save your factory OS &amp; NVRAM to your external MicroSD card on Tabs 1 &amp; 3.</li>" +
-                    "<li><b>Fix Clock, 2026 CAs &amp; System-Wide TLS 1.3 Proxy:</b> One tap on Tab 2 brings modern HTTPS websites AND legacy Android 4.2 apps online together.</li>" +
-                    "<li><b>Install Pre-Bundled F-Droid Classic:</b> Pre-packaged inside this app — zero internet required to install the store itself, and built-in Conscrypt TLS 1.3 fetches thousands of Android 4.2 open-source apps over Wi-Fi!</li>" +
-                    "<li><b>Expand Storage + Boost Speed:</b> On Tab 5, bind-mount heavy folders straight onto your MicroSD card, block resource-heavy ad networks in <code>/etc/hosts</code>, tune <code>1 GB RAM</code>, and turn on the system-wide Warm Night Filter for comfortable bedtime reading!</li>" +
-                    "</ol>"));
-            chapterTitles.add("2. Power-User Tips for Your Kobo Arc 7");
-            chapterFiles.add(c2);
         } catch (Throwable ignored) {}
         currentChapter = 0;
         renderCurrentChapter();
     }
 
     private void renderCurrentChapter() {
-        if (chapterFiles.isEmpty()) return;
-        File f = chapterFiles.get(currentChapter);
+        int total = totalSections();
+        if (total == 0) return;
         lblBookTitle.setText(currentBookTitle);
-        lblChapterPos.setText((currentChapter + 1) + " / " + chapterFiles.size());
+        lblChapterPos.setText((currentChapter + 1) + " / " + total);
+
+        if (!currentBookPath.isEmpty()) {
+            getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                    .putInt("chap_" + currentBookPath.hashCode(), currentChapter).commit();
+        }
+
+        if (isComicMode) {
+            readerWebView.setVisibility(View.GONE);
+            comicScrollView.setVisibility(View.VISIBLE);
+            comicScrollView.scrollTo(0, 0);
+            renderComicPageBitmap();
+            return;
+        }
+
+        comicScrollView.setVisibility(View.GONE);
+        readerWebView.setVisibility(View.VISIBLE);
         readerWebView.getSettings().setTextZoom(fontZoom);
 
+        File f = chapterFiles.get(currentChapter);
         try {
             String rawHtml = readTextFile(f);
             String baseUrl = f.getParentFile().toURI().toString();
             readerWebView.loadDataWithBaseURL(baseUrl, injectThemeCss(rawHtml), "text/html", "UTF-8", null);
-            if (!currentBookPath.isEmpty()) {
-                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-                        .putInt("chap_" + currentBookPath.hashCode(), currentChapter).commit();
-            }
         } catch (Throwable t) {
             Toast.makeText(this, "Error rendering chapter: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void renderComicPageBitmap() {
+        ZipFile zf = null;
+        try {
+            zf = new ZipFile(new File(currentBookPath));
+            ZipEntry entry = zf.getEntry(comicEntryNames.get(currentChapter));
+            if (entry == null) return;
+            InputStream is = zf.getInputStream(entry);
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buf = new byte[32768];
+            int n;
+            while ((n = is.read(buf)) > 0) baos.write(buf, 0, n);
+            is.close();
+            byte[] data = baos.toByteArray();
+
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeByteArray(data, 0, data.length, bounds);
+            int sample = 1;
+            while (bounds.outWidth / sample > 1600 || bounds.outHeight / sample > 2400) {
+                sample *= 2;
+            }
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = sample;
+            Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+            comicPageImage.setImageBitmap(bmp);
+        } catch (Throwable t) {
+            Toast.makeText(this, "Error decoding comic page: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+        } finally {
+            try { if (zf != null) zf.close(); } catch (Throwable ignored) {}
         }
     }
 
@@ -395,8 +691,8 @@ public class Arc7EbookReaderActivity extends Activity {
 
     private void jumpChapter(int delta) {
         int next = currentChapter + delta;
-        if (next < 0 || next >= chapterFiles.size()) {
-            Toast.makeText(this, delta < 0 ? "Already at first chapter." : "End of book reached.", Toast.LENGTH_SHORT).show();
+        if (next < 0 || next >= totalSections()) {
+            Toast.makeText(this, delta < 0 ? "Already at beginning." : "End reached!", Toast.LENGTH_SHORT).show();
             return;
         }
         currentChapter = next;
@@ -406,7 +702,7 @@ public class Arc7EbookReaderActivity extends Activity {
     private void showTableOfContents() {
         String[] items = chapterTitles.toArray(new String[chapterTitles.size()]);
         new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
-                .setTitle("Table of Contents (" + chapterTitles.size() + " sections)")
+                .setTitle("Sections / Pages (" + chapterTitles.size() + ")")
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {

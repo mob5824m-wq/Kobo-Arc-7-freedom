@@ -19,6 +19,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <time.h>
 #include <zlib.h>
 
 /* ======================== Embedded FIPS 180-4 SHA-256 ======================== */
@@ -864,6 +865,259 @@ static int cmd_patch_boot_adb(const char *in_path, const char *out_path) {
     return 0;
 }
 
+/* ============================================================================
+ * 64 GB / 128 GB / 256 GB MicroSDXC `FAT32` + `1 MiB`-Aligned MBR Formatter
+ * ============================================================================ */
+
+#ifndef BLKRRPART
+#define BLKRRPART _IO(0x12, 95)
+#endif
+
+static void write_le16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xFFU);
+    p[1] = (uint8_t)((v >> 8) & 0xFFU);
+}
+
+static void write_le32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFFU);
+    p[1] = (uint8_t)((v >> 8) & 0xFFU);
+    p[2] = (uint8_t)((v >> 16) & 0xFFU);
+    p[3] = (uint8_t)((v >> 24) & 0xFFU);
+}
+
+static int pwrite_full(int fd, const void *buf, size_t len, uint64_t offset) {
+    const uint8_t *p = (const uint8_t *)buf;
+    size_t done = 0;
+    while (done < len) {
+        ssize_t w = pwrite(fd, p + done, len - done, (off_t)(offset + done));
+        if (w <= 0) {
+            if (w < 0 && errno == EINTR) continue;
+            return -1;
+        }
+        done += (size_t)w;
+    }
+    return 0;
+}
+
+static void make_fat_label11(const char *in, char out11[11]) {
+    memset(out11, ' ', 11);
+    if (!in || !in[0]) in = "ARC7_SDXC";
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j < 11; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+            out11[j++] = (char)c;
+        }
+    }
+    if (j == 0) memcpy(out11, "ARC7_SDXC  ", 11);
+}
+
+static int format_fat32_region(int fd, uint64_t base_offset, uint64_t byte_len, const char *label) {
+    const uint32_t bps = 512;
+    uint64_t total_sectors64 = byte_len / bps;
+    if (total_sectors64 < 66000ULL) {
+        fprintf(stderr, "ERROR: target region too small for strict FAT32 (%llu bytes; need >= 34 MB)\n",
+                (unsigned long long)byte_len);
+        return 1;
+    }
+    if (total_sectors64 > 0xFFFFFFFFULL) {
+        total_sectors64 = 0xFFFFFFFFULL;
+    }
+    uint32_t total_sectors = (uint32_t)total_sectors64;
+
+    uint32_t spc;
+    if (byte_len < 512ULL * 1048576ULL)           spc = 1;
+    else if (byte_len < 8ULL * 1073741824ULL)     spc = 8;
+    else if (byte_len < 32ULL * 1073741824ULL)    spc = 16;
+    else if (byte_len <= 256ULL * 1073741824ULL)  spc = 64;
+    else                                          spc = 128;
+
+    const uint16_t reserved_sectors = 32;
+    const uint8_t num_fats = 2;
+
+    uint32_t fat_sz32 = 128;
+    uint32_t data_clusters = 0;
+    for (int iter = 0; iter < 8; iter++) {
+        uint64_t meta = (uint64_t)reserved_sectors + (uint64_t)num_fats * (uint64_t)fat_sz32;
+        if (total_sectors <= meta + spc * 2) return 1;
+        data_clusters = (uint32_t)((total_sectors - meta) / spc);
+        uint32_t needed = (uint32_t)(((uint64_t)(data_clusters + 2) * 4ULL + (bps - 1)) / bps);
+        needed = (needed + 7U) & ~7U;
+        if (needed == fat_sz32) break;
+        fat_sz32 = needed;
+    }
+
+    if (data_clusters < 65525U) {
+        fprintf(stderr, "ERROR: cluster count %u < 65525 minimum for FAT32\n", data_clusters);
+        return 1;
+    }
+
+    char vol_label[11];
+    make_fat_label11(label, vol_label);
+    uint32_t vol_id = (uint32_t)time(NULL) ^ 0xA7C71430U;
+
+    uint8_t bpb[512];
+    memset(bpb, 0, sizeof(bpb));
+    bpb[0] = 0xEB; bpb[1] = 0x58; bpb[2] = 0x90;
+    memcpy(bpb + 3, "MSWIN4.1", 8);
+    write_le16(bpb + 11, bps);
+    bpb[13] = (uint8_t)spc;
+    write_le16(bpb + 14, reserved_sectors);
+    bpb[16] = num_fats;
+    write_le16(bpb + 17, 0);
+    write_le16(bpb + 19, 0);
+    bpb[21] = 0xF8;
+    write_le16(bpb + 22, 0);
+    write_le16(bpb + 24, 63);
+    write_le16(bpb + 26, 255);
+    write_le32(bpb + 28, (uint32_t)(base_offset / bps));
+    write_le32(bpb + 32, total_sectors);
+    write_le32(bpb + 36, fat_sz32);
+    write_le16(bpb + 40, 0);
+    write_le16(bpb + 42, 0);
+    write_le32(bpb + 44, 2);
+    write_le16(bpb + 48, 1);
+    write_le16(bpb + 50, 6);
+    bpb[64] = 0x80;
+    bpb[66] = 0x29;
+    write_le32(bpb + 67, vol_id);
+    memcpy(bpb + 71, vol_label, 11);
+    memcpy(bpb + 82, "FAT32   ", 8);
+    bpb[510] = 0x55; bpb[511] = 0xAA;
+
+    uint8_t fsinfo[512];
+    memset(fsinfo, 0, sizeof(fsinfo));
+    write_le32(fsinfo + 0, 0x41615252U);
+    write_le32(fsinfo + 484, 0x61417272U);
+    write_le32(fsinfo + 488, data_clusters - 1U);
+    write_le32(fsinfo + 492, 3U);
+    write_le32(fsinfo + 508, 0xAA550000U);
+
+    uint8_t *zbuf = (uint8_t *)calloc(1, 262144);
+    if (!zbuf) return 1;
+    if (pwrite_full(fd, zbuf, (size_t)reserved_sectors * bps, base_offset) != 0) { free(zbuf); return 1; }
+
+    if (pwrite_full(fd, bpb, 512, base_offset + 0ULL * bps) != 0 ||
+        pwrite_full(fd, fsinfo, 512, base_offset + 1ULL * bps) != 0 ||
+        pwrite_full(fd, bpb, 512, base_offset + 6ULL * bps) != 0 ||
+        pwrite_full(fd, fsinfo, 512, base_offset + 7ULL * bps) != 0) {
+        free(zbuf);
+        return 1;
+    }
+
+    uint64_t fat_bytes = (uint64_t)num_fats * (uint64_t)fat_sz32 * bps;
+    uint64_t fat_start = base_offset + (uint64_t)reserved_sectors * bps;
+    uint64_t rem = fat_bytes;
+    uint64_t cur = fat_start;
+    while (rem > 0) {
+        size_t chunk = rem > 262144ULL ? 262144U : (size_t)rem;
+        if (pwrite_full(fd, zbuf, chunk, cur) != 0) { free(zbuf); return 1; }
+        cur += chunk;
+        rem -= chunk;
+    }
+
+    uint8_t fat_head[12];
+    write_le32(fat_head + 0, 0x0FFFFFF8U);
+    write_le32(fat_head + 4, 0x0FFFFFFFU);
+    write_le32(fat_head + 8, 0x0FFFFFFFU);
+    if (pwrite_full(fd, fat_head, sizeof(fat_head), fat_start) != 0 ||
+        pwrite_full(fd, fat_head, sizeof(fat_head), fat_start + (uint64_t)fat_sz32 * bps) != 0) {
+        free(zbuf);
+        return 1;
+    }
+
+    uint64_t data_start = fat_start + fat_bytes;
+    size_t clus_bytes = (size_t)spc * bps;
+    if (pwrite_full(fd, zbuf, clus_bytes, data_start) != 0) { free(zbuf); return 1; }
+    uint8_t vol_dirent[32];
+    memset(vol_dirent, 0, sizeof(vol_dirent));
+    memcpy(vol_dirent, vol_label, 11);
+    vol_dirent[11] = 0x08;
+    if (pwrite_full(fd, vol_dirent, sizeof(vol_dirent), data_start) != 0) { free(zbuf); return 1; }
+
+    free(zbuf);
+    fsync(fd);
+    printf("FORMAT_FAT32=OK CLUSTERS=%u CLUSTER_BYTES=%u FAT_SECTORS=%u TOTAL_MB=%llu\n",
+           data_clusters, spc * bps, fat_sz32, (unsigned long long)(byte_len / 1048576ULL));
+    fflush(stdout);
+    return 0;
+}
+
+static int open_target_and_size(const char *path, int *out_fd, uint64_t *out_bytes) {
+    int fd = open(path, O_RDWR);
+    if (fd < 0) {
+        fprintf(stderr, "ERROR: cannot open %s for read/write: %s\n", path, strerror(errno));
+        return -1;
+    }
+    uint64_t bytes = 0;
+    struct stat st;
+    if (fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+        bytes = (uint64_t)st.st_size;
+    } else if (ioctl(fd, BLKGETSIZE64, &bytes) != 0 || bytes == 0) {
+        off_t end = lseek(fd, 0, SEEK_END);
+        if (end > 0) bytes = (uint64_t)end;
+    }
+    if (bytes == 0) {
+        close(fd);
+        fprintf(stderr, "ERROR: zero size on %s\n", path);
+        return -1;
+    }
+    *out_fd = fd;
+    *out_bytes = bytes;
+    return 0;
+}
+
+static int cmd_format_fat32(const char *path, const char *label, int write_mbr) {
+    int fd = -1;
+    uint64_t total_bytes = 0;
+    if (open_target_and_size(path, &fd, &total_bytes) != 0) return 1;
+
+    uint64_t part_off = 0;
+    uint64_t part_len = total_bytes;
+
+    if (write_mbr) {
+        const uint32_t start_lba = 2048U;
+        if (total_bytes <= (uint64_t)start_lba * 512ULL + 36ULL * 1048576ULL) {
+            close(fd);
+            fprintf(stderr, "ERROR: SD card smaller than 36 MB\n");
+            return 1;
+        }
+        uint64_t total_lba64 = total_bytes / 512ULL;
+        if (total_lba64 > 0xFFFFFFFFULL) total_lba64 = 0xFFFFFFFFULL;
+        uint32_t part_sectors = (uint32_t)(total_lba64 - start_lba);
+
+        uint8_t wipe[17408];
+        memset(wipe, 0, sizeof(wipe));
+        if (pwrite_full(fd, wipe, sizeof(wipe), 0) != 0) { close(fd); return 1; }
+
+        uint8_t mbr[512];
+        memset(mbr, 0, sizeof(mbr));
+        write_le32(mbr + 440, (uint32_t)time(NULL) ^ 0xA7C75D01U);
+        uint8_t *pe = mbr + 446;
+        pe[0] = 0x00;
+        pe[1] = 0xFE; pe[2] = 0xFF; pe[3] = 0xFF;
+        pe[4] = 0x0C; /* 0x0C = Win95 FAT32 LBA */
+        pe[5] = 0xFE; pe[6] = 0xFF; pe[7] = 0xFF;
+        write_le32(pe + 8, start_lba);
+        write_le32(pe + 12, part_sectors);
+        mbr[510] = 0x55; mbr[511] = 0xAA;
+        if (pwrite_full(fd, mbr, sizeof(mbr), 0) != 0) { close(fd); return 1; }
+
+        part_off = (uint64_t)start_lba * 512ULL;
+        part_len = (uint64_t)part_sectors * 512ULL;
+    }
+
+    int rc = format_fat32_region(fd, part_off, part_len, label);
+    if (write_mbr && rc == 0) {
+        ioctl(fd, BLKFLSBUF, 0);
+        ioctl(fd, BLKRRPART, 0);
+    }
+    sync();
+    close(fd);
+    return rc;
+}
+
 int main(int argc, char **argv) {
     if (argc >= 3 && strcmp(argv[1], "sha256") == 0) {
         uint64_t lim = (argc >= 4) ? strtoull(argv[3], NULL, 0) : 0;
@@ -884,12 +1138,22 @@ int main(int argc, char **argv) {
     if (argc >= 4 && strcmp(argv[1], "patch-boot-adb") == 0) {
         return cmd_patch_boot_adb(argv[2], argv[3]);
     }
+    if (argc >= 3 && strcmp(argv[1], "format-fat32") == 0) {
+        const char *lbl = (argc >= 4) ? argv[3] : "ARC7_SDXC";
+        return cmd_format_fat32(argv[2], lbl, 0);
+    }
+    if (argc >= 3 && strcmp(argv[1], "format-sdxc-card") == 0) {
+        const char *lbl = (argc >= 4) ? argv[3] : "ARC7_SDXC";
+        return cmd_format_fat32(argv[2], lbl, 1);
+    }
     fprintf(stderr,
             "arc7tool usage:\n"
             "  arc7tool sha256 <path> [limit_bytes]\n"
             "  arc7tool dump-gz <src_dev_or_file> <dst.img.gz> [offset_bytes] [max_bytes]\n"
             "  arc7tool flash <src.img_or_gz> <dst_dev_or_file> [offset_bytes]\n"
             "  arc7tool inspect-boot <boot_or_recovery.img>\n"
-            "  arc7tool patch-boot-adb <in_boot.img> <out_patched.img>\n");
+            "  arc7tool patch-boot-adb <in_boot.img> <out_patched.img>\n"
+            "  arc7tool format-fat32 <partition_or_img> [LABEL]\n"
+            "  arc7tool format-sdxc-card <whole_mmcblk1_or_img> [LABEL]\n");
     return 1;
 }

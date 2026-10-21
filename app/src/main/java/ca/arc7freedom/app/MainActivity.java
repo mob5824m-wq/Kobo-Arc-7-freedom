@@ -108,8 +108,8 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.3.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", 120 2026 CAs + System-Wide TLS 1.3 Upgrade Proxy + Offline App Pack + Storage/Speed Suite loaded).");
+        appendLog("Kobo Arc 7 Freedom v1.4.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", 120 2026 CAs + TLS 1.3 Proxy + Wi-Fi Drive :8080 + 70k Free Books + .CBZ Comics + Audio + Desk Clock + 256GB SDXC FAT32).");
         refreshDeviceSnapshotAsync();
     }
 
@@ -839,12 +839,36 @@ public class MainActivity extends Activity {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
 
-        // Card 1: Offline Android 4.2 Starter App Pack (F-Droid Classic + E-Reader + Root Terminal)
+        // Card 0 (NEW v1.4.0): Zero-Cable Wireless Control & Hardware Saver Suite
+        LinearLayout wirelessCard = makeCard();
+        addCardHeader(wirelessCard, "Wireless Drive (:8080), Wi-Fi ADB (:5555) & Floating Soft-Keys",
+                "Zero micro-USB cable needed — transfer books/movies/ROMs, remote-install APKs, download OS backups, "
+                + "run wireless root ADB, and protect worn physical Power & Volume buttons!");
+
+        addToolActionRow(wirelessCard, "Wi-Fi File Drive, Backup Downloader & Remote APK Installer (:8080)",
+                "Open http://<tablet-ip>:8080 on any laptop/phone to drag-and-drop books/ROMs, install APKs, or grab screenshots!",
+                "Wi-Fi Drive", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showWifiDriveDialog(); }
+                });
+
+        addToolActionRow(wirelessCard, "Wireless Root ADB over Wi-Fi (`adb connect <ip>:5555`)",
+                "Switches `adbd` between wireless TCP port 5555 and normal USB cable mode in one tap.",
+                "Wi-Fi ADB", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showWirelessAdbDialog(); }
+                });
+
+        addToolActionRow(wirelessCard, "Floating Soft-Button Pill (Save Worn Power & Volume Buttons)",
+                "Draggable `[≡]` edge pill with Screen Off/Lock, Home, Back, Vol-, Vol+ & Screenshot.",
+                "Soft Buttons", new View.OnClickListener() {
+                    @Override public void onClick(View v) { toggleSoftKeysPill(); }
+                });
+
+        page.addView(wirelessCard, cardMargin());
+
+        // Card 1: Complete 7-App Freedom Suite (F-Droid + E-Reader/70k Books/.CBZ + Audio + Desk Clock + App Manager + Terminal)
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Offline Android 4.2 Starter App Pack (0 Internet Needed to Install)",
-                "Everything your freed Kobo Arc 7 needs right out of the box: pre-bundled F-Droid Classic store "
-                + "(built with modern Conscrypt TLS 1.3 for Android 4.2!), offline EPUB/TXT E-Book Reader, "
-                + "and interactive Root & Linux Shell Terminal.");
+        addCardHeader(packCard, "Complete Android 4.2 App, Reader, Audio & Smart Display Suite",
+                "All built natively into this single APK and available right in your Android App Drawer!");
 
         addToolActionRow(packCard, "Install Pre-Bundled F-Droid Classic App Store (Offline APK)",
                 "Installs directly from inside this APK — includes built-in TLS 1.3 for thousands of open-source Android 4.2 apps!",
@@ -852,11 +876,35 @@ public class MainActivity extends Activity {
                     @Override public void onClick(View v) { startBundledFDroidInstallOperation(); }
                 });
 
-        addToolActionRow(packCard, "Open Built-In Offline EPUB / TXT / HTML E-Reader",
-                "Zero-account replacement for Kobo's bricked reader — Warm Sepia, Paper & Night modes + chapter TOC.",
+        addToolActionRow(packCard, "Open Arc7 E-Reader + 70,000 Free Books Store + Color .CBZ Comics",
+                "Read `.epub`/`.txt`/`.html` + Color `.cbz` Comics/Manga + 1-tap Project Gutenberg TLS 1.3 book downloads!",
                 "Open E-Reader", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Audio — Screen-Off Music & Audiobook Player",
+                "Plays MP3/M4A/OGG/FLAC/WAV with screen OFF, auto-bookmarks audiobooks, +/-30s skip & Sleep Timer!",
+                "Open Audio", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7AudioPlayerActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Desk Clock — Smart Stand, Live TLS 1.3 Weather & Photos",
+                "Fullscreen 1024x600 digital clock + live °C weather + MicroSD photo slideshow + Amber Nightstand mode!",
+                "Desk Clock", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7DeskClockActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 App Manager — Freeze Bloat, Export APKs & Trim Caches",
+                "Inspect every installed app, export `.apk` backups to MicroSD, freeze background drainers, or clear caches.",
+                "App Manager", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7AppManagerActivity.class));
                     }
                 });
 
@@ -886,6 +934,12 @@ public class MainActivity extends Activity {
         tlp.bottomMargin = dp(6);
         boostCard.addView(optimizerTelemetryBox, tlp);
 
+        addToolActionRow(boostCard, "64 GB / 128 GB / 256 GB MicroSDXC `FAT32` Card Formatter",
+                "Android 4.2 rejects `exFAT` on >=64 GB cards! Wipes exFAT/GPT & formats full capacity as fast 32 KB FAT32.",
+                "Format SDXC", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showFormatSdxcDialog(); }
+                });
+
         addToolActionRow(boostCard, "Bind Heavy Folders (Download, Books, Movies, Music, DCIM) to MicroSD",
                 "Losslessly moves existing files & mounts straight to /storage/sdcard1/Arc7SD — auto-remounts on boot!",
                 "MicroSD Expand", new View.OnClickListener() {
@@ -896,6 +950,12 @@ public class MainActivity extends Activity {
                 "Tells Android 4.2 Package Manager to place movable apps on external storage automatically.",
                 "App-to-SD Mode", new View.OnClickListener() {
                     @Override public void onClick(View v) { showAppToSdDialog(); }
+                });
+
+        addToolActionRow(boostCard, "MT8125 4-Core CPU Power Profiles & Deep-Sleep Standby Saver",
+                "Switch between E-Book Ultra Battery Saver, Balanced Daily, or Max Quad-Core Performance + Wi-Fi Sleep.",
+                "CPU & Standby", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showCpuPowerDialog(); }
                 });
 
         addToolActionRow(boostCard, "1 GB RAM + Snappy 0.5x Animations Speed Booster",
@@ -2413,6 +2473,13 @@ public class MainActivity extends Activity {
                     case 6: ok = optimizerManager.setAppInstallToExternalSd(false, sink); break;
                     case 7: ok = optimizerManager.toggleSystemAdBlocker(true, sink); break;
                     case 8: ok = optimizerManager.toggleSystemAdBlocker(false, sink); break;
+                    case 9: ok = optimizerManager.setWirelessAdbOverWifi(true, sink); break;
+                    case 10: ok = optimizerManager.setWirelessAdbOverWifi(false, sink); break;
+                    case 11: ok = optimizerManager.applyCpuPowerProfile(0, sink); break;
+                    case 12: ok = optimizerManager.applyCpuPowerProfile(1, sink); break;
+                    case 13: ok = optimizerManager.applyCpuPowerProfile(2, sink); break;
+                    case 14: ok = optimizerManager.setDeepSleepWifiStandby(true, sink); break;
+                    case 15: ok = optimizerManager.formatMicroSdCardFat32("ARC7_SDXC", sink); break;
                 }
                 final boolean resOk = ok;
                 uiHandler.post(new Runnable() {
@@ -2428,5 +2495,105 @@ public class MainActivity extends Activity {
                 });
             }
         }).start();
+    }
+
+    /* ==================== v1.4.0 NEW DIALOGS & CONTROLS ==================== */
+
+    private void showWifiDriveDialog() {
+        String ip = Arc7WifiDriveService.detectLanIp(this);
+        String pin = Arc7WifiDriveService.getOrCreatePin(this);
+        String url = "http://" + ip + ":" + Arc7WifiDriveService.PORT;
+        new AlertDialog.Builder(this)
+                .setTitle("Wi-Fi File Drive & Remote APK Installer")
+                .setMessage("Status: " + (Arc7WifiDriveService.isRunning() ? "ACTIVE & LISTENING" : "Stopped") + "\n\n"
+                        + "Browser URL:  " + url + "\n"
+                        + "Security PIN: " + pin + "\n\n"
+                        + "Open that address on any computer, Mac, iPhone, or Android browser on your Wi-Fi network to upload `.epub`/`.cbz`/movies/ROMs, remote-install `.apk` apps, download full OS backups, or grab live tablet screenshots!")
+                .setPositiveButton("Start Wi-Fi Drive", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        startService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
+                        appendLog("Started Wi-Fi Drive on http://" + Arc7WifiDriveService.detectLanIp(MainActivity.this)
+                                + ":8080 (PIN: " + Arc7WifiDriveService.getOrCreatePin(MainActivity.this) + ")");
+                        refreshDeviceSnapshotAsync();
+                    }
+                })
+                .setNeutralButton("Stop Server", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        stopService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
+                        appendLog("Stopped Wi-Fi Drive HTTP server.");
+                        refreshDeviceSnapshotAsync();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void showWirelessAdbDialog() {
+        String ip = Arc7WifiDriveService.detectLanIp(this);
+        new AlertDialog.Builder(this)
+                .setTitle("Wireless Root ADB over Wi-Fi (:5555)")
+                .setMessage("Connect from any PC / Mac / Linux terminal over Wi-Fi without touching the micro-USB port:\n\n"
+                        + "    adb connect " + ip + ":5555\n    adb shell")
+                .setPositiveButton("Enable Wi-Fi ADB (:5555)", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Enabling Wireless ADB on :5555", 9);
+                    }
+                })
+                .setNeutralButton("Disable (Back to USB)", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Restoring USB ADB mode", 10);
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void toggleSoftKeysPill() {
+        Intent svc = new Intent(this, SoftKeysOverlayService.class);
+        if (SoftKeysOverlayService.isActive()) {
+            stopService(svc);
+            Toast.makeText(this, "Floating Soft-Button Pill hidden.", Toast.LENGTH_SHORT).show();
+        } else {
+            startService(svc);
+            Toast.makeText(this, "Floating `[≡]` Soft-Button Pill active! Drag it anywhere on screen.", Toast.LENGTH_LONG).show();
+        }
+        refreshDeviceSnapshotAsync();
+    }
+
+    private void showCpuPowerDialog() {
+        String[] opts = new String[]{
+            "E-Book Ultra Battery Saver (2 active cores + powersave scaling)",
+            "Balanced Adaptive Mode (4 cores + dynamic hotplug scaling)",
+            "Max Quad-Core Performance (all 4 cores @ max clock for browsing/comics)",
+            "Enable Deep-Sleep Wi-Fi Standby (powers off Wi-Fi when screen locks)"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("MT8125 CPU Power & Standby Battery Profiles")
+                .setItems(opts, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        runOptimizerTask("Applying Power Profile", 11 + which);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showFormatSdxcDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("Format 64 GB / 128 GB / 256 GB MicroSDXC as FAT32?")
+                .setMessage("WARNING: THIS ERASES ALL EXISTING DATA ON YOUR EXTERNAL MICROSD CARD (`/dev/block/mmcblk1`)!\n\n"
+                        + "Your internal Kobo OS (`/dev/block/mmcblk0`) is NEVER touched.\n"
+                        + "Writes a clean 1 MiB-aligned `0x0C FAT32 LBA` MBR + full-capacity 32 KB-cluster FAT32 filesystem and mounts it immediately at `/storage/sdcard1`.")
+                .setPositiveButton("Erase & Format External MicroSD", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Formatting External MicroSDXC as FAT32", 15);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 }
