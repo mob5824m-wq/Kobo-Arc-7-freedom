@@ -1,0 +1,120 @@
+name: Build & Verify Kobo Arc 7 APKs
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-verify:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android API 17 (4.2.2) platform, Zig, Certifi & Androguard
+        run: |
+          yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
+          python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru
+
+      - name: Generate vector logo & 8 multi-DPI app icons and build v1.5.0 APKs from source
+        run: |
+          python3 scripts/generate-icons.py
+          ./scripts/build-all.sh
+
+      - name: Run full APK signature, Anti-Brick Guards, Logo/Icons, Clock/Alarms/Timers, 12 HD Wallpapers & TLS 1.3 verification
+        run: python3 scripts/verify-apks.py
+
+      - name: Commit refreshed signed APKs & pre-bundled offline assets back to branch
+        if: github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            docs/logo-banner.png \
+            releases/KoboArc7Freedom.apk \
+            releases/VanillaAndroid4Home.apk \
+            releases/SHA256SUMS.txt \
+            app/src/main/assets/VanillaAndroid4Home.apk \
+            app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: update pre-built signed v1.5.0 APKs, logo & custom app icons [skip ci]"
+            git push origin HEAD
+          fi
+
+      - name: Upload built APKs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kobo-arc-7-freedom-apks
+          path: |
+            releases/KoboArc7Freedom.apk
+            releases/VanillaAndroid4Home.apk
+            releases/SHA256SUMS.txt
+
+      - name: Publish signed APKs to GitHub Releases (v1.5.0 latest + update earlier tags)
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > /tmp/release-notes.md << 'EOF'
+          ## Kobo Arc 7 Freedom v1.5.0 (`ca.arc7freedom.app`)
+
+          **The Complete Anti-Brick Verified Android 4.2 Revival, 2026 `TLS 1.3` Internet, 8-App Suite, Full Clock/Alarms/Timers & 12 HD Wallpapers Release for Kobo Arc 7 (`MT8125`) & Arc 7HD (`Tegra 3`)!**
+
+          ### New in `v1.5.0`
+          1. **Brand Logo Banner + 9 Custom Multi-DPI App Icons (`mdpi`/`hdpi`/`xhdpi`/`xxhdpi`):**
+             - Custom unlocked cyan hardware-shield emblem + bespoke app icons across every launcher icon: **Kobo Arc 7 Freedom**, **Arc7 Browser (TLS 1.3)**, **Arc7 E-Reader**, **Arc7 Audio**, **Arc7 Clock**, **Arc7 Wallpapers**, **Arc7 App Manager**, **Arc7 Terminal**, and **Android 4 Home**.
+          2. **6 Deep Anti-Brick Hardware Safety Fixes Audited & Hardened:**
+             - **MediaTek `MT8125` `/proc/dumchar_info` `preloader` `mbrStartAddr` Offset Normalization** (`DeviceInspector.java`) + root-privileged `/emmc@*` & `/dev/*` resolution.
+             - **Partition Boundary Overflow Stopper (`max_bytes`) + Live `ANDROID!` Header Verification** (`native/arc7tool.c`, `Android4Installer.java`, `BackupManager.java`).
+             - **Self-Preserving `/system/app` Archiver (`set -e` + `>= 64 MB` free check + `[ -s "$backup" ]` verified non-empty backup before delete + framework/Freedom/SystemUI/Settings/Keyboard protection)**.
+             - **Zero-Brick Streaming Recovery ROM Installer (`#!/sbin/sh` `META-INF/com/google/android/update-binary`)** — streams directly onto `/system` without `delete_recursive("/system")` or `/tmp` RAM exhaustion, and verifies `/system/bin/linker`, `/system/build.prop`, and `/system/app/VanillaAndroid4Home.apk` before unmount!
+             - **Core Android 4.2 System Package & Last-Launcher Freeze Guard** (`Arc7AppManagerActivity.java`).
+             - **Triple Hardware Bus Identity Guard (`SD` vs soldered `MMC` + active mount check)** on `64/128/256 GB` MicroSDXC `FAT32` formatter (`TabletOptimizerManager.java`).
+          3. **Full Standalone `Arc7 Clock` App — Alarms, Countdown Timers, Stopwatch & World Time:**
+             - Scheduled wake-up **Alarms** (Every Day / Weekdays / Weekends / One-Time, custom labels, 5-min Snooze, reboot persistence via `BootNetworkReceiver`, plus dual **System Ringtone + 44.1 kHz Harmonic Chime Synthesizer on `STREAM_ALARM`** so even debloated tablets ALWAYS ring loud!).
+             - Background screen-wake **Countdown Timers** (`+1m`, `+3m`, `+5m`, `+10m`, `+15m`, `+30m`, `+1h`), **Centisecond Lap Stopwatch**, **World Clocks**, and **1-Tap Fullscreen Nightstand Dock**!
+          4. **Expanded HD Wallpaper Studio — 12 Built-In `1280x800` Art Themes + Custom Photo Picker:**
+             - Standalone **`Arc7 Wallpapers`** studio (`ACTION_SET_WALLPAPER` + App Drawer) AND built directly into **`VanillaAndroid4Home.apk`** (`Holo Phase Beam`, `Northern Aurora Borealis`, `Misty Blue Ridge`, `Nexus Jelly Bean Silk Ribbons`, `Pacific Ocean Coral Dusk`, `Outrun Neon Horizon Grid`, `Kobo Zen Sumi-e Ink Wash`, `Deep Cosmos & Spiral Nebula`, `Emerald Forest Sunbeams`, `Sahara Golden Twilight Dunes`, `Low-Poly Sapphire Crystal`, `Battery-Saver Pure Obsidian Glow`, plus any `.jpg`/`.png`/`.webp` from MicroSD!).
+          EOF
+
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          if gh release view v1.5.0 >/dev/null 2>&1; then
+            gh release upload v1.5.0 \
+              releases/KoboArc7Freedom.apk \
+              releases/VanillaAndroid4Home.apk \
+              releases/SHA256SUMS.txt \
+              --clobber
+          else
+            gh release create v1.5.0 \
+              releases/KoboArc7Freedom.apk \
+              releases/VanillaAndroid4Home.apk \
+              releases/SHA256SUMS.txt \
+              --target "${HEAD_COMMIT}" \
+              --latest \
+              --title "Kobo Arc 7 Freedom v1.5.0 — Custom Icons & Logo, Anti-Brick Audit, Alarms/Timers/Clock & 12 HD Wallpapers" \
+              --notes-file /tmp/release-notes.md
+          fi
+
+          for TAG in v1.4.0 v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              gh release upload "$TAG" \
+                releases/KoboArc7Freedom.apk \
+                releases/VanillaAndroid4Home.apk \
+                releases/SHA256SUMS.txt \
+                --clobber
+            fi
+          done

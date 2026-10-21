@@ -1,0 +1,20 @@
+// Top-level Gradle build configuration for Kobo Arc 7 Freedom.
+// Note: For fast, dependency-light reproducible builds of both signed APKs
+// (with static ARMv7 native binaries + Dalvik DEX 035 + JAR v1 signatures),
+// run `./scripts/build-all.sh` or `make all`.
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "com.android.tools.build:gradle:7.4.2"
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
