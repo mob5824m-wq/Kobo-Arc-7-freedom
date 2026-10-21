@@ -43,6 +43,17 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         );
                     }
 
+                    // Re-apply MicroSD heavy-folder bind mounts automatically on boot if user enabled Storage Expander
+                    if (rooted && context.getSharedPreferences(TabletOptimizerManager.PREFS, Context.MODE_PRIVATE)
+                            .getBoolean(TabletOptimizerManager.KEY_BIND_SD_BOOT, false)) {
+                        TabletOptimizerManager.applyMicroSdBindMounts(context, shell, null, false);
+                    }
+
+                    // Restore Warm Night / Amber Reading Filter overlay across reboots if active
+                    if (NightFilterService.currentMode(context) != NightFilterService.MODE_OFF) {
+                        NightFilterService.applyMode(context, NightFilterService.currentMode(context));
+                    }
+
                     ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
                     NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
                     if (active != null && active.isConnected()) {

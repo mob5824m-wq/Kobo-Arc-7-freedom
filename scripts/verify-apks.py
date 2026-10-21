@@ -95,9 +95,19 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert "ca.arc7freedom.app.Arc7BrowserActivity" in apk.get_activities(), "Missing Arc7BrowserActivity!"
+        assert str(apk.get_androidversion_name()) == "1.3.0", f"Expected 1.3.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "130", f"Expected 130, got {apk.get_androidversion_code()}"
+        acts = apk.get_activities()
+        for req_act in (
+            "ca.arc7freedom.app.MainActivity",
+            "ca.arc7freedom.app.Arc7BrowserActivity",
+            "ca.arc7freedom.app.Arc7EbookReaderActivity",
+            "ca.arc7freedom.app.Arc7TerminalActivity",
+        ):
+            assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
+        assert "ca.arc7freedom.app.NightFilterService" in apk.get_services(), "Missing NightFilterService!"
         assert "ca.arc7freedom.app.BootNetworkReceiver" in apk.get_receivers(), "Missing BootNetworkReceiver!"
-    print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, minSdk=15, targetSdk=17 (Android 4.2.2)")
+    print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, v={apk.get_androidversion_name()}, minSdk=15, targetSdk=17")
 
     with zipfile.ZipFile(apk_path, "r") as zf:
         names = set(zf.namelist())
@@ -122,8 +132,19 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
     with zipfile.ZipFile(apk_path, "r") as zf:
         names = set(zf.namelist())
         assert "assets/VanillaAndroid4Home.apk" in names
+        assert "assets/starter-apps/FDroidClassicLegacy.apk" in names, "Missing bundled offline F-Droid Classic APK!"
+        assert "assets/hosts-adblock.txt" in names, "Missing bundled offline /etc/hosts ad-blocker!"
         assert "assets/cacerts/ca-bundle-2026.crt" in names
         assert "assets/cacerts/manifest.tsv" in names
+
+        # Verify bundled offline F-Droid Classic APK is valid for Android 4.2.2 (API <= 17)
+        with tempfile.NamedTemporaryFile(suffix=".apk") as tf:
+            tf.write(zf.read("assets/starter-apps/FDroidClassicLegacy.apk"))
+            tf.flush()
+            fd_apk = APK(tf.name)
+            fd_min_sdk = int(fd_apk.get_min_sdk_version())
+            assert fd_min_sdk <= 17, f"Bundled F-Droid minSdk={fd_min_sdk} > 17 (incompatible with Android 4.2.2)!"
+            print(f"  [PASS] Pre-bundled offline F-Droid Classic verified: pkg={fd_apk.get_package()}, minSdk={fd_min_sdk} (<=17 Android 4.2.2 compatible!)")
 
         required_roots = {
             "assets/cacerts/android-hashed/6187b673.0": "ISRG Root X1 (Let's Encrypt)",
@@ -218,6 +239,75 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
         proc.terminate()
         proc.wait(timeout=5)
 
+    # Verify Upgrade #1: `gen-local-ca` + `HTTP CONNECT` upgrading legacy TLS 1.2 client -> STRICT TLS 1.3 server!
+    import ssl
+    import threading
+    with tempfile.TemporaryDirectory() as ca_tmp:
+        gen = subprocess.run([arc7tls, "gen-local-ca", ca_tmp], capture_output=True, text=True, check=True)
+        ossl_h = subprocess.run(
+            ["openssl", "x509", "-in", f"{ca_tmp}/local-ca.crt", "-subject_hash_old", "-noout"],
+            capture_output=True, text=True, check=True,
+        ).stdout.strip() + ".0"
+        assert f"ANDROID_HASH_FILE={ossl_h}" in gen.stdout, f"Hash mismatch: {ossl_h} vs {gen.stdout}"
+
+        subprocess.run(
+            ["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
+             "-days", "365", "-nodes", "-keyout", f"{ca_tmp}/up.key", "-out", f"{ca_tmp}/up.crt",
+             "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"],
+            check=True, capture_output=True,
+        )
+        srv_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        srv_ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+        srv_ctx.load_cert_chain(f"{ca_tmp}/up.crt", f"{ca_tmp}/up.key")
+        raw_srv = socket.socket()
+        raw_srv.bind(("127.0.0.1", 0))
+        raw_srv.listen(5)
+        up_port = raw_srv.getsockname()[1]
+        seen_up_ver = []
+
+        def _tls13_srv() -> None:
+            conn, _ = raw_srv.accept()
+            sc_s = srv_ctx.wrap_socket(conn, server_side=True)
+            seen_up_ver.append(sc_s.version())
+            sc_s.recv(4096)
+            sc_s.sendall(b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\nTLS13_BRIDGE_VERIFIED_OK\n")
+            sc_s.close()
+
+        threading.Thread(target=_tls13_srv, daemon=True).start()
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as ps:
+            ps.bind(("127.0.0.1", 0))
+            pport = ps.getsockname()[1]
+
+        p2 = subprocess.Popen(
+            [arc7tls, "proxy", f"{ca_tmp}/up.crt", str(pport), f"{ca_tmp}/local-ca.crt", f"{ca_tmp}/local-ca.key"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        try:
+            assert p2.stdout is not None
+            ready = p2.stdout.readline()
+            assert "CONNECT_TLS13=ENABLED" in ready, ready
+            csock = socket.create_connection(("127.0.0.1", pport), timeout=5)
+            csock.sendall(f"CONNECT 127.0.0.1:{up_port} HTTP/1.1\r\nHost: 127.0.0.1:{up_port}\r\n\r\n".encode())
+            assert b"200 Connection Established" in csock.recv(1024)
+            cli_ctx = ssl.create_default_context(cafile=f"{ca_tmp}/local-ca.crt")
+            cli_ctx.maximum_version = ssl.TLSVersion.TLSv1_2
+            tls_cli = cli_ctx.wrap_socket(csock, server_hostname="127.0.0.1")
+            cli_ver = tls_cli.version()
+            tls_cli.sendall(b"GET /check HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+            resp_data = b""
+            while True:
+                chunk = tls_cli.recv(4096)
+                if not chunk:
+                    break
+                resp_data += chunk
+            tls_cli.close()
+            assert cli_ver == "TLSv1.2" and seen_up_ver == ["TLSv1.3"] and b"TLS13_BRIDGE_VERIFIED_OK" in resp_data
+            print(f"  [PASS] System-Wide TLS 1.3 Upgrade Proxy verified live: Client {cli_ver} -> Proxy CONNECT -> Upstream {seen_up_ver[0]}!")
+        finally:
+            p2.terminate()
+            p2.wait(timeout=5)
+            raw_srv.close()
+
 
 def check_boot_inspector_and_java_logic() -> None:
     print("\n=== Running Functional Tests (Boot Header Validator + Scatter Builder + ROM Zip Guard) ===")
@@ -267,6 +357,50 @@ def check_boot_inspector_and_java_logic() -> None:
         r_bad = subprocess.run([arc7tool, "inspect-boot", bad_img], capture_output=True, text=True)
         assert r_bad.returncode != 0 and "VALID_BOOT_IMG=NO" in r_bad.stdout, r_bad.stdout
         print("  [PASS] arc7tool inspect-boot safely rejected corrupt recovery image")
+
+        # Verify Upgrade #4: Anti-Brick MT8125 `0x58881688` + gzip/cpio `patch-boot-adb` engine!
+        import gzip
+        def _cpio_entry(name: str, data: bytes, mode: int = 0o100644, ino: int = 1) -> bytes:
+            nb = name.encode() + b"\x00"
+            h = f"070701{ino:08X}{mode:08X}{0:08X}{0:08X}{1:08X}{0:08X}{len(data):08X}{0:08X}{0:08X}{0:08X}{0:08X}{len(nb):08X}{0:08X}".encode()
+            p1 = b"\x00" * (((110 + len(nb) + 3) & ~3) - (110 + len(nb)))
+            p2 = b"\x00" * (((len(data) + 3) & ~3) - len(data))
+            return h + nb + p1 + data + p2
+
+        cpio_raw = (
+            _cpio_entry("default.prop", b"ro.secure=1\nro.debuggable=0\nro.product.device=apollojr\n", ino=10)
+            + _cpio_entry("init.mt8125.rc", b"on boot\n", ino=11)
+            + _cpio_entry("TRAILER!!!", b"", mode=0, ino=0)
+        )
+        gz_raw = gzip.compress(cpio_raw)
+        mtk_ramdisk = struct.pack("<II32s", 0x58881688, len(gz_raw), b"ROOTFS\x00").ljust(512, b"\xff") + gz_raw
+        kern_raw = b"MT8125_ZIMAGE" * 80
+        ps = 2048
+        pad_p = lambda b: b + b"\x00" * (((len(b) + ps - 1) & ~(ps - 1)) - len(b))
+        in_mtk = os.path.join(tmp, "mt8125_in.img")
+        out_mtk = os.path.join(tmp, "mt8125_out.img")
+        with open(in_mtk, "wb") as f:
+            f.write(
+                struct.pack(
+                    "<8s10I16s512s32s",
+                    b"ANDROID!", len(kern_raw), 0x10008000, len(mtk_ramdisk), 0x11000000,
+                    0, 0x10F00000, 0x10000100, ps, 0, 0, b"apollojr\x00", b"console=ttyMT0", b"\x00" * 32,
+                ).ljust(ps, b"\x00")
+                + pad_p(kern_raw)
+                + pad_p(mtk_ramdisk)
+            )
+        rp = subprocess.run([arc7tool, "patch-boot-adb", in_mtk, out_mtk], capture_output=True, text=True, check=True)
+        assert "PATCH_BOOT_ADB=OK MTK_RAMDISK_HDR=YES" in rp.stdout
+        ri = subprocess.run([arc7tool, "inspect-boot", out_mtk], capture_output=True, text=True, check=True)
+        assert "VALID_BOOT_IMG=YES" in ri.stdout
+        out_b = open(out_mtk, "rb").read()
+        rsz = struct.unpack_from("<I", out_b, 16)[0]
+        roff = ps + len(pad_p(kern_raw))
+        m_out, d_out = struct.unpack_from("<II", out_b, roff)
+        assert m_out == 0x58881688 and d_out == rsz - 512
+        infl = gzip.decompress(out_b[roff + 512 : roff + rsz])
+        assert b"ro.secure=0\n" in infl and b"ro.debuggable=1\n" in infl
+        print("  [PASS] Anti-Brick MT8125 0x58881688 boot.img Root-ADB patcher verified end-to-end!")
 
         tegra_zip = os.path.join(tmp, "wrong-tegra-cardhu-rom.zip")
         with zipfile.ZipFile(tegra_zip, "w") as zf:

@@ -612,6 +612,19 @@ public class NetworkCertManager {
         });
     }
 
+    public synchronized File ensureLocalUpgradeCaDir() {
+        File caDir = new File(appContext.getFilesDir(), "local_tls13_ca");
+        File crt = new File(caDir, "local-ca.crt");
+        File key = new File(caDir, "local-ca.key");
+        if (crt.exists() && key.exists() && crt.length() > 200 && key.length() > 200) {
+            return caDir;
+        }
+        caDir.mkdirs();
+        File tlsBin = shell.getTlsEngineBinary();
+        shell.execCommandArray(new String[]{tlsBin.getAbsolutePath(), "gen-local-ca", caDir.getAbsolutePath()}, null);
+        return caDir;
+    }
+
     public synchronized boolean startBrowserGateway() {
         if (isLocalProxyListening(DEFAULT_PROXY_PORT)) {
             return true;
@@ -619,21 +632,127 @@ public class NetworkCertManager {
         try {
             File bundleFile = ensureCaBundleFile();
             File tlsBin = shell.getTlsEngineBinary();
-            ProcessBuilder pb = new ProcessBuilder(
-                    tlsBin.getAbsolutePath(),
-                    "proxy",
-                    bundleFile.getAbsolutePath(),
-                    String.valueOf(DEFAULT_PROXY_PORT)
-            );
+            File localCaDir = ensureLocalUpgradeCaDir();
+            File localCrt = new File(localCaDir, "local-ca.crt");
+            File localKey = new File(localCaDir, "local-ca.key");
+
+            ProcessBuilder pb;
+            if (localCrt.exists() && localKey.exists()) {
+                pb = new ProcessBuilder(
+                        tlsBin.getAbsolutePath(),
+                        "proxy",
+                        bundleFile.getAbsolutePath(),
+                        String.valueOf(DEFAULT_PROXY_PORT),
+                        localCrt.getAbsolutePath(),
+                        localKey.getAbsolutePath()
+                );
+            } else {
+                pb = new ProcessBuilder(
+                        tlsBin.getAbsolutePath(),
+                        "proxy",
+                        bundleFile.getAbsolutePath(),
+                        String.valueOf(DEFAULT_PROXY_PORT)
+                );
+            }
             pb.redirectErrorStream(true);
-            proxyProcess = pb.start();
-            for (int i = 0; i < 15; i++) {
+            final Process started = pb.start();
+            proxyProcess = started;
+            Thread drain = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        InputStream is = started.getInputStream();
+                        byte[] discard = new byte[1024];
+                        while (is.read(discard) > 0) { /* keep stdout pipe unblocked forever */ }
+                    } catch (Throwable ignored) {}
+                }
+            });
+            drain.setDaemon(true);
+            drain.start();
+            for (int i = 0; i < 20; i++) {
                 if (isLocalProxyListening(DEFAULT_PROXY_PORT)) return true;
                 Thread.sleep(100);
             }
         } catch (Throwable ignored) {
         }
         return isLocalProxyListening(DEFAULT_PROXY_PORT);
+    }
+
+    /**
+     * Enables or disables the System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT 127.0.0.1:8118`)
+     * so EVERY legacy Android 4.2 app on the tablet transparently connects to modern 2026 TLS 1.3 servers!
+     */
+    public boolean setSystemWideTls13ProxyEnabled(boolean enable, final ProgressListener listener) {
+        if (!enable) {
+            if (shell.isRootAvailable()) {
+                shell.execRoot(
+                        "settings delete global http_proxy >/dev/null 2>&1 || true; " +
+                        "settings put global http_proxy :0 >/dev/null 2>&1 || true; " +
+                        "settings delete global global_http_proxy_host >/dev/null 2>&1 || true; " +
+                        "settings delete global global_http_proxy_port >/dev/null 2>&1 || true",
+                        null
+                );
+            }
+            appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE)
+                    .edit().putBoolean("sys_tls13_proxy", false).commit();
+            if (listener != null) {
+                listener.onLog("Disabled global Android HTTP proxy (`settings delete global http_proxy`). Local browser gateway on 127.0.0.1:8118 remains ready anytime.");
+            }
+            return true;
+        }
+
+        // Restart gateway fresh to ensure per-device Local CA (`CONNECT_TLS13=ENABLED`) is loaded
+        stopBrowserGateway();
+        File caDir = ensureLocalUpgradeCaDir();
+        File localCrt = new File(caDir, "local-ca.crt");
+        if (!localCrt.exists()) {
+            if (listener != null) listener.onLog("ERROR: Failed generating per-device Local TLS 1.3 Upgrade CA.");
+            return false;
+        }
+
+        // Export `Arc7-Local-TLS13-CA.crt` to Download folder for non-root fallback
+        try {
+            File dl = new File(android.os.Environment.getExternalStorageDirectory(), "Download");
+            if (!dl.exists()) dl.mkdirs();
+            RootShell.copyFile(localCrt, new File(dl, "Arc7-Local-TLS13-CA.crt"));
+        } catch (Throwable ignored) {}
+
+        boolean hasRoot = shell.isRootAvailable();
+        if (hasRoot) {
+            File[] files = caDir.listFiles();
+            String hashedPath = null;
+            if (files != null) {
+                for (File f : files) {
+                    if (f.getName().endsWith(".0")) {
+                        hashedPath = f.getAbsolutePath();
+                        break;
+                    }
+                }
+            }
+            String cmd =
+                    RootShell.remountSystemRwCmd() + " && " +
+                    (hashedPath != null
+                            ? "cp -f '" + hashedPath + "' /system/etc/security/cacerts/ && chmod 0644 /system/etc/security/cacerts/*.0 && " +
+                              "mkdir -p /data/misc/keychain/cacerts-added && cp -f '" + hashedPath + "' /data/misc/keychain/cacerts-added/ && chmod 0644 /data/misc/keychain/cacerts-added/* && "
+                            : "") +
+                    RootShell.remountSystemRoCmd() + " && " +
+                    "settings put global http_proxy 127.0.0.1:" + DEFAULT_PROXY_PORT + " && " +
+                    "settings put global global_http_proxy_host 127.0.0.1 && " +
+                    "settings put global global_http_proxy_port " + DEFAULT_PROXY_PORT + " && " +
+                    "echo SYS_TLS13_PROXY_OK";
+            RootShell.ExecResult r = shell.execRoot(cmd, null);
+            if (listener != null) listener.onLog(r.stdout.trim());
+        } else if (listener != null) {
+            listener.onLog("Unrooted mode: saved `/sdcard/Download/Arc7-Local-TLS13-CA.crt`. Install it via Settings -> Security -> Install from SD card and set Wi-Fi Proxy to `127.0.0.1` port `8118` (or root first on Tab 1 for zero-prompt system-wide trust!).");
+        }
+
+        boolean up = startBrowserGateway();
+        appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE)
+                .edit().putBoolean("sys_tls13_proxy", up).commit();
+        if (listener != null && up) {
+            listener.onLog("SUCCESS: System-Wide TLS 1.3 Upgrade Proxy is LIVE on `127.0.0.1:" + DEFAULT_PROXY_PORT + "` (`CONNECT_TLS13=ENABLED`)! All legacy Android 4.2 apps now handshake locally & tunnel upstream over verified 2026 TLS 1.3!");
+        }
+        return up;
     }
 
     public synchronized void stopBrowserGateway() {

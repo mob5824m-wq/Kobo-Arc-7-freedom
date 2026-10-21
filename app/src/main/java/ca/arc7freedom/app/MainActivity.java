@@ -54,6 +54,8 @@ public class MainActivity extends Activity {
     private NetworkCertManager certManager;
     private BackupManager backupManager;
     private Android4Installer android4Installer;
+    private TabletOptimizerManager optimizerManager;
+    private TextView optimizerTelemetryBox;
     private DeviceInspector.Snapshot snapshot;
     private NetworkCertManager.NetworkStatus netStatus;
     private int selectedVolumeIndex = 0;
@@ -103,16 +105,19 @@ public class MainActivity extends Activity {
         certManager = new NetworkCertManager(this, rootShell);
         backupManager = new BackupManager(this, rootShell);
         android4Installer = new Android4Installer(this, rootShell, backupManager);
+        optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.1.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", 120 pre-downloaded 2026 CA certs + ARMv7 TLS 1.3 engine loaded).");
+        appendLog("Kobo Arc 7 Freedom v1.3.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", 120 2026 CAs + System-Wide TLS 1.3 Upgrade Proxy + Offline App Pack + Storage/Speed Suite loaded).");
         refreshDeviceSnapshotAsync();
     }
 
     @Override
     protected void onDestroy() {
-        if (certManager != null) {
+        boolean sysProxy = getSharedPreferences(TabletOptimizerManager.PREFS, MODE_PRIVATE)
+                .getBoolean("sys_tls13_proxy", false);
+        if (certManager != null && !sysProxy) {
             certManager.stopBrowserGateway();
         }
         super.onDestroy();
@@ -458,6 +463,41 @@ public class MainActivity extends Activity {
         certCard.addView(subRow);
         page.addView(certCard, cardMargin());
 
+        // NEW v1.3.0 Upgrade #1: System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT 127.0.0.1:8118`)
+        LinearLayout sysProxyCard = makeCard();
+        addCardHeader(sysProxyCard,
+                "System-Wide TLS 1.3 Upgrade Proxy for All Android 4.2 Apps (127.0.0.1:8118)",
+                "Android 4.2 apps from 2013 fail on modern websites that strictly require TLS 1.3 (X25519 / ECDSA). "
+                + "Generates a unique private per-device Root CA right on your tablet, verifies upstream servers "
+                + "strictly via Mbed-TLS 3.6 TLS 1.3 + our 120 2026 CAs, and upgrades EVERY app on your Kobo Arc 7!");
+
+        LinearLayout spRow = new LinearLayout(this);
+        spRow.setOrientation(LinearLayout.HORIZONTAL);
+        spRow.setPadding(0, dp(10), 0, 0);
+
+        Button enableSysProxyBtn = makePrimaryButton("Enable System-Wide TLS 1.3 Proxy");
+        enableSysProxyBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleSystemWideTls13ProxyOperation(true);
+            }
+        });
+        spRow.addView(enableSysProxyBtn, new LinearLayout.LayoutParams(0, dp(46), 1.35f));
+
+        spRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
+
+        Button disableSysProxyBtn = makeSecondaryButton("Disable Global Proxy");
+        disableSysProxyBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleSystemWideTls13ProxyOperation(false);
+            }
+        });
+        spRow.addView(disableSysProxyBtn, new LinearLayout.LayoutParams(0, dp(46), 0.9f));
+
+        sysProxyCard.addView(spRow);
+        page.addView(sysProxyCard, cardMargin());
+
         // Card 2: Direct Modern TLS 1.3 Downloader + Local Browser Gateway
         LinearLayout dlCard = makeCard();
         addCardHeader(dlCard, "Download Android ROM (.zip), Recovery (.img) or Apps (.apk) via TLS 1.3",
@@ -519,16 +559,14 @@ public class MainActivity extends Activity {
 
         qRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
 
-        Button fdroidBtn = makeSecondaryButton("Get F-Droid (.apk)");
+        Button fdroidBtn = makeSecondaryButton("Install Offline F-Droid");
         fdroidBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                String u = "https://f-droid.org/archive/org.fdroid.fdroid_1002051.apk";
-                downloadUrlInput.setText(u);
-                startDirectTlsDownload(u);
+                startBundledFDroidInstallOperation();
             }
         });
-        qRow.addView(fdroidBtn, new LinearLayout.LayoutParams(0, dp(44), 0.9f));
+        qRow.addView(fdroidBtn, new LinearLayout.LayoutParams(0, dp(44), 0.95f));
 
         dlCard.addView(qRow);
         page.addView(dlCard, cardMargin());
@@ -757,13 +795,134 @@ public class MainActivity extends Activity {
 
         page.addView(optBCard, cardMargin());
 
+        // NEW v1.3.0 Upgrade #4: Anti-Brick On-Device `boot.img` & `recovery.img` Root-ADB Patcher
+        LinearLayout optCCard = makeCard();
+        addCardHeader(optCCard,
+                "Option C — Anti-Brick Root-ADB Boot & Recovery Ramdisk Patcher (MT8125 Safe)",
+                "Permanent unbrick insurance! Dumps your live `boot` or `recovery` partition, saves an untouched backup "
+                + "first, preserves MediaTek MT8125 512-byte `0x58881688` ramdisk headers, injects `ro.secure=0` + "
+                + "`ro.debuggable=1` + `persist.sys.usb.config=mtp,adb`, verifies headers, and flashes cleanly — giving "
+                + "early-init `adb shell` root (`#`) even before Android finishes booting!");
+
+        LinearLayout optCBtns = new LinearLayout(this);
+        optCBtns.setOrientation(LinearLayout.HORIZONTAL);
+        optCBtns.setPadding(0, dp(10), 0, 0);
+
+        Button patchBootBtn = makePrimaryButton("Patch Live boot.img (Root ADB)");
+        patchBootBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startAntiBrickPatchOperation(false);
+            }
+        });
+        optCBtns.addView(patchBootBtn, new LinearLayout.LayoutParams(0, dp(46), 1.15f));
+
+        optCBtns.addView(new View(this), new LinearLayout.LayoutParams(dp(10), dp(1)));
+
+        Button patchRecBtn = makeSecondaryButton("Patch Live recovery.img (Root ADB)");
+        patchRecBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startAntiBrickPatchOperation(true);
+            }
+        });
+        optCBtns.addView(patchRecBtn, new LinearLayout.LayoutParams(0, dp(46), 1.15f));
+
+        optCCard.addView(optCBtns);
+        page.addView(optCCard, cardMargin());
+
         return page;
     }
 
-    /* ========================== TAB 4: SYSTEM TOOLS ========================== */
+    /* ========================== TAB 5: STARTER APPS, STORAGE, SPEED & TOOLS ========================== */
     private LinearLayout buildTab4Tools() {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
+
+        // Card 1: Offline Android 4.2 Starter App Pack (F-Droid Classic + E-Reader + Root Terminal)
+        LinearLayout packCard = makeCard();
+        addCardHeader(packCard, "Offline Android 4.2 Starter App Pack (0 Internet Needed to Install)",
+                "Everything your freed Kobo Arc 7 needs right out of the box: pre-bundled F-Droid Classic store "
+                + "(built with modern Conscrypt TLS 1.3 for Android 4.2!), offline EPUB/TXT E-Book Reader, "
+                + "and interactive Root & Linux Shell Terminal.");
+
+        addToolActionRow(packCard, "Install Pre-Bundled F-Droid Classic App Store (Offline APK)",
+                "Installs directly from inside this APK — includes built-in TLS 1.3 for thousands of open-source Android 4.2 apps!",
+                "Install F-Droid", new View.OnClickListener() {
+                    @Override public void onClick(View v) { startBundledFDroidInstallOperation(); }
+                });
+
+        addToolActionRow(packCard, "Open Built-In Offline EPUB / TXT / HTML E-Reader",
+                "Zero-account replacement for Kobo's bricked reader — Warm Sepia, Paper & Night modes + chapter TOC.",
+                "Open E-Reader", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Built-In Root (#) & Linux Shell Terminal",
+                "Run `su`, `df`, `mount`, `dmesg`, `arc7tool`, `arc7tls`, or any Linux command right on the tablet.",
+                "Open Terminal", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7TerminalActivity.class));
+                    }
+                });
+
+        page.addView(packCard, cardMargin());
+
+        // Card 2: 8 GB Storage Expander + Speed, Ad-Blocker, Night Filter & Battery Pack
+        LinearLayout boostCard = makeCard();
+        addCardHeader(boostCard, "8 GB Storage Expander, Speed Boost, Ad-Block, Night Filter & Battery",
+                "Expand Kobo Arc 7's tiny 8 GB eMMC seamlessly onto your MicroSD card, speed up 1 GB RAM, "
+                + "block heavy ad trackers in /etc/hosts, filter blue light at night, and calibrate battery stats.");
+
+        optimizerTelemetryBox = makeBodyText("Inspecting storage, filter & battery telemetry...");
+        optimizerTelemetryBox.setTypeface(Typeface.MONOSPACE);
+        optimizerTelemetryBox.setPadding(dp(12), dp(10), dp(12), dp(10));
+        setBg(optimizerTelemetryBox, box(BG_ELEVATED, BORDER_SUBTLE, 1, 6));
+        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tlp.topMargin = dp(8);
+        tlp.bottomMargin = dp(6);
+        boostCard.addView(optimizerTelemetryBox, tlp);
+
+        addToolActionRow(boostCard, "Bind Heavy Folders (Download, Books, Movies, Music, DCIM) to MicroSD",
+                "Losslessly moves existing files & mounts straight to /storage/sdcard1/Arc7SD — auto-remounts on boot!",
+                "MicroSD Expand", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showMicroSdExpanderDialog(); }
+                });
+
+        addToolActionRow(boostCard, "Default New App Installs to External MicroSD (`pm set-install-location 2`)",
+                "Tells Android 4.2 Package Manager to place movable apps on external storage automatically.",
+                "App-to-SD Mode", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showAppToSdDialog(); }
+                });
+
+        addToolActionRow(boostCard, "1 GB RAM + Snappy 0.5x Animations Speed Booster",
+                "Frees page cache, tunes kernel lowmemorykiller & swappiness=20, and sets 0.5x UI animations.",
+                "Boost Speed", new View.OnClickListener() {
+                    @Override public void onClick(View v) { runOptimizerTask("1 GB RAM & Speed Boost", 1); }
+                });
+
+        addToolActionRow(boostCard, "System-Wide Offline /etc/hosts Ad, Tracker & Telemetry Shield",
+                "Blocks CPU-heavy ad scripts & dead Kobo telemetry across ALL browsers & apps (1-tap reversible).",
+                "Ad-Block Shield", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showAdBlockerDialog(); }
+                });
+
+        addToolActionRow(boostCard, "Warm Amber Night Reading Filter / Extra-Dim Darkroom Overlay",
+                "Hardware-independent warm tint & extra-dim filter for comfortable bedtime reading (zero touch block).",
+                "Night Filter", new View.OnClickListener() {
+                    @Override public void onClick(View v) { showNightFilterDialog(); }
+                });
+
+        addToolActionRow(boostCard, "Calibrate Aging Battery Fuel Gauge (`batterystats.bin` Reset)",
+                "Fixes sudden battery percentage jumps on older Kobo Arc 7 cells.",
+                "Calibrate Battery", new View.OnClickListener() {
+                    @Override public void onClick(View v) { runOptimizerTask("Calibrate Battery Fuel Gauge", 2); }
+                });
+
+        page.addView(boostCard, cardMargin());
 
         LinearLayout launcherCard = makeCard();
         addCardHeader(launcherCard, "Launcher, Home Button & System Controls",
@@ -897,11 +1056,15 @@ public class MainActivity extends Activity {
             public void run() {
                 final DeviceInspector.Snapshot snap = DeviceInspector.collect(MainActivity.this, rootShell);
                 final NetworkCertManager.NetworkStatus ns = certManager.inspectStatus();
+                final String optSummary = optimizerManager != null ? optimizerManager.inspectSystemHealthSummary() : "";
                 uiHandler.post(new Runnable() {
                     @Override
                     public void run() {
                         snapshot = snap;
                         netStatus = ns;
+                        if (optimizerTelemetryBox != null) {
+                            optimizerTelemetryBox.setText(optSummary);
+                        }
                         renderSnapshot();
                     }
                 });
@@ -2054,5 +2217,216 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         rlp.topMargin = dp(8);
         parent.addView(row, rlp);
+    }
+
+    /* ==================== v1.3.0 ALL-5 UPGRADE ACTION HANDLERS ==================== */
+
+    private TabletOptimizerManager.LogSink makeUiLogSink() {
+        return new TabletOptimizerManager.LogSink() {
+            @Override
+            public void onLog(String line) {
+                appendLog(line);
+            }
+        };
+    }
+
+    private void toggleSystemWideTls13ProxyOperation(final boolean enable) {
+        if (taskRunning) return;
+        taskRunning = true;
+        setProgressUi(true, 30, enable ? "Enabling System-Wide TLS 1.3 Upgrade Proxy..." : "Disabling Global Proxy...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final boolean ok = certManager.setSystemWideTls13ProxyEnabled(enable, new NetworkCertManager.ProgressListener() {
+                    @Override public void onProgress(int pct, String msg) { setProgressUi(true, pct, msg); }
+                    @Override public void onLog(String line) { appendLog(line); }
+                });
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        taskRunning = false;
+                        setProgressUi(false, 100, "Done");
+                        Toast.makeText(MainActivity.this,
+                                ok ? (enable ? "System-Wide TLS 1.3 Upgrade Proxy ENABLED!" : "Global HTTP Proxy disabled.")
+                                   : "Could not start proxy — check log console below.",
+                                Toast.LENGTH_LONG).show();
+                        refreshDeviceSnapshotAsync();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void startBundledFDroidInstallOperation() {
+        if (taskRunning) return;
+        taskRunning = true;
+        setProgressUi(true, 35, "Installing Pre-Bundled Offline F-Droid Classic (Android 4.2 + TLS 1.3)...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final boolean ok = optimizerManager.installBundledFDroidClassic(makeUiLogSink());
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        taskRunning = false;
+                        setProgressUi(false, 100, "Done");
+                        Toast.makeText(MainActivity.this,
+                                ok ? "F-Droid Classic ready! Check your App Drawer or installer prompt."
+                                   : "F-Droid extract/install failed — check console log.",
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void startAntiBrickPatchOperation(final boolean recovery) {
+        final String targetLabel = recovery ? "recovery" : "boot";
+        new AlertDialog.Builder(this)
+                .setTitle("Anti-Brick Root-ADB Patcher (" + targetLabel + ")")
+                .setMessage("This backs up your untouched stock `" + targetLabel + "` partition first, unpacks its ramdisk "
+                        + "(preserving MediaTek MT8125 `0x58881688` headers), sets `ro.secure=0` + `ro.debuggable=1` + "
+                        + "`persist.sys.usb.config=mtp,adb`, verifies headers, and flashes it safely.\n\nProceed?")
+                .setPositiveButton("Backup & Patch " + targetLabel, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (taskRunning) return;
+                        taskRunning = true;
+                        setProgressUi(true, 25, "Patching " + targetLabel + " ramdisk for permanent Root ADB...");
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                final boolean ok = optimizerManager.patchLivePartitionRootAdb(snapshot, recovery, makeUiLogSink());
+                                uiHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        taskRunning = false;
+                                        setProgressUi(false, 100, "Done");
+                                        Toast.makeText(MainActivity.this,
+                                                ok ? ("Patched " + targetLabel + " with Root ADB & saved stock backup!")
+                                                   : "Patch aborted safely — see log console.",
+                                                Toast.LENGTH_LONG).show();
+                                        refreshDeviceSnapshotAsync();
+                                    }
+                                });
+                            }
+                        }).start();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showMicroSdExpanderDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("8 GB Storage Expander (MicroSD Bind Mount)")
+                .setMessage("Redirects `Download`, `Books`, `Movies`, `Music`, and `DCIM` onto `/storage/sdcard1/Arc7SD/` "
+                        + "(copying existing files safely first without deleting anything) and automatically re-mounts on every boot!")
+                .setPositiveButton("Enable MicroSD Expansion", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Enabling MicroSD Folder Bind Mounts", 3);
+                    }
+                })
+                .setNeutralButton("Disable / Unmount Binds", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Unmounting MicroSD Folder Binds", 4);
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void showAppToSdDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("App Install Location Policy")
+                .setMessage("Choose where Android 4.2 installs movable user apps by default:")
+                .setPositiveButton("Prefer External SD (2)", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Setting pm install-location 2", 5);
+                    }
+                })
+                .setNeutralButton("Auto Default (0)", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Resetting pm install-location 0", 6);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showAdBlockerDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("System-Wide Offline /etc/hosts Ad & Tracker Shield")
+                .setMessage("Blocks heavy ad scripts, trackers & dead Kobo telemetry system-wide with zero background RAM usage "
+                        + "(automatically saves `/system/etc/hosts.arc7.bak` so you can restore anytime).")
+                .setPositiveButton("Enable Ad-Block Shield", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Installing /etc/hosts Ad-Block Shield", 7);
+                    }
+                })
+                .setNeutralButton("Restore Stock /etc/hosts", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int w) {
+                        runOptimizerTask("Restoring Stock /etc/hosts", 8);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showNightFilterDialog() {
+        String[] choices = new String[]{
+            "OFF — Normal Display",
+            "Warm Sepia — Gentle Book Paper Reading Tint",
+            "Deep Amber Night — Blocks Blue Light in Bed",
+            "Extra-Dim Darkroom — Ultra-Low Brightness Filter"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Screen Warmth & Night Reading Filter")
+                .setSingleChoiceItems(choices, NightFilterService.currentMode(this), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        NightFilterService.applyMode(MainActivity.this, which);
+                        appendLog("Applied Night Filter mode -> " + NightFilterService.modeLabel(which));
+                        dialog.dismiss();
+                        refreshDeviceSnapshotAsync();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void runOptimizerTask(final String label, final int actionCode) {
+        if (taskRunning) return;
+        taskRunning = true;
+        setProgressUi(true, 40, label + "...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                boolean ok = false;
+                TabletOptimizerManager.LogSink sink = makeUiLogSink();
+                switch (actionCode) {
+                    case 1: ok = optimizerManager.applyOneGigRamAndSpeedBoost(sink); break;
+                    case 2: ok = optimizerManager.calibrateBatteryFuelGauge(sink); break;
+                    case 3: ok = optimizerManager.enableMicroSdFolderExpansion(sink); break;
+                    case 4: ok = optimizerManager.disableMicroSdFolderExpansion(sink); break;
+                    case 5: ok = optimizerManager.setAppInstallToExternalSd(true, sink); break;
+                    case 6: ok = optimizerManager.setAppInstallToExternalSd(false, sink); break;
+                    case 7: ok = optimizerManager.toggleSystemAdBlocker(true, sink); break;
+                    case 8: ok = optimizerManager.toggleSystemAdBlocker(false, sink); break;
+                }
+                final boolean resOk = ok;
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        taskRunning = false;
+                        setProgressUi(false, 100, "Done");
+                        Toast.makeText(MainActivity.this,
+                                resOk ? (label + " complete!") : (label + " finished — check console log."),
+                                Toast.LENGTH_SHORT).show();
+                        refreshDeviceSnapshotAsync();
+                    }
+                });
+            }
+        }).start();
     }
 }

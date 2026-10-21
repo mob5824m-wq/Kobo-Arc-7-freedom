@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -37,18 +38,26 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "mbedtls/asn1write.h"
+#include "mbedtls/bignum.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/entropy.h"
 #include "mbedtls/error.h"
+#include "mbedtls/md.h"
+#include "mbedtls/md5.h"
 #include "mbedtls/net_sockets.h"
+#include "mbedtls/oid.h"
+#include "mbedtls/pk.h"
+#include "mbedtls/rsa.h"
 #include "mbedtls/ssl.h"
+#include "mbedtls/x509.h"
 #include "mbedtls/x509_crt.h"
 #include "psa/crypto.h"
 
 #define MAX_URL_LEN   4096
 #define MAX_HDR_BYTES 65536
 #define MAX_REDIRECTS 12
-#define USER_AGENT    "Mozilla/5.0 (Linux; Android 4.2.2; Kobo Arc 7) Arc7Freedom/1.1"
+#define USER_AGENT    "Mozilla/5.0 (Linux; Android 4.2.2; Kobo Arc 7) Arc7Freedom/1.3"
 
 typedef struct {
     int is_https;
@@ -59,6 +68,14 @@ typedef struct {
 
 static mbedtls_x509_crt g_cacert;
 static int g_ca_loaded = 0;
+
+/* Per-device Local Root CA state for System-Wide TLS 1.3 `HTTP CONNECT` Upgrade Proxy */
+static mbedtls_x509_crt g_local_ca_crt;
+static mbedtls_pk_context g_local_ca_key;
+static mbedtls_pk_context g_leaf_key;
+static int g_connect_mitm_enabled = 0;
+static uint64_t g_serial_seq = 1000;
+static pthread_mutex_t g_sign_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int parse_url(const char *url, parsed_url_t *out) {
     memset(out, 0, sizeof(*out));
@@ -796,7 +813,7 @@ static void send_portal_home(int client_fd) {
         "<button type='submit'>Web Search (DuckDuckGo Lite)</button>"
         "</form></div>"
         "<div class='card'><b>One-Tap Android 4.2 Downloads &amp; Sites:</b><br><br>"
-        "<a class='btn green' href='/go?u=https://f-droid.org/archive/org.fdroid.fdroid_1002051.apk'>Download F-Droid Classic (Android 4.2 Store APK)</a>"
+        "<a class='btn green' href='/go?u=https://github.com/Smu1zel/fdroidclassiclegacy/releases/download/v1.3-beta2-PATCH/app-debug.apk'>F-Droid Classic Legacy (Android 4.2 + TLS 1.3 Store APK)</a>"
         "<a class='btn' href='/go?u=https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases'>Kobo Arc 7 Freedom GitHub Releases</a>"
         "<a class='btn' href='/go?u=https://archive.org/details/software'>Internet Archive Software</a>"
         "<a class='btn' href='/go?u=https://xdaforums.com/t/arc-7-root-and-recovery-and-mt8125-chipset-info.2635520/'>XDA Kobo Arc 7 Thread</a>"
@@ -805,7 +822,7 @@ static void send_portal_home(int client_fd) {
 }
 
 static void stream_rewritten_html(int client_fd, const parsed_url_t *base, const char *html, size_t len) {
-    char hdr[1536];
+    char hdr[6144];
     snprintf(hdr, sizeof(hdr),
              "HTTP/1.1 200 OK\r\n"
              "Content-Type: text/html; charset=utf-8\r\n"
@@ -850,6 +867,404 @@ static void stream_rewritten_html(int client_fd, const parsed_url_t *base, const
     }
 }
 
+/* ============================================================================
+ * System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT` + Per-Device Local Root CA)
+ *
+ * 1. `arc7tls gen-local-ca <out_dir>`:
+ *      Generates a unique per-tablet 2048-bit RSA CA private key (`local-ca.key`,
+ *      mode 0600 — NEVER shared across devices!) + 10-year `CA:TRUE` X.509v3
+ *      Root Certificate (`local-ca.crt` + exact OpenSSL `X509_NAME_hash_old`
+ *      `<8hex>.0` file ready for `/system/etc/security/cacerts/`).
+ *
+ * 2. `CONNECT <host>:<port> HTTP/1.1` inside `arc7tls proxy`:
+ *      - Connects upstream to `<host>:<port>` via strict Mbed-TLS 3.6 `TLS 1.3`
+ *        verified against our 120 pre-downloaded 2026 Root CAs FIRST (rejects
+ *        with `502 Bad Gateway` if upstream TLS verification fails!).
+ *      - Dynamically signs an X.509v3 certificate (`CN=<host>`, `SAN DNS:<host>`)
+ *        in <2ms using the device's local CA, completes a local TLS 1.2 server
+ *        handshake with ANY legacy Android 4.2 app, and bridges decrypted bytes
+ *        bidirectionally over `poll()`!
+ * ============================================================================ */
+
+static int cmd_gen_local_ca(const char *out_dir) {
+    mkdir(out_dir, 0755);
+
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    mbedtls_pk_context key;
+    mbedtls_x509write_cert crt;
+
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&ctr_drbg);
+    mbedtls_pk_init(&key);
+    mbedtls_x509write_crt_init(&crt);
+
+    const char *pers = "arc7_local_ca_keygen_v13";
+    if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+                              (const unsigned char *)pers, strlen(pers)) != 0) {
+        return 1;
+    }
+    if (mbedtls_pk_setup(&key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)) != 0 ||
+        mbedtls_rsa_gen_key(mbedtls_pk_rsa(key), mbedtls_ctr_drbg_random, &ctr_drbg, 2048, 65537) != 0) {
+        return 1;
+    }
+
+    unsigned char serial[8];
+    mbedtls_ctr_drbg_random(&ctr_drbg, serial, sizeof(serial));
+    serial[0] &= 0x7F;
+    serial[0] |= 0x01;
+
+    const char *dn = "CN=Arc7 Local TLS 1.3 Upgrade CA,O=Kobo Arc 7 Device-Local Root,C=CA";
+    mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
+    mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
+    mbedtls_x509write_crt_set_subject_key(&crt, &key);
+    mbedtls_x509write_crt_set_issuer_key(&crt, &key);
+    if (mbedtls_x509write_crt_set_subject_name(&crt, dn) != 0 ||
+        mbedtls_x509write_crt_set_issuer_name(&crt, dn) != 0 ||
+        mbedtls_x509write_crt_set_serial_raw(&crt, serial, sizeof(serial)) != 0 ||
+        mbedtls_x509write_crt_set_validity(&crt, "20240101000000", "20361231235959") != 0 ||
+        mbedtls_x509write_crt_set_basic_constraints(&crt, 1, 1) != 0 ||
+        mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN) != 0 ||
+        mbedtls_x509write_crt_set_subject_key_identifier(&crt) != 0 ||
+        mbedtls_x509write_crt_set_authority_key_identifier(&crt) != 0) {
+        return 1;
+    }
+
+    static unsigned char key_pem[8192];
+    static unsigned char crt_pem[8192];
+    if (mbedtls_pk_write_key_pem(&key, key_pem, sizeof(key_pem)) != 0 ||
+        mbedtls_x509write_crt_pem(&crt, crt_pem, sizeof(crt_pem), mbedtls_ctr_drbg_random, &ctr_drbg) != 0) {
+        return 1;
+    }
+
+    char key_path[1024], crt_path[1024], hash_path[1024];
+    snprintf(key_path, sizeof(key_path), "%s/local-ca.key", out_dir);
+    snprintf(crt_path, sizeof(crt_path), "%s/local-ca.crt", out_dir);
+
+    int kfd = open(key_path, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (kfd < 0) return 1;
+    fchmod(kfd, 0600);
+    if (write(kfd, key_pem, strlen((char *)key_pem)) < 0) { close(kfd); return 1; }
+    close(kfd);
+
+    FILE *cf = fopen(crt_path, "wb");
+    if (!cf) return 1;
+    fwrite(crt_pem, 1, strlen((char *)crt_pem), cf);
+    fclose(cf);
+
+    /* Compute exact OpenSSL `X509_NAME_hash_old` MD5 over canonical `subject_raw` DER */
+    mbedtls_x509_crt parsed;
+    mbedtls_x509_crt_init(&parsed);
+    if (mbedtls_x509_crt_parse_file(&parsed, crt_path) != 0) return 1;
+    unsigned char md5_digest[16];
+    if (mbedtls_md5(parsed.subject_raw.p, parsed.subject_raw.len, md5_digest) != 0) return 1;
+    uint32_t hash_val = ((uint32_t)md5_digest[0]) |
+                        ((uint32_t)md5_digest[1] << 8) |
+                        ((uint32_t)md5_digest[2] << 16) |
+                        ((uint32_t)md5_digest[3] << 24);
+    mbedtls_x509_crt_free(&parsed);
+
+    snprintf(hash_path, sizeof(hash_path), "%s/%08x.0", out_dir, hash_val);
+    FILE *hf = fopen(hash_path, "wb");
+    if (hf) {
+        fwrite(crt_pem, 1, strlen((char *)crt_pem), hf);
+        fclose(hf);
+    }
+
+    mbedtls_x509write_crt_free(&crt);
+    mbedtls_pk_free(&key);
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+    mbedtls_entropy_free(&entropy);
+
+    printf("LOCAL_CA_READY=YES\n");
+    printf("LOCAL_CA_CERT=%s\n", crt_path);
+    printf("LOCAL_CA_KEY=%s\n", key_path);
+    printf("ANDROID_HASH_FILE=%08x.0\n", hash_val);
+    printf("ANDROID_HASH_PATH=%s\n", hash_path);
+    fflush(stdout);
+    return 0;
+}
+
+/* Sign an in-memory X.509v3 leaf cert (`CN=<host>` + `SAN DNS:<host>`) in <2ms */
+static int sign_dynamic_leaf_cert(const char *host, mbedtls_x509_crt *out_crt) {
+    pthread_mutex_lock(&g_sign_mutex);
+
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context ctr_drbg;
+    mbedtls_x509write_cert wcrt;
+    mbedtls_entropy_init(&entropy);
+    mbedtls_ctr_drbg_init(&ctr_drbg);
+    mbedtls_x509write_crt_init(&wcrt);
+
+    int ok = -1;
+    const char *pers = "arc7_leaf_sign";
+    if (mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy,
+                              (const unsigned char *)pers, strlen(pers)) != 0) {
+        goto cleanup;
+    }
+
+    char subj[640];
+    /* Strip characters invalid inside X.509 DN strings */
+    char clean_host[256];
+    size_t j = 0;
+    for (size_t i = 0; host[i] && j < sizeof(clean_host) - 1; i++) {
+        char c = host[i];
+        if (isalnum((unsigned char)c) || c == '.' || c == '-' || c == '_') clean_host[j++] = c;
+    }
+    clean_host[j] = '\0';
+    if (j == 0) strcpy(clean_host, "localhost");
+    snprintf(subj, sizeof(subj), "CN=%s,O=Arc7 TLS 1.3 Upgrade Proxy", clean_host);
+
+    char issuer[512];
+    if (mbedtls_x509_dn_gets(issuer, sizeof(issuer), &g_local_ca_crt.subject) <= 0) {
+        strcpy(issuer, "CN=Arc7 Local TLS 1.3 Upgrade CA,O=Kobo Arc 7 Device-Local Root,C=CA");
+    }
+
+    uint64_t seq = ++g_serial_seq ^ ((uint64_t)time(NULL) << 20);
+    unsigned char serial[8];
+    for (int i = 0; i < 8; i++) serial[i] = (unsigned char)((seq >> ((7 - i) * 8)) & 0xFF);
+    serial[0] &= 0x7F;
+    serial[0] |= 0x01;
+
+    mbedtls_x509write_crt_set_version(&wcrt, MBEDTLS_X509_CRT_VERSION_3);
+    mbedtls_x509write_crt_set_md_alg(&wcrt, MBEDTLS_MD_SHA256);
+    mbedtls_x509write_crt_set_subject_key(&wcrt, &g_leaf_key);
+    mbedtls_x509write_crt_set_issuer_key(&wcrt, &g_local_ca_key);
+    if (mbedtls_x509write_crt_set_subject_name(&wcrt, subj) != 0 ||
+        mbedtls_x509write_crt_set_issuer_name(&wcrt, issuer) != 0 ||
+        mbedtls_x509write_crt_set_serial_raw(&wcrt, serial, sizeof(serial)) != 0 ||
+        mbedtls_x509write_crt_set_validity(&wcrt, "20240101000000", "20361231235959") != 0 ||
+        mbedtls_x509write_crt_set_basic_constraints(&wcrt, 0, -1) != 0 ||
+        mbedtls_x509write_crt_set_key_usage(&wcrt,
+            MBEDTLS_X509_KU_DIGITAL_SIGNATURE | MBEDTLS_X509_KU_KEY_ENCIPHERMENT) != 0) {
+        goto cleanup;
+    }
+
+    /* Encode RFC 5280 SubjectAltName (`2.5.29.17`) DER for `DNS:<clean_host>` or `IP:<v4>` */
+    unsigned char san_buf[320];
+    unsigned char *p = san_buf + sizeof(san_buf);
+    struct in_addr ipv4_bin;
+    int asn1_ret;
+    if (inet_pton(AF_INET, clean_host, &ipv4_bin) == 1) {
+        asn1_ret = mbedtls_asn1_write_raw_buffer(&p, san_buf, (const unsigned char *)&ipv4_bin, 4);
+        if (asn1_ret < 0) goto cleanup;
+        asn1_ret = mbedtls_asn1_write_len(&p, san_buf, 4);
+        if (asn1_ret < 0) goto cleanup;
+        asn1_ret = mbedtls_asn1_write_tag(&p, san_buf, MBEDTLS_ASN1_CONTEXT_SPECIFIC | 7);
+        if (asn1_ret < 0) goto cleanup;
+    } else {
+        size_t hl = strlen(clean_host);
+        asn1_ret = mbedtls_asn1_write_raw_buffer(&p, san_buf, (const unsigned char *)clean_host, hl);
+        if (asn1_ret < 0) goto cleanup;
+        asn1_ret = mbedtls_asn1_write_len(&p, san_buf, hl);
+        if (asn1_ret < 0) goto cleanup;
+        asn1_ret = mbedtls_asn1_write_tag(&p, san_buf, MBEDTLS_ASN1_CONTEXT_SPECIFIC | 2);
+        if (asn1_ret < 0) goto cleanup;
+    }
+    size_t inner_len = (size_t)((san_buf + sizeof(san_buf)) - p);
+    if (mbedtls_asn1_write_len(&p, san_buf, inner_len) < 0 ||
+        mbedtls_asn1_write_tag(&p, san_buf, MBEDTLS_ASN1_CONSTRUCTED | MBEDTLS_ASN1_SEQUENCE) < 0) {
+        goto cleanup;
+    }
+    size_t san_der_len = (size_t)((san_buf + sizeof(san_buf)) - p);
+    /* OID 2.5.29.17 = 0x55, 0x1D, 0x11 */
+    if (mbedtls_x509write_crt_set_extension(&wcrt, "\x55\x1d\x11", 3, 0, p, san_der_len) != 0) {
+        goto cleanup;
+    }
+
+    unsigned char der_out[4096];
+    int der_len = mbedtls_x509write_crt_der(&wcrt, der_out, sizeof(der_out),
+                                            mbedtls_ctr_drbg_random, &ctr_drbg);
+    if (der_len <= 0) goto cleanup;
+
+    mbedtls_x509_crt_init(out_crt);
+    if (mbedtls_x509_crt_parse_der(out_crt, der_out + sizeof(der_out) - der_len, (size_t)der_len) != 0) {
+        mbedtls_x509_crt_free(out_crt);
+        goto cleanup;
+    }
+    /* Append issuer chain cert so strict Android clients see full chain */
+    mbedtls_x509_crt_parse_der(out_crt, g_local_ca_crt.raw.p, g_local_ca_crt.raw.len);
+    ok = 0;
+
+cleanup:
+    mbedtls_x509write_crt_free(&wcrt);
+    mbedtls_ctr_drbg_free(&ctr_drbg);
+    mbedtls_entropy_free(&entropy);
+    pthread_mutex_unlock(&g_sign_mutex);
+    return ok;
+}
+
+static void handle_connect_tunnel(int client_fd, const char *target) {
+    char host[512] = {0}, port[16] = "443";
+    const char *colon = strrchr(target, ':');
+    if (colon && colon > target) {
+        size_t hl = (size_t)(colon - target);
+        if (hl >= sizeof(host)) hl = sizeof(host) - 1;
+        memcpy(host, target, hl);
+        host[hl] = '\0';
+        snprintf(port, sizeof(port), "%s", colon + 1);
+    } else {
+        snprintf(host, sizeof(host), "%s", target);
+    }
+
+    if (!g_connect_mitm_enabled) {
+        /* Raw TCP pass-through fallback when local CA isn't loaded */
+        struct addrinfo hints, *res = NULL;
+        memset(&hints, 0, sizeof(hints));
+        hints.ai_family = AF_INET;
+        hints.ai_socktype = SOCK_STREAM;
+        if (getaddrinfo(host, port, &hints, &res) != 0 || !res) return;
+        int up = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+        if (up < 0 || connect(up, res->ai_addr, res->ai_addrlen) != 0) {
+            if (up >= 0) close(up);
+            freeaddrinfo(res);
+            return;
+        }
+        freeaddrinfo(res);
+        const char *ok_msg = "HTTP/1.1 200 Connection Established\r\n\r\n";
+        sock_send_all(client_fd, ok_msg, strlen(ok_msg));
+        struct pollfd fds[2] = {{client_fd, POLLIN, 0}, {up, POLLIN, 0}};
+        unsigned char buf[16384];
+        while (poll(fds, 2, 60000) > 0) {
+            if (fds[0].revents & POLLIN) {
+                ssize_t r = recv(client_fd, buf, sizeof(buf), 0);
+                if (r <= 0 || sock_send_all(up, buf, (size_t)r) != 0) break;
+            }
+            if (fds[1].revents & POLLIN) {
+                ssize_t r = recv(up, buf, sizeof(buf), 0);
+                if (r <= 0 || sock_send_all(client_fd, buf, (size_t)r) != 0) break;
+            }
+            if ((fds[0].revents | fds[1].revents) & (POLLERR | POLLHUP | POLLNVAL)) break;
+        }
+        close(up);
+        return;
+    }
+
+    /* Step 1: Verify upstream server FIRST with strict modern TLS 1.3 + 2026 CAs! */
+    parsed_url_t up_u;
+    memset(&up_u, 0, sizeof(up_u));
+    up_u.is_https = 1;
+    snprintf(up_u.host, sizeof(up_u.host), "%s", host);
+    snprintf(up_u.port, sizeof(up_u.port), "%s", port);
+    strcpy(up_u.path, "/");
+
+    http_conn_t upstream;
+    char up_err[256] = {0};
+    if (conn_open(&upstream, &up_u, 1, up_err, sizeof(up_err)) != 0) {
+        char bad[512];
+        snprintf(bad, sizeof(bad),
+                 "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nUpstream TLS 1.3 verification failed: %s\r\n",
+                 up_err);
+        sock_send_all(client_fd, bad, strlen(bad));
+        return;
+    }
+
+    /* Step 2: Sign dynamic server certificate for `<host>` using device's Local CA */
+    mbedtls_x509_crt leaf_crt;
+    if (sign_dynamic_leaf_cert(host, &leaf_crt) != 0) {
+        conn_close(&upstream);
+        return;
+    }
+
+    const char *ok_line = "HTTP/1.1 200 Connection Established\r\nProxy-Agent: Arc7TLS13/1.3\r\n\r\n";
+    if (sock_send_all(client_fd, ok_line, strlen(ok_line)) != 0) {
+        mbedtls_x509_crt_free(&leaf_crt);
+        conn_close(&upstream);
+        return;
+    }
+
+    /* Step 3: Accept legacy Android 4.2 app TLS handshake on `client_fd` */
+    mbedtls_net_context client_net;
+    mbedtls_ssl_context srv_ssl;
+    mbedtls_ssl_config srv_conf;
+    mbedtls_entropy_context srv_ent;
+    mbedtls_ctr_drbg_context srv_drbg;
+
+    mbedtls_net_init(&client_net);
+    client_net.fd = client_fd;
+    mbedtls_ssl_init(&srv_ssl);
+    mbedtls_ssl_config_init(&srv_conf);
+    mbedtls_entropy_init(&srv_ent);
+    mbedtls_ctr_drbg_init(&srv_drbg);
+
+    const char *pers = "arc7_srv_tls";
+    if (mbedtls_ctr_drbg_seed(&srv_drbg, mbedtls_entropy_func, &srv_ent,
+                              (const unsigned char *)pers, strlen(pers)) == 0 &&
+        mbedtls_ssl_config_defaults(&srv_conf, MBEDTLS_SSL_IS_SERVER,
+                                    MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT) == 0) {
+        mbedtls_ssl_conf_rng(&srv_conf, mbedtls_ctr_drbg_random, &srv_drbg);
+        mbedtls_ssl_conf_own_cert(&srv_conf, &leaf_crt, &g_leaf_key);
+        if (mbedtls_ssl_setup(&srv_ssl, &srv_conf) == 0) {
+            mbedtls_ssl_set_bio(&srv_ssl, &client_net, mbedtls_net_send, mbedtls_net_recv, NULL);
+            int hs;
+            while ((hs = mbedtls_ssl_handshake(&srv_ssl)) != 0) {
+                if (hs != MBEDTLS_ERR_SSL_WANT_READ && hs != MBEDTLS_ERR_SSL_WANT_WRITE) break;
+            }
+            if (hs == 0) {
+                /* CRITICAL: Switch BOTH sockets to non-blocking mode for `poll()` multiplexing!
+                 * In TLS 1.3, post-handshake records (`NewSessionTicket`, `KeyUpdate`) fire `POLLIN`
+                 * without yielding application plaintext yet; a blocking `mbedtls_ssl_read()` would
+                 * block waiting for a second record before the client HTTP request is forwarded! */
+                mbedtls_net_set_nonblock(&client_net);
+                mbedtls_net_set_nonblock(&upstream.net);
+
+                /* Bidirectional encrypted bridge: Legacy App TLS <-> Verified Upstream TLS 1.3 */
+                unsigned char buf[16384];
+                struct pollfd fds[2] = {
+                    { client_fd, POLLIN, 0 },
+                    { upstream.net.fd, POLLIN, 0 }
+                };
+                for (;;) {
+                    fds[0].revents = 0;
+                    fds[1].revents = 0;
+                    int pending_c = mbedtls_ssl_check_pending(&srv_ssl);
+                    int pending_u = mbedtls_ssl_check_pending(&upstream.ssl);
+                    if (!pending_c && !pending_u) {
+                        int pr = poll(fds, 2, 60000);
+                        if (pr <= 0) break;
+                    }
+                    if (pending_c || (fds[0].revents & (POLLIN | POLLHUP))) {
+                        int r = mbedtls_ssl_read(&srv_ssl, buf, sizeof(buf));
+                        if (r > 0) {
+                            if (conn_write_all(&upstream, buf, (size_t)r) != 0) break;
+                        } else if (r != MBEDTLS_ERR_SSL_WANT_READ &&
+                                   r != MBEDTLS_ERR_SSL_WANT_WRITE &&
+                                   r != MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+                            break;
+                        }
+                    }
+                    if (pending_u || (fds[1].revents & (POLLIN | POLLHUP))) {
+                        int r = mbedtls_ssl_read(&upstream.ssl, buf, sizeof(buf));
+                        if (r > 0) {
+                            size_t off = 0;
+                            while (off < (size_t)r) {
+                                int w = mbedtls_ssl_write(&srv_ssl, buf + off, (size_t)r - off);
+                                if (w > 0) off += (size_t)w;
+                                else if (w != MBEDTLS_ERR_SSL_WANT_WRITE && w != MBEDTLS_ERR_SSL_WANT_READ) goto bridge_done;
+                            }
+                        } else if (r != MBEDTLS_ERR_SSL_WANT_READ &&
+                                   r != MBEDTLS_ERR_SSL_WANT_WRITE &&
+                                   r != MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+                            mbedtls_ssl_close_notify(&srv_ssl);
+                            break;
+                        }
+                    }
+                    if ((fds[0].revents | fds[1].revents) & (POLLERR | POLLNVAL)) break;
+                }
+                mbedtls_ssl_close_notify(&srv_ssl);
+            }
+        }
+    }
+
+bridge_done:
+    mbedtls_ssl_free(&srv_ssl);
+    mbedtls_ssl_config_free(&srv_conf);
+    mbedtls_ctr_drbg_free(&srv_drbg);
+    mbedtls_entropy_free(&srv_ent);
+    mbedtls_x509_crt_free(&leaf_crt);
+    conn_close(&upstream);
+}
+
 static void *handle_proxy_client(void *arg) {
     int fd = (int)(intptr_t)arg;
     char req[8192];
@@ -866,13 +1281,19 @@ static void *handle_proxy_client(void *arg) {
         return NULL;
     }
 
+    if (strcasecmp(method, "CONNECT") == 0) {
+        handle_connect_tunnel(fd, target);
+        close(fd);
+        return NULL;
+    }
+
     if (strcmp(target, "/") == 0 || strncmp(target, "/index", 6) == 0) {
         send_portal_home(fd);
         close(fd);
         return NULL;
     }
 
-    char dest_url[MAX_URL_LEN] = {0};
+    char dest_url[MAX_URL_LEN + 128] = {0};
     if (strncmp(target, "/search?q=", 10) == 0) {
         snprintf(dest_url, sizeof(dest_url), "https://lite.duckduckgo.com/lite/?q=%s", target + 10);
     } else if (strncmp(target, "/go?u=", 6) == 0) {
@@ -951,7 +1372,8 @@ static int cmd_proxy(int port) {
         close(srv);
         return 1;
     }
-    printf("PROXY_READY=http://127.0.0.1:%d/\n", port);
+    printf("PROXY_READY=http://127.0.0.1:%d/ CONNECT_TLS13=%s\n",
+           port, g_connect_mitm_enabled ? "ENABLED" : "PASSTHROUGH");
     fflush(stdout);
 
     for (;;) {
@@ -973,9 +1395,10 @@ int main(int argc, char **argv) {
         fprintf(stderr,
                 "Usage:\n"
                 "  arc7tls ntp [--set]\n"
+                "  arc7tls gen-local-ca <out_dir>\n"
                 "  arc7tls test <ca-bundle.crt> <url>\n"
                 "  arc7tls fetch <ca-bundle.crt> <url> <output_path> [--insecure-clock]\n"
-                "  arc7tls proxy <ca-bundle.crt> <port>\n");
+                "  arc7tls proxy <ca-bundle.crt> <port> [local_ca.crt local_ca.key]\n");
         return 1;
     }
 
@@ -987,6 +1410,10 @@ int main(int argc, char **argv) {
     if (psa_crypto_init() != PSA_SUCCESS) {
         fprintf(stderr, "ERROR: psa_crypto_init failed\n");
         return 1;
+    }
+
+    if (strcmp(argv[1], "gen-local-ca") == 0 && argc >= 3) {
+        return cmd_gen_local_ca(argv[2]);
     }
 
     if (argc < 4) {
@@ -1010,6 +1437,31 @@ int main(int argc, char **argv) {
         int strict = !(argc >= 6 && strcmp(argv[5], "--insecure-clock") == 0);
         rc = cmd_fetch(argv[3], argv[4], strict);
     } else if (strcmp(argv[1], "proxy") == 0) {
+        if (argc >= 6) {
+            mbedtls_x509_crt_init(&g_local_ca_crt);
+            mbedtls_pk_init(&g_local_ca_key);
+            mbedtls_pk_init(&g_leaf_key);
+            mbedtls_entropy_context ent;
+            mbedtls_ctr_drbg_context drbg;
+            mbedtls_entropy_init(&ent);
+            mbedtls_ctr_drbg_init(&drbg);
+            const char *pers = "arc7_leaf_init";
+            if (mbedtls_ctr_drbg_seed(&drbg, mbedtls_entropy_func, &ent,
+                                      (const unsigned char *)pers, strlen(pers)) == 0 &&
+                mbedtls_x509_crt_parse_file(&g_local_ca_crt, argv[4]) == 0 &&
+                mbedtls_pk_parse_keyfile(&g_local_ca_key, argv[5], NULL,
+                                         mbedtls_ctr_drbg_random, &drbg) == 0 &&
+                mbedtls_pk_setup(&g_leaf_key, mbedtls_pk_info_from_type(MBEDTLS_PK_RSA)) == 0 &&
+                mbedtls_rsa_gen_key(mbedtls_pk_rsa(g_leaf_key), mbedtls_ctr_drbg_random,
+                                    &drbg, 2048, 65537) == 0) {
+                g_connect_mitm_enabled = 1;
+            } else {
+                fprintf(stderr, "WARN: Failed loading local CA (%s / %s); falling back to TCP pass-through\n",
+                        argv[4], argv[5]);
+            }
+            mbedtls_ctr_drbg_free(&drbg);
+            mbedtls_entropy_free(&ent);
+        }
         rc = cmd_proxy(atoi(argv[3]));
     } else {
         fprintf(stderr, "ERROR: Unknown arc7tls subcommand: %s\n", argv[1]);

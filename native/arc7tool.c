@@ -413,7 +413,19 @@ static int cmd_inspect_boot(const char *img_path) {
     }
     close(fd);
 
-    /* note: MediaTek MT8125 sometimes prepends a 512-byte MTK_BOOT_HEADER or uses standard ANDROID! */
+    /* Support both ANDROID! at offset 0 AND MediaTek 512-byte outer header + ANDROID! at 512 */
+    size_t outer_off = 0;
+    if (memcmp(hdr.magic, "ANDROID!", 8) != 0) {
+        int fd2 = open(img_path, O_RDONLY);
+        if (fd2 >= 0) {
+            if (lseek(fd2, 512, SEEK_SET) == 512 &&
+                read(fd2, &hdr, sizeof(hdr)) == sizeof(hdr) &&
+                memcmp(hdr.magic, "ANDROID!", 8) == 0) {
+                outer_off = 512;
+            }
+            close(fd2);
+        }
+    }
     if (memcmp(hdr.magic, "ANDROID!", 8) != 0) {
         printf("VALID_BOOT_IMG=NO REASON=BAD_MAGIC\n");
         return 1;
@@ -434,13 +446,421 @@ static int cmd_inspect_boot(const char *img_path) {
     memcpy(cmdline, hdr.cmdline, 512);
 
     printf("VALID_BOOT_IMG=YES\n");
+    printf("OUTER_MTK_OFFSET=%zu\n", outer_off);
     printf("FILE_SIZE=%lld\n", (long long)st.st_size);
-    printf("PAYLOAD_BYTES=%llu\n", (unsigned long long)expected_bytes);
+    printf("PAYLOAD_BYTES=%llu\n", (unsigned long long)(expected_bytes + outer_off));
     printf("PAGE_SIZE=%u\n", ps);
     printf("KERNEL_SIZE=%u\n", hdr.kernel_size);
     printf("RAMDISK_SIZE=%u\n", hdr.ramdisk_size);
     printf("BOARD_NAME=%s\n", board);
     printf("CMDLINE=%s\n", cmdline);
+    return 0;
+}
+
+/* ============================================================================
+ * Anti-Brick On-Device Boot / Recovery Root-ADB Ramdisk Patcher (`patch-boot-adb`)
+ *
+ * Unpacks an Android `boot.img` or `recovery.img` (preserving MediaTek MT8125
+ * 512-byte `0x58881688` `ROOTFS`/`RECOVERY` inner AND outer headers + exact
+ * `dsize` lengths, page alignment, board name, kernel cmdline, and SHA-1 ID!),
+ * patches `default.prop` inside the gzip `newc` (`070701`) cpio ramdisk so:
+ *   ro.secure=0
+ *   ro.adb.secure=0
+ *   ro.debuggable=1
+ *   persist.sys.usb.config=mtp,adb
+ * giving early-init root `adb shell` unbrick insurance on any boot or recovery!
+ * ============================================================================ */
+
+/* Compact FIPS 180-4 SHA-1 used by Android `mkbootimg` for `boot_img_hdr.id[]` */
+typedef struct {
+    uint32_t state[5];
+    uint64_t count;
+    uint8_t  buffer[64];
+} sha1_ctx_t;
+
+static uint32_t rol32(uint32_t v, int b) { return (v << b) | (v >> (32 - b)); }
+
+static void sha1_transform(uint32_t state[5], const uint8_t block[64]) {
+    uint32_t w[80];
+    for (int i = 0; i < 16; i++) {
+        w[i] = ((uint32_t)block[i * 4] << 24) | ((uint32_t)block[i * 4 + 1] << 16) |
+               ((uint32_t)block[i * 4 + 2] << 8) | ((uint32_t)block[i * 4 + 3]);
+    }
+    for (int i = 16; i < 80; i++) w[i] = rol32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    uint32_t a = state[0], b = state[1], c = state[2], d = state[3], e = state[4];
+    for (int i = 0; i < 80; i++) {
+        uint32_t f, k;
+        if (i < 20)      { f = (b & c) | ((~b) & d);          k = 0x5A827999U; }
+        else if (i < 40) { f = b ^ c ^ d;                     k = 0x6ED9EBA1U; }
+        else if (i < 60) { f = (b & c) | (b & d) | (c & d);   k = 0x8F1BBCDCU; }
+        else             { f = b ^ c ^ d;                     k = 0xCA62C1D6U; }
+        uint32_t t = rol32(a, 5) + f + e + k + w[i];
+        e = d; d = c; c = rol32(b, 30); b = a; a = t;
+    }
+    state[0] += a; state[1] += b; state[2] += c; state[3] += d; state[4] += e;
+}
+
+static void sha1_init(sha1_ctx_t *ctx) {
+    ctx->state[0] = 0x67452301U; ctx->state[1] = 0xEFCDAB89U;
+    ctx->state[2] = 0x98BADCFEU; ctx->state[3] = 0x10325476U;
+    ctx->state[4] = 0xC3D2E1F0U; ctx->count = 0;
+}
+
+static void sha1_update(sha1_ctx_t *ctx, const uint8_t *data, size_t len) {
+    size_t idx = (size_t)((ctx->count >> 3) & 63U);
+    ctx->count += (uint64_t)len << 3;
+    size_t i = 0;
+    if (idx > 0 && idx + len >= 64) {
+        memcpy(ctx->buffer + idx, data, 64 - idx);
+        sha1_transform(ctx->state, ctx->buffer);
+        i = 64 - idx;
+        idx = 0;
+    }
+    for (; i + 64 <= len; i += 64) sha1_transform(ctx->state, data + i);
+    if (i < len) memcpy(ctx->buffer + idx, data + i, len - i);
+}
+
+static void sha1_final(sha1_ctx_t *ctx, uint8_t digest[20]) {
+    uint8_t bits[8];
+    for (int i = 0; i < 8; i++) bits[i] = (uint8_t)(ctx->count >> ((7 - i) * 8));
+    uint8_t pad = 0x80;
+    sha1_update(ctx, &pad, 1);
+    uint8_t zero = 0x00;
+    while (((ctx->count >> 3) & 63U) != 56U) sha1_update(ctx, &zero, 1);
+    sha1_update(ctx, bits, 8);
+    for (int i = 0; i < 5; i++) {
+        digest[i * 4]     = (uint8_t)(ctx->state[i] >> 24);
+        digest[i * 4 + 1] = (uint8_t)(ctx->state[i] >> 16);
+        digest[i * 4 + 2] = (uint8_t)(ctx->state[i] >> 8);
+        digest[i * 4 + 3] = (uint8_t)(ctx->state[i]);
+    }
+}
+
+typedef struct {
+    uint8_t *data;
+    size_t   len;
+    size_t   cap;
+} dynbuf_t;
+
+static int dynbuf_append(dynbuf_t *b, const void *src, size_t n) {
+    if (n == 0) return 0;
+    if (b->len + n > b->cap) {
+        size_t nc = b->cap ? b->cap * 2 : 65536;
+        while (nc < b->len + n) nc *= 2;
+        uint8_t *np = (uint8_t *)realloc(b->data, nc);
+        if (!np) return -1;
+        b->data = np;
+        b->cap = nc;
+    }
+    memcpy(b->data + b->len, src, n);
+    b->len += n;
+    return 0;
+}
+
+static int gzip_decompress_mem(const uint8_t *in, size_t in_len, dynbuf_t *out) {
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (inflateInit2(&zs, 16 + MAX_WBITS) != Z_OK) return -1;
+    zs.next_in = (Bytef *)in;
+    zs.avail_in = (uInt)in_len;
+    uint8_t chunk[32768];
+    int ret;
+    do {
+        zs.next_out = chunk;
+        zs.avail_out = sizeof(chunk);
+        ret = inflate(&zs, Z_NO_FLUSH);
+        if (ret != Z_OK && ret != Z_STREAM_END) {
+            inflateEnd(&zs);
+            return -1;
+        }
+        size_t have = sizeof(chunk) - zs.avail_out;
+        if (dynbuf_append(out, chunk, have) != 0) {
+            inflateEnd(&zs);
+            return -1;
+        }
+    } while (ret != Z_STREAM_END);
+    inflateEnd(&zs);
+    return 0;
+}
+
+static int gzip_compress_mem(const uint8_t *in, size_t in_len, dynbuf_t *out) {
+    z_stream zs;
+    memset(&zs, 0, sizeof(zs));
+    if (deflateInit2(&zs, 9, Z_DEFLATED, 16 + MAX_WBITS, 8, Z_DEFAULT_STRATEGY) != Z_OK) return -1;
+    zs.next_in = (Bytef *)in;
+    zs.avail_in = (uInt)in_len;
+    uint8_t chunk[32768];
+    int ret;
+    do {
+        zs.next_out = chunk;
+        zs.avail_out = sizeof(chunk);
+        ret = deflate(&zs, Z_FINISH);
+        if (ret == Z_STREAM_ERROR) {
+            deflateEnd(&zs);
+            return -1;
+        }
+        size_t have = sizeof(chunk) - zs.avail_out;
+        if (dynbuf_append(out, chunk, have) != 0) {
+            deflateEnd(&zs);
+            return -1;
+        }
+    } while (zs.avail_out == 0);
+    deflateEnd(&zs);
+    return 0;
+}
+
+static uint32_t parse_hex8(const char *p) {
+    char tmp[9];
+    memcpy(tmp, p, 8);
+    tmp[8] = '\0';
+    return (uint32_t)strtoul(tmp, NULL, 16);
+}
+
+static void patch_default_prop_content(const uint8_t *orig, size_t orig_len, dynbuf_t *out) {
+    char *copy = (char *)malloc(orig_len + 1);
+    if (!copy) return;
+    memcpy(copy, orig, orig_len);
+    copy[orig_len] = '\0';
+
+    /* Keep non-conflicting lines from factory default.prop, then append unlocked root ADB keys */
+    char *save = NULL;
+    for (char *ln = strtok_r(copy, "\n", &save); ln; ln = strtok_r(NULL, "\n", &save)) {
+        size_t l = strlen(ln);
+        while (l > 0 && ln[l - 1] == '\r') ln[--l] = '\0';
+        if (strncmp(ln, "ro.secure=", 10) == 0 ||
+            strncmp(ln, "ro.adb.secure=", 14) == 0 ||
+            strncmp(ln, "ro.debuggable=", 14) == 0 ||
+            strncmp(ln, "persist.sys.usb.config=", 23) == 0) {
+            continue;
+        }
+        dynbuf_append(out, ln, strlen(ln));
+        dynbuf_append(out, "\n", 1);
+    }
+    const char *injected =
+        "# Patched by Kobo Arc 7 Freedom Anti-Brick Root-ADB Engine\n"
+        "ro.secure=0\n"
+        "ro.adb.secure=0\n"
+        "ro.allow.mock.location=1\n"
+        "ro.debuggable=1\n"
+        "persist.sys.usb.config=mtp,adb\n";
+    dynbuf_append(out, injected, strlen(injected));
+    free(copy);
+}
+
+static int patch_cpio_newc(const uint8_t *in, size_t in_len, dynbuf_t *out) {
+    size_t pos = 0;
+    int patched_prop = 0;
+    const uint8_t zeros[4] = {0, 0, 0, 0};
+
+    while (pos + 110 <= in_len) {
+        if (memcmp(in + pos, "070701", 6) != 0 && memcmp(in + pos, "070702", 6) != 0) {
+            return -1;
+        }
+        char hdr[111];
+        memcpy(hdr, in + pos, 110);
+        hdr[110] = '\0';
+
+        uint32_t filesize = parse_hex8(hdr + 54);
+        uint32_t namesize = parse_hex8(hdr + 94);
+        size_t name_off = pos + 110;
+        if (name_off + namesize > in_len) return -1;
+
+        const char *entry_name = (const char *)(in + name_off);
+        size_t data_off = (name_off + namesize + 3U) & ~3U;
+        if (data_off + filesize > in_len) return -1;
+        size_t next_pos = (data_off + filesize + 3U) & ~3U;
+
+        if (strcmp(entry_name, "TRAILER!!!") == 0) {
+            /* If ramdisk lacked default.prop, emit one cleanly right before TRAILER!!! */
+            if (!patched_prop) {
+                dynbuf_t prop = {0};
+                patch_default_prop_content((const uint8_t *)"", 0, &prop);
+                const char *pname = "default.prop";
+                uint32_t pnsz = (uint32_t)strlen(pname) + 1;
+                char newhdr[112];
+                snprintf(newhdr, sizeof(newhdr),
+                         "070701%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X%08X",
+                         300000U, 0100644U, 0U, 0U, 1U, 0U, (uint32_t)prop.len,
+                         0U, 0U, 0U, 0U, pnsz, 0U);
+                dynbuf_append(out, newhdr, 110);
+                dynbuf_append(out, pname, pnsz);
+                size_t pad1 = ((110 + pnsz + 3U) & ~3U) - (110 + pnsz);
+                dynbuf_append(out, zeros, pad1);
+                dynbuf_append(out, prop.data, prop.len);
+                size_t pad2 = ((prop.len + 3U) & ~3U) - prop.len;
+                dynbuf_append(out, zeros, pad2);
+                free(prop.data);
+                patched_prop = 1;
+            }
+            dynbuf_append(out, in + pos, (next_pos <= in_len ? next_pos : in_len) - pos);
+            break;
+        }
+
+        if (strcmp(entry_name, "default.prop") == 0 || strcmp(entry_name, "./default.prop") == 0) {
+            dynbuf_t prop = {0};
+            patch_default_prop_content(in + data_off, filesize, &prop);
+            char newsz[9];
+            snprintf(newsz, sizeof(newsz), "%08X", (unsigned int)prop.len);
+            memcpy(hdr + 54, newsz, 8);
+
+            dynbuf_append(out, hdr, 110);
+            dynbuf_append(out, in + name_off, namesize);
+            size_t pad1 = data_off - (name_off + namesize);
+            dynbuf_append(out, zeros, pad1);
+            dynbuf_append(out, prop.data, prop.len);
+            size_t pad2 = ((prop.len + 3U) & ~3U) - prop.len;
+            dynbuf_append(out, zeros, pad2);
+            free(prop.data);
+            patched_prop = 1;
+        } else {
+            dynbuf_append(out, in + pos, next_pos - pos);
+        }
+        pos = next_pos;
+    }
+    return patched_prop ? 0 : -1;
+}
+
+static int cmd_patch_boot_adb(const char *in_path, const char *out_path) {
+    FILE *fp = fopen(in_path, "rb");
+    if (!fp) {
+        fprintf(stderr, "ERROR: cannot open %s: %s\n", in_path, strerror(errno));
+        return 1;
+    }
+    fseek(fp, 0, SEEK_END);
+    long fsz = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    if (fsz < 4096) { fclose(fp); return 1; }
+
+    uint8_t *img = (uint8_t *)malloc((size_t)fsz);
+    if (!img) { fclose(fp); return 1; }
+    if (fread(img, 1, (size_t)fsz, fp) != (size_t)fsz) { free(img); fclose(fp); return 1; }
+    fclose(fp);
+
+    size_t outer_off = 0;
+    if (memcmp(img, "ANDROID!", 8) != 0) {
+        if ((size_t)fsz > 512 + sizeof(android_boot_hdr_t) && memcmp(img + 512, "ANDROID!", 8) == 0) {
+            outer_off = 512;
+        } else {
+            fprintf(stderr, "ERROR: %s is not a valid Android/MT8125 boot image\n", in_path);
+            free(img);
+            return 1;
+        }
+    }
+
+    android_boot_hdr_t hdr;
+    memcpy(&hdr, img + outer_off, sizeof(hdr));
+    uint32_t ps = hdr.page_size ? hdr.page_size : 2048;
+
+    size_t k_off = outer_off + ps;
+    size_t k_aligned = ((size_t)hdr.kernel_size + ps - 1) & ~((size_t)ps - 1);
+    size_t r_off = k_off + k_aligned;
+    size_t r_aligned = ((size_t)hdr.ramdisk_size + ps - 1) & ~((size_t)ps - 1);
+    size_t s_off = r_off + r_aligned;
+    size_t s_aligned = ((size_t)hdr.second_size + ps - 1) & ~((size_t)ps - 1);
+
+    if (r_off + hdr.ramdisk_size > (size_t)fsz) {
+        fprintf(stderr, "ERROR: boot image truncated before ramdisk end\n");
+        free(img);
+        return 1;
+    }
+
+    /* Check for inner 512-byte MediaTek `part_hdr_t` (`0x58881688` = 88 16 88 58 LE) */
+    const uint8_t *ramdisk_raw = img + r_off;
+    size_t ramdisk_len = hdr.ramdisk_size;
+    int has_mtk_ramdisk_hdr = 0;
+    uint8_t mtk_ramdisk_hdr[512];
+    if (ramdisk_len > 512 &&
+        ramdisk_raw[0] == 0x88 && ramdisk_raw[1] == 0x16 &&
+        ramdisk_raw[2] == 0x88 && ramdisk_raw[3] == 0x58) {
+        has_mtk_ramdisk_hdr = 1;
+        memcpy(mtk_ramdisk_hdr, ramdisk_raw, 512);
+        ramdisk_raw += 512;
+        ramdisk_len -= 512;
+    }
+
+    dynbuf_t cpio_in = {0}, cpio_out = {0}, gz_out = {0}, final_ramdisk = {0};
+    if (gzip_decompress_mem(ramdisk_raw, ramdisk_len, &cpio_in) != 0) {
+        fprintf(stderr, "ERROR: failed inflating gzip ramdisk\n");
+        free(img);
+        return 1;
+    }
+    if (patch_cpio_newc(cpio_in.data, cpio_in.len, &cpio_out) != 0) {
+        fprintf(stderr, "ERROR: failed patching cpio ramdisk default.prop\n");
+        free(cpio_in.data); free(cpio_out.data); free(img);
+        return 1;
+    }
+    if (gzip_compress_mem(cpio_out.data, cpio_out.len, &gz_out) != 0) {
+        fprintf(stderr, "ERROR: failed compressing patched ramdisk\n");
+        free(cpio_in.data); free(cpio_out.data); free(gz_out.data); free(img);
+        return 1;
+    }
+
+    if (has_mtk_ramdisk_hdr) {
+        uint32_t new_dsize = (uint32_t)gz_out.len;
+        mtk_ramdisk_hdr[4] = (uint8_t)(new_dsize & 0xFF);
+        mtk_ramdisk_hdr[5] = (uint8_t)((new_dsize >> 8) & 0xFF);
+        mtk_ramdisk_hdr[6] = (uint8_t)((new_dsize >> 16) & 0xFF);
+        mtk_ramdisk_hdr[7] = (uint8_t)((new_dsize >> 24) & 0xFF);
+        dynbuf_append(&final_ramdisk, mtk_ramdisk_hdr, 512);
+    }
+    dynbuf_append(&final_ramdisk, gz_out.data, gz_out.len);
+
+    hdr.ramdisk_size = (uint32_t)final_ramdisk.len;
+
+    /* Recompute authentic AOSP `mkbootimg` SHA-1 `hdr.id[]` */
+    sha1_ctx_t s1;
+    sha1_init(&s1);
+    sha1_update(&s1, img + k_off, hdr.kernel_size);
+    sha1_update(&s1, (const uint8_t *)&hdr.kernel_size, sizeof(hdr.kernel_size));
+    sha1_update(&s1, final_ramdisk.data, hdr.ramdisk_size);
+    sha1_update(&s1, (const uint8_t *)&hdr.ramdisk_size, sizeof(hdr.ramdisk_size));
+    if (hdr.second_size > 0 && s_off + hdr.second_size <= (size_t)fsz) {
+        sha1_update(&s1, img + s_off, hdr.second_size);
+    }
+    sha1_update(&s1, (const uint8_t *)&hdr.second_size, sizeof(hdr.second_size));
+    memset(hdr.id, 0, sizeof(hdr.id));
+    sha1_final(&s1, (uint8_t *)hdr.id);
+
+    FILE *outf = fopen(out_path, "wb");
+    if (!outf) {
+        fprintf(stderr, "ERROR: cannot open %s for writing\n", out_path);
+        free(cpio_in.data); free(cpio_out.data); free(gz_out.data); free(final_ramdisk.data); free(img);
+        return 1;
+    }
+
+    uint8_t *zero_page = (uint8_t *)calloc(1, ps);
+    if (outer_off == 512) {
+        size_t new_r_aligned = (final_ramdisk.len + ps - 1) & ~((size_t)ps - 1);
+        uint32_t outer_sz = (uint32_t)(ps + k_aligned + new_r_aligned + s_aligned);
+        img[4] = (uint8_t)(outer_sz & 0xFF);
+        img[5] = (uint8_t)((outer_sz >> 8) & 0xFF);
+        img[6] = (uint8_t)((outer_sz >> 16) & 0xFF);
+        img[7] = (uint8_t)((outer_sz >> 24) & 0xFF);
+        fwrite(img, 1, 512, outf);
+    }
+
+    fwrite(&hdr, 1, sizeof(hdr), outf);
+    fwrite(zero_page, 1, ps - sizeof(hdr), outf);
+
+    fwrite(img + k_off, 1, hdr.kernel_size, outf);
+    if (k_aligned > hdr.kernel_size) fwrite(zero_page, 1, k_aligned - hdr.kernel_size, outf);
+
+    size_t new_r_aligned = (final_ramdisk.len + ps - 1) & ~((size_t)ps - 1);
+    fwrite(final_ramdisk.data, 1, final_ramdisk.len, outf);
+    if (new_r_aligned > final_ramdisk.len) fwrite(zero_page, 1, new_r_aligned - final_ramdisk.len, outf);
+
+    if (hdr.second_size > 0 && s_off + hdr.second_size <= (size_t)fsz) {
+        fwrite(img + s_off, 1, hdr.second_size, outf);
+        if (s_aligned > hdr.second_size) fwrite(zero_page, 1, s_aligned - hdr.second_size, outf);
+    }
+
+    fclose(outf);
+    free(zero_page);
+    free(cpio_in.data); free(cpio_out.data); free(gz_out.data); free(final_ramdisk.data); free(img);
+
+    printf("PATCH_BOOT_ADB=OK MTK_RAMDISK_HDR=%s OUTER_MTK=%zu NEW_RAMDISK_SIZE=%u\n",
+           has_mtk_ramdisk_hdr ? "YES" : "NO", outer_off, hdr.ramdisk_size);
+    fflush(stdout);
     return 0;
 }
 
@@ -461,11 +881,15 @@ int main(int argc, char **argv) {
     if (argc >= 3 && strcmp(argv[1], "inspect-boot") == 0) {
         return cmd_inspect_boot(argv[2]);
     }
+    if (argc >= 4 && strcmp(argv[1], "patch-boot-adb") == 0) {
+        return cmd_patch_boot_adb(argv[2], argv[3]);
+    }
     fprintf(stderr,
             "arc7tool usage:\n"
             "  arc7tool sha256 <path> [limit_bytes]\n"
             "  arc7tool dump-gz <src_dev_or_file> <dst.img.gz> [offset_bytes] [max_bytes]\n"
             "  arc7tool flash <src.img_or_gz> <dst_dev_or_file> [offset_bytes]\n"
-            "  arc7tool inspect-boot <boot_or_recovery.img>\n");
+            "  arc7tool inspect-boot <boot_or_recovery.img>\n"
+            "  arc7tool patch-boot-adb <in_boot.img> <out_patched.img>\n");
     return 1;
 }

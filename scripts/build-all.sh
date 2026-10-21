@@ -128,9 +128,18 @@ compile_java_and_dex() {
     fi
 }
 
-echo "==> [1/7] Pre-packaging offline 2026 Mozilla Root CA certificates & launcher icons..."
+echo "==> [1/7] Pre-packaging offline 2026 CAs, starter Android 4.2 App Store APK & launcher icons..."
 "$PY_BIN" scripts/generate-cacerts.py
 "$PY_BIN" scripts/generate-icons.py
+
+mkdir -p app/src/main/assets/starter-apps
+FDROID_APK="app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"
+FDROID_URL="https://github.com/Smu1zel/fdroidclassiclegacy/releases/download/v1.3-beta2-PATCH/app-debug.apk"
+if [ ! -s "$FDROID_APK" ]; then
+    echo "    Downloading pre-bundled offline F-Droid Classic Legacy (Android 4.1+ / 4.2.2 + Conscrypt TLS 1.3)..."
+    curl -fsSL "$FDROID_URL" -o "$FDROID_APK"
+fi
+ls -lh "$FDROID_APK"
 
 echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls)..."
 if [ ! -d "$ZLIB_DIR" ]; then
@@ -248,6 +257,7 @@ rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/a
     -I "$ANDROID_JAR" \
     --manifest app/src/main/AndroidManifest.xml \
     -A app/src/main/assets \
+    -0 .apk \
     --java build/app/gen \
     --min-sdk-version 15 \
     --target-sdk-version 17 \

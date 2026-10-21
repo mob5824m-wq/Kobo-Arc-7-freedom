@@ -198,6 +198,45 @@ public class RootShell {
         }
     }
 
+    public static String remountSystemRwCmd() {
+        return "(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)";
+    }
+
+    public static String remountSystemRoCmd() {
+        return "(mount -o remount,ro /system 2>/dev/null || true)";
+    }
+
+    public ExecResult execSh(String shellScript, LineListener listener) {
+        Process proc = null;
+        try {
+            ProcessBuilder pb = new ProcessBuilder("/system/bin/sh");
+            pb.redirectErrorStream(true);
+            proc = pb.start();
+            OutputStream os = proc.getOutputStream();
+            os.write((shellScript + "\nexit $?\n").getBytes("UTF-8"));
+            os.flush();
+            os.close();
+
+            StringBuilder out = new StringBuilder();
+            BufferedReader br = new BufferedReader(new InputStreamReader(proc.getInputStream(), "UTF-8"));
+            String line;
+            while ((line = br.readLine()) != null) {
+                out.append(line).append('\n');
+                if (listener != null) listener.onLine(line);
+            }
+            br.close();
+            return new ExecResult(proc.waitFor(), out.toString());
+        } catch (Throwable t) {
+            String msg = "Shell error: " + t.getMessage();
+            if (listener != null) listener.onLine(msg);
+            return new ExecResult(1, msg);
+        } finally {
+            if (proc != null) {
+                try { proc.destroy(); } catch (Throwable ignored) {}
+            }
+        }
+    }
+
     public static String shellQuote(String s) {
         if (s == null) return "''";
         return "'" + s.replace("'", "'\"'\"'") + "'";

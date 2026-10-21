@@ -30,20 +30,25 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru
 
-      - name: Build KoboArc7Freedom.apk & VanillaAndroid4Home.apk from source
+      - name: Build KoboArc7Freedom.apk & VanillaAndroid4Home.apk v1.3.0 from source
         run: ./scripts/build-all.sh
 
-      - name: Run full APK signature, 2026 CA store, live TLS 1.3 & functional test suite
+      - name: Run full APK signature, 2026 CA store, TLS 1.3 Upgrade Proxy, MT8125 Patcher & Starter Pack verification
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed APKs back to branch
+      - name: Commit refreshed signed APKs & pre-bundled offline assets back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases/KoboArc7Freedom.apk releases/VanillaAndroid4Home.apk releases/SHA256SUMS.txt app/src/main/assets/VanillaAndroid4Home.apk
+          git add \
+            releases/KoboArc7Freedom.apk \
+            releases/VanillaAndroid4Home.apk \
+            releases/SHA256SUMS.txt \
+            app/src/main/assets/VanillaAndroid4Home.apk \
+            app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v1.2.0 APKs [skip ci]"
+            git commit -m "chore: update pre-built signed v1.3.0 APKs & offline starter pack [skip ci]"
             git push origin HEAD
           fi
 
@@ -56,49 +61,50 @@ jobs:
             releases/VanillaAndroid4Home.apk
             releases/SHA256SUMS.txt
 
-      - name: Publish signed APKs to GitHub Releases (v1.2.0 latest + update earlier tags)
+      - name: Publish signed APKs to GitHub Releases (v1.3.0 latest + update earlier tags)
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v1.2.0 (`ca.arc7freedom.app`)
+          ## Kobo Arc 7 Freedom v1.3.0 (`ca.arc7freedom.app`)
 
-          **Complete Offline-First Root, 120 Pre-Downloaded 2026 Root CAs, Standalone `Arc7 Browser (TLS 1.3)`, OS Partition Backup/Restore, Battery Drain Fix & Clean Stock Android 4.2 Suite!**
+          **All-in-One Offline Root, System-Wide `TLS 1.3` Upgrade Proxy, 120 Pre-Downloaded 2026 Root CAs, Pre-Bundled Offline App Pack (`F-Droid Classic` + `Arc7 E-Reader` + `Arc7 Terminal` + `Arc7 Browser`), `8 GB` MicroSD Storage Expander, Anti-Brick `MT8125` Root-ADB Patcher, Speed Booster & Clean Stock Android 4.2 Suite!**
 
-          ### Highlights in `v1.2.0`
-          - **Standalone `Arc7 Browser (TLS 1.3)` Included Inside the APK (`Arc7BrowserActivity`):**
-            - Automatically adds a standalone **`Arc7 Browser (TLS 1.3)`** app icon right to your Android 4 Home Screen & App Drawer (and handles `http://` & `https://` links)!
-            - Intercepts every HTML, CSS, JavaScript, and image request through our embedded static ARMv7 `Mbed-TLS 3.6 LTS` (`TLS 1.3 + ChaCha20-Poly1305 + AES-GCM`) engine + all **120 pre-downloaded 2026 Root CA certificates**, plus includes a built-in `.apk` / `.zip` ROM Download Manager!
-          - **120 Pre-Downloaded 2026 Mozilla Root CA Certificates (`Tab 2: CERTS & NET`):**
-            - 100% offline inside the APK (`ISRG Root X1/X2`, `Google GTS R1–R4`, `DigiCert Global Root G2`, `USERTrust/Sectigo`, `Cloudflare`, `Amazon`), automatic removal of expired 2013–2023 poison CAs (`DST Root CA X3`), raw-IP UDP `NTP` clock sync, and `1.1.1.1` / `8.8.8.8` DNS repair.
-          - **Automatic Self-Healing Clock & Network on Reboot (`BootNetworkReceiver`):**
-            - If an old Kobo Arc 7 battery runs flat and resets the date back to `Jan 1, 2013`, joining Wi-Fi automatically re-syncs atomic 2026 UTC time via NTP in the background so HTTPS stays unbroken!
-          - **Built-In Storage & MicroSD File Manager + Play Services Battery-Drain Fix (`Tab 5: TOOLS`):**
-            - Browse `/storage/sdcard1` (MicroSD) & `/sdcard` (Internal) right inside the app, and freeze Google's retired 2013 API-17 Play Services CPU loop to stop crash popups and triple standby battery life!
-          - **Zero-Cable Local Home Wi-Fi Sideloader (`python3 tools/serve-over-wifi.py`):**
-            - Serves `KoboArc7Freedom.apk` (and any local ROM `.zip`s) over plain `http://<LAN-IP>:8000` so Kobo's stock 2013 Browser can install the app in 10 seconds with zero cables and zero SSL certs!
+          ### New in `v1.3.0` (All 5 Major Upgrades Included!)
+          1. **System-Wide `TLS 1.3` Upgrade Proxy for ALL Legacy Android 4.2 Apps (`127.0.0.1:8118`):**
+             - Generates a unique private `2048-bit RSA` Root CA directly on your tablet (`arc7tls gen-local-ca`), verifies every upstream server strictly via ARMv7 `Mbed-TLS 3.6` `TLS 1.3` + all **120 pre-downloaded 2026 Root CAs**, signs `<2ms` on-the-fly `SubjectAltName` certificates over `HTTP CONNECT`, and bridges ANY legacy Android 4.2 app cleanly onto the modern 2026 internet!
+          2. **Pre-Bundled Offline Android 4.2 Starter App Pack Inside the APK (`0 Bytes` of Internet Required to Install):**
+             - **Offline `F-Droid Classic` Store (`FDroidClassicLegacy.apk`, Android 4.1+ / 4.2.2):** Embedded inside `KoboArc7Freedom.apk` with built-in Conscrypt modern `TLS 1.3` — installs offline in 1 tap and syncs thousands of Android 4.2 open-source apps over Wi-Fi!
+             - **Standalone `Arc7 E-Reader` (`Arc7EbookReaderActivity`):** DRM-free zero-account `.epub` / `.txt` / `.md` / `.html` e-book reader with `OCF/OPF` chapter TOC, embedded image support, font zoom, and **Warm Sepia / Crisp Paper / AMOLED Night** modes!
+             - **Standalone `Arc7 Terminal` (`Arc7TerminalActivity`):** Interactive `ROOT (#)` & `USER ($)` Linux console with command chips, history, and transcript export!
+          3. **`8 GB` MicroSD Storage Expander (`Tab 5: TOOLS`):**
+             - Losslessly copies and `mount -o bind` mounts `Download`, `Books`, `Movies`, `Music`, and `DCIM` onto `/storage/sdcard1/Arc7SD/` (auto-remounting on every reboot via `BootNetworkReceiver`!) + 1-tap `pm set-install-location 2` App-to-SD policy!
+          4. **On-Device Anti-Brick `boot.img` & `recovery.img` Root-ADB Patcher (`Tab 4: Option C`):**
+             - Backs up your untouched stock image first, unpacks its `gzip/newc` `cpio` ramdisk **preserving authentic MediaTek `MT8125` 512-byte `0x58881688` headers**, injects `ro.secure=0` + `ro.debuggable=1` + `persist.sys.usb.config=mtp,adb`, validates headers, and flashes permanent early-init `adb shell` root unbrick protection!
+          5. **Speed, `1 GB RAM`, Offline `/etc/hosts` Ad-Blocker, Warm Night Filter & Battery Calibrator (`Tab 5: TOOLS`):**
+             - Curated offline `/system/etc/hosts` ad/tracker/telemetry shield (1-tap reversible), `1 GB RAM` `lowmemorykiller` + `0.5x` animation speed tune, hardware-independent **Warm Sepia / Deep Amber / Extra-Dim** night reading overlay (`NightFilterService`), and live `mV`/`°C` battery telemetry + `batterystats.bin` fuel-gauge reset!
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v1.2.0 >/dev/null 2>&1; then
-            gh release upload v1.2.0 \
+          if gh release view v1.3.0 >/dev/null 2>&1; then
+            gh release upload v1.3.0 \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v1.2.0 \
+            gh release create v1.3.0 \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v1.2.0 — Built-In TLS 1.3 Browser, 120 Offline 2026 Certs, Root, Backup & Stock Android 4.2" \
+              --title "Kobo Arc 7 Freedom v1.3.0 — System TLS 1.3 Proxy, Offline App Pack, MicroSD Expander, Anti-Brick ADB & Speed Suite" \
               --notes-file /tmp/release-notes.md
           fi
 
-          for TAG in v1.1.0 v1.0.0; do
+          for TAG in v1.2.0 v1.1.0 v1.0.0; do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" \
                 releases/KoboArc7Freedom.apk \

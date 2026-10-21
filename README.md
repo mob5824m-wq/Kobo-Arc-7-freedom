@@ -8,8 +8,8 @@
 
 Both pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** signed APKs are ready right now in:
 
-1. **[GitHub Releases (`v1.1.0` Latest)](../../releases)** — direct one-click download for your tablet or PC
-2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Full all-in-one Android app (`~2.2 MB`, pre-bundles **all 120 modern 2026 Root CA certificates offline**, modern **ARMv7 TLS 1.3 downloader & Browser Portal**, ARMv7 root engine, `su` binary/daemon, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`)
+1. **[GitHub Releases (`v1.3.0` Latest)](../../releases/tag/v1.3.0)** — direct one-click download (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`)
+2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 suite (`~11.6 MB` — pre-bundles **all 120 modern 2026 Root CA certificates offline**, **System-Wide `TLS 1.3` Upgrade Proxy (`127.0.0.1:8118`)**, **Pre-Bundled Offline `F-Droid Classic` App Store (`Android 4.2 + TLS 1.3`)**, **Standalone `Arc7 E-Reader` (`.epub`/`.txt`/`.html`)**, **Standalone `Arc7 Terminal` (`ROOT #`)**, **Standalone `Arc7 Browser (TLS 1.3)`**, **`8 GB` MicroSD Storage Expander**, **On-Device Anti-Brick `MT8125` `boot.img`/`recovery.img` Root-ADB Patcher**, **Speed/RAM/Ad-Block/Night Filter/Battery Suite**, ARMv7 root engine, `su`, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`)
 3. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`33 KB`, also automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
 4. **[`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)** — SHA-256 verification digests
 
