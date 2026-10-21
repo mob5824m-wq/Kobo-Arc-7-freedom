@@ -10,13 +10,56 @@
 #include <stdint.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #define ARC7_SU_SOCKET_NAME "arc7_freedom_root_v1"
-#define ARC7_SU_VERSION_STR "16:ARC7FREEDOM-SU"
-#define ARC7_SU_VERSION_INT 16
+#define ARC7_SU_VERSION_STR "17:ARC7FREEDOM-SU"
+#define ARC7_SU_VERSION_INT 17
+
+static int arc7_daemon_ping(void) {
+    int sfd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (sfd < 0) return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path + 1, ARC7_SU_SOCKET_NAME, sizeof(addr.sun_path) - 2);
+    socklen_t socklen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + strlen(ARC7_SU_SOCKET_NAME));
+
+    int ok = (connect(sfd, (struct sockaddr *)&addr, socklen) == 0) ? 0 : -1;
+    if (ok == 0) {
+        const char *cmd = "true";
+        if (write(sfd, cmd, 5) < 0) { /* ignore */ }
+        shutdown(sfd, SHUT_WR);
+        char drain[128];
+        while (read(sfd, drain, sizeof(drain)) > 0) {}
+    }
+    close(sfd);
+    return ok;
+}
+
+static void arc7_move_to_root_cgroup(void) {
+    char pid_str[32];
+    int len = snprintf(pid_str, sizeof(pid_str), "%d\n", (int)getpid());
+    const char *cgroups[] = {
+        "/acct/uid_0/tasks",
+        "/dev/cpuctl/tasks",
+        "/sys/fs/cgroup/cpu/tasks",
+        NULL
+    };
+    mkdir("/acct/uid_0", 0755);
+    for (int i = 0; cgroups[i] != NULL; i++) {
+        int fd = open(cgroups[i], O_WRONLY);
+        if (fd >= 0) {
+            if (write(fd, pid_str, (size_t)len) < 0) { /* ignore */ }
+            close(fd);
+        }
+    }
+}
 
 static int arc7_copy_file(const char *src, const char *dst, mode_t mode) {
     int in_fd = open(src, O_RDONLY);
@@ -84,6 +127,7 @@ static int arc7_remount_system(int writable) {
         fclose(fp);
     }
 
+    /* Notice: clearing MS_NOSUID intentionally on remount so setuid 06755 always works directly! */
     unsigned long flags = MS_REMOUNT | (writable ? 0 : MS_RDONLY);
     if (mount(sys_dev, "/system", sys_fs, flags, NULL) == 0) {
         return 0;
@@ -91,10 +135,9 @@ static int arc7_remount_system(int writable) {
     if (mount(NULL, "/system", NULL, flags, NULL) == 0) {
         return 0;
     }
-    /* Fallback to toolbox / mount binary on Android 4.2 */
     char cmd[640];
-    snprintf(cmd, sizeof(cmd), "/system/bin/mount -o %s,remount %s /system >/dev/null 2>&1",
-             writable ? "rw" : "ro", sys_dev);
+    snprintf(cmd, sizeof(cmd), "/system/bin/mount -o %s,suid,remount %s /system >/dev/null 2>&1 || /system/bin/mount -o %s,remount %s /system >/dev/null 2>&1",
+             writable ? "rw" : "ro", sys_dev, writable ? "rw" : "ro", sys_dev);
     return system(cmd);
 }
 
@@ -107,6 +150,7 @@ static __attribute__((unused)) int arc7_install_persistent_root(const char *su_s
 
     setresgid(0, 0, 0);
     setresuid(0, 0, 0);
+    arc7_move_to_root_cgroup();
 
     /* Permissive SELinux if present on kernel */
     int se_fd = open("/sys/fs/selinux/enforce", O_WRONLY);
@@ -115,6 +159,23 @@ static __attribute__((unused)) int arc7_install_persistent_root(const char *su_s
         close(se_fd);
     }
 
+    /* 1. Install into RAM rootfs `/sbin/su` (`06755`) FIRST:
+     *    `/sbin` is first on Android's PATH, lives in RAM (immune to full `/system` ENOSPC!),
+     *    and never has `nosuid` on Linux 3.4 initramfs! */
+    int installed_sbin = 0;
+    if (mount("rootfs", "/", "rootfs", MS_REMOUNT, NULL) == 0 ||
+        mount(NULL, "/", NULL, MS_REMOUNT, NULL) == 0) {
+        mkdir("/sbin", 0755);
+        chmod("/sbin", 0755);
+        if (arc7_copy_file(su_source_path, "/sbin/su", 06755) == 0) {
+            installed_sbin = 1;
+            printf("STAGE: Installed setuid root su to /sbin/su (06755)\n");
+            fflush(stdout);
+        }
+        mount("rootfs", "/", "rootfs", MS_REMOUNT | MS_RDONLY, NULL);
+    }
+
+    /* 2. Remount `/system` read-write (clearing `nosuid`) and install persistent `/system/xbin/su` + `/system/bin/su` */
     printf("STAGE: Remounting /system read-write...\n");
     fflush(stdout);
     if (arc7_remount_system(1) != 0) {
@@ -128,13 +189,17 @@ static __attribute__((unused)) int arc7_install_persistent_root(const char *su_s
 
     printf("STAGE: Installing static ARMv7 su binary to /system/xbin/su and /system/bin/su...\n");
     fflush(stdout);
-    if (arc7_copy_file(su_source_path, "/system/xbin/su", 06755) != 0) {
-        fprintf(stderr, "ERROR: Failed to write /system/xbin/su (%s)\n", strerror(errno));
+    int installed_xbin = (arc7_copy_file(su_source_path, "/system/xbin/su", 06755) == 0);
+    int installed_bin = (arc7_copy_file(su_source_path, "/system/bin/su", 06755) == 0);
+
+    if (!installed_xbin && !installed_bin && !installed_sbin) {
+        fprintf(stderr, "ERROR: Failed to write su binary to /system/xbin/su or /sbin/su (%s)\n", strerror(errno));
         arc7_remount_system(0);
         return -1;
     }
-    /* Secondary copy in /system/bin/su for apps that hardcode /system/bin/su */
-    arc7_copy_file(su_source_path, "/system/bin/su", 06755);
+
+    const char *daemon_su = installed_xbin ? "/system/xbin/su"
+                          : (installed_bin ? "/system/bin/su" : "/sbin/su");
 
     /* Preserve original stock recovery-reflash script once, then install boot hook */
     struct stat st;
@@ -161,15 +226,32 @@ static __attribute__((unused)) int arc7_install_persistent_root(const char *su_s
     sync();
     arc7_remount_system(0);
 
-    /* Launch background root socket daemon right away as well */
+    /* 3. Launch detached background root daemon cleanly (closing ALL inherited FDs so parent Java pipes NEVER hang!) */
     pid_t dpid = fork();
     if (dpid == 0) {
+        alarm(0);
         setsid();
-        execl("/system/xbin/su", "su", "--daemon", (char *)NULL);
+        arc7_move_to_root_cgroup();
+        int devnull = open("/dev/null", O_RDWR);
+        if (devnull >= 0) {
+            dup2(devnull, STDIN_FILENO);
+            dup2(devnull, STDOUT_FILENO);
+            dup2(devnull, STDERR_FILENO);
+            if (devnull > 2) close(devnull);
+        }
+        for (int fd = 3; fd < 256; fd++) close(fd);
+        execl(daemon_su, "su", "--daemon", (char *)NULL);
+        execl(su_source_path, "su", "--daemon", (char *)NULL);
         _exit(0);
     }
 
-    printf("ROOT_INSTALLED_OK uid=0 path=/system/xbin/su\n");
+    /* Wait up to 400 ms so abstract root socket `@arc7_freedom_root_v1` is guaranteed live immediately */
+    for (int tries = 0; tries < 20; tries++) {
+        if (arc7_daemon_ping() == 0) break;
+        usleep(20000);
+    }
+
+    printf("ROOT_INSTALLED_OK uid=0 path=%s\n", daemon_su);
     fflush(stdout);
     return 0;
 }

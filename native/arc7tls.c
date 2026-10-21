@@ -57,7 +57,7 @@
 #define MAX_URL_LEN   4096
 #define MAX_HDR_BYTES 65536
 #define MAX_REDIRECTS 12
-#define USER_AGENT    "Mozilla/5.0 (Linux; Android 4.2.2; Kobo Arc 7) Arc7Freedom/1.3"
+#define USER_AGENT    "Mozilla/5.0 (Linux; Android 10; Kobo Arc 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 typedef struct {
     int is_https;
@@ -288,6 +288,8 @@ typedef struct {
     int is_chunked;
     char location[MAX_URL_LEN];
     char content_type[256];
+    char content_encoding[64];
+    char set_cookies[2048];
 } http_resp_hdr_t;
 
 static void trim_crlf(char *s) {
@@ -354,6 +356,17 @@ static int read_response_headers(http_conn_t *c, http_resp_hdr_t *hdr,
             const char *v = line + 13;
             while (*v == ' ' || *v == '\t') v++;
             snprintf(hdr->content_type, sizeof(hdr->content_type), "%s", v);
+        } else if (strncasecmp(line, "Content-Encoding:", 17) == 0) {
+            const char *v = line + 17;
+            while (*v == ' ' || *v == '\t') v++;
+            snprintf(hdr->content_encoding, sizeof(hdr->content_encoding), "%s", v);
+        } else if (strncasecmp(line, "Set-Cookie:", 11) == 0) {
+            const char *v = line + 11;
+            while (*v == ' ' || *v == '\t') v++;
+            size_t cur = strlen(hdr->set_cookies);
+            if (cur + strlen(v) + 4 < sizeof(hdr->set_cookies)) {
+                snprintf(hdr->set_cookies + cur, sizeof(hdr->set_cookies) - cur, "%s\n", v);
+            }
         }
     }
 
@@ -578,10 +591,11 @@ static int write_file_sink(const unsigned char *data, size_t len, void *ctx) {
     return 0;
 }
 
-static int perform_get_following_redirects(const char *start_url, int strict_verify,
-                                           http_conn_t *out_conn, http_resp_hdr_t *out_hdr,
-                                           parsed_url_t *out_final_url,
-                                           unsigned char *leftover, size_t *leftover_len) {
+static int perform_get_following_redirects_ex(const char *start_url, int strict_verify,
+                                              const char *extra_hdrs, int allow_gzip,
+                                              http_conn_t *out_conn, http_resp_hdr_t *out_hdr,
+                                              parsed_url_t *out_final_url,
+                                              unsigned char *leftover, size_t *leftover_len) {
     char cur_url[MAX_URL_LEN];
     snprintf(cur_url, sizeof(cur_url), "%s", start_url);
 
@@ -597,14 +611,19 @@ static int perform_get_following_redirects(const char *start_url, int strict_ver
             return -1;
         }
 
-        char req[4608];
+        char req[8192];
         int req_len = snprintf(req, sizeof(req),
                                "GET %s HTTP/1.1\r\n"
                                "Host: %s\r\n"
                                "User-Agent: %s\r\n"
-                               "Accept: */*\r\n"
+                               "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8\r\n"
+                               "Accept-Language: en-US,en;q=0.9\r\n"
+                               "Accept-Encoding: %s\r\n"
+                               "%s"
                                "Connection: close\r\n\r\n",
-                               u.path, u.host, USER_AGENT);
+                               u.path, u.host, USER_AGENT,
+                               allow_gzip ? "gzip, identity" : "identity",
+                               extra_hdrs ? extra_hdrs : "");
         if (conn_write_all(out_conn, req, (size_t)req_len) != 0) {
             conn_close(out_conn);
             fprintf(stderr, "ERROR: Failed writing HTTP request to %s\n", u.host);
@@ -633,6 +652,15 @@ static int perform_get_following_redirects(const char *start_url, int strict_ver
 
     fprintf(stderr, "ERROR: Too many HTTP redirects (> %d)\n", MAX_REDIRECTS);
     return -1;
+}
+
+static int perform_get_following_redirects(const char *start_url, int strict_verify,
+                                           http_conn_t *out_conn, http_resp_hdr_t *out_hdr,
+                                           parsed_url_t *out_final_url,
+                                           unsigned char *leftover, size_t *leftover_len) {
+    return perform_get_following_redirects_ex(start_url, strict_verify, NULL, 0,
+                                              out_conn, out_hdr, out_final_url,
+                                              leftover, leftover_len);
 }
 
 static int cmd_test_url(const char *url) {
@@ -810,7 +838,7 @@ static void send_portal_home(int client_fd) {
         "</form>"
         "<form action='/search' method='GET' style='margin-top:10px;'>"
         "<input type='text' name='q' placeholder='Search the web (e.g. Kobo Arc 7 Android 4.2 APK or ROM)...'>"
-        "<button type='submit'>Web Search (DuckDuckGo Lite)</button>"
+        "<button type='submit'>Search Web</button>"
         "</form></div>"
         "<div class='card'><b>One-Tap Android 4.2 Downloads &amp; Sites:</b><br><br>"
         "<a class='btn green' href='/go?u=https://github.com/Smu1zel/fdroidclassiclegacy/releases/download/v1.3-beta2-PATCH/app-debug.apk'>F-Droid Classic Legacy (Android 4.2 + TLS 1.3 Store APK)</a>"
@@ -1321,6 +1349,114 @@ static void *handle_proxy_client(void *arg) {
         return NULL;
     }
 
+    if (strcmp(target, "/__ping") == 0) {
+        const char *okp = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK";
+        sock_send_all(fd, okp, strlen(okp));
+        close(fd);
+        return NULL;
+    }
+
+    /* High-speed persistent TLS 1.3 WebView resource streamer (`Arc7BrowserActivity`) */
+    if (strncmp(target, "/__arc7_raw?u=", 14) == 0) {
+        char raw_url[MAX_URL_LEN + 128] = {0};
+        url_decode(target + 14, raw_url, sizeof(raw_url));
+
+        /* Forward optional `X-Arc7-Cookie` / `X-Arc7-Referer` client request headers */
+        char extra_hdrs[3072] = {0};
+        const char *hdr_scan = req;
+        while ((hdr_scan = strchr(hdr_scan, '\n')) != NULL) {
+            hdr_scan++;
+            if (*hdr_scan == '\r' || *hdr_scan == '\n' || *hdr_scan == '\0') break;
+            if (strncasecmp(hdr_scan, "X-Arc7-Cookie:", 14) == 0) {
+                const char *v = hdr_scan + 14;
+                while (*v == ' ' || *v == '\t') v++;
+                const char *eol = strpbrk(v, "\r\n");
+                size_t vl = eol ? (size_t)(eol - v) : strlen(v);
+                if (vl > 0 && strlen(extra_hdrs) + vl + 16 < sizeof(extra_hdrs)) {
+                    size_t off = strlen(extra_hdrs);
+                    snprintf(extra_hdrs + off, sizeof(extra_hdrs) - off, "Cookie: %.*s\r\n", (int)vl, v);
+                }
+            } else if (strncasecmp(hdr_scan, "X-Arc7-Referer:", 15) == 0) {
+                const char *v = hdr_scan + 15;
+                while (*v == ' ' || *v == '\t') v++;
+                const char *eol = strpbrk(v, "\r\n");
+                size_t vl = eol ? (size_t)(eol - v) : strlen(v);
+                if (vl > 0 && strlen(extra_hdrs) + vl + 16 < sizeof(extra_hdrs)) {
+                    size_t off = strlen(extra_hdrs);
+                    snprintf(extra_hdrs + off, sizeof(extra_hdrs) - off, "Referer: %.*s\r\n", (int)vl, v);
+                }
+            }
+        }
+
+        http_conn_t c;
+        http_resp_hdr_t hdr;
+        parsed_url_t final_u;
+        unsigned char *leftover = (unsigned char *)malloc(MAX_HDR_BYTES);
+        size_t leftover_len = 0;
+        int rc_open = -1;
+        if (leftover) {
+            rc_open = perform_get_following_redirects_ex(raw_url, 1, extra_hdrs, 1,
+                                                         &c, &hdr, &final_u, leftover, &leftover_len);
+            if (rc_open != 0 && time(NULL) < 1767225600) {
+                /* Unrooted dead-battery clock still pre-2026: fallback without failing browser */
+                rc_open = perform_get_following_redirects_ex(raw_url, 0, extra_hdrs, 1,
+                                                             &c, &hdr, &final_u, leftover, &leftover_len);
+            }
+        }
+        if (rc_open != 0) {
+            const char *errp = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\nTLS 1.3 connection failed.";
+            sock_send_all(fd, errp, strlen(errp));
+            free(leftover);
+            close(fd);
+            return NULL;
+        }
+
+        char final_full[MAX_URL_LEN + 64];
+        int def_port = (final_u.is_https && strcmp(final_u.port, "443") == 0) ||
+                       (!final_u.is_https && strcmp(final_u.port, "80") == 0);
+        if (def_port) {
+            snprintf(final_full, sizeof(final_full), "%s://%s%s",
+                     final_u.is_https ? "https" : "http", final_u.host, final_u.path);
+        } else {
+            snprintf(final_full, sizeof(final_full), "%s://%s:%s%s",
+                     final_u.is_https ? "https" : "http", final_u.host, final_u.port, final_u.path);
+        }
+
+        char out_hdr[8192];
+        const char *ctype = hdr.content_type[0] ? hdr.content_type : "application/octet-stream";
+        int hl = snprintf(out_hdr, sizeof(out_hdr),
+                          "HTTP/1.1 %d OK\r\n"
+                          "Content-Type: %s\r\n"
+                          "X-Arc7-Final-URL: %s\r\n"
+                          "%s%s%s",
+                          hdr.status_code,
+                          ctype,
+                          final_full,
+                          hdr.content_encoding[0] ? "X-Arc7-Encoding: " : "",
+                          hdr.content_encoding[0] ? hdr.content_encoding : "",
+                          hdr.content_encoding[0] ? "\r\n" : "");
+        if (hdr.set_cookies[0] != '\0') {
+            char *sc_copy = strdup(hdr.set_cookies);
+            if (sc_copy) {
+                char *sp2 = NULL;
+                char *scl = strtok_r(sc_copy, "\n", &sp2);
+                while (scl && (size_t)hl + strlen(scl) + 20 < sizeof(out_hdr)) {
+                    hl += snprintf(out_hdr + hl, sizeof(out_hdr) - (size_t)hl, "Set-Cookie: %s\r\n", scl);
+                    scl = strtok_r(NULL, "\n", &sp2);
+                }
+                free(sc_copy);
+            }
+        }
+        hl += snprintf(out_hdr + hl, sizeof(out_hdr) - (size_t)hl, "Connection: close\r\n\r\n");
+        sock_send_all(fd, out_hdr, (size_t)hl);
+        stream_http_body(&c, &hdr, leftover, leftover_len, raw_sock_sink, &fd);
+
+        conn_close(&c);
+        free(leftover);
+        close(fd);
+        return NULL;
+    }
+
     if (strcmp(target, "/") == 0 || strncmp(target, "/index", 6) == 0) {
         send_portal_home(fd);
         close(fd);
@@ -1329,7 +1465,7 @@ static void *handle_proxy_client(void *arg) {
 
     char dest_url[MAX_URL_LEN + 128] = {0};
     if (strncmp(target, "/search?q=", 10) == 0) {
-        snprintf(dest_url, sizeof(dest_url), "https://lite.duckduckgo.com/lite/?q=%s", target + 10);
+        snprintf(dest_url, sizeof(dest_url), "https://html.duckduckgo.com/html/?q=%s", target + 10);
     } else if (strncmp(target, "/go?u=", 6) == 0) {
         url_decode(target + 6, dest_url, sizeof(dest_url));
         if (strncasecmp(dest_url, "http://", 7) != 0 && strncasecmp(dest_url, "https://", 8) != 0) {

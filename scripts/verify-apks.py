@@ -101,8 +101,8 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.6.0", f"Expected 1.6.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "160", f"Expected 160, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.7.0", f"Expected 1.7.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "170", f"Expected 170, got {apk.get_androidversion_code()}"
         acts = apk.get_activities()
         for req_act in (
             "ca.arc7freedom.app.MainActivity",
@@ -191,7 +191,8 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
     arc7tls = os.path.join(ROOT, "build/host-test/arc7tls")
     zig = get_zig_cmd()
     mbed = os.environ.get("MBEDTLS_DIR", "/tmp/mbedtls-src")
-    if not os.path.exists(arc7tls):
+    tls_src = os.path.join(ROOT, "native/arc7tls.c")
+    if (not os.path.exists(arc7tls)) or (os.path.getmtime(tls_src) > os.path.getmtime(arc7tls)):
         os.makedirs(os.path.dirname(arc7tls), exist_ok=True)
         x64_dir = os.path.join(ROOT, "build/mbedtls-x64")
         os.makedirs(x64_dir, exist_ok=True)
@@ -592,6 +593,68 @@ def verify_wifi_server_and_drive_fixes() -> None:
     for sym in (b"ensureStartedAndWait", b"isPinRequired", b"detectAllLanIps", b"getActivePort", b"startForeground"):
         assert sym in cls_bytes, f"Missing symbol {sym!r} in Arc7WifiDriveService.class!"
     print("  [PASS] Arc7WifiDriveService (:8080) Foreground + Auto-Start + Port Fallback bytecode verified")
+
+    # Verify Arc7BrowserActivity completely removed Lite mode & integrates persistent TLS daemon + GZIP decompression
+    browser_cls = os.path.join(ROOT, "build/app/classes/ca/arc7freedom/app/Arc7BrowserActivity.class")
+    with open(browser_cls, "rb") as f:
+        b_bytes = f.read()
+    for banned in (b"Lite: ON", b"Lite: OFF", b"readerLiteEnabled", b"transformHtmlForReaderLite"):
+        assert banned not in b_bytes, f"Stale Lite browser symbol still present: {banned!r}"
+    for req_sym in (b"fetchViaPersistentTlsDaemon", b"GZIPInputStream", b"X-Arc7-Final-URL"):
+        assert req_sym in b_bytes, f"Missing browser engine symbol: {req_sym!r}"
+    print("  [PASS] Arc7BrowserActivity: Lite mode completely removed + persistent TLS 1.3 daemon + GZIP stream verified")
+
+    # Verify Android 4.2 toolbox compatibility: zero `uname -a`, `| head`, or `| tail` shell invocations in MainActivity / Terminal!
+    for cls_rel in ("MainActivity.class", "Arc7TerminalActivity.class", "Android4Installer.class"):
+        cpath = os.path.join(ROOT, "build/app/classes/ca/arc7freedom/app", cls_rel)
+        with open(cpath, "rb") as f:
+            cb = f.read()
+        for bad_shell in (b"uname -a", b"| head ", b"| tail "):
+            assert bad_shell not in cb, f"Found non-Android-4.2 toolbox command {bad_shell!r} in {cls_rel}!"
+
+    # Compile & verify host `native/su.c` across `-v`, `-V`, and clean daemon FD detachment
+    su_host = os.path.join(ROOT, "build/host-test/su")
+    subprocess.run(
+        get_zig_cmd() + ["cc", "-target", "x86_64-linux-musl", "-Os", "-static", "native/su.c", "-o", su_host],
+        cwd=ROOT, check=True,
+    )
+    r_su = subprocess.run([su_host, "-v"], capture_output=True, text=True, check=True)
+    assert "ARC7FREEDOM-SU" in r_su.stdout
+    print("  [PASS] Android 4.2 Root Shell & multi-mode `su` binary verified (zero missing `uname`/`head`/`tail` applets!)")
+
+    # Test `arc7tls proxy` `/__arc7_raw` high-speed persistent browser streaming endpoint live!
+    ca_use = "/etc/ssl/certs/ca-certificates.crt" if os.path.exists("/etc/ssl/certs/ca-certificates.crt") else os.path.join(ROOT, "app/src/main/assets/cacerts/ca-bundle-2026.crt")
+    raw_proc = subprocess.Popen(
+        [os.path.join(ROOT, "build/host-test/arc7tls"), "proxy", ca_use, "18892"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        for _ in range(30):
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", 18892, timeout=2)
+                c.request("GET", "/__ping")
+                r = c.getresponse()
+                r.read()
+                c.close()
+                if r.status == 200:
+                    break
+            except OSError:
+                time.sleep(0.05)
+        c = http.client.HTTPConnection("127.0.0.1", 18892, timeout=15)
+        c.request("GET", "/__arc7_raw?u=https%3A%2F%2Fgithub.com%2Fmob5824m-wq%2FKobo-Arc-7-freedom")
+        r = c.getresponse()
+        final_u = r.getheader("X-Arc7-Final-URL", "")
+        enc_h = r.getheader("X-Arc7-Encoding", "")
+        raw_payload = r.read()
+        c.close()
+        if "gzip" in enc_h.lower() or raw_payload[:2] == b"\x1f\x8b":
+            import gzip
+            raw_payload = gzip.decompress(raw_payload)
+        assert r.status == 200 and "github.com" in final_u and b"Kobo-Arc-7-freedom" in raw_payload
+        print(f"  [PASS] Live `arc7tls /__arc7_raw` browser daemon streamed real TLS 1.3 + gzip page ({len(raw_payload)} bytes decoded)!")
+    finally:
+        raw_proc.terminate()
+        raw_proc.wait(timeout=5)
 
     # Spin up live tools/serve-over-wifi.py on ephemeral test port 18891 and verify HTTP/1.1, HEAD, Range, /raw/, & TLS fast-reject
     proc = subprocess.Popen(

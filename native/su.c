@@ -16,10 +16,24 @@ static void setup_root_credentials(void) {
     setenv("HOME", "/data", 1);
 }
 
+static void detach_daemon_stdio(void) {
+    alarm(0);
+    setsid();
+    arc7_move_to_root_cgroup();
+    int devnull = open("/dev/null", O_RDWR);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        if (devnull > 2) close(devnull);
+    }
+    for (int fd = 3; fd < 256; fd++) close(fd);
+}
+
 static void handle_daemon_client(int client_fd) {
     /* Protocol: reads null-terminated or EOF command string, runs via /system/bin/sh -c,
        streams stdout+stderr, writes trailing marker \n__ARC7_EXIT_<code>__\n */
-    char cmd[16384];
+    char cmd[32768];
     size_t total = 0;
     while (total + 1 < sizeof(cmd)) {
         ssize_t n = read(client_fd, cmd + total, sizeof(cmd) - 1 - total);
@@ -88,12 +102,10 @@ static int run_daemon(void) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    /* Abstract Linux UNIX domain socket: sun_path[0] == '\0' */
     strncpy(addr.sun_path + 1, ARC7_SU_SOCKET_NAME, sizeof(addr.sun_path) - 2);
     socklen_t socklen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + strlen(ARC7_SU_SOCKET_NAME));
 
     if (bind(sfd, (struct sockaddr *)&addr, socklen) != 0) {
-        /* Daemon already running */
         close(sfd);
         return 0;
     }
@@ -153,7 +165,6 @@ static int exec_via_daemon(const char *cmd) {
             tail_len += (size_t)n;
             acc[tail_len] = '\0';
         } else {
-            /* Flush older half */
             size_t flush_n = tail_len - 128;
             if (write(STDOUT_FILENO, acc, flush_n) < 0) { /* ignore */ }
             memmove(acc, acc + flush_n, tail_len - flush_n);
@@ -177,11 +188,41 @@ static int exec_via_daemon(const char *cmd) {
     return exit_code;
 }
 
+static void append_quoted_arg(char *buf, size_t cap, const char *arg) {
+    size_t cur = strlen(buf);
+    if (cur > 0 && cur + 1 < cap) buf[cur++] = ' ';
+    if (cur + 2 >= cap) return;
+    /* Quote only if arg contains shell whitespace/metacharacters and isn't already single-cmd */
+    int needs_quote = 0;
+    for (const char *p = arg; *p; p++) {
+        if (*p == ' ' || *p == '\t' || *p == '\'' || *p == '"' || *p == '$' || *p == ';') {
+            needs_quote = 1;
+            break;
+        }
+    }
+    if (!needs_quote) {
+        snprintf(buf + cur, cap - cur, "%s", arg);
+        return;
+    }
+    buf[cur++] = '\'';
+    for (const char *p = arg; *p && cur + 6 < cap; p++) {
+        if (*p == '\'') {
+            memcpy(buf + cur, "'\"'\"'", 5);
+            cur += 5;
+        } else {
+            buf[cur++] = *p;
+        }
+    }
+    buf[cur++] = '\'';
+    buf[cur] = '\0';
+}
+
 int main(int argc, char **argv) {
     const char *shell = "/system/bin/sh";
-    char cmd_buf[16384];
+    char cmd_buf[32768];
     cmd_buf[0] = '\0';
     int has_cmd = 0;
+    int exec_argv_idx = -1;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
@@ -198,7 +239,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
             if (fork() > 0) return 0;
-            setsid();
+            detach_daemon_stdio();
             return run_daemon();
         }
         if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--shell") == 0) {
@@ -219,20 +260,38 @@ int main(int argc, char **argv) {
             }
             break;
         }
-        /* Ignore target user specification like "root" or "0" */
         if (strcmp(argv[i], "root") == 0 || strcmp(argv[i], "0") == 0) {
             continue;
         }
+        /* Support AOSP Android 4.2 `su 0 /system/bin/sh script.sh` style invocations too! */
+        exec_argv_idx = i;
+        has_cmd = 1;
+        for (int j = i; j < argc; j++) {
+            append_quoted_arg(cmd_buf, sizeof(cmd_buf), argv[j]);
+        }
+        break;
     }
 
     if (geteuid() == 0 || getuid() == 0) {
         setup_root_credentials();
+        /* Ensure background daemon stays alive automatically for any non-setuid callers */
+        if (arc7_daemon_ping() != 0) {
+            pid_t dp = fork();
+            if (dp == 0) {
+                detach_daemon_stdio();
+                _exit(run_daemon());
+            }
+        }
+        if (exec_argv_idx > 0) {
+            execvp(argv[exec_argv_idx], &argv[exec_argv_idx]);
+            perror("execvp");
+            return 127;
+        }
         if (has_cmd) {
             execl(shell, "sh", "-c", cmd_buf, (char *)NULL);
             perror("execl");
             return 127;
         }
-        /* Interactive shell or stdin pipe (`su` with script fed on stdin!) */
         execl(shell, "sh", (char *)NULL);
         perror("execl");
         return 127;
@@ -240,7 +299,6 @@ int main(int argc, char **argv) {
 
     /* Fallback: if binary wasn't setuid or filesystem had nosuid, talk to root daemon! */
     if (!has_cmd && !isatty(STDIN_FILENO)) {
-        /* Read piped stdin commands (`Runtime.getRuntime().exec("su")` writing to OutputStream!) */
         size_t total = 0;
         ssize_t n;
         while (total + 1 < sizeof(cmd_buf) &&

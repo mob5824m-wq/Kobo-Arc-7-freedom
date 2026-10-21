@@ -315,7 +315,7 @@ public class Android4Installer {
         if (recPart.offsetBytes > 0L && "/dev/block/mmcblk0".equals(recPart.sourcePath)) {
             long skipBlocks = recPart.offsetBytes / 512L;
             RootShell.ExecResult slotHdr = shell.execRoot(
-                    "dd if=/dev/block/mmcblk0 bs=512 skip=" + skipBlocks + " count=2 2>/dev/null | grep -a 'ANDROID!' | head -n 1",
+                    "dd if=/dev/block/mmcblk0 bs=512 skip=" + skipBlocks + " count=2 2>/dev/null | grep -a 'ANDROID!'",
                     null);
             if (!slotHdr.stdout.contains("ANDROID!")) {
                 throw new IllegalStateException("Brick-Guard: Raw offset 0x" + Long.toHexString(recPart.offsetBytes)

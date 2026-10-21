@@ -108,7 +108,7 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.6.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v1.7.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Anti-Brick Hardened + Custom App Icons + Clock/Alarms/Timers/Stopwatch + 12 HD Wallpapers + 120 2026 CAs + TLS 1.3 + 256GB SDXC).");
         refreshDeviceSnapshotAsync();
     }
@@ -164,7 +164,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.6");
+        title.setText("Kobo Arc 7 Freedom  v1.7");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -1381,14 +1381,32 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final RootShell.ExecResult r = rootShell.execRoot("id && uname -a && df /system /data",
+                final String script =
+                        "echo '=== IDENTITY ==='\n"
+                        + "id\n"
+                        + "echo ''\n"
+                        + "echo '=== KERNEL ==='\n"
+                        + "cat /proc/version\n"
+                        + "echo ''\n"
+                        + "echo '=== STORAGE (/system & /data) ==='\n"
+                        + "(df /system 2>/dev/null || df)\n"
+                        + "(df /data 2>/dev/null || true)\n";
+                final RootShell.ExecResult r = rootShell.execRoot(script,
                         new RootShell.LineListener() {
                             @Override public void onLine(String line) { appendLog(line); }
                         });
+                final boolean hasUid0 = r.stdout != null && r.stdout.contains("uid=0");
+                final DeviceInspector.Snapshot refreshed = DeviceInspector.collect(MainActivity.this, rootShell);
                 uiHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        showInfoDialog(r.exitCode == 0 ? "Root Shell Verified!" : "Root Not Active Yet", r.stdout);
+                        snapshot = refreshed;
+                        renderSnapshot();
+                        showInfoDialog(
+                                hasUid0 ? "Root Shell Verified (uid=0)!" : "Root Not Active Yet",
+                                r.stdout != null && r.stdout.trim().length() > 0
+                                        ? r.stdout.trim()
+                                        : ("Exit code: " + r.exitCode));
                     }
                 });
             }

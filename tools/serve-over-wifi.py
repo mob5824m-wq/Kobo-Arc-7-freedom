@@ -357,7 +357,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v1.6 — Complete Installer &amp; Wi-Fi Sideload Portal</h1>"
+        "<h1>Kobo Arc 7 Freedom v1.7 — Complete Installer &amp; Wi-Fi Sideload Portal</h1>"
         "<p>Anti-Brick Root &bull; 120 Offline 2026 SSL Certs &bull; Modern TLS 1.3 Browser &bull; "
         "Full OS Backup/Restore &bull; Clean Stock Android 4.2 Launcher &bull; Clock/Alarms/Timers &bull; 12 HD Wallpapers</p>"
         + live_progress_widget

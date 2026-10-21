@@ -89,11 +89,11 @@ public class Arc7TerminalActivity extends Activity {
         String[][] presets = {
             {"id", "id"},
             {"df / Storage", "df"},
-            {"RAM / free", "cat /proc/meminfo | head -n 6"},
-            {"Partitions", "cat /proc/emmc 2>/dev/null || cat /proc/partitions"},
-            {"Mounts", "mount | tail -n 25"},
-            {"Network", "netstat 2>/dev/null | head -n 25"},
-            {"Kernel dmesg", "dmesg | tail -n 30"},
+            {"RAM / free", "grep -E 'MemTotal|MemFree|Buffers|Cached|Swap' /proc/meminfo"},
+            {"Partitions", "cat /proc/emmc 2>/dev/null || cat /proc/dumchar_info 2>/dev/null || cat /proc/partitions"},
+            {"Mounts", "mount"},
+            {"Network", "netstat 2>/dev/null || cat /proc/net/route"},
+            {"Kernel Version", "cat /proc/version && uptime"},
             {"Props", "getprop | grep -E 'product|build|usb|dns'"}
         };
         for (int i = 0; i < presets.length; i++) {
@@ -131,7 +131,7 @@ public class Arc7TerminalActivity extends Activity {
         txtScreen.setPadding(dp(12), dp(10), dp(12), dp(10));
         txtScreen.setTextIsSelectable(true);
         txtScreen.setText(
-                "Kobo Arc 7 Freedom — Interactive Root & Linux Shell (v1.3.0)\n" +
+                "Kobo Arc 7 Freedom — Interactive Root & Linux Shell (v1.7.0)\n" +
                 "Native binaries on PATH: " + getApplicationInfo().nativeLibraryDir + "\n" +
                 "Tip: Tap any quick-chip above or type any shell command below (`su`, `arc7tool`, `arc7tls`, `pm`, `ls`, etc.).\n\n");
         scrollScreen.addView(txtScreen);
