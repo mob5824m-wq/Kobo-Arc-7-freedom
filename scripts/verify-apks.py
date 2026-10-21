@@ -94,6 +94,9 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert apk.get_package() == expected_pkg, f"Expected {expected_pkg}, got {apk.get_package()}"
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
+    if expected_pkg == "ca.arc7freedom.app":
+        assert "ca.arc7freedom.app.Arc7BrowserActivity" in apk.get_activities(), "Missing Arc7BrowserActivity!"
+        assert "ca.arc7freedom.app.BootNetworkReceiver" in apk.get_receivers(), "Missing BootNetworkReceiver!"
     print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, minSdk=15, targetSdk=17 (Android 4.2.2)")
 
     with zipfile.ZipFile(apk_path, "r") as zf:

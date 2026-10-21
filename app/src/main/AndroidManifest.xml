@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="100"
-    android:versionName="1.0.0">
+    android:versionCode="120"
+    android:versionName="1.2.0">
 
     <uses-sdk
         android:minSdkVersion="15"
         android:targetSdkVersion="17" />
 
-    <!-- Network socket permissions required by Linux/Android AID_INET guard during kernel exploit probes -->
+    <!-- Network socket permissions required by Linux/Android AID_INET guard & TLS 1.3 engine -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -30,6 +30,7 @@
         android:largeHeap="true"
         android:theme="@android:style/Theme.Holo.NoActionBar">
 
+        <!-- Main Root + Pre-Downloaded 2026 Certs + OS Backup + Stock Android 4 Suite -->
         <activity
             android:name="ca.arc7freedom.app.MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden"
@@ -41,6 +42,36 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Standalone Modern TLS 1.3 + 2026 CA Web Browser & ROM/APK Download Manager -->
+        <activity
+            android:name="ca.arc7freedom.app.Arc7BrowserActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true"
+            android:label="Arc7 Browser (TLS 1.3)"
+            android:windowSoftInputMode="stateHidden|adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity>
+
+        <!-- Automatic Clock Self-Heal & TLS Gateway Receiver on Boot / Wi-Fi Connect -->
+        <receiver
+            android:name="ca.arc7freedom.app.BootNetworkReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

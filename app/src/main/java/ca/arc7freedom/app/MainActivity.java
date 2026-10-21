@@ -497,18 +497,29 @@ public class MainActivity extends Activity {
         qRow.setOrientation(LinearLayout.HORIZONTAL);
         qRow.setPadding(0, dp(4), 0, 0);
 
-        Button portalBtn = makeSecondaryButton("Open TLS 1.3 Browser Portal (Search & Download Any Site)");
+        Button browserBtn = makePrimaryButton("Open Built-In Arc7 Browser (TLS 1.3)");
+        browserBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, Arc7BrowserActivity.class));
+            }
+        });
+        qRow.addView(browserBtn, new LinearLayout.LayoutParams(0, dp(44), 1.15f));
+
+        qRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
+
+        Button portalBtn = makeSecondaryButton("Stock Browser Portal");
         portalBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 openLocalTlsBrowserPortal();
             }
         });
-        qRow.addView(portalBtn, new LinearLayout.LayoutParams(0, dp(44), 1.25f));
+        qRow.addView(portalBtn, new LinearLayout.LayoutParams(0, dp(44), 0.9f));
 
         qRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
 
-        Button fdroidBtn = makeSecondaryButton("Download F-Droid Classic (.apk)");
+        Button fdroidBtn = makeSecondaryButton("Get F-Droid (.apk)");
         fdroidBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -517,7 +528,7 @@ public class MainActivity extends Activity {
                 startDirectTlsDownload(u);
             }
         });
-        qRow.addView(fdroidBtn, new LinearLayout.LayoutParams(0, dp(44), 0.95f));
+        qRow.addView(fdroidBtn, new LinearLayout.LayoutParams(0, dp(44), 0.9f));
 
         dlCard.addView(qRow);
         page.addView(dlCard, cardMargin());
@@ -777,6 +788,56 @@ public class MainActivity extends Activity {
                                 + "settings put secure device_provisioned 1; "
                                 + "settings put secure user_setup_complete 1",
                                 "Provisioning flags updated! Home & Recents buttons enabled.");
+                    }
+                });
+
+        addToolActionRow(launcherCard, "Open Built-In File Manager & APK Installer",
+                "Browse MicroSD (/storage/sdcard1) & Internal Storage (/sdcard) — tap any .apk to install or .zip/.img to flash!",
+                "Browse Storage", new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        File start = getSelectedVolumeRoot();
+                        FilePickerDialog.show(MainActivity.this, start, new String[]{".apk", ".zip", ".img"},
+                                "Browse Storage — Tap .apk to Install or .zip/.img to Flash",
+                                new FilePickerDialog.OnFilePicked() {
+                                    @Override
+                                    public void onPicked(File file) {
+                                        offerDownloadedFileAction(file);
+                                    }
+                                });
+                    }
+                });
+
+        addToolActionRow(launcherCard, "Stop Dead Google Play Services Battery Drain & Crash Popups",
+                "Google retired Android 4.2 Play Services in 2023, causing runaway CPU drain & 'Play services stopped' popups.",
+                "Stop Drain", new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Google Play Services Battery Saver")
+                                .setMessage("Freeze retired 2013 Google Play Services & Play Store background loops to stop crash dialogs and triple standby battery life? (Reversible anytime right here.)")
+                                .setPositiveButton("Freeze Play Drain", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        runQuickRootCmd(
+                                                "pm disable com.google.android.gms 2>/dev/null || true; "
+                                                + "pm disable com.android.vending 2>/dev/null || true; "
+                                                + "pm disable com.google.android.gsf 2>/dev/null || true",
+                                                "Frozen retired Google Play background loops! Standby battery drain & crash popups eliminated.");
+                                    }
+                                })
+                                .setNeutralButton("Re-Enable Play", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        runQuickRootCmd(
+                                                "pm enable com.google.android.gsf 2>/dev/null || true; "
+                                                + "pm enable com.google.android.gms 2>/dev/null || true; "
+                                                + "pm enable com.android.vending 2>/dev/null || true",
+                                                "Re-enabled Google Play packages.");
+                                    }
+                                })
+                                .setNegativeButton("Cancel", null)
+                                .show();
                     }
                 });
 

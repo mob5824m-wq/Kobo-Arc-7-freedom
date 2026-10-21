@@ -27,14 +27,28 @@ Worse, generic Android root/debloat scripts often soft-brick Kobo Arc 7 tablets 
 
 ---
 
-## Quick Start: Installing on Your Kobo Arc 7
+## Quick Start: Getting `KoboArc7Freedom.apk` onto Your Kobo Arc 7 (3 Easy Ways!)
 
-### Method A — MicroSD Card or Tablet Browser (No Computer Needed)
+> **Important Tip:** Before `KoboArc7Freedom.apk` is installed, Kobo's stock 2013 Browser cannot open `https://github.com/...` directly because it lacks modern SSL certs & TLS 1.3. Use **any** of the 3 zero-hassle ways below once — after that, your tablet has its own **120 pre-downloaded 2026 CAs** + **`Arc7 Browser (TLS 1.3)`** right on the tablet!
+
+### Method A — Zero-Cable Home Wi-Fi Installer *(Fastest — No USB Cable or MicroSD Card Needed!)*
+1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7 and connect it to the same home Wi-Fi as your computer.
+2. On your PC / Mac / Linux laptop, run:
+   ```bash
+   python3 tools/serve-over-wifi.py
+   ```
+3. Open Kobo's built-in Browser on the tablet and type the plain **`http://192.168.x.x:8000`** address shown in your terminal (plain local HTTP uses zero SSL certs — opens immediately!), then tap **Download KoboArc7Freedom.apk**!
+
+### Method B — MicroSD Card (`file://` Browser Trick — No Computer Needed After Copying!)
 1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7.
-2. Copy **`KoboArc7Freedom.apk`** onto a **FAT32 microSD card** (inserted into the Kobo Arc 7's microSD slot at `/storage/sdcard1`) or download it directly on the tablet.
-3. Open your file manager or Downloads app, tap **`KoboArc7Freedom.apk`**, and tap **Install**.
+2. Copy **`KoboArc7Freedom.apk`** onto the root of a **FAT32 microSD card** and insert it into the Kobo Arc 7's microSD slot.
+3. Open Kobo's built-in Browser and type exact address:
+   ```text
+   file:///storage/sdcard1/KoboArc7Freedom.apk
+   ```
+   Android's Package Installer opens immediately — tap **Install**!
 
-### Method B — USB Cable (`adb`) / Rescue From Stuck Kobo Wi-Fi Setup Screen
+### Method C — USB Cable (`adb`) / Rescue From Stuck Kobo Wi-Fi Setup Screen
 If your Kobo Arc 7 was factory-reset and is stuck on Kobo's dead Wi-Fi Setup Wizard (with USB Debugging active), connect a micro-USB cable and run:
 
 - **Linux / macOS:**
