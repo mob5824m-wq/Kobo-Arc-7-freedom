@@ -149,7 +149,7 @@ public class MainActivity extends Activity {
             }
         }).start();
 
-        appendLog("Kobo Arc 7 Freedom v1.9.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v1.9.1 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Auto Local Timezone + Atomic Clock + Aurora Store + Python 3 + apt + Long-Press Widgets + 12h/Apple+Android Chimes + Per-Alarm Volume + Smooth UI Animations).");
         refreshDeviceSnapshotAsync();
     }
@@ -202,7 +202,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.9.0");
+        title.setText("Kobo Arc 7 Freedom  v1.9.1");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);

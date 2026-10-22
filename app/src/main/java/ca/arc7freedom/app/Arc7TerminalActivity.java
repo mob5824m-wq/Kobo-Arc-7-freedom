@@ -135,7 +135,7 @@ public class Arc7TerminalActivity extends Activity {
         txtScreen.setPadding(dp(12), dp(10), dp(12), dp(10));
         txtScreen.setTextIsSelectable(true);
         txtScreen.setText(
-                "Kobo Arc 7 Freedom — Interactive Root, Python 3 & APT Linux Shell (v1.9.0)\n" +
+                "Kobo Arc 7 Freedom — Interactive Root, Python 3 & APT Linux Shell (v1.9.1)\n" +
                 "Pre-installed CLI tools: `python3`, `python`, `apt`, `apt-get`, `apt-cache`, `su`, `arc7tool`, `arc7tls`\n" +
                 "Tip: Try `python3 -c \"print(2**100)\"`, `apt update`, `apt search curl`, or `apt install -y jq`!\n\n");
         scrollScreen.addView(txtScreen);

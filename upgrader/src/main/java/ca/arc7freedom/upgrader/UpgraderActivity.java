@@ -85,14 +85,14 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v1.9.0 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v1.9.1 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap v1.9.0 upgrade (Auto Local Timezone + Aurora Store + Python 3 + apt + Long-Press Widgets + Apple/Android Chimes + Bloat Removal)...");
+        statusSub.setText("Preparing 1-tap v1.9.1 upgrade (Aurora Store Android 4.2 APK Signer & Installer + Verified F-Droid Certs + Auto Timezone + Python 3 + apt)...");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
@@ -109,7 +109,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v1.9.0 Upgrade Again");
+        actionBtn.setText("Run v1.9.1 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -126,7 +126,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v1.9.0 ->");
+        launchBtn.setText("Open Freedom v1.9.1 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -279,19 +279,19 @@ public class UpgraderActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    uiProgress(10, "Unpacking v1.9.0 APKs, Aurora Store, Python 3, apt & 120 2026 Root CAs...");
-                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v1.9.0 ===");
+                    uiProgress(10, "Unpacking v1.9.1 APKs, Aurora Store v4.8.5, F-Droid v1302, Python 3, apt & 120 2026 Root CAs...");
+                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v1.9.1 ===");
 
                     File appFiles = getFilesDir();
                     makeWorldReadableDir(appFiles != null ? appFiles.getParentFile() : null);
                     makeWorldReadableDir(appFiles);
 
-                    File stageDir = new File(appFiles, "up190");
+                    File stageDir = new File(appFiles, "up191");
                     makeWorldReadableDir(stageDir);
                     File caDir = new File(stageDir, "cacerts");
                     makeWorldReadableDir(caDir);
 
-                    // 1. Extract main KoboArc7Freedom.apk (v1.9.0)
+                    // 1. Extract main KoboArc7Freedom.apk (v1.9.1)
                     File mainApk = new File(stageDir, "KoboArc7Freedom.apk");
                     InputStream mainIn = getAssets().open("KoboArc7Freedom.apk");
                     try {
@@ -299,7 +299,7 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         mainIn.close();
                     }
-                    uiLog("[1/6] Unpacked KoboArc7Freedom v1.9.0 (" + (mainApk.length() / 1024) + " KB)");
+                    uiLog("[1/6] Unpacked KoboArc7Freedom v1.9.1 (" + (mainApk.length() / 1024) + " KB)");
 
                     File suNew = new File(stageDir, "su_new");
                     File pyNew = new File(stageDir, "py3_new");
@@ -395,6 +395,14 @@ public class UpgraderActivity extends Activity {
                     sh.append("cat '").append(homeApk.getAbsolutePath()).append("' > /data/local/tmp/VanillaAndroid4Home.apk && chmod 0644 /data/local/tmp/VanillaAndroid4Home.apk\n");
                     sh.append("cat '").append(auroraApk.getAbsolutePath()).append("' > /data/local/tmp/AuroraStore.apk && chmod 0644 /data/local/tmp/AuroraStore.apk\n");
                     sh.append("cat '").append(fdroidApk.getAbsolutePath()).append("' > /data/local/tmp/FDroidClassicLegacy.apk && chmod 0644 /data/local/tmp/FDroidClassicLegacy.apk\n");
+
+                    // Preserve any existing local TLS 1.3 CA keypair across reinstalls so Zygote's in-RAM CA stays valid!
+                    sh.append("mkdir -p /data/local/arc7_tls_ca && chmod 0755 /data/local/arc7_tls_ca\n");
+                    sh.append("if [ -s /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.crt ] && [ -s /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.key ]; then\n");
+                    sh.append("  cat /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.crt > /data/local/arc7_tls_ca/ca.crt\n");
+                    sh.append("  cat /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.key > /data/local/arc7_tls_ca/ca.key\n");
+                    sh.append("  chmod 0644 /data/local/arc7_tls_ca/ca.crt /data/local/arc7_tls_ca/ca.key\n");
+                    sh.append("fi\n");
 
                     // Step D: Replace `ca.arc7freedom.app` cleanly even if an older conflicting key was installed!
                     sh.append("rm -f /system/app/KoboArc7Freedom.apk /system/app/KoboArc7Freedom.odex 2>/dev/null || true\n");
@@ -511,12 +519,12 @@ public class UpgraderActivity extends Activity {
                     }
 
                     if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v1.9.0 + Aurora Store + Python 3 + apt ready!");
-                        uiLog("[6/6] SUCCESS! Launching Kobo Arc 7 Freedom v1.9.0 now...");
+                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v1.9.1 + Aurora Store v4.8.5 + F-Droid v1302 ready!");
+                        uiLog("[6/6] SUCCESS! Launching Kobo Arc 7 Freedom v1.9.1 now...");
                         ui.post(new Runnable() {
                             @Override
                             public void run() {
-                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v1.9.0!");
+                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v1.9.1!");
                                 launchBtn.setVisibility(View.VISIBLE);
                                 actionBtn.setEnabled(true);
                             }
@@ -529,7 +537,7 @@ public class UpgraderActivity extends Activity {
                         }, 900);
                     } else {
                         // Tablet not yet rooted at all -> export to Download and open standard PackageInstaller
-                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v1.8.1.apk");
+                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v1.9.1.apk");
                         if (dl.getParentFile() != null) dl.getParentFile().mkdirs();
                         InputStream in2 = getAssets().open("KoboArc7Freedom.apk");
                         try {

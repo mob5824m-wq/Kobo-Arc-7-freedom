@@ -401,7 +401,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.9.0.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.9.1.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -435,17 +435,21 @@ rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk releases/Upgrade-My-Kobo-To-v1.8.2.
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v1.9.0.apk \
+    --out releases/Upgrade-My-Kobo-To-v1.9.1.apk \
     build/upgrader/aligned.apk
+# Keep a backwards-compatible copy at `Upgrade-My-Kobo-To-v1.9.0.apk` AND ship standalone `FDroidClassicLegacy.apk` (`v1302`)!
+cp -f releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v1.9.0.apk
+cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
 echo "==> [7/8] Generating static Web Portals & writing SHA256SUMS.txt..."
 rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v1.9.0.apk \
+    Upgrade-My-Kobo-To-v1.9.1.apk \
     KoboArc7Freedom.apk \
     AuroraStore.apk \
+    FDroidClassicLegacy.apk \
     VanillaAndroid4Home.apk \
     Backup-Kobo-To-Laptop-ADB.bat \
     Backup-Kobo-To-Laptop-ADB.sh \
@@ -453,9 +457,10 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh tools/serve-over-wifi.sh
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v1.9.0.apk \
+    releases/Upgrade-My-Kobo-To-v1.9.1.apk \
     releases/KoboArc7Freedom.apk \
     releases/AuroraStore.apk \
+    releases/FDroidClassicLegacy.apk \
     releases/VanillaAndroid4Home.apk \
     releases/Backup-Kobo-To-Laptop-ADB.bat \
     releases/Backup-Kobo-To-Laptop-ADB.sh \

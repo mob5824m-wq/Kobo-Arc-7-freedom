@@ -174,7 +174,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
     def _mirror_href(fname: str) -> str:
         return f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(fname)}"
 
-    # Build primary download cards (`Upgrade-My-Kobo-To-v1.9.0.apk` FIRST so existing users never hit a key mismatch!)
+    # Build primary download cards (`Upgrade-My-Kobo-To-v1.9.1.apk` FIRST so existing users never hit a key mismatch!)
     upgrader_html = ""
     main_html = ""
     aurora_html = ""
@@ -185,26 +185,28 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
         mirror = _mirror_href(fname)
-        if fname == "Upgrade-My-Kobo-To-v1.9.0.apk":
+        if fname == "Upgrade-My-Kobo-To-v1.9.1.apk":
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v1.9.0 — Auto Timezone + Aurora Store + Python 3 + apt + Long-Press Widgets + Chimes):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.9.0.apk\")'>"
-                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v1.9.0.apk ({size_txt})</a>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v1.9.1 — Fixed Aurora Store APK Installs + Fixed F-Droid Certificates + Python 3 + apt):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.9.1.apk\")'>"
+                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v1.9.1.apk ({size_txt})</a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.9.0.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.9.1.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
-                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Mirror — Upgrade-My-Kobo-To-v1.9.0.apk</a>"
+                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Mirror — Upgrade-My-Kobo-To-v1.9.1.apk</a>"
                 )
                 + "</div>"
             )
+        elif fname == "Upgrade-My-Kobo-To-v1.9.0.apk":
+            continue
         elif fname == "KoboArc7Freedom.apk":
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v1.9.0 ({size_txt}) — Full Root + Suite + Auto Timezone + Python 3 + apt</a>"
+                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v1.9.1 ({size_txt}) — Full Root + Suite + Auto Timezone + Python 3 + apt</a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
@@ -216,7 +218,12 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         elif fname == "AuroraStore.apk":
             aurora_html = (
                 f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"AuroraStore.apk\")'>"
-                f"&#11015; Download Standalone Aurora Store (Android 4.2 + TLS 1.3 Play Store Client) — AuroraStore.apk ({size_txt})</a>"
+                f"&#11015; Download Standalone Aurora Store v4.8.5 (Verified Android 4.2 APKs + Auto JAR v1 Signer) — AuroraStore.apk ({size_txt})</a>"
+            )
+        elif fname == "FDroidClassicLegacy.apk":
+            apk_buttons.append(
+                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"FDroidClassicLegacy.apk\")'>"
+                f"&#11015; Download Patched F-Droid Classic v1302 (Verified Non-Colliding Certs + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</a>"
             )
         elif fname == "VanillaAndroid4Home.apk":
             apk_buttons.append(
@@ -393,7 +400,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v1.9.0 — Over-The-Air Rooting Portal, Auto Timezone, Aurora Store, Python 3 + apt &amp; Animated Suite</h1>"
+        "<h1>Kobo Arc 7 Freedom v1.9.1 — Over-The-Air Rooting Portal, Aurora Store v4.8.5, Verified F-Droid v1302, Python 3 + apt &amp; Animated Suite</h1>"
         "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; Automatic Local Timezone + Atomic Clock &bull; "
         "Bundled Aurora Store + F-Droid &bull; Built-In Python 3 &amp; apt &bull; Long-Press Home Widgets &bull; 12h + Apple/Android Chimes &amp; Per-Alarm Volume</p>"
         + live_progress_widget

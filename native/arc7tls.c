@@ -73,7 +73,7 @@ typedef struct {
     int is_https;
     char host[256];
     char port[8];
-    char path[2048];
+    char path[8192];
 } parsed_url_t;
 
 static int parse_url(const char *raw, parsed_url_t *out) {
@@ -120,9 +120,9 @@ static int parse_url(const char *raw, parsed_url_t *out) {
 
     if (host_end) {
         if (*host_end == '?') {
-            snprintf(out->path, sizeof(out->path), "/%.2045s", host_end);
+            snprintf(out->path, sizeof(out->path), "/%.8189s", host_end);
         } else {
-            snprintf(out->path, sizeof(out->path), "%.2046s", host_end);
+            snprintf(out->path, sizeof(out->path), "%.8190s", host_end);
         }
     } else {
         strcpy(out->path, "/");
@@ -135,7 +135,7 @@ static int parse_url(const char *raw, parsed_url_t *out) {
 
 static void resolve_redirect(const parsed_url_t *base, const char *loc, char *dest, size_t cap) {
     /* Trim trailing CR/LF/whitespace */
-    char clean[2048];
+    char clean[8192];
     size_t clen = 0;
     while (*loc == ' ' || *loc == '\t') loc++;
     while (loc[clen] && loc[clen] != '\r' && loc[clen] != '\n' && clen + 1 < sizeof(clean)) {
@@ -1246,7 +1246,7 @@ static int stream_http_to_fd(const char *url_initial,
                              size_t tv_cap,
                              char *err_buf,
                              size_t err_cap) {
-    char current_url[2048];
+    char current_url[8192];
     snprintf(current_url, sizeof(current_url), "%s", url_initial);
 
     for (int hop = 0; hop < 12; hop++) {
@@ -1329,7 +1329,7 @@ static int stream_http_to_fd(const char *url_initial,
             const char *loc = strcasestr(headers_str, "\r\nLocation:");
             if (loc) {
                 loc += 11;
-                char next_url[2048];
+                char next_url[8192];
                 resolve_redirect(&u, loc, next_url, sizeof(next_url));
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
@@ -2078,7 +2078,7 @@ static void stream_https_bridge(int client_fd,
         snprintf(extra_hdrs + cur, sizeof(extra_hdrs) - cur, "Content-Length: %zu\r\n", content_len);
     }
 
-    char current_url[2048];
+    char current_url[8192];
     snprintf(current_url, sizeof(current_url), "%s", url_initial);
 
     for (int hop = 0; hop < 12; hop++) {
@@ -2110,7 +2110,7 @@ static void stream_https_bridge(int client_fd,
             return;
         }
 
-        char *req = (char *)malloc(12288);
+        char *req = (char *)malloc(20480);
         unsigned char *hdr = (unsigned char *)malloc(65536);
         unsigned char *buf = (unsigned char *)malloc(32768);
         if (!req || !hdr || !buf) {
@@ -2121,7 +2121,7 @@ static void stream_https_bridge(int client_fd,
         }
 
         const char *wire_method = is_head ? "HEAD" : (is_post ? method : "GET");
-        int req_len = snprintf(req, 12288,
+        int req_len = snprintf(req, 20480,
                                "%s %s HTTP/1.1\r\n"
                                "Host: %s\r\n"
                                "User-Agent: %s\r\n"
@@ -2172,7 +2172,7 @@ static void stream_https_bridge(int client_fd,
             const char *loc = strcasestr(headers_str, "\r\nLocation:");
             if (loc) {
                 loc += 11;
-                char next_url[2048];
+                char next_url[8192];
                 resolve_redirect(&u, loc, next_url, sizeof(next_url));
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
@@ -2368,7 +2368,7 @@ static void stream_raw_for_arc7_browser(int client_fd,
                                         const char *cookie_hdr,
                                         const char *user_agent_hdr,
                                         const char *ca_bundle) {
-    char current_url[2048];
+    char current_url[8192];
     snprintf(current_url, sizeof(current_url), "%s", url_initial);
     int allow_skew = (time(NULL) < 1767225600) ? 1 : 0;
 
@@ -2483,7 +2483,7 @@ static void stream_raw_for_arc7_browser(int client_fd,
             const char *loc = strcasestr(headers_str, "\r\nLocation:");
             if (loc) {
                 loc += 11;
-                char next_url[2048];
+                char next_url[8192];
                 resolve_redirect(&u, loc, next_url, sizeof(next_url));
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
@@ -2649,8 +2649,8 @@ static void *handle_proxy_client(void *arg) {
         return NULL;
     }
 
-    char method[16] = {0}, target[2048] = {0};
-    sscanf(req, "%15s %2047s", method, target);
+    char method[16] = {0}, target[8192] = {0};
+    sscanf(req, "%15s %8191s", method, target);
 
     /* Normalize proxy-form local requests (`http://127.0.0.1:<port>/...` -> `/...`) */
     if (strncasecmp(target, "http://127.0.0.1:", 17) == 0 ||
@@ -2676,9 +2676,22 @@ static void *handle_proxy_client(void *arg) {
         return NULL;
     }
 
+    /* Normalize self-addressed proxy URLs (`GET http://127.0.0.1:8118/__https/... HTTP/1.1`)
+     * emitted automatically by Android's `HttpURLConnection` whenever `global http_proxy`
+     * is set to `127.0.0.1:8118`, preventing self-looping sockets and double-hop latency! */
+    if (strncasecmp(target, "http://127.0.0.1:", 17) == 0 ||
+        strncasecmp(target, "http://localhost:", 17) == 0) {
+        const char *slash = strchr(target + 7, '/');
+        if (slash != NULL) {
+            memmove(target, slash, strlen(slash) + 1);
+        } else {
+            strcpy(target, "/");
+        }
+    }
+
     /* 2. Fast Versioned Liveness Probe & Hot-Upgrade Shutdown Endpoint */
     if (strcmp(target, "/__ping") == 0) {
-        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY_V190\n");
+        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY_V191\n");
         free(req);
         close(fd);
         free(job);
@@ -2694,8 +2707,8 @@ static void *handle_proxy_client(void *arg) {
 
     /* 3. Transparent Local TLS 1.3 HTTPS Mirror Bridge (`/__https/<host>/<path>` & plain HTTP proxy `http://...`) */
     if (strncmp(target, "/__https/", 9) == 0) {
-        char https_url[2048];
-        snprintf(https_url, sizeof(https_url), "https://%.2035s", target + 9);
+        char https_url[8192];
+        snprintf(https_url, sizeof(https_url), "https://%.8180s", target + 9);
         stream_https_bridge(fd, method, https_url, req, (size_t)used, job->ca_bundle);
         free(req);
         close(fd);
@@ -2712,12 +2725,12 @@ static void *handle_proxy_client(void *arg) {
 
     /* 4. Native High-Speed Browser Fetch Endpoint (`/__arc7_raw?u=<encoded>`) */
     if (strncmp(target, "/__arc7_raw?", 12) == 0) {
-        char raw_target[2048];
+        char raw_target[8192];
         extract_query_param(target + 12, "u", raw_target, sizeof(raw_target));
         if (raw_target[0] == '\0') {
             dprintf(fd, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nMissing u param\n");
         } else {
-            char full_u[2048];
+            char full_u[8192];
             if (strncasecmp(raw_target, "http://", 7) == 0 || strncasecmp(raw_target, "https://", 8) == 0) {
                 snprintf(full_u, sizeof(full_u), "%s", raw_target);
             } else {

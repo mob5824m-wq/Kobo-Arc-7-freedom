@@ -1,7 +1,7 @@
 <# : batch portion
 @echo off
 setlocal
-title Kobo Arc 7 Freedom v1.9.0 - Concurrent Home Wi-Fi OTA Rooting Server (:8000)
+title Kobo Arc 7 Freedom v1.9.1 - Concurrent Home Wi-Fi OTA Rooting Server (:8000)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((Get-Content -LiteralPath '%~f0' -Raw)))"
 pause
 exit /b
@@ -17,7 +17,7 @@ New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 # Copy local APKs first if user downloaded them alongside this .bat
 $ScriptFolder = $PSScriptRoot
 if (-not $ScriptFolder) { $ScriptFolder = (Get-Location).Path }
-foreach ($localName in @("Upgrade-My-Kobo-To-v1.9.0.apk", "KoboArc7Freedom.apk", "AuroraStore.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
+foreach ($localName in @("Upgrade-My-Kobo-To-v1.9.1.apk", "KoboArc7Freedom.apk", "AuroraStore.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
     foreach ($candidateDir in @($ScriptFolder, (Join-Path $ScriptFolder "..\releases"))) {
         $cand = Join-Path $candidateDir $localName
         if (Test-Path -LiteralPath $cand) {
@@ -29,7 +29,7 @@ foreach ($localName in @("Upgrade-My-Kobo-To-v1.9.0.apk", "KoboArc7Freedom.apk",
 $PagesBase = "https://mob5824m-wq.github.io/Kobo-Arc-7-freedom"
 $ReleaseBase = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
 $RequiredFiles = @(
-    "Upgrade-My-Kobo-To-v1.9.0.apk",
+    "Upgrade-My-Kobo-To-v1.9.1.apk",
     "KoboArc7Freedom.apk",
     "AuroraStore.apk",
     "VanillaAndroid4Home.apk",
@@ -83,7 +83,7 @@ $Listener.Start()
 
 Write-Host ""
 Write-Host "========================================================================" -ForegroundColor Green
-Write-Host "  KOBO ARC 7 FREEDOM v1.9.0 - CONCURRENT WI-FI OTA ROOTING SERVER LIVE!" -ForegroundColor Green
+Write-Host "  KOBO ARC 7 FREEDOM v1.9.1 - CONCURRENT WI-FI OTA ROOTING SERVER LIVE!" -ForegroundColor Green
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host "  1. On Kobo Arc 7, enable: Settings -> Security -> Unknown sources"
 Write-Host "  2. Open Kobo's Browser and type this exact address (with http://):"
@@ -92,7 +92,7 @@ foreach ($ip in $Ips) {
     Write-Host "       http://${ip}:${Port}" -ForegroundColor Yellow
 }
 Write-Host ""
-Write-Host "  3. Tap 'KoboArc7Freedom.apk' (new root) or 'Upgrade-My-Kobo-To-v1.9.0.apk'!"
+Write-Host "  3. Tap 'KoboArc7Freedom.apk' (new root) or 'Upgrade-My-Kobo-To-v1.9.1.apk'!"
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host ""
 
@@ -156,7 +156,7 @@ $ClientHandler = {
                     $Rows += "<a class='sub' href='./raw/$($item.Name)'>Alternate Direct Binary Stream ($($item.Name))</a>"
                 }
             }
-            $Html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kobo Arc 7 v1.9.0 OTA Portal</title><style>body{font-family:sans-serif;background:#0b1017;color:#f8fafc;padding:18px;}.card{background:#151e29;border:1px solid #2b3b4e;border-radius:12px;padding:18px;max-width:660px;margin:auto;}h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;text-decoration:none;padding:15px;border-radius:9px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}.primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}.sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body><div class='card'><h1>Kobo Arc 7 Freedom v1.9.0 — Wi-Fi OTA Rooting &amp; Installer</h1><p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b>.<br>2. Tap a blue button below to download directly over Wi-Fi.<br>3. Pull down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>$Rows</div></body></html>"
+            $Html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kobo Arc 7 v1.9.1 OTA Portal</title><style>body{font-family:sans-serif;background:#0b1017;color:#f8fafc;padding:18px;}.card{background:#151e29;border:1px solid #2b3b4e;border-radius:12px;padding:18px;max-width:660px;margin:auto;}h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;text-decoration:none;padding:15px;border-radius:9px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}.primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}.sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body><div class='card'><h1>Kobo Arc 7 Freedom v1.9.1 — Wi-Fi OTA Rooting &amp; Installer</h1><p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b>.<br>2. Tap a blue button below to download directly over Wi-Fi.<br>3. Pull down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>$Rows</div></body></html>"
             $BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($Html)
             $Hdr = "HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($BodyBytes.Length)`r`nConnection: close`r`nCache-Control: no-store`r`n`r`n"
             $HdrBytes = [System.Text.Encoding]::ASCII.GetBytes($Hdr)

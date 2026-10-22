@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v1.9.0 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
+# Kobo Arc 7 Freedom v1.9.1 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
 #
 # Concurrent HTTP/1.1 + `Range: bytes=...` (`206 Partial Content`) + instant
 # TLS ClientHello reject so Kobo's stock 2013 Browser & Android DownloadManager
@@ -19,7 +19,7 @@ mkdir -p "${SERVE_DIR}"
 
 PAGES_BASE="https://mob5824m-wq.github.io/Kobo-Arc-7-freedom"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for APK in Upgrade-My-Kobo-To-v1.9.0.apk KoboArc7Freedom.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+for APK in Upgrade-My-Kobo-To-v1.9.1.apk KoboArc7Freedom.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
     if [ -f "${SCRIPT_DIR}/${APK}" ] && [ ! -s "${SERVE_DIR}/${APK}" ]; then
         cp -f "${SCRIPT_DIR}/${APK}" "${SERVE_DIR}/${APK}"
     fi
@@ -73,16 +73,16 @@ class H(http.server.BaseHTTPRequestHandler):
                 items.append(f"<a class='sub' href='./raw/{urllib.parse.quote(f)}'>Alternate Direct Stream ({html.escape(f)})</a>")
         return (
             "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>Kobo Arc 7 v1.9.0 OTA Portal</title>"
+            "<title>Kobo Arc 7 v1.9.1 OTA Portal</title>"
             "<style>body{font-family:sans-serif;background:#0e1319;color:#f8fafc;padding:20px;}"
             ".card{background:#161e28;border:1px solid #2b394b;border-radius:10px;padding:20px;max-width:640px;margin:auto;}"
             "h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;"
             "text-decoration:none;padding:14px 18px;border-radius:8px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}"
             ".primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}"
             ".sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body><div class='card'>"
-            "<h1>Kobo Arc 7 Freedom v1.9.0 — Wi-Fi OTA Rooting &amp; Installer</h1>"
+            "<h1>Kobo Arc 7 Freedom v1.9.1 — Wi-Fi OTA Rooting &amp; Installer</h1>"
             "<p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b> on your tablet.<br>"
-            "2. Tap <b>KoboArc7Freedom.apk</b> (new root) or <b>Upgrade-My-Kobo-To-v1.9.0.apk</b>.<br>"
+            "2. Tap <b>KoboArc7Freedom.apk</b> (new root) or <b>Upgrade-My-Kobo-To-v1.9.1.apk</b>.<br>"
             "3. Swipe down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>"
             + "".join(items) + "</div></body></html>"
         ).encode("utf-8")
@@ -166,7 +166,7 @@ class Srv(http.server.ThreadingHTTPServer):
 
 srv = Srv(("0.0.0.0", PORT), H)
 print("=" * 70)
-print("  Kobo Arc 7 Freedom v1.9.0 — Wi-Fi OTA Rooting & Installer LIVE!")
+print("  Kobo Arc 7 Freedom v1.9.1 — Wi-Fi OTA Rooting & Installer LIVE!")
 print("  Open Kobo's Browser on your tablet and type:")
 for ip in get_ips():
     print(f"\n      http://{ip}:{PORT}")

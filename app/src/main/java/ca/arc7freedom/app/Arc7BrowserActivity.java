@@ -906,16 +906,48 @@ public class Arc7BrowserActivity extends Activity {
     private void promptDownloadedFile(final File saved) {
         String low = saved.getName().toLowerCase(Locale.US);
         if (low.endsWith(".apk")) {
+            final Arc7ApkKit.ApkInspection info = Arc7ApkKit.inspectApk(saved);
+            final String detail = !info.isCompatibleWithAndroid42()
+                    ? "Compatibility Note:\n" + info.errorReason + "\n\nSaved to:\n" + saved.getAbsolutePath()
+                    : "Verified Android 4.2 Ready (" + info.packageName
+                      + ", minSdk=" + info.minSdkVersion + ", DEX=" + info.highestDexVersion + ")\n"
+                      + (!info.hasValidAndroid42V1Sig ? "• Auto-repairing SHA1-RSA JAR v1 signature for Jelly Bean!\n\n" : "\n")
+                      + "Install this Android app now?";
             new AlertDialog.Builder(this)
-                    .setTitle("APK Downloaded")
-                    .setMessage("Saved to:\n" + saved.getAbsolutePath() + "\n\nInstall this Android app now?")
-                    .setPositiveButton("Install Now", new DialogInterface.OnClickListener() {
+                    .setTitle(info.isCompatibleWithAndroid42() ? "APK Downloaded & Verified" : "APK Compatibility Warning")
+                    .setMessage(detail)
+                    .setPositiveButton(info.isCompatibleWithAndroid42() ? "Install Now" : "Try Anyway", new DialogInterface.OnClickListener() {
                         @Override
                         public void onClick(DialogInterface d, int w) {
-                            Intent i = new Intent(Intent.ACTION_VIEW);
-                            i.setDataAndType(Uri.fromFile(saved), "application/vnd.android.package-archive");
-                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            startActivity(i);
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    Arc7ApkKit.RootInstallOutcome tmpOut = null;
+                                    try {
+                                        tmpOut = Arc7ApkKit.stageAndInstallApk(Arc7BrowserActivity.this, saved, true);
+                                    } catch (Throwable ignored) {}
+                                    final Arc7ApkKit.RootInstallOutcome out = tmpOut;
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if (out != null && out.succeeded) {
+                                                android.widget.Toast.makeText(
+                                                        Arc7BrowserActivity.this,
+                                                        "Installed " + saved.getName() + "!",
+                                                        android.widget.Toast.LENGTH_LONG).show();
+                                                return;
+                                            }
+                                            File target = (out != null && out.worldReadableFallbackApk != null
+                                                    && out.worldReadableFallbackApk.exists())
+                                                    ? out.worldReadableFallbackApk : saved;
+                                            Intent i = new Intent(Intent.ACTION_VIEW);
+                                            i.setDataAndType(Uri.fromFile(target), "application/vnd.android.package-archive");
+                                            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                                            startActivity(i);
+                                        }
+                                    });
+                                }
+                            }).start();
                         }
                     })
                     .setNegativeButton("Close", null)
