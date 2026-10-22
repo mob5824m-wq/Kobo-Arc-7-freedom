@@ -23,6 +23,11 @@ public class BootNetworkReceiver extends BroadcastReceiver {
     public void onReceive(final Context context, final Intent intent) {
         if (context == null || intent == null) return;
         final String action = intent.getAction() != null ? intent.getAction() : "";
+        if (action.startsWith("com.android.music.") || action.startsWith("org.videolan.vlc.")) {
+            Arc7AudioService.ensureWatcherRunning(context);
+            NowPlayingManager.onExternalMediaBroadcast(context, intent);
+            return;
+        }
         if (Intent.ACTION_POWER_CONNECTED.equals(action)) {
             if (context.getSharedPreferences("arc7_desk_clock", Context.MODE_PRIVATE)
                     .getBoolean("auto_dock_on_charge", false)) {
@@ -75,8 +80,9 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         context.startService(new Intent(context, Arc7WifiDriveService.class));
                     }
 
-                    // Keep both Local TLS 1.3 Gateway (:8118) AND Chromebook Wired USB Tunnel (:18880) warm at boot!
+                    // Keep Local TLS 1.3 Gateway (:8118), Audio Notification Watcher & Chromebook USB Tunnel (:18880) warm at boot!
                     Arc7TlsGatewayService.ensureStarted(context);
+                    Arc7AudioService.ensureWatcherRunning(context);
                     Arc7ChromebookUsbService.ensureStarted(context);
                     Arc7CalendarStore.scheduleReminders(context, Arc7CalendarStore.loadSavedEvents(context));
                     NetworkCertManager certMgr = new NetworkCertManager(context, shell);

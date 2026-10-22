@@ -59,7 +59,7 @@ public final class Arc7LauncherSkin {
     }
 
     public static final ThemeSpec[] THEMES = new ThemeSpec[]{
-            new ThemeSpec("obsidian_cyan", "Arc7 Obsidian Cyan",
+            new ThemeSpec("obsidian_cyan", "Obsidian Cyan",
                     0x9A0B1523, 0xCC111E30, 0xE609111C, 0xF00A1019, 0xFF22D3EE, 0x6638BDF8),
             new ThemeSpec("kobo_warm_ink", "Kobo Paper & Warm Ink",
                     0xAA241C16, 0xD62A211A, 0xEA171310, 0xF216120F, 0xFFF59E0B, 0x66FBBF24),
@@ -132,6 +132,8 @@ public final class Arc7LauncherSkin {
         String c = cls == null ? "" : cls.toLowerCase(Locale.US);
 
         if ("ca.arc7freedom.app".equals(p)) {
+            if (c.contains("youtubemusic")) return R.drawable.ic_ytmusic;
+            if (c.contains("youtube")) return R.drawable.ic_youtube;
             if (c.contains("pdf")) return R.drawable.ic_pdf;
             if (c.contains("weather")) return R.drawable.ic_weather;
             if (c.contains("radio") || c.contains("rss")) return R.drawable.ic_radio;

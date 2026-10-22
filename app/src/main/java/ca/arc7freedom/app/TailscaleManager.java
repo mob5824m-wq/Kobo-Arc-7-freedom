@@ -42,6 +42,12 @@ public final class TailscaleManager {
 
     public static final int TAILSCALE_SOCKS5_PORT = 1055;
     public static final int TAILSCALE_HTTP_PROXY_PORT = 1056;
+    public static final String LINUX34_OFFICIAL_TARBALL = "tailscale_1.78.1_arm.tgz";
+    public static final String LINUX34_OFFICIAL_TARBALL_URL =
+            "https://pkgs.tailscale.com/stable/tailscale_1.78.1_arm.tgz";
+
+    private static final java.util.regex.Pattern AUTH_URL_REGEX = java.util.regex.Pattern.compile(
+            "(https://[A-Za-z0-9._-]+/a/[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+)");
 
     public static final class TailnetPeer {
         public String hostName;
@@ -213,7 +219,10 @@ public final class TailscaleManager {
             }
         }
 
-        // 2. Download official Tailscale static Linux ARMv7 release over Arc7 TLS 1.3 Gateway
+        // 2. Download official Tailscale static Linux ARMv7 release over TLS 1.3 Gateway.
+        // Kobo Arc 7 (`MT8125`) runs Linux kernel `3.4.5`, so select official Go 1.23 build
+        // `tailscale_1.78.1_arm.tgz` FIRST on Linux `< 3.17` (avoiding Go 1.24+ `FATAL: kernel too old`
+        // while keeping 100% current `login.tailscale.com` Official Google Sign-In support!).
         NetworkCertManager certMgr = new NetworkCertManager(ctx);
         try { certMgr.ensureCaBundleFile(); } catch (Throwable ignored) {}
         certMgr.startBrowserGateway();
@@ -221,11 +230,24 @@ public final class TailscaleManager {
         Proxy proxy = new Proxy(Proxy.Type.HTTP,
                 new InetSocketAddress("127.0.0.1", NetworkCertManager.DEFAULT_PROXY_PORT));
 
-        String metaJson = fetchViaGateway("http://127.0.0.1:" + NetworkCertManager.BROWSER_GATEWAY_PORT
-                + "/__https/pkgs.tailscale.com/stable/?mode=json");
-        JSONObject meta = new JSONObject(metaJson);
-        JSONObject tarballs = meta.getJSONObject("Tarballs");
-        String armTarball = tarballs.getString("arm");
+        String armTarball = LINUX34_OFFICIAL_TARBALL;
+        String kv = System.getProperty("os.version", "3.4.5");
+        boolean modernKernel = false;
+        try {
+            String[] p = kv.split("[^0-9]+");
+            if (p.length >= 2) {
+                int maj = Integer.parseInt(p[0]);
+                int min = Integer.parseInt(p[1]);
+                modernKernel = maj > 3 || (maj == 3 && min >= 17);
+            }
+        } catch (Throwable ignored) {}
+        if (modernKernel) {
+            try {
+                String metaJson = fetchViaGateway("http://127.0.0.1:" + NetworkCertManager.BROWSER_GATEWAY_PORT
+                        + "/__https/pkgs.tailscale.com/stable/?mode=json");
+                armTarball = new JSONObject(metaJson).getJSONObject("Tarballs").getString("arm");
+            } catch (Throwable ignored) {}
+        }
 
         File tmpTgz = new File(ctx.getCacheDir(), armTarball);
         downloadViaGatewayToFile("http://127.0.0.1:" + NetworkCertManager.BROWSER_GATEWAY_PORT
@@ -234,7 +256,7 @@ public final class TailscaleManager {
         int count = extractTailscaleTarGz(tmpTgz, binDir(ctx));
         tmpTgz.delete();
         markExecutableViaRoot(ctx);
-        return "Installed official Tailscale ARMv7 (" + armTarball + ", " + count + " binaries)!";
+        return "Installed official Tailscale ARMv7 (" + armTarball + ", " + count + " binaries — Official Google Sign-In Ready)!";
     }
 
     private static void markExecutableViaRoot(Context ctx) {
@@ -291,20 +313,102 @@ public final class TailscaleManager {
         File sockFile = new File(stateDir, "tailscaled.sock");
         File logFile = new File(stateDir, "tailscaled.log");
 
-        List<String> daemonCmd = new ArrayList<String>();
-        daemonCmd.add(tailscaledBin(ctx).getAbsolutePath());
-        daemonCmd.add("--tun=userspace-networking");
-        daemonCmd.add("--statedir=" + stateDir.getAbsolutePath());
-        daemonCmd.add("--socket=" + sockFile.getAbsolutePath());
-        daemonCmd.add("--socks5-server=127.0.0.1:" + TAILSCALE_SOCKS5_PORT);
-        daemonCmd.add("--outbound-http-proxy-listen=127.0.0.1:" + TAILSCALE_HTTP_PROXY_PORT);
+        // Ensure `/etc/resolv.conf` exists via pure `mksh` builtin `echo` so Go DNS resolves `controlplane.tailscale.com` & `login.tailscale.com` cleanly on Android 4.2!
+        RootShell root = new RootShell(ctx);
+        if (root.isRooted()) {
+            root.execRoot("if [ ! -s /etc/resolv.conf ]; then mount -o remount,rw /system 2>/dev/null; "
+                    + "(echo 'nameserver 1.1.1.1'; echo 'nameserver 8.8.8.8') > /etc/resolv.conf 2>/dev/null; "
+                    + "mount -o remount,ro /system 2>/dev/null; fi\n");
+        }
 
-        ProcessBuilder pb = new ProcessBuilder(daemonCmd);
-        pb.environment().put("SSL_CERT_FILE", caFile.getAbsolutePath());
-        pb.environment().put("TS_DEBUG_TLS_DIAL_INSECURE_SKIP_VERIFY", "false");
-        pb.redirectErrorStream(true);
-        pb.start();
-        Thread.sleep(900L);
+        // Only launch a new `tailscaled` if socket is not already live!
+        if (queryStatusJson(ctx).trim().isEmpty()) {
+            List<String> daemonCmd = new ArrayList<String>();
+            daemonCmd.add(tailscaledBin(ctx).getAbsolutePath());
+            daemonCmd.add("--tun=userspace-networking");
+            daemonCmd.add("--statedir=" + stateDir.getAbsolutePath());
+            daemonCmd.add("--socket=" + sockFile.getAbsolutePath());
+            daemonCmd.add("--socks5-server=127.0.0.1:" + TAILSCALE_SOCKS5_PORT);
+            daemonCmd.add("--outbound-http-proxy-listen=127.0.0.1:" + TAILSCALE_HTTP_PROXY_PORT);
+
+            ProcessBuilder pb = new ProcessBuilder(daemonCmd);
+            pb.environment().put("SSL_CERT_FILE", caFile.getAbsolutePath());
+            pb.environment().put("TS_DEBUG_TLS_DIAL_INSECURE_SKIP_VERIFY", "false");
+            pb.redirectErrorStream(true);
+            pb.start();
+            Thread.sleep(1200L);
+        }
+
+        // Official Interactive Google Sign-In flow when no pre-auth key is supplied!
+        if (authKey == null || authKey.trim().isEmpty()) {
+            if (isTailscaleAuthenticated(ctx)) {
+                return queryStatusSummary(ctx);
+            }
+            // Suspend VpnService while signing in so `controlplane.tailscale.com` & `accounts.google.com` never blackhole!
+            try {
+                android.content.Intent stopVpn = new android.content.Intent(ctx, Arc7VpnService.class);
+                stopVpn.setAction(Arc7VpnService.ACTION_STOP);
+                ctx.startService(stopVpn);
+            } catch (Throwable ignored) {}
+
+            List<String> bgUp = new ArrayList<String>();
+            bgUp.add(tailscaleCliBin(ctx).getAbsolutePath());
+            bgUp.add("--socket=" + sockFile.getAbsolutePath());
+            bgUp.add("up");
+            bgUp.add("--reset");
+            bgUp.add("--accept-dns=true");
+            bgUp.add("--accept-routes=true");
+            bgUp.add("--hostname=kobo-arc-7");
+            if (exitNodeIp != null && !exitNodeIp.trim().isEmpty()) {
+                bgUp.add("--exit-node=" + exitNodeIp.trim());
+                bgUp.add("--exit-node-allow-lan-access=true");
+            }
+            if (customControlUrl != null && !customControlUrl.trim().isEmpty()) {
+                bgUp.add("--login-server=" + customControlUrl.trim());
+            }
+            ProcessBuilder bgPb = new ProcessBuilder(bgUp);
+            bgPb.environment().put("SSL_CERT_FILE", caFile.getAbsolutePath());
+            bgPb.redirectErrorStream(true);
+            final Process bgProc = bgPb.start();
+            final StringBuilder captured = new StringBuilder();
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        InputStream is = bgProc.getInputStream();
+                        byte[] b = new byte[1024];
+                        int r;
+                        while ((r = is.read(b)) > 0) {
+                            synchronized (captured) {
+                                captured.append(new String(b, 0, r, "UTF-8"));
+                            }
+                        }
+                        is.close();
+                    } catch (Throwable ignored) {}
+                }
+            }).start();
+
+            for (int i = 0; i < 14; i++) {
+                Thread.sleep(900L);
+                if (isTailscaleAuthenticated(ctx)) {
+                    return queryStatusSummary(ctx);
+                }
+                String curUrl = queryCurrentAuthUrl(ctx);
+                if (curUrl.isEmpty()) {
+                    synchronized (captured) {
+                        curUrl = extractAuthUrlFromText(captured.toString());
+                    }
+                }
+                if (!curUrl.isEmpty()) {
+                    writeLog(logFile, curUrl);
+                    return "AuthURL: " + curUrl + "\n" + queryStatusSummary(ctx);
+                }
+            }
+            synchronized (captured) {
+                writeLog(logFile, captured.toString());
+                return captured.length() > 0 ? captured.toString().trim() : queryStatusSummary(ctx);
+            }
+        }
 
         List<String> upCmd = new ArrayList<String>();
         upCmd.add(tailscaleCliBin(ctx).getAbsolutePath());
@@ -313,11 +417,7 @@ public final class TailscaleManager {
         upCmd.add("--accept-dns=true");
         upCmd.add("--accept-routes=true");
         upCmd.add("--hostname=kobo-arc-7");
-        if (authKey != null && !authKey.trim().isEmpty()) {
-            upCmd.add("--authkey=" + authKey.trim());
-        } else {
-            upCmd.add("--timeout=4s");
-        }
+        upCmd.add("--authkey=" + authKey.trim());
         if (exitNodeIp != null && !exitNodeIp.trim().isEmpty()) {
             upCmd.add("--exit-node=" + exitNodeIp.trim());
             upCmd.add("--exit-node-allow-lan-access=true");
@@ -474,52 +574,64 @@ public final class TailscaleManager {
         return out;
     }
 
+    public static String extractAuthUrlFromText(String text) {
+        if (text == null || text.isEmpty()) return "";
+        java.util.regex.Matcher m = AUTH_URL_REGEX.matcher(text);
+        return m.find() ? m.group(1).trim() : "";
+    }
+
+    public static boolean isTailscaleAuthenticated(Context ctx) {
+        String raw = queryStatusJson(ctx);
+        if (raw.isEmpty()) return false;
+        try {
+            return "Running".equalsIgnoreCase(new JSONObject(raw).optString("BackendState", ""));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static String queryCurrentAuthUrl(Context ctx) {
+        String raw = queryStatusJson(ctx);
+        if (!raw.isEmpty()) {
+            try {
+                String u = new JSONObject(raw).optString("AuthURL", "");
+                if (u.startsWith("https://")) return u;
+            } catch (Throwable ignored) {}
+        }
+        return "";
+    }
+
+    public static String logoutTailscale(Context ctx) {
+        try {
+            android.content.Intent stopVpn = new android.content.Intent(ctx, Arc7VpnService.class);
+            stopVpn.setAction(Arc7VpnService.ACTION_STOP);
+            ctx.startService(stopVpn);
+        } catch (Throwable ignored) {}
+        if (!isTailscaleInstalled(ctx)) return "Tailscale binary not installed.";
+        try {
+            File sockFile = new File(new File(ctx.getFilesDir(), "tailscale_state"), "tailscaled.sock");
+            Process p = new ProcessBuilder(
+                    tailscaleCliBin(ctx).getAbsolutePath(),
+                    "--socket=" + sockFile.getAbsolutePath(),
+                    "logout").redirectErrorStream(true).start();
+            InputStream in = p.getInputStream();
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] b = new byte[1024];
+            int n;
+            while ((n = in.read(b)) > 0) baos.write(b, 0, n);
+            in.close();
+            return "Signed out of Tailscale cleanly. " + baos.toString("UTF-8").trim();
+        } catch (Throwable t) {
+            return "Logout note: " + t.getMessage();
+        }
+    }
+
     /**
-     * Renders a crisp high-contrast Finder + Data visual code card for quick phone camera URL sharing.
+     * Renders a 100% standards-compliant **ISO/IEC 18004 Reed-Solomon QR Code** via {@link QrCodeEncoder}
+     * so smartphone & PC cameras scan official `https://login.tailscale.com/a/...` Google OAuth URLs instantly!
      */
     public static Bitmap buildVisualCodeCard(String text, int sizePx) {
-        int n = 25;
-        Bitmap bmp = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888);
-        byte[] data;
-        try { data = text.getBytes("UTF-8"); } catch (Throwable t) { data = new byte[]{0}; }
-        int cell = Math.max(1, sizePx / (n + 4));
-        bmp.eraseColor(Color.WHITE);
-        for (int r = 0; r < n; r++) {
-            for (int c = 0; c < n; c++) {
-                boolean dark = isFinderDark(r, c, n);
-                if (!isFinderZone(r, c, n)) {
-                    int bitIdx = r * n + c;
-                    byte b = data[(bitIdx / 8) % Math.max(1, data.length)];
-                    dark = (((b >> (bitIdx % 8)) & 1) == 1) ^ (((r + c) % 3) == 0);
-                }
-                if (dark) {
-                    int x0 = (c + 2) * cell;
-                    int y0 = (r + 2) * cell;
-                    for (int y = y0; y < Math.min(sizePx, y0 + cell); y++) {
-                        for (int x = x0; x < Math.min(sizePx, x0 + cell); x++) {
-                            bmp.setPixel(x, y, Color.BLACK);
-                        }
-                    }
-                }
-            }
-        }
-        return bmp;
-    }
-
-    private static boolean isFinderZone(int r, int c, int n) {
-        return (r < 8 && c < 8) || (r < 8 && c >= n - 8) || (r >= n - 8 && c < 8);
-    }
-
-    private static boolean isFinderDark(int r, int c, int n) {
-        if (r < 7 && c < 7) return finder7x7(r, c);
-        if (r < 7 && c >= n - 7) return finder7x7(r, c - (n - 7));
-        if (r >= n - 7 && c < 7) return finder7x7(r - (n - 7), c);
-        return false;
-    }
-
-    private static boolean finder7x7(int r, int c) {
-        if (r == 0 || r == 6 || c == 0 || c == 6) return true;
-        return r >= 2 && r <= 4 && c >= 2 && c <= 4;
+        return QrCodeEncoder.renderQrBitmap(text, sizePx);
     }
 
     private static void writeLog(File f, String txt) {

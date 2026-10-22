@@ -189,7 +189,7 @@ public class VanillaHomeActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         appWidgetManager = AppWidgetManager.getInstance(getApplicationContext());
-        appWidgetHost = new AppWidgetHost(getApplicationContext(), APPWIDGET_HOST_ID);
+        appWidgetHost = new LauncherAppWidgetHost(getApplicationContext(), APPWIDGET_HOST_ID);
 
         swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
@@ -475,7 +475,7 @@ public class VanillaHomeActivity extends Activity {
         drawerHeader.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView drawerTitle = new TextView(this);
-        drawerTitle.setText("ARC7 OS  \u2022  ALL APPS");
+        drawerTitle.setText("ALL APPS");
         drawerTitle.setTextColor(0xFF33B5E5);
         drawerTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         drawerTitle.setTypeface(Typeface.DEFAULT_BOLD);
@@ -748,12 +748,13 @@ public class VanillaHomeActivity extends Activity {
         selectedAppBarSlot = -1;
         updateRearrangeChips();
         refreshCurrentPageShortcuts();
+        renderWidgetsForCurrentPage();
         rebuildDock();
         if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
         Toast.makeText(this,
                 rearrangeMode
-                        ? "Rearrange Mode ON: Drag any app icon to move it freely, or tap 2 spots to swap!"
-                        : "Home & App layout saved!",
+                        ? "Rearrange Mode ON: Tap '\u2715 Remove' on any widget to delete it, or drag apps freely!"
+                        : "Home & Widget layout saved!",
                 Toast.LENGTH_SHORT).show();
     }
 
@@ -1084,6 +1085,84 @@ public class VanillaHomeActivity extends Activity {
         return Math.max(92, Math.min(240, dpVal + 18));
     }
 
+    /**
+     * Custom {@link AppWidgetHost} + {@link AppWidgetHostView} that intercepts 420ms touch-hold
+     * events BEFORE clickable child RemoteViews inside Clock/Weather/Notes/Music widgets can
+     * swallow them — guaranteeing long-pressing ANY widget ALWAYS works on real hardware!
+     */
+    private static final class LauncherAppWidgetHost extends AppWidgetHost {
+        LauncherAppWidgetHost(Context context, int hostId) {
+            super(context, hostId);
+        }
+
+        @Override
+        protected AppWidgetHostView onCreateView(Context context, int appWidgetId, AppWidgetProviderInfo appWidget) {
+            return new InterceptingWidgetHostView(context);
+        }
+    }
+
+    private static final class InterceptingWidgetHostView extends AppWidgetHostView {
+        Runnable onWidgetLongPress;
+        private boolean performedLongPress;
+        private float downX;
+        private float downY;
+        private final Runnable checkLongPress = new Runnable() {
+            @Override
+            public void run() {
+                if (getParent() != null && onWidgetLongPress != null) {
+                    performedLongPress = true;
+                    performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    onWidgetLongPress.run();
+                }
+            }
+        };
+
+        InterceptingWidgetHostView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public boolean onInterceptTouchEvent(MotionEvent ev) {
+            if (performedLongPress) {
+                performedLongPress = false;
+                return true;
+            }
+            int action = ev.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                downX = ev.getX();
+                downY = ev.getY();
+                performedLongPress = false;
+                removeCallbacks(checkLongPress);
+                postDelayed(checkLongPress, 420);
+            } else if (action == MotionEvent.ACTION_MOVE) {
+                float slop = 24f * getResources().getDisplayMetrics().density;
+                if (Math.abs(ev.getX() - downX) > slop || Math.abs(ev.getY() - downY) > slop) {
+                    removeCallbacks(checkLongPress);
+                }
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                removeCallbacks(checkLongPress);
+            }
+            return false;
+        }
+
+        @Override
+        public void cancelLongPress() {
+            super.cancelLongPress();
+            performedLongPress = false;
+            removeCallbacks(checkLongPress);
+        }
+    }
+
+    private void removeWidgetAndUnbind(int appWidgetId, String label) {
+        PinnedShortcutsStore.removeWidgetEverywhere(this, appWidgetId, MAX_PAGES);
+        try {
+            appWidgetHost.deleteAppWidgetId(appWidgetId);
+        } catch (Throwable ignored) {}
+        refreshCurrentPageShortcuts();
+        renderWidgetsForCurrentPage();
+        Toast.makeText(this, "Removed widget: " + (label != null ? label : ""), Toast.LENGTH_SHORT).show();
+    }
+
     private void renderWidgetsForCurrentPage() {
         if (widgetsContainer == null) return;
         widgetsContainer.removeAllViews();
@@ -1108,46 +1187,113 @@ public class VanillaHomeActivity extends Activity {
                         ViewGroup.LayoutParams.MATCH_PARENT, dp(rec.heightDp));
                 frameLp.bottomMargin = dp(8);
                 frame.setLayoutParams(frameLp);
+                if (rearrangeMode) {
+                    GradientDrawable editBorder = new GradientDrawable();
+                    editBorder.setColor(0x280E7490);
+                    editBorder.setCornerRadius(dp(12));
+                    editBorder.setStroke(dp(2), 0xFF38BDF8);
+                    frame.setBackgroundDrawable(editBorder);
+                }
 
+                final String widgetLabel = info.label != null ? info.label : "Widget";
                 AppWidgetHostView hv = appWidgetHost.createView(
                         getApplicationContext(), rec.appWidgetId, info);
                 hv.setAppWidget(rec.appWidgetId, info);
                 hv.setPadding(dp(2), dp(2), dp(2), dp(2));
-
-                final String widgetLabel = info.label != null ? info.label : "Widget";
+                final Runnable openMgr = new Runnable() {
+                    @Override
+                    public void run() {
+                        lastChildLongPressMs = System.currentTimeMillis();
+                        showWidgetManageDialog(rec, widgetLabel);
+                    }
+                };
+                if (hv instanceof InterceptingWidgetHostView) {
+                    ((InterceptingWidgetHostView) hv).onWidgetLongPress = openMgr;
+                }
                 hv.setOnLongClickListener(new View.OnLongClickListener() {
                     @Override
                     public boolean onLongClick(View v) {
-                        lastChildLongPressMs = System.currentTimeMillis();
-                        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                        showWidgetManageDialog(rec, widgetLabel);
+                        openMgr.run();
                         return true;
                     }
                 });
                 frame.addView(hv, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-                TextView gear = new TextView(this);
-                gear.setText("\u22EF");
-                gear.setTextColor(0xCCFFFFFF);
-                gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-                gear.setPadding(dp(7), dp(1), dp(7), dp(2));
-                GradientDrawable gbg = new GradientDrawable();
-                gbg.setColor(0x66000000);
-                gbg.setCornerRadius(dp(9));
-                gear.setBackgroundDrawable(gbg);
-                FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
+                // Top-right Widget Action Bar:
+                //  - In `Rearrange` mode: prominent 1-tap RED `✕ Remove` pill + `↕ Size` pill!
+                //  - Normal mode: easy-to-hit `✕ / ⋯` pill (`dp(11) x dp(5)`) opening Remove / Resize menu!
+                LinearLayout actionStrip = new LinearLayout(this);
+                actionStrip.setOrientation(LinearLayout.HORIZONTAL);
+                FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
                         Gravity.TOP | Gravity.RIGHT);
-                glp.topMargin = dp(3);
-                glp.rightMargin = dp(4);
-                gear.setOnClickListener(new View.OnClickListener() {
-                    @Override
-                    public void onClick(View v) {
-                        showWidgetManageDialog(rec, widgetLabel);
-                    }
-                });
-                frame.addView(gear, glp);
+                slp.topMargin = dp(4);
+                slp.rightMargin = dp(5);
+
+                if (rearrangeMode) {
+                    TextView resizeBtn = new TextView(this);
+                    resizeBtn.setText("\u2195 Size");
+                    resizeBtn.setTextColor(Color.WHITE);
+                    resizeBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+                    resizeBtn.setTypeface(Typeface.DEFAULT_BOLD);
+                    resizeBtn.setPadding(dp(10), dp(5), dp(10), dp(5));
+                    GradientDrawable sbg = new GradientDrawable();
+                    sbg.setColor(0xDD0F172A);
+                    sbg.setCornerRadius(dp(12));
+                    sbg.setStroke(dp(1), 0x88FFFFFF);
+                    resizeBtn.setBackgroundDrawable(sbg);
+                    resizeBtn.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            showWidgetManageDialog(rec, widgetLabel);
+                        }
+                    });
+                    LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    rlp.rightMargin = dp(6);
+                    actionStrip.addView(resizeBtn, rlp);
+
+                    TextView delBtn = new TextView(this);
+                    delBtn.setText("\u2715 Remove");
+                    delBtn.setTextColor(Color.WHITE);
+                    delBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+                    delBtn.setTypeface(Typeface.DEFAULT_BOLD);
+                    delBtn.setPadding(dp(11), dp(5), dp(11), dp(5));
+                    GradientDrawable dbg = new GradientDrawable();
+                    dbg.setColor(0xEEB91C1C);
+                    dbg.setCornerRadius(dp(12));
+                    dbg.setStroke(dp(1), 0xFFFECACA);
+                    delBtn.setBackgroundDrawable(dbg);
+                    delBtn.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            removeWidgetAndUnbind(rec.appWidgetId, widgetLabel);
+                        }
+                    });
+                    actionStrip.addView(delBtn);
+                } else {
+                    TextView gear = new TextView(this);
+                    gear.setText("\u22EF");
+                    gear.setTextColor(0xEEFFFFFF);
+                    gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                    gear.setTypeface(Typeface.DEFAULT_BOLD);
+                    gear.setPadding(dp(11), dp(4), dp(11), dp(5));
+                    GradientDrawable gbg = new GradientDrawable();
+                    gbg.setColor(0xAA0F172A);
+                    gbg.setCornerRadius(dp(11));
+                    gbg.setStroke(dp(1), 0x55FFFFFF);
+                    gear.setBackgroundDrawable(gbg);
+                    gear.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            showWidgetManageDialog(rec, widgetLabel);
+                        }
+                    });
+                    actionStrip.addView(gear);
+                }
+
+                frame.addView(actionStrip, slp);
                 widgetsContainer.addView(frame);
             } catch (Throwable t) {
                 PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, MAX_PAGES);
@@ -1189,7 +1335,7 @@ public class VanillaHomeActivity extends Activity {
         sv.addView(list);
 
         final AlertDialog dlg = new AlertDialog.Builder(this)
-                .setTitle("Add Widget to Page " + (currentPage + 1))
+                .setTitle("Widgets  \u2022  Page " + (currentPage + 1))
                 .setView(sv)
                 .setNeutralButton("Customize App Bar", new DialogInterface.OnClickListener() {
                     @Override
@@ -1197,8 +1343,79 @@ public class VanillaHomeActivity extends Activity {
                         showAppBarCustomizerDialog();
                     }
                 })
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Close", null)
                 .create();
+
+        // Active Widgets Currently Placed on This Page -> 1-tap `✕ Remove` right at the top!
+        List<PinnedShortcutsStore.WidgetRecord> activeRecords =
+                PinnedShortcutsStore.loadWidgets(this, currentPage);
+        if (!activeRecords.isEmpty()) {
+            TextView activeHeader = new TextView(this);
+            activeHeader.setText("ACTIVE WIDGETS ON PAGE " + (currentPage + 1) + "  (Tap \u2715 Remove)");
+            activeHeader.setTextColor(0xFFFCA5A5);
+            activeHeader.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            activeHeader.setTypeface(Typeface.DEFAULT_BOLD);
+            activeHeader.setPadding(dp(2), dp(2), dp(2), dp(6));
+            list.addView(activeHeader);
+
+            for (int a = 0; a < activeRecords.size(); a++) {
+                final PinnedShortcutsStore.WidgetRecord activeRec = activeRecords.get(a);
+                AppWidgetProviderInfo aInfo = null;
+                try { aInfo = appWidgetManager.getAppWidgetInfo(activeRec.appWidgetId); } catch (Throwable ignored) {}
+                final String aLabel = (aInfo != null && aInfo.label != null)
+                        ? aInfo.label : ("Widget #" + activeRec.appWidgetId);
+
+                LinearLayout aRow = new LinearLayout(this);
+                aRow.setOrientation(LinearLayout.HORIZONTAL);
+                aRow.setGravity(Gravity.CENTER_VERTICAL);
+                aRow.setPadding(dp(10), dp(8), dp(10), dp(8));
+                GradientDrawable abg = new GradientDrawable();
+                abg.setColor(0xFF2B161E);
+                abg.setCornerRadius(dp(8));
+                abg.setStroke(dp(1), 0x88F87171);
+                aRow.setBackgroundDrawable(abg);
+                LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                alp.bottomMargin = dp(6);
+                aRow.setLayoutParams(alp);
+
+                TextView aTitle = new TextView(this);
+                aTitle.setText(aLabel + "  (" + activeRec.heightDp + " dp)");
+                aTitle.setTextColor(Color.WHITE);
+                aTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+                aTitle.setTypeface(Typeface.DEFAULT_BOLD);
+                aRow.addView(aTitle, new LinearLayout.LayoutParams(
+                        0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+                TextView remBtn = new TextView(this);
+                remBtn.setText("\u2715 Remove");
+                remBtn.setTextColor(Color.WHITE);
+                remBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+                remBtn.setTypeface(Typeface.DEFAULT_BOLD);
+                remBtn.setPadding(dp(12), dp(6), dp(12), dp(6));
+                GradientDrawable rmb = new GradientDrawable();
+                rmb.setColor(0xFFB91C1C);
+                rmb.setCornerRadius(dp(8));
+                remBtn.setBackgroundDrawable(rmb);
+                remBtn.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        dlg.dismiss();
+                        removeWidgetAndUnbind(activeRec.appWidgetId, aLabel);
+                    }
+                });
+                aRow.addView(remBtn);
+                list.addView(aRow);
+            }
+
+            TextView addHeader = new TextView(this);
+            addHeader.setText("AVAILABLE WIDGETS TO PLACE ON PAGE " + (currentPage + 1));
+            addHeader.setTextColor(0xFF7DD3FC);
+            addHeader.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            addHeader.setTypeface(Typeface.DEFAULT_BOLD);
+            addHeader.setPadding(dp(2), dp(10), dp(2), dp(6));
+            list.addView(addHeader);
+        }
 
         DisplayMetrics dm = getResources().getDisplayMetrics();
         for (int i = 0; i < sorted.size(); i++) {
@@ -1366,13 +1583,13 @@ public class VanillaHomeActivity extends Activity {
         }
     }
 
-    private void showWidgetManageDialog(final PinnedShortcutsStore.WidgetRecord rec, String title) {
+    private void showWidgetManageDialog(final PinnedShortcutsStore.WidgetRecord rec, final String title) {
         final String[] items = {
+                "\u2715  Remove Widget from Home Screen",
                 "Compact Height (96 dp)",
                 "Standard Height (132 dp)",
                 "Tall Height (185 dp)",
-                "Extra-Tall Height (250 dp)",
-                "Remove Widget from Home Screen"
+                "Extra-Tall Height (250 dp)"
         };
         new AlertDialog.Builder(this)
                 .setTitle(title)
@@ -1380,16 +1597,16 @@ public class VanillaHomeActivity extends Activity {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
                         if (which == 0) {
-                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 96);
+                            removeWidgetAndUnbind(rec.appWidgetId, title);
+                            return;
                         } else if (which == 1) {
-                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 132);
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 96);
                         } else if (which == 2) {
-                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 185);
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 132);
                         } else if (which == 3) {
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 185);
+                        } else if (which == 4) {
                             PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 250);
-                        } else {
-                            PinnedShortcutsStore.removeWidgetEverywhere(VanillaHomeActivity.this, rec.appWidgetId, MAX_PAGES);
-                            try { appWidgetHost.deleteAppWidgetId(rec.appWidgetId); } catch (Throwable ignored) {}
                         }
                         refreshCurrentPageShortcuts();
                         renderWidgetsForCurrentPage();
@@ -1687,7 +1904,7 @@ public class VanillaHomeActivity extends Activity {
             if (Arc7LauncherSkin.THEMES[i].id.equals(cur)) checked = i;
         }
         new AlertDialog.Builder(this)
-                .setTitle("Arc7 Custom OS Skin")
+                .setTitle("OS Theme & Skin")
                 .setSingleChoiceItems(names, checked, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {
@@ -1935,8 +2152,120 @@ public class VanillaHomeActivity extends Activity {
                 }
             });
         }
+        if ("@youtube".equals(token)) {
+            return makeBuiltinSlot(token, "YouTube", R.drawable.ic_youtube, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@ytmusic".equals(token)) {
+            return makeBuiltinSlot(token, "YT Music", R.drawable.ic_ytmusic, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeMusicActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@pdf".equals(token)) {
+            return makeBuiltinSlot(token, "PDF Reader", R.drawable.ic_pdf, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7PdfViewerActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@weather".equals(token)) {
+            return makeBuiltinSlot(token, "Weather", R.drawable.ic_weather, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7WeatherActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@radio".equals(token)) {
+            return makeBuiltinSlot(token, "Radio", R.drawable.ic_radio, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7RadioRssActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@recorder".equals(token)) {
+            return makeBuiltinSlot(token, "Recorder", R.drawable.ic_recorder, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7RecorderActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@arcade".equals(token)) {
+            return makeBuiltinSlot(token, "Games", R.drawable.ic_arcade, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ArcadeActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@wiki".equals(token)) {
+            return makeBuiltinSlot(token, "Wikipedia", R.drawable.ic_wiki, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7DictionaryWikiActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@splitview".equals(token)) {
+            return makeBuiltinSlot(token, "Split View", R.drawable.ic_splitview, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7SplitViewActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@secondscreen".equals(token)) {
+            return makeBuiltinSlot(token, "Display", R.drawable.ic_display, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7SecondScreenActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@streamdeck".equals(token)) {
+            return makeBuiltinSlot(token, "Stream Deck", R.drawable.ic_streamdeck, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7StreamDeckActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@vpn".equals(token)) {
+            return makeBuiltinSlot(token, "Wi-Fi & VPN", R.drawable.ic_vpn, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7VpnActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@shield".equals(token)) {
+            return makeBuiltinSlot(token, "Ad Blocker", R.drawable.ic_shield, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ShieldActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@boost".equals(token)) {
+            return makeBuiltinSlot(token, "System Boost", R.drawable.ic_boost, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BoostActivity")) openDrawer();
+                }
+            });
+        }
         if ("@freedom".equals(token)) {
-            return makeBuiltinSlot(token, "Freedom", R.drawable.ic_launcher, new View.OnClickListener() {
+            return makeBuiltinSlot(token, "Arc7 Freedom", R.drawable.ic_launcher, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.MainActivity");
@@ -2355,31 +2684,35 @@ public class VanillaHomeActivity extends Activity {
         final List<String> tokens = new ArrayList<String>();
 
         String[][] smartBuiltins = new String[][]{
-                { "@browser", "Arc7 Browser (Modern TLS 1.3 Web)" },
-                { "@calendar", "Arc7 Calendar & Agenda" },
-                { "@photos", "Arc7 Photos & Filter Studio" },
-                { "@camera", "Arc7 HD Camera & Screen Flash" },
+                { "@youtube", "YouTube (Morphe Edition — Video & Background Audio)" },
+                { "@ytmusic", "YouTube Music (Morphe Edition — Songs, Lyrics & Queue)" },
+                { "@browser", "Browser (Modern TLS 1.3 Web)" },
+                { "@vpn", "Wi-Fi & VPN (Official Tailscale Google Sign-In)" },
+                { "@calendar", "Calendar & Agenda" },
+                { "@photos", "Photos & Filter Studio" },
+                { "@camera", "Camera & Screen Flash" },
                 { "@vlc", "VLC Media Player" },
-                { "@files", "Arc7 Files & ZIP Explorer" },
-                { "@notes", "Arc7 Notes, Checklists & Sketchpad" },
-                { "@calculator", "Arc7 Scientific Calculator & Converter" },
-                { "@clock", "Arc7 Clock, Alarms & Chimes" },
-                { "@ereader", "Arc7 E-Book Reader (VK / FB2 / EPUB / PDF / Gutenberg)" },
-                { "@pdf", "Arc7 PDF Viewer & Document Scanner" },
-                { "@weather", "Arc7 Weather (Open-Meteo Forecast)" },
-                { "@radio", "Arc7 Radio, Podcasts & Offline RSS" },
-                { "@recorder", "Arc7 Studio Voice Recorder" },
-                { "@arcade", "Arc7 Offline Arcade (Chess / 2048 / Solitaire)" },
-                { "@wiki", "Arc7 Offline Dictionary & Wikipedia" },
-                { "@splitview", "Arc7 Dual-Pane Split View" },
-                { "@secondscreen", "Arc7 Chromebook / PC Second Screen" },
-                { "@shield", "Arc7 Shield (System AdBlock & Firewall)" },
-                { "@boost", "Arc7 Boost (+384 MB Swap & CPU Profiles)" },
-                { "@audio", "Arc7 Music & Audio Player" },
-                { "@wired", "Chromebook Wired USB Internet" },
-                { "@terminal", "Root Shell Terminal (Python 3 + apt)" },
-                { "@freedom", "Kobo Arc 7 Freedom Control Center" },
-                { "@settings", "Android System Settings" }
+                { "@files", "Files & ZIP Explorer" },
+                { "@notes", "Notes, Checklists & Sketchpad" },
+                { "@calculator", "Calculator & Unit Converter" },
+                { "@clock", "Clock, Alarms & Chimes" },
+                { "@ereader", "Books & E-Reader (VK / FB2 / EPUB / PDF / Gutenberg)" },
+                { "@pdf", "PDF Reader & Document Scanner" },
+                { "@weather", "Weather Forecast" },
+                { "@radio", "Radio & Podcasts" },
+                { "@recorder", "Voice Recorder" },
+                { "@arcade", "Games (Chess / 2048 / Solitaire)" },
+                { "@wiki", "Dictionary & Wikipedia" },
+                { "@splitview", "Dual-Pane Split View" },
+                { "@secondscreen", "Second Screen Display" },
+                { "@streamdeck", "Stream Deck & OBS Remote" },
+                { "@shield", "Ad Blocker & Firewall" },
+                { "@boost", "System Boost & Swap" },
+                { "@audio", "Music Player" },
+                { "@wired", "Wired USB Internet" },
+                { "@terminal", "Terminal (Python 3 + apt)" },
+                { "@freedom", "Arc7 Freedom" },
+                { "@settings", "Settings" }
         };
         for (int i = 0; i < smartBuiltins.length; i++) {
             tokens.add(smartBuiltins[i][0]);
@@ -2701,7 +3034,7 @@ public class VanillaHomeActivity extends Activity {
                         });
 
                 // Section 4: System-Wide In-App Top App Bar (synced across all built-in Arc7 apps!)
-                addStudioHeader(rootBox, "4. IN-APP TOP APP BAR (ALL ARC7 APPS)", accent);
+                addStudioHeader(rootBox, "4. IN-APP TOP APP BAR (ALL BUILT-IN APPS)", accent);
 
                 addSelectorRow(rootBox, "In-App Bar Height", AppBarConfigStore.IN_APP_DENSITY_NAMES[cfg.inAppDensity],
                         AppBarConfigStore.IN_APP_DENSITY_NAMES, cfg.inAppDensity, new IntChoiceCallback() {

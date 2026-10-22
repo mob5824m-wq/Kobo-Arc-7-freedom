@@ -88,7 +88,7 @@ public class Arc7ShieldActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_shield,
-                "Arc7 Shield — AdBlock & Firewall",
+                "Ad Blocker & Firewall",
                 "System-Wide Hosts Ad/Tracker Blocker • Live StevenBlack TLS 1.3 List • Per-App Root Firewall",
                 null));
 

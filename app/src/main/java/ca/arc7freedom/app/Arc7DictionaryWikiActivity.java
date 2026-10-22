@@ -81,7 +81,7 @@ public class Arc7DictionaryWikiActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_dictionary,
-                "Arc7 Dictionary & Wikipedia",
+                "Wikipedia & Dictionary",
                 "Offline + Wiktionary Definitions • Clean Ad-Free Wikipedia • Offline Saved Articles",
                 saveOfflineBtn));
 

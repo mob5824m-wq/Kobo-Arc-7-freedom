@@ -92,7 +92,7 @@ public class Arc7PackageInstallerActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_apk_installer,
-                "Arc7 Package Installer",
+                "Package Installer",
                 "Android 4.2 Binary Validator • Auto JAR v1 Signer • Fast Root Installer",
                 rescanBtn));
 

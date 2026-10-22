@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v2.3.1");
+        title.setText("Arc7 Freedom  v2.4.0");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -292,7 +292,7 @@ public class MainActivity extends Activity {
         });
         topBar.addView(appBarBtn, ablp);
 
-        Button skinBtn = makeSecondaryButton("Arc7 Skin");
+        Button skinBtn = makeSecondaryButton("OS Skin");
         LinearLayout.LayoutParams sklp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
         sklp.leftMargin = dp(8);
@@ -703,7 +703,7 @@ public class MainActivity extends Activity {
         qRow.setOrientation(LinearLayout.HORIZONTAL);
         qRow.setPadding(0, dp(4), 0, 0);
 
-        Button browserBtn = makePrimaryButton("Open Built-In Arc7 Browser (TLS 1.3)");
+        Button browserBtn = makePrimaryButton("Open Built-In Browser (TLS 1.3)");
         browserBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1086,22 +1086,38 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.3.1 OS App Suite + Customizable App Bar Studio
+        // Card 1: Complete v2.4.0 OS App Suite + Morphe YouTube & YouTube Music + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.3.1 Daily-Driver App & Media Suite",
-                "Includes Strict School Wi-Fi Rescue + System-Wide VPN & Official Tailscale, 1280x800 PC Stream Deck Pro "
-                + "(OBS + Media + Discord + Custom Deck Studio), Drag-and-Drop Rearrangeable Launcher v53, 4-Store E-Reader "
-                + "(VK + Gutenberg + Open Library + Standard Ebooks), PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost & VLC!");
+        addCardHeader(packCard, "Arc7 Freedom v2.4.0 — Daily-Driver App & Media Suite",
+                "Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
+                + "Effortless Home Widget Removal (Launcher v54), Clean App Names, Official Tailscale Google Sign-In, "
+                + "Stream Deck Pro, 4-Store Books Reader, PDF Reader, Weather, Radio & Podcasts, Games, Ad Blocker, System Boost & VLC!");
 
-        addToolActionRow(packCard, "Open Arc7 Wi-Fi, VPN & Tailscale — Strict School Wi-Fi Rescue + System-Wide Tunnel",
-                "Connect to hidden / WPA2-Enterprise (PEAP/TTLS/eduroam) school Wi-Fi, bypass port blocks via Port-443 Stealth VPN + DoH, or join Official Tailscale / WireGuard / OpenVPN!",
+        addToolActionRow(packCard, "Open YouTube (Morphe Edition — Ad-Free Video, Background Audio, SponsorBlock & RYD)",
+                "Watch 2026 YouTube videos with hardware H.264/AAC decoding via local TLS 1.3 Range Proxy, SponsorBlock skip, Dislikes & MP4/M4A download!",
+                "YouTube", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, YouTubeActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open YouTube Music (Morphe Edition — AMOLED Dark, Lyrics, Queue & Equalizer)",
+                "Stream songs, albums & playlists with screen OFF, synced lyrics, SponsorBlock non-music skip, 5-band Equalizer & Clock Standby display!",
+                "YouTube Music", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, YouTubeMusicActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Wi-Fi & VPN — Official Tailscale Google Sign-In + School Wi-Fi Shield",
+                "Sign directly into Tailscale with Google (scannable ISO QR code or tablet sign-in), bypass school blocks, or connect an HTTPS/SSH tunnel!",
                 "Wi-Fi & VPN", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7VpnActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Stream Deck — Full 1280x800 LCD Stream Deck for Windows / Mac / Linux",
+        addToolActionRow(packCard, "Open Stream Deck — Full 1280x800 LCD Stream Deck for Windows / Mac / Linux",
                 "15/24/32/6-key tactile LCD grids over Wi-Fi, zero-lag USB ADB, or Tailscale with OBS WebSocket v5, Volume Faders, Push-to-Talk & Web Deck Studio!",
                 "Stream Deck", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1109,63 +1125,63 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 E-Reader — VK Books + Gutenberg + Open Library + Standard Ebooks (.FB2/.PDF/.EPUB/.CBZ)",
+        addToolActionRow(packCard, "Open Books — VK Books + Gutenberg + Open Library + Standard Ebooks (.FB2/.PDF/.EPUB/.CBZ)",
                 "4-source free e-book storefront (`vk.com` OAuth + zero-login `vk.com` search/m.vk.com interceptor + Gutenberg + Open Library + Standard Ebooks) + `.fb2`/`.fb2.zip`/`.pdf`/`.epub`/`.cbz`!",
-                "VK & Books", new View.OnClickListener() {
+                "Books", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 PDF & Scanner — Native Offline PDF Reader + Camera Document Scanner",
+        addToolActionRow(packCard, "Open PDF Reader — Native Offline PDF Reader + Camera Document Scanner",
                 "Read `.pdf` documents offline with chapter search OR scan paper pages via Kobo camera straight to `.pdf`!",
-                "PDF & Scan", new View.OnClickListener() {
+                "PDF Reader", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7PdfViewerActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Weather — Live Open-Meteo Forecast + Home Screen Widget",
+        addToolActionRow(packCard, "Open Weather — Live Open-Meteo Forecast + Home Screen Widget",
                 "Zero-API-key TLS 1.3 hourly & 7-day weather forecasts with °C/°F toggle and offline Home Widget cache!",
-                "Open Weather", new View.OnClickListener() {
+                "Weather", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7WeatherActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Radio, Podcasts & Offline RSS Reader",
+        addToolActionRow(packCard, "Open Radio & Podcasts — 30k World Stations & Offline RSS Reader",
                 "Stream 30,000+ live world radio stations with screen OFF + download offline `.mp3` podcasts + RSS/Atom feeds!",
-                "Radio & RSS", new View.OnClickListener() {
+                "Radio", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7RadioRssActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Recorder — 44.1 kHz Studio WAV Voice Recorder & Lossless Trimmer",
+        addToolActionRow(packCard, "Open Voice Recorder — 44.1 kHz Studio WAV Voice Recorder & Lossless Trimmer",
                 "Record crystal-clear 16-bit PCM `.wav` lectures & memos with live 60 fps waveform, Pause/Resume & lossless trim!",
-                "Voice Recorder", new View.OnClickListener() {
+                "Recorder", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7RecorderActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Offline Arcade — Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire",
-                "5 instant zero-ad 60 fps classic tablet games built straight into Kobo Arc 7 Freedom!",
-                "Play Arcade", new View.OnClickListener() {
+        addToolActionRow(packCard, "Open Games — Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire",
+                "5 instant zero-ad 60 fps classic tablet games built straight into your tablet!",
+                "Games", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7ArcadeActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Dictionary & Wikipedia — Offline Lexicon + Clean Reader Mode",
+        addToolActionRow(packCard, "Open Wikipedia — Offline Dictionary & Clean Reader Mode",
                 "Instant offline English lexicon + Wiktionary definitions + distraction-free Wikipedia reader with saved articles!",
-                "Dict & Wiki", new View.OnClickListener() {
+                "Wikipedia", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7DictionaryWikiActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Split View — True Landscape Dual-Pane Multitasking",
+        addToolActionRow(packCard, "Open Split View — True Landscape Dual-Pane Multitasking",
                 "Run Web Browser, E-Reader/PDF, Research Notes, Dictionary/Wiki & Calculator side-by-side (`35/50/65%` + `⇄ Swap`)!",
                 "Split View", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1173,7 +1189,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Second Screen — Chromebook / PC Extended Monitor & 12-Key Macro Deck",
+        addToolActionRow(packCard, "Open Second Screen — Chromebook / PC Extended Monitor & 12-Key Macro Deck",
                 "Use Kobo Arc 7 as a `1280x800` USB/Wi-Fi second display (`:18900`) with reverse touch input + 12-key Macro Deck!",
                 "2nd Screen", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1181,17 +1197,17 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Shield — System-Wide Hosts AdBlocker & Per-App Root Firewall",
+        addToolActionRow(packCard, "Open Ad Blocker — System-Wide Hosts AdBlocker & Per-App Root Firewall",
                 "Block ad/tracker domains in `/system/etc/hosts` (+ live 80k StevenBlack list) & control per-app `iptables` internet access!",
-                "Arc7 Shield", new View.OnClickListener() {
+                "Ad Blocker", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7ShieldActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Boost — +384 MB Kernel zRAM/Swap Expander, CPU Governor & Battery Doctor",
+        addToolActionRow(packCard, "Open System Boost — +384 MB Kernel zRAM/Swap Expander, CPU Governor & Battery Doctor",
                 "Add `+384 MB` swap headroom alongside 1 GB RAM, switch quad-core CPU profiles, and reclaim cached RAM!",
-                "Arc7 Boost", new View.OnClickListener() {
+                "System Boost", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7BoostActivity.class));
                     }
@@ -1245,7 +1261,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Calendar — Month View, Reminders, Holidays & .ics Sync",
+        addToolActionRow(packCard, "Open Calendar — Month View, Reminders, Holidays & .ics Sync",
                 "Full Calendar with wake-screen chime reminders, color tags, Home Screen Widget, and `.ics` import/export!",
                 "Open Calendar", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1253,7 +1269,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Photos — Pinch-to-Zoom Gallery & Photo Filter Studio",
+        addToolActionRow(packCard, "Open Photos — Pinch-to-Zoom Gallery & Photo Filter Studio",
                 "Fast multi-album thumbnail gallery + 7 Live Filters, Rotate/Flip, Slideshow, Wallpaper & VLC video launch!",
                 "Open Photos", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1261,7 +1277,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Camera — HD Photos, MP4 Video & Front Screen Flash",
+        addToolActionRow(packCard, "Open Camera — HD Photos, MP4 Video & Front Screen Flash",
                 "Hardware-tuned for Kobo Arc 7 HD sensor with Front Screen Flash, 3s/10s Self-Timer, Grid & Color FX!",
                 "Open Camera", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1269,7 +1285,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Calculator — Scientific Engine + Live Unit Converter",
+        addToolActionRow(packCard, "Open Calculator — Scientific Engine + Live Unit Converter",
                 "Full scientific calculator (`sin/cos/tan/ln/log/√/^/!`), clickable History Tape, and Unit Converter!",
                 "Calculator", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1277,7 +1293,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Notes — Markdown Notes, Checklists & Color Sketchpad",
+        addToolActionRow(packCard, "Open Notes — Markdown Notes, Checklists & Color Sketchpad",
                 "Two-pane tablet notebook with interactive checkboxes, stylus/finger color canvas, and `.md`/`.png` export!",
                 "Open Notes", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1285,7 +1301,7 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Files — Internal, MicroSD & ZIP Explorer",
+        addToolActionRow(packCard, "Open Files — Internal, MicroSD & ZIP Explorer",
                 "Full file manager with Copy/Move/Rename, `.zip` create/extract, and 1-tap APK / VLC / Photos launch!",
                 "Open Files", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1293,9 +1309,9 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Custom Arc7 APK Installer (Manifest Audit + Auto v1 Signer)",
+        addToolActionRow(packCard, "Open Package Installer (Manifest Audit + Auto v1 Signer)",
                 "Inspects package metadata & permissions, auto-re-signs modern v2/v3 APKs with SHA1withRSA, & root-installs!",
-                "APK Installer", new View.OnClickListener() {
+                "Installer", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7PackageInstallerActivity.class));
                     }
@@ -1339,31 +1355,31 @@ public class MainActivity extends Activity {
                     @Override public void onClick(View v) { runOptimizerTask("Removing Default Launcher, Kobo Care & Discontinued Apps", 19); }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 E-Reader + 70,000 Free Books Store + Color .CBZ Comics",
+        addToolActionRow(packCard, "Open Books + 70,000 Free Books Store + Color .CBZ Comics",
                 "Read `.epub`/`.txt`/`.html` + Color `.cbz` Comics/Manga + 1-tap Project Gutenberg TLS 1.3 book downloads!",
-                "Open E-Reader", new View.OnClickListener() {
+                "Open Books", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Audio — Screen-Off Music & Audiobook Player",
+        addToolActionRow(packCard, "Open Music — Screen-Off Music & Audiobook Player",
                 "Plays MP3/M4A/OGG/FLAC/WAV with screen OFF, auto-bookmarks audiobooks, +/-30s skip & Sleep Timer!",
-                "Open Audio", new View.OnClickListener() {
+                "Open Music", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7AudioPlayerActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Clock — Alarms, Countdown Timers, Stopwatch & World Time",
-                "Unlimited wake-up Alarms (with Snooze & loud chime), screen-off Countdown Timers, Centisecond Lap Stopwatch & Nightstand!",
+        addToolActionRow(packCard, "Open Clock — Alarms, Countdown Timers, Stopwatch & World Time",
+                "Unlimited wake-up Alarms (with Snooze & loud chime), screen-off Countdown Timers, Centisecond Lap Stopwatch & Standby!",
                 "Open Clock", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7ClockActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Wallpapers — 12 Built-In HD Art Themes + Custom Photos",
+        addToolActionRow(packCard, "Open Wallpapers — 12 Built-In HD Art Themes + Custom Photos",
                 "Apply 12 crisp 1280x800 procedural HD wallpapers or any photo from MicroSD / Internal Storage in one tap!",
                 "Wallpapers", new View.OnClickListener() {
                     @Override public void onClick(View v) {
@@ -1371,15 +1387,15 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 Nightstand Dock — Live TLS 1.3 Weather & Photo Stand",
-                "Fullscreen 1024x600 digital nightstand clock + live °C weather + MicroSD photo slideshow + Amber Night mode!",
-                "Nightstand", new View.OnClickListener() {
+        addToolActionRow(packCard, "Open Clock Standby — Live Now Playing, Weather & Photo Stand",
+                "Fullscreen 1024x600 digital nightstand clock + live Now Playing audio controls + °C weather + Amber Night mode!",
+                "Clock Standby", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7DeskClockActivity.class));
                     }
                 });
 
-        addToolActionRow(packCard, "Open Arc7 App Manager — Freeze Bloat, Export APKs & Trim Caches",
+        addToolActionRow(packCard, "Open App Manager — Freeze Bloat, Export APKs & Trim Caches",
                 "Inspect every installed app, export `.apk` backups to MicroSD, freeze background drainers, or clear caches.",
                 "App Manager", new View.OnClickListener() {
                     @Override public void onClick(View v) {

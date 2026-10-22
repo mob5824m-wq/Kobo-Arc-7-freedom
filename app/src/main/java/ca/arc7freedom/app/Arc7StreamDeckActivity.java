@@ -223,7 +223,7 @@ public class Arc7StreamDeckActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_streamdeck,
-                "Arc7 Stream Deck",
+                "Stream Deck",
                 "PC / OBS / Discord / Macro LCD Controller  \u2022  Wi-Fi, USB Cable & Tailscale `:18991`",
                 hdrActions));
 

@@ -119,7 +119,7 @@ public class Arc7AudioPlayerActivity extends Activity {
         header.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView appTitle = new TextView(this);
-        appTitle.setText("Arc7 Audio — Screen-Off Music & Audiobook Player");
+        appTitle.setText("Music  •  Screen-Off Music & Audiobook Player");
         appTitle.setTextColor(Color.parseColor("#38BDF8"));
         appTitle.setTypeface(Typeface.DEFAULT_BOLD);
         appTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);

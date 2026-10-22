@@ -128,7 +128,7 @@ public final class AppBarConfigStore {
     };
 
     public static final String[] ACCENT_SWATCH_NAMES = new String[]{
-            "Match Active Arc7 OS Skin (Auto)",
+            "Match Active OS Skin (Auto)",
             "Electric Cyan (#22D3EE)",
             "Emerald Mint (#10B981)",
             "Solaris Amber (#F59E0B)",
@@ -378,6 +378,8 @@ public final class AppBarConfigStore {
         if (pkg == null) return null;
         String c = cls == null ? "" : cls;
         if ("ca.arc7freedom.app".equals(pkg)) {
+            if (c.endsWith("YouTubeMusicActivity")) return "@ytmusic";
+            if (c.endsWith("YouTubeActivity")) return "@youtube";
             if (c.endsWith("Arc7BrowserActivity")) return "@browser";
             if (c.endsWith("Arc7CalendarActivity")) return "@calendar";
             if (c.endsWith("Arc7PhotosActivity")) return "@photos";

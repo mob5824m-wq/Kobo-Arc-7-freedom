@@ -105,11 +105,12 @@ public class Arc7BrowserActivity extends Activity {
         rootShell = new RootShell(this);
         certManager = new NetworkCertManager(this, rootShell);
 
-        // Pre-warm the persistent TLS 1.3 daemon off the UI thread immediately
+        // Pre-warm BOTH persistent TLS 1.3 daemon (:18119) AND global CONNECT gateway (:8118 for WebKit POST forms & Google OAuth!)
         new Thread(new Runnable() {
             @Override
             public void run() {
                 ensureTlsDaemonRunning();
+                try { certManager.startBrowserGateway(); } catch (Throwable ignored) {}
             }
         }).start();
 
@@ -374,6 +375,9 @@ public class Arc7BrowserActivity extends Activity {
                     }
                     return true;
                 }
+                if (tryRouteToYouTubeApps(url)) {
+                    return true;
+                }
                 if (isDirectBinaryDownloadUrl(url)) {
                     startDownloadInBrowser(url);
                     return true;
@@ -509,13 +513,47 @@ public class Arc7BrowserActivity extends Activity {
             finalUrl = "https://html.duckduckgo.com/html/?q=" + Uri.encode(input);
         }
 
+        if (tryRouteToYouTubeApps(finalUrl)) {
+            return;
+        }
         if (isDirectBinaryDownloadUrl(finalUrl)) {
             startDownloadInBrowser(finalUrl);
             return;
         }
+        applyOptimalUserAgentForUrl(finalUrl);
         currentDocumentUrl = finalUrl;
         urlBar.setText(finalUrl);
         webView.loadUrl(finalUrl);
+    }
+
+    private void applyOptimalUserAgentForUrl(String u) {
+        if (u == null || webView == null) return;
+        String low = u.toLowerCase(Locale.US);
+        if (low.contains("accounts.google.com") || low.contains("login.tailscale.com")) {
+            // Desktop Safari UA: 100% approved by Google OAuth (no `disallowed_useragent`) AND serves ES5/HTML forms compatible with Android 4.2 WebKit!
+            webView.getSettings().setUserAgentString(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_5) AppleWebKit/537.78.2 (KHTML, like Gecko) Version/7.0.6 Safari/537.78.2");
+        } else {
+            webView.getSettings().setUserAgentString(desktopMode ? UA_DESKTOP : UA_MOBILE);
+        }
+    }
+
+    private boolean tryRouteToYouTubeApps(String url) {
+        if (url == null) return false;
+        String low = url.toLowerCase(Locale.US);
+        if (low.startsWith("https://music.youtube.com") || low.startsWith("http://music.youtube.com")) {
+            Intent ytm = new Intent(this, YouTubeMusicActivity.class);
+            ytm.setData(Uri.parse(url));
+            startActivity(ytm);
+            return true;
+        }
+        if (MorpheEngine.extractVideoIdFromUrlOrQuery(url) != null) {
+            Intent yt = new Intent(this, YouTubeActivity.class);
+            yt.setData(Uri.parse(url));
+            startActivity(yt);
+            return true;
+        }
+        return false;
     }
 
     private static boolean isPlainIpOrLocalHost(String input) {
@@ -551,7 +589,7 @@ public class Arc7BrowserActivity extends Activity {
                 + "a.primary{background:#0284c7;border-color:#7dd3fc;}"
                 + "</style></head><body>"
                 + "<div class='box'>"
-                + "<h2>Arc7 Browser</h2>"
+                + "<h2>Browser</h2>"
                 + "<p>Modern TLS 1.3 + 120 Bundled 2026 Root Certificates — Search the web or open any HTTPS or local site.</p>"
                 + "<form action='https://html.duckduckgo.com/html/' method='get'>"
                 + "<input type='text' name='q' placeholder='Search DuckDuckGo...'>"
@@ -583,7 +621,7 @@ public class Arc7BrowserActivity extends Activity {
                 "Return to Kobo Arc 7 Freedom App"
         };
         new AlertDialog.Builder(this)
-                .setTitle("Arc7 Browser")
+                .setTitle("Browser")
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {

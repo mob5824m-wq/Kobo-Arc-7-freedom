@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.upgrader"
-    android:versionCode="231"
-    android:versionName="2.3.1">
+    android:versionCode="240"
+    android:versionName="2.4.0">
 
     <uses-sdk
         android:minSdkVersion="15"
@@ -14,11 +14,12 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
-        android:label="Upgrade Kobo v2.3.1"
+        android:label="Upgrade Kobo v2.4.0"
         android:theme="@android:style/Theme.Holo.NoActionBar">
 
         <activity
             android:name="ca.arc7freedom.upgrader.UpgraderActivity"
+            android:label="Upgrade Kobo v2.4.0"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true"
             android:taskAffinity="ca.arc7freedom.upgrader.main">

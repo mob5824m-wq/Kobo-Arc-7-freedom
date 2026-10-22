@@ -93,7 +93,7 @@ public class Arc7PdfViewerActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_pdf,
-                "Arc7 PDF & Scanner",
+                "PDF Reader & Scanner",
                 "Offline PDF Reader • Full-Text Search • Multi-Page Camera Document Scanner",
                 actions));
 

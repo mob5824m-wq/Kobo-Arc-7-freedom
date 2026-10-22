@@ -134,7 +134,7 @@ public class Arc7FileManagerActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_files,
-                "Arc7 Files",
+                "Files",
                 "Internal & MicroSD • ZIP Create/Extract • Smart APK / VLC / Photos Launcher",
                 topActions));
 

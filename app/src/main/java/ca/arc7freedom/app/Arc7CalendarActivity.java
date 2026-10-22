@@ -109,7 +109,7 @@ public class Arc7CalendarActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_calendar,
-                "Arc7 Calendar",
+                "Calendar",
                 "Month Grid • Reminders • Recurring Events • .ICS Sync",
                 headerActions));
 

@@ -104,7 +104,7 @@ public class Arc7ArcadeActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_arcade,
-                "Arc7 Offline Arcade",
+                "Games  •  Offline Arcade",
                 "Chess vs AI • 2048 • Sudoku • Minesweeper • Klondike Solitaire (Zero Ads!)",
                 newBtn));
 

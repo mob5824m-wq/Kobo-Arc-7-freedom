@@ -114,7 +114,7 @@ public class Arc7RecorderActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_sys_recorder,
-                "Arc7 Voice Recorder & Trim",
+                "Voice Recorder & Trim",
                 "44.1 kHz Studio WAV • Live 60 fps Waveform • Pause/Resume • Lossless Trim",
                 null));
 

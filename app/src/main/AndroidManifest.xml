@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="231"
-    android:versionName="2.3.1"
+    android:versionCode="240"
+    android:versionName="2.4.0"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -40,16 +40,16 @@
 
     <application
         android:icon="@drawable/ic_launcher"
-        android:label="Kobo Arc 7 Freedom"
+        android:label="Arc7 Freedom"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
 
-        <!-- 1. Main Kobo Arc 7 Freedom OS / Custom Skin / Root / Backup / Wi-Fi Suite (OWN TASK!) -->
+        <!-- 1. Main OS Suite (`Arc7 Freedom` — THE ONLY APP LABELED `Arc7`!) -->
         <activity
             android:name=".MainActivity"
-            android:label="Kobo Arc 7 Freedom"
+            android:label="Arc7 Freedom"
             android:icon="@drawable/ic_launcher"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.main"
@@ -62,10 +62,61 @@
             </intent-filter>
         </activity>
 
-        <!-- 2. Standalone Modern TLS 1.3 + 2026 CA Web Browser (`Arc7 Browser` — OWN TASK!) -->
+        <!-- 2. Standalone Morphe `YouTube` App (2026 InnerTube + Ad-Free + SponsorBlock + RYD + Local Range Proxy — OWN TASK!) -->
+        <activity
+            android:name=".YouTubeActivity"
+            android:label="YouTube"
+            android:icon="@drawable/ic_youtube"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.youtube"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="youtube.com" />
+                <data android:host="www.youtube.com" />
+                <data android:host="m.youtube.com" />
+                <data android:host="youtu.be" />
+            </intent-filter>
+        </activity>
+
+        <!-- 3. Standalone Morphe `YouTube Music` App (AMOLED Dark + Background Audio + Lyrics + EQ + Queue — OWN TASK!) -->
+        <activity
+            android:name=".YouTubeMusicActivity"
+            android:label="YouTube Music"
+            android:icon="@drawable/ic_ytmusic"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.ytmusic"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="music.youtube.com" />
+            </intent-filter>
+        </activity>
+
+        <!-- 4. Standalone Modern TLS 1.3 + 2026 CA Web Browser (`Browser` — OWN TASK!) -->
         <activity
             android:name=".Arc7BrowserActivity"
-            android:label="Arc7 Browser"
+            android:label="Browser"
             android:icon="@drawable/ic_browser"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.browser"
@@ -85,10 +136,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 3. Standalone Offline EPUB / CBZ / TXT E-Book Reader + 70k Gutenberg Store (`Arc7 E-Reader` — OWN TASK!) -->
+        <!-- 5. Standalone Offline EPUB / CBZ / FB2 / PDF E-Book Reader (`Books` — OWN TASK!) -->
         <activity
             android:name=".Arc7EbookReaderActivity"
-            android:label="Arc7 E-Reader"
+            android:label="Books"
             android:icon="@drawable/ic_ereader"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.ereader"
@@ -112,10 +163,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 4. Standalone Screen-Off Music & Audiobook Player (`Arc7 Audio` — OWN TASK!) -->
+        <!-- 6. Standalone Screen-Off Music & Audiobook Player (`Music` — OWN TASK!) -->
         <activity
             android:name=".Arc7AudioPlayerActivity"
-            android:label="Arc7 Audio"
+            android:label="Music"
             android:icon="@drawable/ic_audio"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.audio"
@@ -133,10 +184,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 5. Standalone `Arc7 Clock` (Internet Archive Chimes, World Clock, Timer, Stopwatch — OWN TASK!) -->
+        <!-- 7. Standalone `Clock` (Internet Archive Chimes, World Clock, Timer, Stopwatch — OWN TASK!) -->
         <activity
             android:name=".Arc7ClockActivity"
-            android:label="Arc7 Clock"
+            android:label="Clock"
             android:icon="@drawable/ic_clock"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.clock"
@@ -148,10 +199,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 6. Nightstand Split-Flap Flip Clock & Weather Station (OWN TASK!) -->
+        <!-- 8. Clock Standby Split-Flap Flip Clock, Live Now-Playing & Weather Display (OWN TASK!) -->
         <activity
             android:name=".Arc7DeskClockActivity"
-            android:label="Arc7 Nightstand"
+            android:label="Clock Standby"
             android:icon="@drawable/ic_clock"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.nightstand"
@@ -159,10 +210,10 @@
             android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen"
             android:exported="true" />
 
-        <!-- 7. Full-Screen Wake-Screen Alarm & Calendar Alert (Dismiss / Snooze — OWN TASK!) -->
+        <!-- 9. Full-Screen Wake-Screen Alarm & Calendar Alert (`Alarm` — OWN TASK!) -->
         <activity
             android:name=".Arc7AlarmAlertActivity"
-            android:label="Arc7 Alarm"
+            android:label="Alarm"
             android:icon="@drawable/ic_clock"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.alarm"
@@ -171,10 +222,10 @@
             android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen"
             android:exported="true" />
 
-        <!-- 8. Standalone `Arc7 Wallpapers` HD Picker (OWN TASK!) -->
+        <!-- 10. Standalone `Wallpapers` HD Picker (OWN TASK!) -->
         <activity
             android:name=".Arc7WallpaperPickerActivity"
-            android:label="Arc7 Wallpapers"
+            android:label="Wallpapers"
             android:icon="@drawable/ic_wallpaper"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.wallpaper"
@@ -190,10 +241,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 9. Standalone `Arc7 App Manager` (OWN TASK!) -->
+        <!-- 11. Standalone `App Manager` (OWN TASK!) -->
         <activity
             android:name=".Arc7AppManagerActivity"
-            android:label="Arc7 App Manager"
+            android:label="App Manager"
             android:icon="@drawable/ic_appmgr"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.appmgr"
@@ -206,10 +257,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 10. Standalone `Arc7 Terminal` Root/Shell Emulator (OWN TASK!) -->
+        <!-- 12. Standalone `Terminal` Root/Shell Emulator (OWN TASK!) -->
         <activity
             android:name=".Arc7TerminalActivity"
-            android:label="Arc7 Terminal"
+            android:label="Terminal"
             android:icon="@drawable/ic_terminal"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.terminal"
@@ -222,10 +273,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 11. NEW `Arc7 Calendar` App (Month + Agenda + Reminders + .ics Sync — OWN TASK!) -->
+        <!-- 13. `Calendar` App (Month + Agenda + Reminders + .ics Sync — OWN TASK!) -->
         <activity
             android:name=".Arc7CalendarActivity"
-            android:label="Arc7 Calendar"
+            android:label="Calendar"
             android:icon="@drawable/ic_calendar"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.calendar"
@@ -243,10 +294,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 12. NEW `Arc7 Photos` Gallery & Photo Filter Studio (OWN TASK!) -->
+        <!-- 14. `Photos` Gallery & Photo Filter Studio (OWN TASK!) -->
         <activity
             android:name=".Arc7PhotosActivity"
-            android:label="Arc7 Photos"
+            android:label="Photos"
             android:icon="@drawable/ic_photos"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.photos"
@@ -263,10 +314,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 13. NEW `Arc7 Camera` HD Photo & Video Studio with Front Screen Flash (OWN TASK!) -->
+        <!-- 15. `Camera` HD Photo & Video Studio with Front Screen Flash (OWN TASK!) -->
         <activity
             android:name=".Arc7CameraActivity"
-            android:label="Arc7 Camera"
+            android:label="Camera"
             android:icon="@drawable/ic_camera"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.camera"
@@ -284,10 +335,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 14. NEW `Arc7 Calculator` Scientific Calculator & Unit Converter (OWN TASK!) -->
+        <!-- 16. `Calculator` Scientific Calculator & Unit Converter (OWN TASK!) -->
         <activity
             android:name=".Arc7CalculatorActivity"
-            android:label="Arc7 Calculator"
+            android:label="Calculator"
             android:icon="@drawable/ic_calculator"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.calc"
@@ -299,10 +350,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 15. NEW `Arc7 Notes` Notes, Checklists & Color Sketchpad (OWN TASK!) -->
+        <!-- 17. `Notes` Notes, Checklists & Color Sketchpad (OWN TASK!) -->
         <activity
             android:name=".Arc7NotesActivity"
-            android:label="Arc7 Notes"
+            android:label="Notes"
             android:icon="@drawable/ic_notes"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.notes"
@@ -315,10 +366,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 16. NEW `Arc7 Files` Internal, MicroSD & ZIP Explorer (OWN TASK!) -->
+        <!-- 18. `Files` Internal, MicroSD & ZIP Explorer (OWN TASK!) -->
         <activity
             android:name=".Arc7FileManagerActivity"
-            android:label="Arc7 Files"
+            android:label="Files"
             android:icon="@drawable/ic_files"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.files"
@@ -330,10 +381,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 17. NEW `Chromebook USB Net` Two-Way Wired Internet Control Center (OWN TASK!) -->
+        <!-- 19. `USB Internet` Two-Way Chromebook / Laptop Wired Internet Control Center (OWN TASK!) -->
         <activity
             android:name=".Arc7WiredInternetActivity"
-            android:label="Chromebook USB Net"
+            android:label="USB Internet"
             android:icon="@drawable/ic_wired_net"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.usbnet"
@@ -345,10 +396,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 18. NEW Custom `Arc7 APK Installer` (Manifest Audit + Auto JAR v1 Signer + Fast Root Install!) -->
+        <!-- 20. `Package Installer` (Manifest Audit + Auto JAR v1 Signer + Fast Root Install — OWN TASK!) -->
         <activity
             android:name=".Arc7PackageInstallerActivity"
-            android:label="Arc7 APK Installer"
+            android:label="Package Installer"
             android:icon="@drawable/ic_apk_installer"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.apkinstaller"
@@ -367,10 +418,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 19. NEW `Arc7 PDF & Scanner` Native Offline PDF Reader + Camera Document Scanner (OWN TASK!) -->
+        <!-- 21. `PDF Reader` Native Offline PDF Reader + Camera Document Scanner (OWN TASK!) -->
         <activity
             android:name=".Arc7PdfViewerActivity"
-            android:label="Arc7 PDF &amp; Scanner"
+            android:label="PDF Reader"
             android:icon="@drawable/ic_pdf"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.pdf"
@@ -387,10 +438,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 20. NEW `Arc7 Weather` Live Open-Meteo Forecast (OWN TASK!) -->
+        <!-- 22. `Weather` Live Open-Meteo Forecast (OWN TASK!) -->
         <activity
             android:name=".Arc7WeatherActivity"
-            android:label="Arc7 Weather"
+            android:label="Weather"
             android:icon="@drawable/ic_weather"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.weather"
@@ -402,10 +453,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 21. NEW `Arc7 Radio & Feeds` 30k World Radio, Podcasts & Offline RSS (OWN TASK!) -->
+        <!-- 23. `Radio & Podcasts` 30k World Radio, Podcasts & Offline RSS (OWN TASK!) -->
         <activity
             android:name=".Arc7RadioRssActivity"
-            android:label="Arc7 Radio &amp; Feeds"
+            android:label="Radio &amp; Podcasts"
             android:icon="@drawable/ic_radio"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.radio"
@@ -417,10 +468,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 22. NEW `Arc7 Recorder` 44.1 kHz Studio Voice Recorder & Lossless WAV Trimmer (OWN TASK!) -->
+        <!-- 24. `Voice Recorder` 44.1 kHz Studio Voice Recorder & Lossless WAV Trimmer (OWN TASK!) -->
         <activity
             android:name=".Arc7RecorderActivity"
-            android:label="Arc7 Recorder"
+            android:label="Voice Recorder"
             android:icon="@drawable/ic_recorder"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.recorder"
@@ -432,10 +483,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 23. NEW `Arc7 Arcade` Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire (OWN TASK!) -->
+        <!-- 25. `Games` Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire (OWN TASK!) -->
         <activity
             android:name=".Arc7ArcadeActivity"
-            android:label="Arc7 Arcade"
+            android:label="Games"
             android:icon="@drawable/ic_arcade"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.arcade"
@@ -447,10 +498,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 24. NEW `Arc7 Shield` System-Wide Hosts AdBlocker & Root Firewall (OWN TASK!) -->
+        <!-- 26. `Ad Blocker` System-Wide Hosts AdBlocker & Root Firewall (OWN TASK!) -->
         <activity
             android:name=".Arc7ShieldActivity"
-            android:label="Arc7 Shield"
+            android:label="Ad Blocker"
             android:icon="@drawable/ic_shield"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.shield"
@@ -462,10 +513,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 25. NEW `Arc7 Boost` +384 MB zRAM/Swap, CPU Governor & Battery Doctor (OWN TASK!) -->
+        <!-- 27. `System Boost` +384 MB zRAM/Swap, CPU Governor & Battery Doctor (OWN TASK!) -->
         <activity
             android:name=".Arc7BoostActivity"
-            android:label="Arc7 Boost"
+            android:label="System Boost"
             android:icon="@drawable/ic_boost"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.boost"
@@ -477,10 +528,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 26. NEW `Arc7 Second Screen` Chromebook / PC Extended Monitor & Macro Deck (OWN TASK!) -->
+        <!-- 28. `Second Screen` Chromebook / PC Extended Monitor & Macro Deck (OWN TASK!) -->
         <activity
             android:name=".Arc7SecondScreenActivity"
-            android:label="Arc7 Second Screen"
+            android:label="Second Screen"
             android:icon="@drawable/ic_display"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.secondscreen"
@@ -492,10 +543,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 27. NEW `Arc7 Split View` Landscape Dual-Pane Multitasking (OWN TASK!) -->
+        <!-- 29. `Split View` Landscape Dual-Pane Multitasking (OWN TASK!) -->
         <activity
             android:name=".Arc7SplitViewActivity"
-            android:label="Arc7 Split View"
+            android:label="Split View"
             android:icon="@drawable/ic_splitview"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.splitview"
@@ -508,10 +559,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 28. NEW `Arc7 Dictionary & Wiki` Offline Lexicon + Clean Wikipedia Reader (OWN TASK!) -->
+        <!-- 30. `Wikipedia` Offline Lexicon + Clean Wikipedia Reader (OWN TASK!) -->
         <activity
             android:name=".Arc7DictionaryWikiActivity"
-            android:label="Arc7 Dict &amp; Wiki"
+            android:label="Wikipedia"
             android:icon="@drawable/ic_wiki"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.wiki"
@@ -529,10 +580,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 29. NEW `Arc7 Stream Deck` 1280x800 Full LCD Stream Deck Pro for PC / Mac / Linux (OWN TASK!) -->
+        <!-- 31. `Stream Deck` 1280x800 Full LCD Stream Deck Pro for PC / Mac / Linux (OWN TASK!) -->
         <activity
             android:name=".Arc7StreamDeckActivity"
-            android:label="Arc7 Stream Deck"
+            android:label="Stream Deck"
             android:icon="@drawable/ic_streamdeck"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.streamdeck"
@@ -545,10 +596,10 @@
             </intent-filter>
         </activity>
 
-        <!-- 30. NEW `Arc7 Wi-Fi & VPN` School Wi-Fi Rescue, Tailscale, WireGuard, OpenVPN & Stealth VPN (OWN TASK!) -->
+        <!-- 32. `Wi-Fi & VPN` Official Tailscale Google Sign-In + School Wi-Fi Shield + Stealth Tunnel (OWN TASK!) -->
         <activity
             android:name=".Arc7VpnActivity"
-            android:label="Arc7 Wi-Fi &amp; VPN"
+            android:label="Wi-Fi &amp; VPN"
             android:icon="@drawable/ic_vpn"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.vpn"
@@ -585,10 +636,10 @@
         <service android:name=".SoftKeysOverlayService" android:exported="false" />
         <service android:name=".Arc7AudioService" android:exported="true" />
 
-        <!-- Built-in Home Screen Widgets (Android 4.2+ AppWidgetProviders) -->
+        <!-- Built-in Home Screen Widgets (Android 4.2+ AppWidgetProviders — Clean Zero-`Arc7` Labels!) -->
         <receiver
             android:name=".Arc7ClockWidgetProvider"
-            android:label="Arc7 Digital Clock &amp; Alarm"
+            android:label="Digital Clock &amp; Alarm"
             android:icon="@drawable/ic_clock"
             android:exported="true">
             <intent-filter>
@@ -601,7 +652,7 @@
 
         <receiver
             android:name=".Arc7CalendarWidgetProvider"
-            android:label="Arc7 Calendar &amp; Upcoming Agenda"
+            android:label="Calendar &amp; Agenda"
             android:icon="@drawable/ic_calendar"
             android:exported="true">
             <intent-filter>
@@ -614,7 +665,7 @@
 
         <receiver
             android:name=".Arc7AudioWidgetProvider"
-            android:label="Arc7 Audio &amp; Audiobook Player"
+            android:label="Music &amp; Now Playing"
             android:icon="@drawable/ic_audio"
             android:exported="true">
             <intent-filter>
@@ -627,7 +678,7 @@
 
         <receiver
             android:name=".Arc7PowerWidgetProvider"
-            android:label="Arc7 Quick Dock &amp; TLS 1.3 Status"
+            android:label="Quick Dock &amp; Status"
             android:icon="@drawable/ic_launcher"
             android:exported="true">
             <intent-filter>
@@ -640,7 +691,7 @@
 
         <receiver
             android:name=".Arc7WeatherWidgetProvider"
-            android:label="Arc7 Live Open-Meteo Weather"
+            android:label="Live Weather"
             android:icon="@drawable/ic_weather"
             android:exported="true">
             <intent-filter>
@@ -651,7 +702,7 @@
                 android:resource="@xml/widget_arc7_weather_info" />
         </receiver>
 
-        <!-- Boot / Wi-Fi / Self-Upgrade / Smart Charging Dock Receiver -->
+        <!-- Boot / Wi-Fi / Self-Upgrade / Smart Charging Dock / Universal Media Broadcast Receiver -->
         <receiver android:name=".BootNetworkReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -659,6 +710,11 @@
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+                <action android:name="com.android.music.metachanged" />
+                <action android:name="com.android.music.playstatechanged" />
+                <action android:name="com.android.music.playbackcomplete" />
+                <action android:name="org.videolan.vlc.remote.PlayPause" />
+                <action android:name="org.videolan.vlc.player.PlayPause" />
             </intent-filter>
         </receiver>
 

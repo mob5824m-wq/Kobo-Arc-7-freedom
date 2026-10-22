@@ -47,10 +47,11 @@ public class Arc7ClockActivity extends Activity {
     private View[] tabPages = new View[4];
     private int currentTab = 0;
 
-    // Tab 0 — Live Clock & World Time
+    // Tab 0 — Live Clock, Standby Now-Playing Strip & World Time
     private TextView mainDigitalClockTv;
     private TextView mainDateTv;
     private TextView nextAlarmBannerTv;
+    private TextView clockNowPlayingBannerTv;
     private LinearLayout worldClockBox;
 
     // Tab 1 — Alarms
@@ -108,7 +109,7 @@ public class Arc7ClockActivity extends Activity {
         header.setPadding(dp(14), dp(10), dp(14), dp(10));
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Clock  •  Alarms, Timers & Stopwatch");
+        title.setText("Clock  \u2022  Alarms, Timers & Stopwatch");
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.DEFAULT_BOLD);
@@ -132,7 +133,7 @@ public class Arc7ClockActivity extends Activity {
         });
         header.addView(modeToggleBtn, mlp);
 
-        Button standBtn = makeButton("Nightstand Dock", 0xFF00838F);
+        Button standBtn = makeButton("Clock Standby", 0xFF00838F);
         standBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -257,6 +258,23 @@ public class Arc7ClockActivity extends Activity {
         nextAlarmBannerTv.setPadding(0, dp(10), 0, dp(6));
         hero.addView(nextAlarmBannerTv);
 
+        clockNowPlayingBannerTv = new TextView(this);
+        clockNowPlayingBannerTv.setTextColor(0xFF38BDF8);
+        clockNowPlayingBannerTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        clockNowPlayingBannerTv.setTypeface(Typeface.DEFAULT_BOLD);
+        clockNowPlayingBannerTv.setGravity(Gravity.CENTER);
+        clockNowPlayingBannerTv.setPadding(dp(8), dp(2), dp(8), dp(10));
+        clockNowPlayingBannerTv.setVisibility(View.GONE);
+        clockNowPlayingBannerTv.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                NowPlayingManager.Snapshot s = NowPlayingManager.getSnapshot(Arc7ClockActivity.this);
+                try { startActivity(NowPlayingManager.buildOpenPlayerIntent(Arc7ClockActivity.this, s)); }
+                catch (Throwable ignored) {}
+            }
+        });
+        hero.addView(clockNowPlayingBannerTv);
+
         LinearLayout quickRow = new LinearLayout(this);
         quickRow.setOrientation(LinearLayout.HORIZONTAL);
         quickRow.setGravity(Gravity.CENTER);
@@ -286,7 +304,7 @@ public class Arc7ClockActivity extends Activity {
         View sp2 = new View(this);
         quickRow.addView(sp2, new LinearLayout.LayoutParams(dp(10), dp(1)));
 
-        Button nightDockBtn = makeButton("Fullscreen Nightstand", 0xFF6A1B9A);
+        Button nightDockBtn = makeButton("Clock Standby", 0xFF6A1B9A);
         nightDockBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -958,6 +976,17 @@ public class Arc7ClockActivity extends Activity {
             TimeZone localTz = TimeZone.getDefault();
             mainDateTv.setText(new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US).format(now)
                     + "  •  " + localTz.getID());
+            if (clockNowPlayingBannerTv != null) {
+                NowPlayingManager.Snapshot s = NowPlayingManager.getSnapshot(null);
+                if (s.active && s.title.length() > 0) {
+                    clockNowPlayingBannerTv.setVisibility(View.VISIBLE);
+                    clockNowPlayingBannerTv.setText((s.playing ? "\u266B Playing: " : "\u23F8 Paused: ")
+                            + s.title + (s.artist.length() > 0 ? ("  \u2022  " + s.artist) : "")
+                            + "  (" + s.sourceApp + ")");
+                } else {
+                    clockNowPlayingBannerTv.setVisibility(View.GONE);
+                }
+            }
             if (worldClockBox != null && worldClockBox.getChildCount() != WORLD_ZONES.length) {
                 worldClockBox.removeAllViews();
                 for (int i = 0; i < WORLD_ZONES.length; i++) {

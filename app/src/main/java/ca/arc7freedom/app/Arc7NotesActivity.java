@@ -131,7 +131,7 @@ public class Arc7NotesActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_notes,
-                "Arc7 Notes & Sketchpad",
+                "Notes & Sketchpad",
                 "Auto-Saved Notes • Interactive Checklists • Color Sketchpad • Markdown Export",
                 actions));
 
