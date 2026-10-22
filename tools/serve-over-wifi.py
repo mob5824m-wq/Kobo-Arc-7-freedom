@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Zero-Cable, Zero-Driver, Zero-SSL Local Home Wi-Fi & Live Web Installer Server
-for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py`).
+for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.4.1`).
 
 Fixes all common home-network, OS firewall, WSL2/container, and 2013 Android 4.2
 Stock Browser (`DownloadManager`) failure modes:
@@ -11,16 +11,17 @@ Stock Browser (`DownloadManager`) failure modes:
      `Content-Disposition` attachment headers required by Android 4.2 DownloadManager.
   3. Instant `<1ms` fast-reject of TLS `ClientHello` (`0x16`/`0x80`) so modern Chrome/
      Edge/Safari browsers with HTTPS-First Mode immediately fall back to `http://`.
-  4. Dual MIME download buttons (`application/vnd.android.package-archive` AND
-     `/raw/` `application/octet-stream` fallback) + live ES3 transfer progress bar
-     compatible with 2013 WebKit 534.30 AND 1-click Windows (`.bat`) / Mac+Linux (`.sh`)
-     standalone home Wi-Fi server launchers!
+  4. Native inline `image/png` serving (`inline=True`, no `attachment` header, zero stale
+     `DOCS_DIR` references!) for `/logo-banner.png`, `/icons/*.png`, and all image files
+     in `releases/` — plus base64 data-URI `onerror` fallbacks so 100% of images render
+     crisply on `http://<lan-ip>:8000`, `https://` cloud previews, AND offline `file://`!
 
 Usage:
   python3 tools/serve-over-wifi.py              # Start server on 0.0.0.0:8000
   python3 tools/serve-over-wifi.py 8080         # Custom port
   python3 tools/serve-over-wifi.py --write-static  # Generate static releases/index.html
 """
+import base64
 import html
 import http.server
 import json
@@ -38,9 +39,23 @@ import urllib.parse
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELEASES_DIR = os.environ.get("ARC7_SERVE_DIR") or os.path.join(ROOT_DIR, "releases")
 TOOLS_DIR = os.path.join(ROOT_DIR, "tools")
+APP_ICON_DIR = os.path.join(ROOT_DIR, "app", "src", "main", "res", "drawable-xhdpi")
 DEFAULT_PORT = 8000
+UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.4.1.apk"
 GITHUB_REPO = "mob5824m-wq/Kobo-Arc-7-freedom"
 GITHUB_LATEST_BASE = f"https://github.com/{GITHUB_REPO}/releases/latest/download"
+GITHUB_RAW_ROOT = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
+
+IMAGE_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".bmp": "image/bmp",
+}
 
 _STATE_LOCK = threading.Lock()
 _TRANSFERS = {
@@ -52,6 +67,49 @@ _TRANSFERS = {
     "last_client_ip": "",
     "updated_at": 0.0,
 }
+
+
+def image_mime_for_name(fname: str) -> str:
+    ext = os.path.splitext(fname.lower())[1]
+    return IMAGE_MIMES.get(ext, "")
+
+
+def resolve_banner_path() -> str:
+    for cand in (
+        os.path.join(RELEASES_DIR, "logo-banner.png"),
+        os.path.join(ROOT_DIR, "releases", "logo-banner.png"),
+        os.path.join(APP_ICON_DIR, "arc7_logo_header.png"),
+    ):
+        if os.path.isfile(cand):
+            return cand
+    return ""
+
+
+def resolve_icon_path(icon_name: str) -> str:
+    clean = os.path.basename(icon_name)
+    for cand in (
+        os.path.join(APP_ICON_DIR, clean),
+        os.path.join(ROOT_DIR, "launcher-android4", "res", "drawable-xhdpi", clean),
+        os.path.join(RELEASES_DIR, clean),
+    ):
+        if os.path.isfile(cand):
+            return cand
+    return ""
+
+
+def _data_uri_or_empty(path: str, max_bytes: int = 98304) -> str:
+    if not path or not os.path.isfile(path):
+        return ""
+    try:
+        sz = os.path.getsize(path)
+        if sz <= 0 or sz > max_bytes:
+            return ""
+        mime = image_mime_for_name(path) or "image/png"
+        with open(path, "rb") as fp:
+            b64 = base64.b64encode(fp.read()).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except OSError:
+        return ""
 
 
 def detect_environment_and_lan_ips():
@@ -163,16 +221,25 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
                 files_meta.append((fname, os.path.getsize(fpath)))
 
     def _href(fname: str) -> str:
-        q = urllib.parse.quote(fname)
-        if static_mode:
-            # Direct zero-302-redirect Fastly CDN raw binary stream from `main` branch!
-            return f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/releases/{q}"
-        return f"./{q}"
+        return f"./{urllib.parse.quote(fname)}"
 
     def _mirror_href(fname: str) -> str:
         return f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(fname)}"
 
-    # Build primary download cards (`Upgrade-My-Kobo-To-v2.0.0.apk` FIRST so existing users never hit a key mismatch!)
+    def _icon_img(icon_file: str, alt: str, px: int = 38) -> str:
+        disk_path = resolve_icon_path(icon_file)
+        fallback_uri = _data_uri_or_empty(disk_path, max_bytes=32768)
+        src = f"./icons/{urllib.parse.quote(icon_file)}"
+        err_attr = (
+            f" onerror=\"this.onerror=null;this.src='{fallback_uri}';\""
+            if fallback_uri
+            else ""
+        )
+        return (
+            f"<img src='{src}' alt='{html.escape(alt)}' width='{px}' height='{px}'"
+            f" style='width:{px}px;height:{px}px;vertical-align:middle;margin-right:10px;border-radius:9px;'{err_attr}>"
+        )
+
     upgrader_html = ""
     main_html = ""
     aurora_html = ""
@@ -183,26 +250,28 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
         mirror = _mirror_href(fname)
-        if fname == "Upgrade-My-Kobo-To-v2.4.0.apk":
+        if fname == UPGRADER_APK_NAME:
+            ico = _icon_img("ic_apk_installer.png", "System Upgrader")
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.4.0 — Fixed F-Droid v1303 SHA-256 Verifier + School Wi-Fi Rescue + System-Wide VPN &amp; Tailscale + Stream Deck + Launcher v54 + VLC):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.4.0.apk\")'>"
-                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v2.4.0.apk ({size_txt})</a>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.4.1 — YouTube + YouTube Music Morphe + Widget Removal Fix + Standby Audio + Official Tailscale Google Auth + Fixed F-Droid v1303):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"{UPGRADER_APK_NAME}\")'>"
+                f"{ico}<span>&#11015; 1-Tap OTA Root &amp; Upgrade — {UPGRADER_APK_NAME} ({size_txt})</span></a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.4.0.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"{UPGRADER_APK_NAME}\")'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
-                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — Upgrade-My-Kobo-To-v2.4.0.apk</a>"
+                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — {UPGRADER_APK_NAME}</a>"
                 )
                 + "</div>"
             )
         elif fname == "KoboArc7Freedom.apk":
+            ico = _icon_img("ic_launcher.png", "Arc7 Freedom")
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.4.0 ({size_txt}) — Fixed F-Droid v1303 + School Wi-Fi &amp; Tailscale VPN + Stream Deck + Launcher v54 + VLC</a>"
+                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.4.1 ({size_txt}) — YouTube &amp; YouTube Music + Official Tailscale Google Auth + Launcher v55 + VLC</span></a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
@@ -212,24 +281,28 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
                 + "</div>"
             )
         elif fname == "VLC.apk":
+            ico = _icon_img("ic_vlc.png", "VLC", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"VLC.apk\")'>"
-                f"&#11015; Download Standalone VLC Media Player (Android 4.2 ARMv7) — VLC.apk ({size_txt})</a>"
+                f"{ico}<span>&#11015; Download Standalone VLC Media Player (Android 4.2 ARMv7) — VLC.apk ({size_txt})</span></a>"
             )
         elif fname == "AuroraStore.apk":
+            ico = _icon_img("ic_aurora.png", "Aurora Store", 32)
             aurora_html = (
                 f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"AuroraStore.apk\")'>"
-                f"&#11015; Download Standalone Aurora Store v4.8.5 (Verified Android 4.2 APKs + Auto JAR v1 Signer) — AuroraStore.apk ({size_txt})</a>"
+                f"{ico}<span>&#11015; Download Standalone Aurora Store v4.8.5 (Verified Android 4.2 APKs + Auto JAR v1 Signer) — AuroraStore.apk ({size_txt})</span></a>"
             )
         elif fname == "FDroidClassicLegacy.apk":
+            ico = _icon_img("ic_fdroid.png", "F-Droid", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"FDroidClassicLegacy.apk\")'>"
-                f"&#11015; Download Patched F-Droid Classic v1303 (Android 4.2 SHA-256 Index &amp; APK Fix + Verified Certs + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</a>"
+                f"{ico}<span>&#11015; Download Patched F-Droid Classic v1303 (Android 4.2 SHA-256 Index &amp; APK Fix + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</span></a>"
             )
         elif fname == "VanillaAndroid4Home.apk":
+            ico = _icon_img("ic_wallpaper.png", "Home", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"VanillaAndroid4Home.apk\")'>"
-                f"&#11015; Download Clean Android 4.2 Home Launcher v49 (Long-Press Widgets) — VanillaAndroid4Home.apk ({size_txt})</a>"
+                f"{ico}<span>&#11015; Download Home Launcher v55 (Long-Press + 1-Tap Widget Removal) — VanillaAndroid4Home.apk ({size_txt})</span></a>"
             )
         elif fname.lower().endswith((".bat", ".sh")):
             continue
@@ -248,9 +321,16 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
     sh_href = "./Start-Kobo-WiFi-Server.sh"
     adb_bat_href = "./Backup-Kobo-To-Laptop-ADB.bat"
     adb_sh_href = "./Backup-Kobo-To-Laptop-ADB.sh"
-    logo_src = "./logo-banner.png" if os.path.isfile(os.path.join(RELEASES_DIR, "logo-banner.png")) else ""
 
-    # Context banner tailored accurately to where this page is being viewed
+    banner_disk = resolve_banner_path()
+    banner_b64 = _data_uri_or_empty(banner_disk, max_bytes=98304)
+    logo_src = "./logo-banner.png" if banner_disk else ""
+    banner_err_attr = (
+        f" onerror=\"this.onerror=null;this.src='{banner_b64}';\""
+        if banner_b64
+        else ""
+    )
+
     if env_kind == "lan" and lan_ips:
         urls_html = "".join(
             f"<div class='url-pill'>http://{html.escape(ip)}:{port}</div>" for ip in lan_ips
@@ -258,7 +338,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         top_banner = (
             "<div class='banner ok'>"
             "<b>&#9989; Home Wi-Fi Sideload Server ACTIVE on Your Network!</b><br>"
-            "Open Kobo's built-in 2013 Browser on your Kobo Arc 7 and type this exact address "
+            "Open Kobo's Browser on your Kobo Arc 7 and type this exact address "
             "(include <code>http://</code>, NOT <code>https://</code>):"
             f"{urls_html}"
             "</div>"
@@ -273,7 +353,6 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "</div>"
         )
     else:
-        # Cloud live preview OR GitHub Pages static portal!
         top_banner = (
             "<div class='banner info'>"
             "<b>&#128640; Choose Your Fastest Zero-Hassle Way to Install onto Kobo Arc 7:</b><br>"
@@ -292,7 +371,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "<div class='bar-bg'><div id='xferBar' class='bar-fill' style='width:4%;'></div></div>"
             "<div id='xferHint' class='xfer-hint'>"
             "Once 100% complete: swipe down from the <b>top-left corner</b> of your Kobo screen and tap "
-            "<b>KoboArc7Freedom.apk</b> &rarr; <b>Install</b>!"
+            f"<b>{UPGRADER_APK_NAME}</b> &rarr; <b>Install</b>!"
             "</div></div>"
         )
     )
@@ -357,10 +436,25 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
 
     logo_html = (
         f"<div style='text-align:center;margin-bottom:14px;'>"
-        f"<img src='{logo_src}' alt='Kobo Arc 7 Freedom' style='max-width:100%;max-height:118px;border-radius:10px;'>"
+        f"<img src='{logo_src}' alt='Kobo Arc 7 Freedom'"
+        f" style='max-width:100%;max-height:118px;border-radius:10px;display:inline-block;'{banner_err_attr}>"
         f"</div>"
         if logo_src
         else ""
+    )
+
+    featured_apps_strip = (
+        "<div style='display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 14px 0;"
+        "padding:10px 12px;background:#0d1622;border:1px solid #1e293b;border-radius:10px;'>"
+        + _icon_img("ic_youtube.png", "YouTube", 30)
+        + "<span style='font-size:13px;color:#e2e8f0;margin-right:10px;'><b>YouTube</b> (Morphe)</span>"
+        + _icon_img("ic_ytmusic.png", "YouTube Music", 30)
+        + "<span style='font-size:13px;color:#e2e8f0;margin-right:10px;'><b>YouTube Music</b> (Morphe)</span>"
+        + _icon_img("ic_vpn.png", "Wi-Fi & VPN", 30)
+        + "<span style='font-size:13px;color:#e2e8f0;margin-right:10px;'><b>Official Tailscale Google Auth</b></span>"
+        + _icon_img("ic_clock.png", "Clock", 30)
+        + "<span style='font-size:13px;color:#e2e8f0;'><b>Clock Standby Now Playing</b></span>"
+        "</div>"
     )
 
     return (
@@ -401,16 +495,18 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v2.4.0 — Over-The-Air Rooting Portal, Fixed F-Droid v1303, Aurora Store v4.8.5, School Wi-Fi &amp; Tailscale VPN, Stream Deck &amp; VLC</h1>"
-        "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; Automatic Local Timezone + Atomic Clock &bull; "
-        "Bundled Aurora Store + F-Droid &bull; Built-In Python 3 &amp; apt &bull; Long-Press Home Widgets &bull; 12h + Apple/Android Chimes &amp; Per-Alarm Volume</p>"
+        "<h1>Kobo Arc 7 Freedom v2.4.1 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
+        "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; YouTube &amp; YouTube Music (Morphe Edition) &bull; "
+        "Official Tailscale Google Sign-In &bull; Universal Standby Audio &bull; Fixed F-Droid v1303 &bull; VLC &amp; Aurora Store v4.8.5</p>"
+        + featured_apps_strip
         + live_progress_widget
         + "".join(apk_buttons)
         + ("".join(other_buttons) if other_buttons else "")
         + "</div>"
         + top_banner
+        + upload_section
         + "<div class='card'>"
-        "<h2>&#128187; NEW in v1.8.0 — 1-Click Direct Laptop Backup &amp; Restore Over USB ADB (0 MB Tablet Space!)</h2>"
+        "<h2>&#128187; 1-Click Direct Laptop Backup &amp; Restore Over USB ADB (0 MB Tablet Space!)</h2>"
         "<p>Stream bit-for-bit flash partitions (<code>boot</code>, <code>recovery</code>, <code>nvram</code> Wi-Fi MAC calibration, "
         "<code>uboot</code>, <code>system</code> OS) + your Books, Music &amp; Photos straight over USB onto your laptop — with cryptographic SHA-256 verification:</p>"
         f"<a class='btn win' href='{adb_bat_href}'>&#128187; Download 1-Click Windows USB ADB Backup Tool (Backup-Kobo-To-Laptop-ADB.bat — Auto-Installs ADB!)</a>"
@@ -419,39 +515,37 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</div>"
         + "<div class='card'>"
         "<h2>&#128246; Method A — 1-Click Home Wi-Fi Installer (No USB Cable, No MicroSD, No Python Needed!)</h2>"
-        "<p>Download &amp; run the 1-click launcher on any computer connected to the <b>same home Wi-Fi</b> as your Kobo Arc 7. "
+        "<p>Download &amp; run the 1-click launcher on any computer connected to the <b>same Wi-Fi</b> as your Kobo Arc 7. "
         "It automatically opens your firewall, displays your exact <code>http://192.168.x.x:8000</code> address, "
-        "and serves <b>KoboArc7Freedom.apk</b> over plain zero-SSL HTTP straight to Kobo's stock 2013 Browser:</p>"
+        "and serves all images, icons &amp; APKs cleanly over zero-SSL HTTP straight to Kobo's Browser:</p>"
         f"<a class='btn win' href='{bat_href}'>&#129695; Download 1-Click Windows Home Wi-Fi Server (Start-Kobo-WiFi-Server.bat — Zero Python Needed!)</a>"
         f"<a class='btn mac' href='{sh_href}'>&#128039; Download 1-Click macOS / Linux Home Wi-Fi Server (Start-Kobo-WiFi-Server.sh)</a>"
         "<ol>"
         "<li>On your Kobo Arc 7, enable <b>Settings &rarr; Security &rarr; Unknown sources</b>.</li>"
         "<li>Double-click <b>Start-Kobo-WiFi-Server.bat</b> on Windows (or run <code>bash Start-Kobo-WiFi-Server.sh</code> on Mac/Linux).</li>"
-        "<li>Open Kobo's Browser and enter the shown <code>http://192.168.x.x:8000</code> address (be sure to start with <code>http://</code>!).</li>"
-        "<li>Tap <b>Download KoboArc7Freedom.apk</b>, then swipe down the <b>top-left notification shade</b> and tap the downloaded file to install!</li>"
+        "<li>Open Browser on your Kobo and enter the shown <code>http://192.168.x.x:8000</code> address (start with <code>http://</code>!).</li>"
+        f"<li>Tap <b>{UPGRADER_APK_NAME}</b> (or <b>KoboArc7Freedom.apk</b>), then swipe down the <b>top-left notification shade</b> and tap to install!</li>"
         "</ol>"
         "</div>"
         "<div class='card'>"
         "<h2>&#128190; Method B — MicroSD Card Trick (Works Completely Offline!)</h2>"
         "<ol>"
         "<li>Click <b>Download KoboArc7Freedom.apk</b> at the top of this page and copy it to the root of any FAT32 microSD card.</li>"
-        "<li>Insert the microSD card into your Kobo Arc 7, open Kobo's Browser, and type:<br>"
+        "<li>Insert the microSD card into your Kobo Arc 7, open Browser, and type:<br>"
         "<code>file:///storage/sdcard1/KoboArc7Freedom.apk</code></li>"
         "<li>Tap <b>Install</b> — you're in!</li>"
         "</ol>"
         "</div>"
         "<div class='card'>"
-        "<h2>&#128193; Using On-Tablet Wi-Fi File Drive (<code>http://&lt;tablet-ip&gt;:8080</code>)</h2>"
-        "<p>Once <b>KoboArc7Freedom.apk</b> is installed on your tablet, open <b>Tab 5 (TOOLS) &rarr; Wi-Fi Drive</b>:</p>"
+        "<h2>&#128193; Using On-Tablet Wireless Drive (<code>http://&lt;tablet-ip&gt;:8080</code>)</h2>"
+        "<p>Once <b>KoboArc7Freedom.apk</b> is installed on your tablet, open <b>Tab 5 (TOOLS) &rarr; Wireless Drive</b>:</p>"
         "<ul>"
-        "<li>Tapping <b>Wi-Fi Drive</b> now starts the foreground server <b>immediately</b> and gives you a direct "
+        "<li>Tapping <b>Wireless Drive</b> starts the foreground server <b>immediately</b> and gives you a direct "
         "1-step URL (<code>http://192.168.x.x:8080/?pin=XXXX</code>) plus a <b>Disable PIN</b> toggle!</li>"
         "<li>Always include <code>http://</code> in Chrome/Safari/Edge so HTTPS-First mode connects instantaneously.</li>"
-        "</ul>"
-        "</div>"
-        + upload_section
+        "</ul></div></div>"
         + js_script
-        + "</div></body></html>"
+        + "</body></html>"
     )
 
 
@@ -461,21 +555,17 @@ class Arc7HTTPServer(http.server.ThreadingHTTPServer):
 
     def verify_request(self, request, client_address):
         """
-        Peek first byte of incoming TCP stream: if a modern browser's HTTPS-First
-        feature sends a TLS `ClientHello` (`0x16`) or SSLv2 hello (`0x80`) to our
-        plain HTTP port, immediately close in <1ms without error noise so the
-        browser falls back to `http://` instantaneously!
+        Instantly reject accidental TLS `ClientHello` (`0x16` / SSLv2 `0x80`) in `<1ms`
+        so Chrome / Safari / Edge HTTPS-First Mode immediately falls back to `http://`!
         """
         try:
             request.settimeout(3.0)
             peek = request.recv(1, socket.MSG_PEEK)
             if not peek or peek[0] in (0x16, 0x80):
                 return False
-            request.settimeout(30.0)
-        except socket.timeout:
-            return False
-        except OSError:
-            return False
+            request.settimeout(60.0)
+        except Exception:
+            pass
         return True
 
 
@@ -484,18 +574,18 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
     server_port_num = DEFAULT_PORT
 
     def log_message(self, fmt, *args):
-        sys.stdout.write(f"[Wi-Fi Server] {self.address_string()} - {fmt % args}\n")
+        sys.stdout.write("[Wi-Fi HTTP] " + (fmt % args) + "\n")
         sys.stdout.flush()
 
-    def _send_common_headers(self, content_type: str, content_length: int, extra=None) -> None:
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(content_length))
+    def _send_common_headers(self, mime: str, length: int, extra: dict = None) -> None:
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(length))
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Cache-Control", "no-store, no-transform")
-        self.send_header("Connection", "close")
+        self.send_header("Cache-Control", "public, max-age=120" if mime.startswith("image/") else "no-cache")
         if extra:
             for k, v in extra.items():
                 self.send_header(k, v)
+        self.send_header("Connection", "close")
         self.end_headers()
 
     def do_OPTIONS(self):
@@ -560,6 +650,10 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
             req_path = parsed.path
 
             if req_path == "/favicon.ico":
+                fav = resolve_icon_path("ic_launcher.png")
+                if fav:
+                    self._stream_file(fav, "image/png", head_only, inline=True)
+                    return
                 self.send_response(204)
                 self._send_common_headers("image/x-icon", 0)
                 return
@@ -586,10 +680,16 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(body)
                 return
 
-            if req_path == "/logo-banner.png":
-                banner_file = os.path.join(DOCS_DIR, "logo-banner.png")
-                if os.path.isfile(banner_file):
+            if req_path in ("/logo-banner.png", "/releases/logo-banner.png"):
+                banner_file = resolve_banner_path()
+                if banner_file:
                     self._stream_file(banner_file, "image/png", head_only, inline=True)
+                    return
+
+            if req_path.startswith("/icons/"):
+                icon_file = resolve_icon_path(urllib.parse.unquote(req_path[len("/icons/"):]))
+                if icon_file:
+                    self._stream_file(icon_file, image_mime_for_name(icon_file) or "image/png", head_only, inline=True)
                     return
 
             if req_path == "/Start-Kobo-WiFi-Server.bat":
@@ -612,16 +712,31 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
 
             decoded = os.path.basename(urllib.parse.unquote(rel.lstrip("/")))
             target = os.path.join(RELEASES_DIR, decoded)
+            if not os.path.isfile(target) and image_mime_for_name(decoded):
+                icon_fallback = resolve_icon_path(decoded)
+                if icon_fallback:
+                    target = icon_fallback
             if decoded and os.path.isfile(target):
+                img_mime = image_mime_for_name(decoded)
                 if force_raw:
                     mime = "application/octet-stream"
+                    inline_flag = False
+                elif img_mime:
+                    mime = img_mime
+                    inline_flag = True
                 elif decoded.lower().endswith(".apk"):
                     mime = "application/vnd.android.package-archive"
+                    inline_flag = False
                 elif decoded.lower().endswith(".txt"):
                     mime = "text/plain; charset=utf-8"
+                    inline_flag = True
+                elif decoded.lower().endswith(".html"):
+                    mime = "text/html; charset=utf-8"
+                    inline_flag = True
                 else:
                     mime = "application/octet-stream"
-                self._stream_file(target, mime, head_only, download_name=decoded, inline=decoded.lower().endswith(".txt"))
+                    inline_flag = False
+                self._stream_file(target, mime, head_only, download_name=decoded, inline=inline_flag)
                 return
 
             msg = b"File not found. Return to / for the Kobo Arc 7 Installer Portal."
@@ -630,7 +745,6 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
             if not head_only:
                 self.wfile.write(msg)
         except (BrokenPipeError, ConnectionResetError):
-            # Normal when Android 4.2 WebKit probes headers then hands download off to DownloadManager
             pass
 
     def _stream_file(self, file_path: str, mime: str, head_only: bool,
@@ -699,14 +813,20 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
 
 def write_static_pages() -> None:
     os.makedirs(RELEASES_DIR, exist_ok=True)
+    icons_dir = os.path.join(RELEASES_DIR, "icons")
+    os.makedirs(icons_dir, exist_ok=True)
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.bat"))
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"))
     os.chmod(os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
 
     rel_html = render_portal_html(static_mode=True)
+    for icon_file in sorted(set(re.findall(r"\./icons/([A-Za-z0-9_.-]+)", rel_html))):
+        src_p = resolve_icon_path(icon_file)
+        if src_p and os.path.isfile(src_p):
+            shutil.copyfile(src_p, os.path.join(icons_dir, icon_file))
     with open(os.path.join(RELEASES_DIR, "index.html"), "w", encoding="utf-8") as f:
         f.write(rel_html)
-    print("Generated static local Wi-Fi portal: releases/index.html")
+    print(f"Generated static local Wi-Fi portal: releases/index.html (+ {len(os.listdir(icons_dir))} squircle PNGs in releases/icons/)")
 
 
 def main() -> None:
@@ -736,9 +856,9 @@ def main() -> None:
 
     lan_ips, env_kind = detect_environment_and_lan_ips()
     print("=" * 70)
-    print("  Kobo Arc 7 Freedom — Zero-SSL Wi-Fi & Web Installer Server READY!")
+    print("  Kobo Arc 7 Freedom v2.4.1 — Zero-SSL Local Web Installer READY!")
     if env_kind == "lan" and lan_ips:
-        print("  Open Kobo's Browser on your tablet and type (plain http://):")
+        print("  Open Browser on your Kobo Arc 7 and type (plain http://):")
         for ip in lan_ips:
             print(f"\n      http://{ip}:{bound_port}")
         print("")

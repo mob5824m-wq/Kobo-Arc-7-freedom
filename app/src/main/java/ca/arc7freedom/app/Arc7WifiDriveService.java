@@ -205,7 +205,7 @@ public class Arc7WifiDriveService extends Service {
 
             Notification n = new Notification.Builder(this)
                     .setSmallIcon(R.drawable.ic_launcher)
-                    .setContentTitle("Arc7 Wi-Fi Drive Live on :" + activePort)
+                    .setContentTitle("Wireless Drive Live on :" + activePort)
                     .setContentText(subtitle)
                     .setContentIntent(pi)
                     .setOngoing(true)
@@ -319,7 +319,26 @@ public class Arc7WifiDriveService extends Service {
                 query = fullUri.substring(qIdx + 1);
             }
 
-            if ("/favicon.ico".equals(path)) {
+            if ("/favicon.ico".equals(path) || "/logo.png".equals(path)) {
+                InputStream resIn = null;
+                try {
+                    resIn = getResources().openRawResource(
+                            "/logo.png".equals(path) ? R.drawable.arc7_logo_header : R.drawable.ic_launcher);
+                    ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                    byte[] b = new byte[4096];
+                    int r;
+                    while ((r = resIn.read(b)) > 0) bos.write(b, 0, r);
+                    byte[] png = bos.toByteArray();
+                    String hdr = "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nCache-Control: public, max-age=300\r\n"
+                            + "Content-Length: " + png.length + "\r\nConnection: close\r\n\r\n";
+                    out.write(hdr.getBytes("UTF-8"));
+                    if (!isHead) out.write(png);
+                    out.flush();
+                    return;
+                } catch (Throwable ignored) {
+                } finally {
+                    if (resIn != null) try { resIn.close(); } catch (Throwable ignored) {}
+                }
                 out.write("HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".getBytes("UTF-8"));
                 out.flush();
                 return;
@@ -389,13 +408,23 @@ public class Arc7WifiDriveService extends Service {
                     sendHtml(out, 404, setCookie, "<h3>File not found.</h3>", "text/html; charset=utf-8", isHead);
                     return;
                 }
-                String mime = f.getName().toLowerCase(Locale.US).endsWith(".apk")
-                        ? "application/vnd.android.package-archive"
-                        : "application/octet-stream";
+                String lowName = f.getName().toLowerCase(Locale.US);
+                boolean inlineImg = "1".equals(queryParam(query, "inline"));
+                String mime;
+                if (lowName.endsWith(".png")) mime = "image/png";
+                else if (lowName.endsWith(".jpg") || lowName.endsWith(".jpeg")) mime = "image/jpeg";
+                else if (lowName.endsWith(".gif")) mime = "image/gif";
+                else if (lowName.endsWith(".webp")) mime = "image/webp";
+                else if (lowName.endsWith(".svg")) mime = "image/svg+xml";
+                else if (lowName.endsWith(".apk")) mime = "application/vnd.android.package-archive";
+                else mime = "application/octet-stream";
+                String disp = (inlineImg && mime.startsWith("image/"))
+                        ? ""
+                        : ("Content-Disposition: attachment; filename=\"" + f.getName().replace("\"", "_") + "\"\r\n");
                 String hdr = "HTTP/1.1 200 OK\r\n" + setCookie +
                         "Content-Type: " + mime + "\r\n" +
                         "Content-Length: " + f.length() + "\r\n" +
-                        "Content-Disposition: attachment; filename=\"" + f.getName().replace("\"", "_") + "\"\r\n" +
+                        disp +
                         "Connection: close\r\n\r\n";
                 out.write(hdr.getBytes("UTF-8"));
                 if (!isHead) {
@@ -603,7 +632,9 @@ public class Arc7WifiDriveService extends Service {
           .append("table{width:100%;border-collapse:collapse;margin-top:10px;}td,th{padding:9px 8px;border-bottom:1px solid #334155;text-align:left;font-size:14px;}")
           .append("</style></head><body>");
 
-        sb.append("<div class='card'><h2 style='margin:0 0 6px 0;color:#38bdf8;'>Kobo Arc 7 Wireless Drive, Backup Vault &amp; Remote APK Installer</h2>");
+        sb.append("<div class='card'><div style='display:flex;align-items:center;gap:12px;margin-bottom:6px;'>")
+          .append("<img src='/logo.png' alt='Logo' width='40' height='40' style='width:40px;height:40px;border-radius:9px;'>")
+          .append("<h2 style='margin:0;color:#38bdf8;'>Wireless Drive, Backup Vault &amp; Remote APK Installer</h2></div>");
         if (msg != null && !msg.isEmpty()) {
             sb.append("<div style='background:#064e3b;border:1px solid #10b981;padding:10px;border-radius:6px;margin:8px 0;'>")
               .append(esc(msg)).append("</div>");

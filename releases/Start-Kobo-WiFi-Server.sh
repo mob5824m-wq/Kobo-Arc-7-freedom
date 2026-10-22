@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v1.9.1 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
+# Kobo Arc 7 Freedom v2.4.1 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
 #
-# Concurrent HTTP/1.1 + `Range: bytes=...` (`206 Partial Content`) + instant
-# TLS ClientHello reject so Kobo's stock 2013 Browser & Android DownloadManager
-# stream every `.apk` cleanly with zero stalls or redirects!
+# Concurrent HTTP/1.1 + inline PNG/JPEG/SVG image serving + `Range: bytes=...`
+# (`206 Partial Content`) + instant TLS ClientHello reject so Kobo's Browser &
+# Android DownloadManager display all images and stream every `.apk` cleanly!
 # ==============================================================================
 set -euo pipefail
 
@@ -19,14 +19,15 @@ mkdir -p "${SERVE_DIR}"
 
 RAW_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for APK in Upgrade-My-Kobo-To-v2.4.0.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
-    if [ -f "${SCRIPT_DIR}/${APK}" ] && [ ! -s "${SERVE_DIR}/${APK}" ]; then
-        cp -f "${SCRIPT_DIR}/${APK}" "${SERVE_DIR}/${APK}"
+for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.4.1.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+    if [ -f "${SCRIPT_DIR}/${ASSET}" ] && [ ! -s "${SERVE_DIR}/${ASSET}" ]; then
+        cp -f "${SCRIPT_DIR}/${ASSET}" "${SERVE_DIR}/${ASSET}"
     fi
-    if [ ! -s "${SERVE_DIR}/${APK}" ]; then
-        echo "==> Downloading ${APK}..."
-        curl -fL --progress-bar "${RAW_BASE}/${APK}" -o "${SERVE_DIR}/${APK}" \
-            || curl -fL --progress-bar "${RELEASE_BASE}/${APK}" -o "${SERVE_DIR}/${APK}"
+    if [ ! -s "${SERVE_DIR}/${ASSET}" ]; then
+        echo "==> Downloading ${ASSET}..."
+        curl -fL --progress-bar "${RAW_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
+            || curl -fL --progress-bar "${RELEASE_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
+            || true
     fi
 done
 
@@ -35,10 +36,40 @@ if [ -f "${SCRIPT_DIR}/serve-over-wifi.py" ]; then
 fi
 
 python3 - "${SERVE_DIR}" "${1:-8000}" << 'PYEOF'
-import html, http.server, os, re, socket, subprocess, sys, urllib.parse
+import base64, html, http.server, os, re, socket, subprocess, sys, urllib.parse, zlib, struct
 
 SERVE_DIR = sys.argv[1]
 PORT = int(sys.argv[2])
+
+IMG_MIMES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+}
+
+def make_fallback_banner_png() -> bytes:
+    w, h = 640, 128
+    rows = []
+    for y in range(h):
+        row = bytearray([0])
+        for x in range(w):
+            row.extend((11 + (x * 24) // w, 28 + (y * 36) // h, 58 + (x * 90) // w, 255))
+        rows.append(bytes(row))
+    raw = b"".join(rows)
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(raw, 6))
+        + chunk(b"IEND", b"")
+    )
+
+FALLBACK_BANNER = make_fallback_banner_png()
 
 def get_ips():
     out = []
@@ -64,7 +95,7 @@ class H(http.server.BaseHTTPRequestHandler):
         items = []
         for f in sorted(os.listdir(SERVE_DIR)):
             fp = os.path.join(SERVE_DIR, f)
-            if not os.path.isfile(fp):
+            if not os.path.isfile(fp) or os.path.splitext(f.lower())[1] in IMG_MIMES:
                 continue
             mb = os.path.getsize(fp) / 1048576.0
             cls = "btn primary" if f.startswith(("Upgrade-My-Kobo", "KoboArc7Freedom")) else "btn"
@@ -73,16 +104,19 @@ class H(http.server.BaseHTTPRequestHandler):
                 items.append(f"<a class='sub' href='./raw/{urllib.parse.quote(f)}'>Alternate Direct Stream ({html.escape(f)})</a>")
         return (
             "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>Kobo Arc 7 v1.9.1 OTA Portal</title>"
+            "<title>Kobo Arc 7 Freedom v2.4.1 — Local Wi-Fi Installer</title>"
             "<style>body{font-family:sans-serif;background:#0e1319;color:#f8fafc;padding:20px;}"
-            ".card{background:#161e28;border:1px solid #2b394b;border-radius:10px;padding:20px;max-width:640px;margin:auto;}"
+            ".card{background:#161e28;border:1px solid #2b394b;border-radius:10px;padding:20px;max-width:660px;margin:auto;}"
             "h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;"
             "text-decoration:none;padding:14px 18px;border-radius:8px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}"
             ".primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}"
-            ".sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body><div class='card'>"
-            "<h1>Kobo Arc 7 Freedom v1.9.1 — Wi-Fi OTA Rooting &amp; Installer</h1>"
+            ".sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body>"
+            "<div style='text-align:center;max-width:660px;margin:0 auto 14px auto;'>"
+            "<img src='./logo-banner.png' alt='Kobo Arc 7 Freedom' style='max-width:100%;max-height:112px;border-radius:10px;'>"
+            "</div><div class='card'>"
+            "<h1>Kobo Arc 7 Freedom v2.4.1 — Wi-Fi OTA Rooting &amp; Installer</h1>"
             "<p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b> on your tablet.<br>"
-            "2. Tap <b>KoboArc7Freedom.apk</b> (new root) or <b>Upgrade-My-Kobo-To-v1.9.1.apk</b>.<br>"
+            "2. Tap <b>Upgrade-My-Kobo-To-v2.4.1.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
             "3. Swipe down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>"
             + "".join(items) + "</div></body></html>"
         ).encode("utf-8")
@@ -94,6 +128,15 @@ class H(http.server.BaseHTTPRequestHandler):
             force_octet = True
             raw_path = raw_path[4:]
         fname = os.path.basename(raw_path)
+        if fname == "favicon.ico":
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(FALLBACK_BANNER)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if send_body:
+                self.wfile.write(FALLBACK_BANNER)
+            return
         if fname in ("", "index.html"):
             b = self._index_bytes()
             self.send_response(200)
@@ -106,6 +149,15 @@ class H(http.server.BaseHTTPRequestHandler):
             return
         fp = os.path.join(SERVE_DIR, fname)
         if not os.path.isfile(fp):
+            if fname == "logo-banner.png":
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Content-Length", str(len(FALLBACK_BANNER)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                if send_body:
+                    self.wfile.write(FALLBACK_BANNER)
+                return
             self.send_error(404)
             return
         total = os.path.getsize(fp)
@@ -121,16 +173,25 @@ class H(http.server.BaseHTTPRequestHandler):
             if 0 <= start <= end < total:
                 code = 206
         length = (end - start + 1) if total > 0 else 0
-        mime = "application/octet-stream" if force_octet else (
-            "application/vnd.android.package-archive" if fname.lower().endswith(".apk") else "text/plain; charset=utf-8"
-        )
+        ext = os.path.splitext(fname.lower())[1]
+        img_mime = IMG_MIMES.get(ext)
+        is_inline = bool(img_mime) and not force_octet
+        if force_octet:
+            mime = "application/octet-stream"
+        elif img_mime:
+            mime = img_mime
+        elif ext == ".apk":
+            mime = "application/vnd.android.package-archive"
+        else:
+            mime = "text/plain; charset=utf-8"
         self.send_response(code)
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(length))
         self.send_header("Accept-Ranges", "bytes")
         if code == 206:
             self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
-        self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
+        if not is_inline:
+            self.send_header("Content-Disposition", f'attachment; filename="{fname}"')
         self.send_header("Connection", "close")
         self.end_headers()
         if send_body and length > 0:
@@ -166,8 +227,8 @@ class Srv(http.server.ThreadingHTTPServer):
 
 srv = Srv(("0.0.0.0", PORT), H)
 print("=" * 70)
-print("  Kobo Arc 7 Freedom v1.9.1 — Wi-Fi OTA Rooting & Installer LIVE!")
-print("  Open Kobo's Browser on your tablet and type:")
+print("  Kobo Arc 7 Freedom v2.4.1 — Wi-Fi OTA Rooting & Installer LIVE!")
+print("  Open Browser on your Kobo Arc 7 and type:")
 for ip in get_ips():
     print(f"\n      http://{ip}:{PORT}")
 print("\n" + "=" * 70, flush=True)
