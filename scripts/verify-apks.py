@@ -111,14 +111,14 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
-        assert str(apk.get_androidversion_code()) == "53", f"Expected launcher versionCode 53, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "54", f"Expected launcher versionCode 54, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.3.1", f"Expected upgrader 2.3.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "231", f"Expected upgrader 231, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.4.0", f"Expected upgrader 2.4.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "240", f"Expected upgrader 240, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.3.1", f"Expected 2.3.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "231", f"Expected 231, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.4.0", f"Expected 2.4.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "240", f"Expected 240, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -130,6 +130,8 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         acts = apk.get_activities()
         expected_acts = (
             "ca.arc7freedom.app.MainActivity",
+            "ca.arc7freedom.app.YouTubeActivity",
+            "ca.arc7freedom.app.YouTubeMusicActivity",
             "ca.arc7freedom.app.Arc7BrowserActivity",
             "ca.arc7freedom.app.Arc7EbookReaderActivity",
             "ca.arc7freedom.app.Arc7AudioPlayerActivity",
@@ -162,7 +164,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         )
         for req_act in expected_acts:
             assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
-        # Verify EVERY SINGLE ONE of all 30 activities has its OWN distinct android:taskAffinity!
+        # Verify EVERY SINGLE ONE of all 32 activities has its OWN distinct android:taskAffinity!
         ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
         manifest_xml = apk.get_android_manifest_xml()
         affinities = set()
@@ -172,7 +174,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
             assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
             affinities.add(taff)
-        assert len(affinities) == 30, f"Expected 30 distinct taskAffinity entries, got {len(affinities)}"
+        assert len(affinities) == 32, f"Expected 32 distinct taskAffinity entries, got {len(affinities)}"
         # Verify Android 4.2 VpnService contract: BIND_VPN_SERVICE permission + android.net.VpnService action!
         vpn_svc_ok = False
         for svc_el in manifest_xml.findall(".//service"):
@@ -1895,7 +1897,8 @@ public class JSONArray {
     public String getString(int i) { return String.valueOf(list.get(i)); }
     public String optString(int i) { return optString(i, ""); }
     public String optString(int i, String d) { return (i >= 0 && i < list.size() && list.get(i) != null) ? String.valueOf(list.get(i)) : d; }
-    public double optDouble(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).doubleValue() : 0.0; }
+    public double optDouble(int i) { return optDouble(i, 0.0); }
+    public double optDouble(int i, double d) { Object v = (i >= 0 && i < list.size()) ? list.get(i) : null; return v instanceof Number ? ((Number) v).doubleValue() : d; }
     public int optInt(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).intValue() : 0; }
     public JSONObject getJSONObject(int i) { return (JSONObject) list.get(i); }
     public JSONObject optJSONObject(int i) { return (JSONObject) list.get(i); }
@@ -1969,7 +1972,7 @@ public abstract class Context {
 """)
         java_v220 = os.path.join(td, "VerifyV220Suite.java")
         with open(java_v220, "w", encoding="utf-8") as f:
-            f.write("""
+            f.write('''
 import android.content.*;
 import ca.arc7freedom.app.*;
 import ca.arc7freedom.launcher.*;
@@ -2097,6 +2100,12 @@ public class VerifyV220Suite {
         List<TailscaleManager.TailnetPeer> peers = TailscaleManager.parseTailscalePeers(sampleTsJson);
         assert peers.size() == 2 && peers.get(0).exitNodeOption && "100.64.1.10".equals(peers.get(0).tailscaleIp) : "Bad Tailscale peers parse";
 
+        // 8b. v2.4.0 SponsorBlock JSON segment parser with real `org.json` shim active!
+        String q = String.valueOf((char) 34);
+        List<MorpheEngine.SkipSegment> sbSegs = MorpheEngine.parseSponsorBlockSegments(
+                "[{@category@:@sponsor@,@segment@:[15.0,42.5]}]".replace("@", q));
+        assert sbSegs.size() == 1 && "sponsor".equals(sbSegs.get(0).category) : "Bad SponsorBlock parse";
+
         // In-memory SharedPreferences Context shim to test Launcher v53 Free-Slot Drag-and-Drop end-to-end!
         Context memCtx = new MemPrefsContext(dir);
         PinnedShortcutsStore.setPageCount(memCtx, 3);
@@ -2178,7 +2187,7 @@ public class VerifyV220Suite {
         @Override public void unregisterOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener l) {}
     }
 }
-""")
+''')
         app_classes = os.path.join(ROOT, "build/app/classes")
         launcher_classes = os.path.join(ROOT, "build/launcher/classes")
         ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar"
@@ -2708,9 +2717,291 @@ def verify_v230_native_vpn_streamdeck_and_relay(main_apk: str) -> None:
             echo_srv.close()
 
 
+def verify_v240_all_6_upgrades(main_apk: str, home_apk: str, aurora_apk: str, upgrader_apk: str) -> None:
+    print("\n=== Verifying v2.4.0 Morphe YouTube, YouTube Music, Home Widget Removal, Universal Audio Notification + Clock Standby, Non-Arc7 Labels & Official Tailscale Google Auth ===")
+    from androguard.core.dex import DEX
+    import qrcode
+
+    ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+    # 1. STRICT LABEL AUDIT ACROSS ALL 4 APKs:
+    # ONLY `MainActivity` (`Arc7 Freedom`) carries `"Arc7"` — EVERY other app, widget, launcher, store & upgrader has ZERO `"arc7"`!
+    app_obj = APK(main_apk)
+    mxml = app_obj.get_android_manifest_xml()
+    app_el = mxml.find("application")
+    assert app_el is not None and app_el.get(ANDROID_NS + "label") == "Arc7 Freedom", (
+        f"Expected main <application> label 'Arc7 Freedom', got {app_el.get(ANDROID_NS + 'label') if app_el is not None else None}"
+    )
+    act_labels = {}
+    for act in mxml.findall(".//activity"):
+        nm = act.get(ANDROID_NS + "name") or ""
+        lbl = act.get(ANDROID_NS + "label") or ""
+        act_labels[nm] = lbl
+        if nm.endswith("MainActivity"):
+            assert lbl == "Arc7 Freedom", f"Expected MainActivity label 'Arc7 Freedom', got {lbl!r}"
+        else:
+            assert lbl and ("arc7" not in lbl.lower()), f"NON-MAIN ACTIVITY STILL LABELED WITH Arc7: {nm} -> {lbl!r}!"
+    assert act_labels.get(".YouTubeActivity") == "YouTube", f"Expected 'YouTube', got {act_labels}"
+    assert act_labels.get(".YouTubeMusicActivity") == "YouTube Music", f"Expected 'YouTube Music', got {act_labels}"
+
+    for rec in mxml.findall(".//receiver"):
+        lbl = rec.get(ANDROID_NS + "label") or ""
+        if lbl:
+            assert "arc7" not in lbl.lower(), f"WIDGET RECEIVER STILL LABELED WITH Arc7: {rec.get(ANDROID_NS + 'name')} -> {lbl!r}!"
+
+    for aux_path in (home_apk, aurora_apk, upgrader_apk):
+        aux_obj = APK(aux_path)
+        axml = aux_obj.get_android_manifest_xml()
+        a_app = axml.find("application")
+        albl = (a_app.get(ANDROID_NS + "label") or "") if a_app is not None else ""
+        assert "arc7" not in albl.lower(), f"Auxiliary APK {os.path.basename(aux_path)} still labeled with Arc7: {albl!r}!"
+        for a_act in axml.findall(".//activity"):
+            clbl = a_act.get(ANDROID_NS + "label") or ""
+            assert "arc7" not in clbl.lower(), f"Auxiliary Activity in {os.path.basename(aux_path)} labeled with Arc7: {clbl!r}!"
+    print(f"  [PASS] Strict Non-Main Label Audit passed across all 4 APKs & {len(act_labels)} Activities (`Arc7 Freedom` ONLY; `YouTube`, `YouTube Music`, `Browser`, `Home`, etc. 100% clean!)")
+
+    # 2. Android 4.2.2 `@RemoteView` Notification XML + Multi-DPI Icons + Universal Broadcast Receiver Check
+    ALLOWED_REMOTEVIEW_TAGS = {
+        "LinearLayout", "RelativeLayout", "FrameLayout", "GridLayout",
+        "TextView", "ImageView", "ImageButton", "Button", "ProgressBar", "Chronometer",
+    }
+    import xml.etree.ElementTree as ET
+    for notif_xml in (
+        os.path.join(ROOT, "app/src/main/res/layout/notif_media_compact.xml"),
+        os.path.join(ROOT, "app/src/main/res/layout/notif_media_expanded.xml"),
+    ):
+        tree = ET.parse(notif_xml)
+        for el in tree.getroot().iter():
+            tag = el.tag.split("}")[-1]
+            assert tag in ALLOWED_REMOTEVIEW_TAGS, (
+                f"CRITICAL Android 4.2 SystemUI crash hazard in {notif_xml}: non-@RemoteView tag <{tag}>!"
+            )
+
+    boot_actions = set()
+    for rec in mxml.findall(".//receiver"):
+        if (rec.get(ANDROID_NS + "name") or "").endswith("BootNetworkReceiver"):
+            for act_el in rec.findall(".//action"):
+                boot_actions.add(act_el.get(ANDROID_NS + "name") or "")
+    for ext_action in (
+        "com.android.music.metachanged",
+        "com.android.music.playstatechanged",
+        "com.android.music.playbackcomplete",
+        "org.videolan.vlc.remote.PlayPause",
+    ):
+        assert ext_action in boot_actions, f"BootNetworkReceiver missing external audio action {ext_action}!"
+
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        znames = set(zf.namelist())
+        for dpi in ("mdpi", "hdpi", "xhdpi", "xxhdpi"):
+            assert (
+                f"res/drawable-{dpi}-v4/ic_youtube.png" in znames
+                or f"res/drawable-{dpi}/ic_youtube.png" in znames
+            ), f"Missing ic_youtube.png in {dpi}"
+            assert (
+                f"res/drawable-{dpi}-v4/ic_ytmusic.png" in znames
+                or f"res/drawable-{dpi}/ic_ytmusic.png" in znames
+            ), f"Missing ic_ytmusic.png in {dpi}"
+        main_dex = DEX(zf.read("classes.dex"))
+        main_strings = set(main_dex.get_strings())
+        for needle in (
+            "1.64.34",            # Oct 2026 non-SABR Pico A8110 client!
+            "RealityDevice17,1",  # Oct 2026 non-SABR visionOS 1.03 client!
+            "7.12.52",            # Oct 2026 YouTube Music non-SABR client!
+            "sponsor.ajay.app",   # Morphe SponsorBlock API active!
+            "returnyoutubedislikeapi.com",  # Morphe Return YouTube Dislike API active!
+            "tailscale_1.78.1_arm.tgz",
+            "https://pkgs.tailscale.com/stable/tailscale_1.78.1_arm.tgz",
+            "NOW PLAYING",
+        ):
+            assert any(needle in s for s in main_strings), (
+                f"Missing critical v2.4.0 runtime string in KoboArc7Freedom DEX: {needle!r}"
+            )
+        assert "1.65.10" not in main_strings, "Deprecated 403'd Quest 3 1.65.10 client string still present!"
+    print("  [PASS] Android 4.2 `@RemoteView` notification layouts, external VLC/Music broadcasts, multi-DPI icons & Oct 2026 Morphe clients verified!")
+
+    # 3. Verify Home Screen Widget Removal in `VanillaAndroid4Home.apk` (`classes.dex`)
+    with zipfile.ZipFile(home_apk, "r") as hzf:
+        hdex = DEX(hzf.read("classes.dex"))
+        hclasses = set(hdex.get_classes_names())
+        hstrings = set(hdex.get_strings())
+        assert "Lca/arc7freedom/launcher/VanillaHomeActivity$LauncherAppWidgetHost;" in hclasses
+        assert "Lca/arc7freedom/launcher/VanillaHomeActivity$InterceptingWidgetHostView;" in hclasses
+        assert "\u2715 Remove" in hstrings, "Missing 1-tap '✕ Remove' widget button string in Launcher DEX!"
+        assert "+ Widget" not in hstrings, "Forbidden '+ Widget' string found in Launcher DEX!"
+    print("  [PASS] Home Launcher v54 `InterceptingWidgetHostView.onInterceptTouchEvent` + 1-tap `✕ Remove` widget badges verified!")
+
+    # 4. LIVE JVM EXECUTION PROOF:
+    #    (a) `MorpheEngine` `http://127.0.0.1:18977` `206 Partial Content` `Range: bytes=...` proxy
+    #        against a strict `googlevideo.com`-style mock server that REJECTS `Stagefright` UAs and
+    #        REJECTS non-`Range:` requests with HTTP 403!
+    #    (b) `MorpheEngine.parseLrcLyrics(...)` + `MorpheEngine.findActiveSponsorSegment(...)`
+    #    (c) `QrCodeEncoder.encodeMatrix(...)` 100.000% bit-for-bit equality against ISO/IEC 18004
+    #        across real `https://login.tailscale.com/a/...` Google OAuth URLs!
+    import threading
+    import qrcode
+
+    origin_payload = (b"FTYPISOM_H264_AAC_MORPHE_240_" * 400)  # 11,600 bytes deterministic MP4 stream
+    gv_srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    gv_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    gv_srv.bind(("127.0.0.1", 0))
+    gv_srv.listen(8)
+    gv_port = gv_srv.getsockname()[1]
+    gv_stop = threading.Event()
+    gv_seen_headers = []
+
+    def _run_mock_googlevideo():
+        gv_srv.settimeout(0.25)
+        while not gv_stop.is_set():
+            try:
+                conn, _ = gv_srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                raw = conn.recv(8192).decode("iso-8859-1", errors="ignore")
+                hdrs = {}
+                for ln in raw.split("\r\n")[1:]:
+                    if ":" in ln:
+                        k, v = ln.split(":", 1)
+                        hdrs[k.strip().lower()] = v.strip()
+                gv_seen_headers.append(hdrs)
+                ua = hdrs.get("user-agent", "")
+                rng = hdrs.get("range", "")
+                if ("stagefright" in ua.lower()) or (not rng.startswith("bytes=")):
+                    conn.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 13\r\nConnection: close\r\n\r\nSABR_403_FAIL")
+                    continue
+                spec = rng[len("bytes="):]
+                s_part, e_part = spec.split("-", 1)
+                start_b = int(s_part) if s_part else 0
+                end_b = int(e_part) if e_part else (len(origin_payload) - 1)
+                end_b = min(end_b, len(origin_payload) - 1)
+                chunk = origin_payload[start_b:end_b + 1]
+                resp_head = (
+                    f"HTTP/1.1 206 Partial Content\r\n"
+                    f"Content-Type: video/mp4\r\n"
+                    f"Accept-Ranges: bytes\r\n"
+                    f"Content-Range: bytes {start_b}-{end_b}/{len(origin_payload)}\r\n"
+                    f"Content-Length: {len(chunk)}\r\n"
+                    f"Connection: close\r\n\r\n"
+                ).encode("ascii")
+                conn.sendall(resp_head + chunk)
+            finally:
+                conn.close()
+
+    threading.Thread(target=_run_mock_googlevideo, daemon=True).start()
+    try:
+        with tempfile.TemporaryDirectory() as jtd:
+            driver_java = os.path.join(jtd, "TestV240Live.java")
+            with open(driver_java, "w", encoding="utf-8") as f:
+                f.write('''
+import ca.arc7freedom.app.MorpheEngine;
+import ca.arc7freedom.app.QrCodeEncoder;
+import ca.arc7freedom.app.TailscaleManager;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Arrays;
+import java.util.List;
+
+public class TestV240Live {
+    public static void main(String[] args) throws Exception {
+        String upstreamUrl = args[0];
+        String expectedUa = "com.google.android.apps.youtube.vr.pico/1.64.34 (Linux; U; Android 10; Build/5.13.7) gzip";
+
+        // 1. Register stream in Morphe local Range Proxy & fetch BOTH initial stream AND seek slice!
+        String localUrl = MorpheEngine.registerPlayableStreamSlot(null, upstreamUrl, expectedUa, "video/mp4");
+
+        HttpURLConnection c1 = (HttpURLConnection) new URL(localUrl).openConnection();
+        c1.setRequestProperty("User-Agent", "Stagefright/1.2 (Linux;Android 4.2.2)"); // Simulate stock Kobo Stagefright!
+        int code1 = c1.getResponseCode();
+        byte[] full = readAll(c1.getInputStream());
+        if ((code1 != 200 && code1 != 206) || full.length != 11600) {
+            throw new AssertionError("Initial Stagefright stream fetch failed: code=" + code1 + " len=" + full.length);
+        }
+
+        HttpURLConnection c2 = (HttpURLConnection) new URL(localUrl).openConnection();
+        c2.setRequestProperty("User-Agent", "Stagefright/1.2 (Linux;Android 4.2.2)");
+        c2.setRequestProperty("Range", "bytes=1024-2047");
+        int code2 = c2.getResponseCode();
+        byte[] slice = readAll(c2.getInputStream());
+        if (code2 != 206 || slice.length != 1024) {
+            throw new AssertionError("Seek 206 fetch failed: code=" + code2 + " len=" + slice.length);
+        }
+        if (!Arrays.equals(slice, Arrays.copyOfRange(full, 1024, 2048))) {
+            throw new AssertionError("Seek slice bytes did not match exact offset [1024..2048]!");
+        }
+
+        // 2. Verify LRC synced lyrics parser + Official Tailscale URL extractor!
+        List<MorpheEngine.LyricLine> lines = MorpheEngine.parseLrcText("[00:12.50]First Morphe line\\n[01:02.00]Chorus drop");
+        if (lines.size() != 2 || lines.get(0).timeMs != 12500L || lines.get(1).timeMs != 62000L) {
+            throw new AssertionError("LRC lyric timestamps parsed wrong!");
+        }
+        String parsedAuth = TailscaleManager.extractAuthUrlFromText(
+                "To authenticate, visit:\\n\\n\\thttps://login.tailscale.com/a/7f9e2b4c81d0a3\\n");
+        if (!"https://login.tailscale.com/a/7f9e2b4c81d0a3".equals(parsedAuth)) {
+            throw new AssertionError("Tailscale AuthURL extraction failed: " + parsedAuth);
+        }
+
+        // 3. Emit QR matrix for official Tailscale Google Sign-In URL!
+        boolean[][] qr = QrCodeEncoder.encodeMatrix(parsedAuth);
+        for (int r = 0; r < qr.length; r++) {
+            StringBuilder sb = new StringBuilder();
+            for (int c = 0; c < qr[r].length; c++) sb.append(qr[r][c] ? '1' : '0');
+            System.out.println(sb.toString());
+        }
+    }
+
+    private static byte[] readAll(InputStream in) throws Exception {
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        byte[] b = new byte[4096];
+        int n;
+        while ((n = in.read(b)) > 0) bos.write(b, 0, n);
+        in.close();
+        return bos.toByteArray();
+    }
+}
+''')
+            cp = f"{ANDROID_JAR}:{os.path.join(ROOT, 'build/app/classes')}"
+            subprocess.run([JAVAC, "-cp", cp, "-d", jtd, driver_java], check=True)
+            out_lines = subprocess.check_output(
+                [JAVA, "-cp", f"{jtd}:{cp}", "TestV240Live", f"http://127.0.0.1:{gv_port}/videoplayback?itag=18"],
+                text=True,
+                timeout=15,
+            ).strip().splitlines()
+            java_qr = [[ch == "1" for ch in row] for row in out_lines]
+            matched_qr = False
+            for mask in range(8):
+                q = qrcode.QRCode(
+                    version=None,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=1,
+                    border=0,
+                    mask_pattern=mask,
+                )
+                q.add_data(qrcode.util.QRData(b"https://login.tailscale.com/a/7f9e2b4c81d0a3", mode=qrcode.util.MODE_8BIT_BYTE))
+                q.make(fit=True)
+                if q.modules == java_qr:
+                    matched_qr = True
+                    break
+            assert matched_qr, "QrCodeEncoder matrix did not match ISO/IEC 18004!"
+            assert len(gv_seen_headers) >= 2
+            assert all("pico/1.64.34" in h.get("user-agent", "") for h in gv_seen_headers)
+            assert gv_seen_headers[0].get("range") == "bytes=0-"
+            assert gv_seen_headers[1].get("range") == "bytes=1024-2047"
+            print("  [PASS] Live JVM `MorpheEngine` `206 Partial Content` Stagefright proxy (`bytes=0-` + `bytes=1024-2047` seek), LRC lyrics & 100% bit-exact ISO/IEC 18004 Tailscale Google Auth QR verified!")
+    finally:
+        gv_stop.set()
+        gv_srv.close()
+
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.3.1.apk")
-    assert not os.path.exists(os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.3.0.apk")), "Stale v2.3.0 upgrader APK left in releases/!"
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.4.0.apk")
+    for stale_ver in ("v2.3.0", "v2.3.1"):
+        assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
+            f"Stale {stale_ver} upgrader APK left in releases/!"
+        )
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",
@@ -2760,6 +3051,7 @@ def main() -> None:
     verify_v210_customizable_app_bar(main_apk, home_apk)
     verify_v220_all_14_upgrades_plus_vk(main_apk, home_apk)
     verify_v230_native_vpn_streamdeck_and_relay(main_apk)
+    verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

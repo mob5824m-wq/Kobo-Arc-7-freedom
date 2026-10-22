@@ -132,7 +132,7 @@ public class Arc7EbookReaderActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_ereader,
-                "Arc7 E-Reader & VK Books",
+                "Books  •  E-Reader & Stores",
                 "vk.com + Gutenberg + Open Library + Standard Ebooks • EPUB / FB2 / PDF / CBZ",
                 headerRight));
 

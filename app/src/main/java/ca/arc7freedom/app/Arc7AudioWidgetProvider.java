@@ -9,7 +9,9 @@ import android.content.Intent;
 import android.widget.RemoteViews;
 
 /**
- * Built-in Home Screen Music & Audiobook Player Widget (`-30s`, `Play/Pause`, `+30s`, Open Player).
+ * Built-in Home Screen **Music & Now Playing** Widget (`Prev`, `Play/Pause`, `Next`, Open Active Player).
+ * Displays ANY playing audio across `YouTube Music`, `YouTube`, `Music`, `Radio & Podcasts`,
+ * `Voice Recorder`, and `VLC` via {@link NowPlayingManager}.
  */
 public class Arc7AudioWidgetProvider extends AppWidgetProvider {
 
@@ -31,7 +33,17 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
 
     private static void updateAll(Context context, AppWidgetManager mgr, int[] ids,
                                   String trackTitle, boolean playing) {
+        NowPlayingManager.Snapshot st = NowPlayingManager.getSnapshot(context);
         String title = trackTitle;
+        boolean isPlaying = playing;
+        String sub = "";
+
+        if ((title == null || title.isEmpty()) && st != null && st.active && st.title != null && !st.title.isEmpty()) {
+            title = st.title;
+            isPlaying = st.playing;
+            sub = (st.sourceApp != null && !st.sourceApp.isEmpty() ? st.sourceApp + "  •  " : "")
+                    + (st.artist != null ? st.artist : "");
+        }
         if (title == null || title.isEmpty()) {
             String last = context.getSharedPreferences("arc7_audio_bookmarks", Context.MODE_PRIVATE)
                     .getString("last_track", "");
@@ -39,17 +51,20 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
                 int slash = last.lastIndexOf('/');
                 title = slash >= 0 ? last.substring(slash + 1) : last;
             } else {
-                title = "Arc7 Audio & Audiobook Player";
+                title = "Music & Now Playing";
             }
         }
+        if (sub.isEmpty()) {
+            sub = isPlaying ? "Playing now  •  Tap to open player"
+                    : "Paused / Ready  •  Tap Play or title to open";
+        }
 
-        Intent openUi = new Intent(context, Arc7AudioPlayerActivity.class);
-        openUi.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        Intent openUi = NowPlayingManager.buildOpenPlayerIntent(context, st);
         PendingIntent piOpen = PendingIntent.getActivity(
                 context, 7201, openUi, PendingIntent.FLAG_UPDATE_CURRENT);
 
         Intent rew = new Intent(context, Arc7AudioService.class);
-        rew.setAction(Arc7AudioService.ACTION_REWIND_30);
+        rew.setAction(Arc7AudioService.ACTION_PREV);
         PendingIntent piRew = PendingIntent.getService(
                 context, 7202, rew, PendingIntent.FLAG_UPDATE_CURRENT);
 
@@ -59,17 +74,15 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
                 context, 7203, toggle, PendingIntent.FLAG_UPDATE_CURRENT);
 
         Intent fwd = new Intent(context, Arc7AudioService.class);
-        fwd.setAction(Arc7AudioService.ACTION_FFWD_30);
+        fwd.setAction(Arc7AudioService.ACTION_NEXT);
         PendingIntent piFwd = PendingIntent.getService(
                 context, 7204, fwd, PendingIntent.FLAG_UPDATE_CURRENT);
 
         for (int i = 0; i < ids.length; i++) {
             RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_arc7_audio);
             rv.setTextViewText(R.id.widget_audio_title, title);
-            rv.setTextViewText(R.id.widget_audio_sub,
-                    playing ? "Playing now • Screen-Off Bookmark Active"
-                            : "Paused / Ready • Tap Play or title to open");
-            rv.setTextViewText(R.id.widget_audio_toggle, playing ? "Pause" : "Play");
+            rv.setTextViewText(R.id.widget_audio_sub, sub);
+            rv.setTextViewText(R.id.widget_audio_toggle, isPlaying ? "Pause" : "Play");
             rv.setOnClickPendingIntent(R.id.widget_audio_root, piOpen);
             rv.setOnClickPendingIntent(R.id.widget_audio_icon, piOpen);
             rv.setOnClickPendingIntent(R.id.widget_audio_title, piOpen);

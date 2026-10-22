@@ -51,7 +51,7 @@ public class Arc7WallpaperPickerActivity extends Activity {
         header.setPadding(dp(14), dp(10), dp(14), dp(10));
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Wallpapers  •  12 HD Art Themes + Custom Photos");
+        title.setText("Wallpapers  •  12 HD Art Themes + Custom Photos");
         title.setTextColor(Color.WHITE);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.DEFAULT_BOLD);

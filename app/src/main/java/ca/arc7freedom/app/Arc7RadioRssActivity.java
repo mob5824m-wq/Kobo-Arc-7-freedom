@@ -116,7 +116,7 @@ public class Arc7RadioRssActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_radio,
-                "Arc7 Radio, Podcasts & Feeds",
+                "Radio & Podcasts",
                 "30,000+ Live Radio Stations • Podcast MP3 Downloader • Offline RSS News",
                 hdrBtns));
 

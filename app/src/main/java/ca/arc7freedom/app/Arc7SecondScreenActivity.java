@@ -95,7 +95,7 @@ public class Arc7SecondScreenActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_display,
-                "Arc7 Second Screen & Macro Deck",
+                "Second Screen & Macro Deck",
                 "USB (`adb forward tcp:18900 tcp:18900`) or Wi-Fi `:18900` Extended Display + Touch Return",
                 hdrBtns));
 

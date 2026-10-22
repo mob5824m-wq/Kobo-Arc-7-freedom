@@ -608,6 +608,35 @@ def draw_ic_vpn(c):
     c.rect(0.32, 0.72, 0.68, 0.81, (56, 189, 248, 255), 0.035)
 
 
+def _fill_play_triangle(c, x0, x1, y_mid, half_h, color):
+    n = c.n
+    px0, px1 = x0 * n, x1 * n
+    pym, phh = y_mid * n, half_h * n
+    r, g, b, a = color
+    for py in range(max(0, int(pym - phh - 1)), min(n, int(pym + phh + 2))):
+        t = abs((py + 0.5) - pym) / max(1e-6, phh)
+        if t <= 1.0:
+            max_x = px1 - t * (px1 - px0)
+            for px in range(max(0, int(px0)), min(n, int(max_x + 1))):
+                c.blend(px, py, r, g, b, a)
+
+
+def draw_ic_youtube(c):
+    # Vivid crimson squircle + crisp white TV rounded pill + ruby play triangle + subtle Morphe emerald spark
+    c.rounded_tile((255, 23, 68), (185, 10, 38), (255, 138, 155))
+    c.rect(0.18, 0.27, 0.82, 0.73, (255, 255, 255, 250), 0.11)
+    _fill_play_triangle(c, 0.43, 0.62, 0.50, 0.13, (220, 20, 48, 255))
+    c.circle(0.79, 0.22, 0.055, (16, 185, 129, 255))
+
+
+def draw_ic_ytmusic(c):
+    # Morphe AMOLED dark squircle + YouTube Music crimson vinyl disc + white acoustic ring + white play triangle
+    c.rounded_tile((26, 26, 36), (10, 10, 15), (255, 46, 99))
+    c.circle(0.50, 0.50, 0.345, (255, 0, 51, 255))
+    c.circle(0.50, 0.50, 0.225, (255, 255, 255, 248), stroke_u=0.036)
+    _fill_play_triangle(c, 0.445, 0.595, 0.50, 0.095, (255, 255, 255, 255))
+
+
 ALL_ICONS = [
     ("ic_launcher.png", draw_ic_launcher),
     ("ic_launcher_home.png", draw_ic_home),
@@ -651,6 +680,8 @@ ALL_ICONS = [
     ("ic_wiki.png", draw_ic_dictionary),
     ("ic_streamdeck.png", draw_ic_streamdeck),
     ("ic_vpn.png", draw_ic_vpn),
+    ("ic_youtube.png", draw_ic_youtube),
+    ("ic_ytmusic.png", draw_ic_ytmusic),
 ]
 
 
@@ -733,8 +764,8 @@ def draw_banner():
             cx += 6 * scale
 
     stamp_text("KOBO ARC 7 FREEDOM", 232, 54, 6, (248, 250, 252, 255))
-    stamp_text("SCHOOL WIFI + TAILSCALE VPN + STREAM DECK V2.3", 234, 118, 3, (56, 189, 248, 255))
-    stamp_text("DRAG-DROP LAUNCHER + VK BOOKS + PDF + SHIELD + VLC", 234, 156, 2, (167, 243, 208, 255))
+    stamp_text("YOUTUBE + YT MUSIC MORPHE + TAILSCALE AUTH V2.4", 234, 118, 3, (56, 189, 248, 255))
+    stamp_text("STANDBY NOW PLAYING + WIDGETS + SCHOOL WIFI + VLC", 234, 156, 2, (167, 243, 208, 255))
 
     write_rgba_png(os.path.join(ROOT, "releases", "logo-banner.png"), w, h, px)
 

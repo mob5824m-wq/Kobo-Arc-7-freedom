@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/notif_media_root"
+    android:layout_width="match_parent"
+    android:layout_height="126dp"
+    android:orientation="vertical"
+    android:background="#FF0F172A"
+    android:paddingLeft="10dp"
+    android:paddingRight="10dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="6dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="62dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <ImageView
+            android:id="@+id/notif_media_art"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_audio" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical"
+            android:paddingLeft="10dp"
+            android:paddingRight="6dp">
+
+            <TextView
+                android:id="@+id/notif_media_source"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textColor="#FF38BDF8"
+                android:textStyle="bold"
+                android:textSize="11sp"
+                android:text="NOW PLAYING" />
+
+            <TextView
+                android:id="@+id/notif_media_title"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textColor="#FFF8FAFC"
+                android:textStyle="bold"
+                android:textSize="15sp"
+                android:text="Track Title" />
+
+            <TextView
+                android:id="@+id/notif_media_subtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:textColor="#FF94A3B8"
+                android:textSize="12sp"
+                android:text="Artist" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/notif_btn_close"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:gravity="center"
+            android:text="&#x2715;"
+            android:textColor="#FFF87171"
+            android:textSize="14sp"
+            android:background="@android:drawable/list_selector_background" />
+    </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/notif_media_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="6dp"
+        android:layout_marginTop="4dp"
+        android:max="1000"
+        android:progress="0" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:gravity="center">
+
+        <TextView
+            android:id="@+id/notif_btn_rew"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="-15s"
+            android:textColor="#FFCBD5E1"
+            android:textSize="12sp"
+            android:background="@android:drawable/list_selector_background" />
+
+        <TextView
+            android:id="@+id/notif_btn_prev"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="&#x23EE; Prev"
+            android:textColor="#FFF1F5F9"
+            android:textSize="13sp"
+            android:background="@android:drawable/list_selector_background" />
+
+        <TextView
+            android:id="@+id/notif_btn_toggle"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1.2"
+            android:gravity="center"
+            android:text="&#x23F8; Pause"
+            android:textColor="#FF38BDF8"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:background="@android:drawable/list_selector_background" />
+
+        <TextView
+            android:id="@+id/notif_btn_next"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="Next &#x23ED;"
+            android:textColor="#FFF1F5F9"
+            android:textSize="13sp"
+            android:background="@android:drawable/list_selector_background" />
+
+        <TextView
+            android:id="@+id/notif_btn_ffwd"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="+30s"
+            android:textColor="#FFCBD5E1"
+            android:textSize="12sp"
+            android:background="@android:drawable/list_selector_background" />
+    </LinearLayout>
+</LinearLayout>

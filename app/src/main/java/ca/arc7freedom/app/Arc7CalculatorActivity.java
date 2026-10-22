@@ -78,7 +78,7 @@ public class Arc7CalculatorActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_calculator,
-                "Arc7 Calculator",
+                "Calculator",
                 "Scientific Engine • History Tape • Live Unit Converter",
                 modeBar));
 

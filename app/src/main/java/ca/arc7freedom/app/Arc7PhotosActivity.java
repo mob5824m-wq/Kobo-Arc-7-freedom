@@ -153,7 +153,7 @@ public class Arc7PhotosActivity extends Activity {
 
         browsePage.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_photos,
-                "Arc7 Photos",
+                "Photos",
                 "Albums • Pinch-to-Zoom • Photo Filter Studio • Slideshow • Wallpaper",
                 topRight));
 

@@ -74,7 +74,7 @@ public class Arc7WiredInternetActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_wired_net,
-                "Arc7 Wired Internet  •  Chromebook & USB Ethernet",
+                "USB Internet  •  Chromebook & USB Ethernet",
                 "High-speed wired internet over Chromebook USB cable or USB-OTG Ethernet",
                 statusPillTv));
 

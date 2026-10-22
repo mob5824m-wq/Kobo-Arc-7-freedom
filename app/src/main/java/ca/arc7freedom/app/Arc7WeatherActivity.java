@@ -84,7 +84,7 @@ public class Arc7WeatherActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_weather,
-                "Arc7 Weather",
+                "Weather",
                 "Open-Meteo TLS 1.3 Live Forecast • Hourly & 7-Day Outlook • Home Screen Widget",
                 actions));
 

@@ -93,8 +93,8 @@ public class Arc7VpnActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_vpn,
-                "Arc7 School Wi-Fi, VPN & Tailscale",
-                "802.1X Hidden Wi-Fi  \u2022  Official Tailscale Mesh  \u2022  System-Wide VpnService + DoH TLS 1.3",
+                "Wi-Fi & VPN",
+                "Official Tailscale Google Sign-In  \u2022  School Wi-Fi Fixer  \u2022  System-Wide VpnService + DoH TLS 1.3",
                 quickDisconnect));
 
         liveBannerTv = new TextView(this);
@@ -270,22 +270,46 @@ public class Arc7VpnActivity extends Activity {
         final SharedPreferences sp = getSharedPreferences(Arc7VpnService.PREFS, MODE_PRIVATE);
 
         LinearLayout card = makeCard();
-        card.addView(sectionTitle("Official Tailscale Mesh VPN (`tailscaled` ARMv7 + Port-443 DERP + System-Wide `/dev/tun`)"));
+        card.addView(sectionTitle("Official Tailscale VPN  \u2022  Sign in with Google (`login.tailscale.com`)"));
 
         final TextView tsLogTv = monoBox(
-                "Installed: " + (TailscaleManager.isTailscaleInstalled(this) ? "YES (Ready!)" : "Not downloaded yet — tap 1-Tap Install below")
+                "Installed: " + (TailscaleManager.isTailscaleInstalled(this) ? "YES (Ready!)" : "Not installed yet — tap 'Sign in with Google' below to auto-install!")
                 + "\n" + TailscaleManager.queryStatusSummary(this));
 
-        final EditText authKeyEt = inputField("Optional Tailscale Auth Key (`tskey-auth-...` from login.tailscale.com/admin/settings/keys)");
+        final LinearLayout inlineQrHolder = new LinearLayout(this);
+        inlineQrHolder.setOrientation(LinearLayout.VERTICAL);
+
+        final EditText authKeyEt = inputField("Optional Pre-Auth Key (`tskey-auth-...` — leave blank to Sign in with Google!)");
         authKeyEt.setText(sp.getString("ts_authkey", ""));
-        card.addView(authKeyEt);
 
         final EditText exitNodeEt = inputField("Optional Tailscale Exit Node IP (`100.x.y.z` — routes ALL school traffic out your Home PC!)");
         exitNodeEt.setText(sp.getString("ts_exit_node", ""));
-        card.addView(exitNodeEt);
 
-        final EditText headscaleEt = inputField("Optional Custom Control Server URL (blank = official Tailscale, or your Headscale URL)");
+        final EditText headscaleEt = inputField("Optional Custom Control Server URL (blank = official controlplane.tailscale.com + Google SSO)");
         headscaleEt.setText(sp.getString("ts_control_url", ""));
+
+        // PRIMARY HERO CTA: 1-TAP OFFICIAL GOOGLE SIGN-IN!
+        Button googleAuthBtn = Arc7Skin.actionButton(this,
+                "\uD83D\uDD11  Sign in with Google  (Official Tailscale Auth)", 0xFF2563EB);
+        googleAuthBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                final String exitIp = exitNodeEt.getText().toString().trim();
+                final String ctrl = headscaleEt.getText().toString().trim();
+                sp.edit()
+                        .putString("ts_exit_node", exitIp)
+                        .putString("ts_control_url", ctrl)
+                        .putString("mode", "tailscale")
+                        .putString("upstream", "127.0.0.1:" + TailscaleManager.TAILSCALE_SOCKS5_PORT)
+                        .putString("profile_name", exitIp.isEmpty() ? "Tailscale Mesh" : ("Tailscale Exit " + exitIp))
+                        .commit();
+                startOfficialGoogleSignInUiFlow(tsLogTv, inlineQrHolder, exitIp, ctrl);
+            }
+        });
+        card.addView(googleAuthBtn);
+        card.addView(inlineQrHolder);
+        card.addView(authKeyEt);
+        card.addView(exitNodeEt);
         card.addView(headscaleEt);
 
         LinearLayout btnRow = new LinearLayout(this);
@@ -335,17 +359,25 @@ public class Arc7VpnActivity extends Activity {
                         .putString("profile_name", exitIp.isEmpty() ? "Tailscale Mesh" : ("Tailscale Exit " + exitIp))
                         .commit();
 
+                if (ak.isEmpty()) {
+                    startOfficialGoogleSignInUiFlow(tsLogTv, inlineQrHolder, exitIp, ctrl);
+                    return;
+                }
+
                 tsLogTv.setText("Starting tailscaled userspace mesh + binding Android VpnService...");
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
                         try {
                             final String out = TailscaleManager.startDaemonAndUp(Arc7VpnActivity.this, ak, exitIp, ctrl);
+                            final boolean authed = TailscaleManager.isTailscaleAuthenticated(Arc7VpnActivity.this);
                             ui.post(new Runnable() {
                                 @Override
                                 public void run() {
                                     tsLogTv.setText(out);
-                                    requestAndLaunchSystemVpn();
+                                    if (authed) {
+                                        requestAndLaunchSystemVpn();
+                                    }
                                 }
                             });
                         } catch (final Throwable t) {
@@ -367,10 +399,36 @@ public class Arc7VpnActivity extends Activity {
                 renderActiveTab();
             }
         });
-        btnRow.addView(refreshPeersBtn, weightLp(0));
+        btnRow.addView(refreshPeersBtn, weightLp(8));
+
+        Button signOutBtn = Arc7Skin.secondaryButton(this, pal, "\uD83D\uDEAA Sign Out");
+        signOutBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final String msg = TailscaleManager.logoutTailscale(Arc7VpnActivity.this);
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                inlineQrHolder.removeAllViews();
+                                tsLogTv.setText(msg + "\n" + TailscaleManager.queryStatusSummary(Arc7VpnActivity.this));
+                            }
+                        });
+                    }
+                }).start();
+            }
+        });
+        btnRow.addView(signOutBtn, weightLp(0));
 
         card.addView(btnRow);
         card.addView(tsLogTv);
+
+        String existingAuthUrl = TailscaleManager.queryCurrentAuthUrl(this);
+        if (!TailscaleManager.isTailscaleAuthenticated(this) && !existingAuthUrl.isEmpty()) {
+            renderOfficialGoogleQrCard(inlineQrHolder, tsLogTv, existingAuthUrl);
+        }
 
         // Quick 1-Tap "Open Peer in Stream Deck" buttons for every discovered Tailnet PC!
         List<TailscaleManager.TailnetPeer> peers = TailscaleManager.parseTailscalePeers(
@@ -657,6 +715,119 @@ public class Arc7VpnActivity extends Activity {
         lp.topMargin = dp(8);
         tv.setLayoutParams(lp);
         return tv;
+    }
+
+    private void startOfficialGoogleSignInUiFlow(
+            final TextView tsLogTv, final LinearLayout qrHolder, final String exitIp, final String ctrl) {
+        tsLogTv.setText("Preparing Official Tailscale Google Sign-In (`login.tailscale.com`)...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    if (!TailscaleManager.isTailscaleInstalled(Arc7VpnActivity.this)) {
+                        ui.post(new Runnable() {
+                            @Override public void run() {
+                                tsLogTv.setText("Downloading official Tailscale ARMv7 (`1.78.1`, Linux 3.4 compatible) over TLS 1.3...");
+                            }
+                        });
+                        TailscaleManager.installOrUpdateOfficialTailscale(Arc7VpnActivity.this);
+                    }
+                    final String out = TailscaleManager.startDaemonAndUp(Arc7VpnActivity.this, "", exitIp, ctrl);
+                    final boolean authed = TailscaleManager.isTailscaleAuthenticated(Arc7VpnActivity.this);
+                    String foundUrl = TailscaleManager.queryCurrentAuthUrl(Arc7VpnActivity.this);
+                    if (foundUrl.isEmpty()) foundUrl = TailscaleManager.extractAuthUrlFromText(out);
+                    final String finalAuthUrl = foundUrl;
+
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            tsLogTv.setText(out);
+                            if (authed) {
+                                qrHolder.removeAllViews();
+                                Toast.makeText(Arc7VpnActivity.this,
+                                        "Signed in with Google! Enabling System VPN...", Toast.LENGTH_LONG).show();
+                                requestAndLaunchSystemVpn();
+                            } else if (!finalAuthUrl.isEmpty()) {
+                                renderOfficialGoogleQrCard(qrHolder, tsLogTv, finalAuthUrl);
+                                waitForGoogleCompletionAsync(qrHolder, tsLogTv);
+                            }
+                        }
+                    });
+                } catch (final Throwable t) {
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            tsLogTv.setText("Google Sign-In error: " + t.getMessage());
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void renderOfficialGoogleQrCard(
+            final LinearLayout holder, final TextView tsLogTv, final String authUrl) {
+        holder.removeAllViews();
+        LinearLayout qrBox = new LinearLayout(this);
+        qrBox.setOrientation(LinearLayout.VERTICAL);
+        qrBox.setGravity(Gravity.CENTER_HORIZONTAL);
+        qrBox.setPadding(dp(12), dp(12), dp(12), dp(12));
+        qrBox.setBackgroundColor(0xFF0B1F35);
+
+        android.widget.ImageView qrIv = new android.widget.ImageView(this);
+        qrIv.setImageBitmap(TailscaleManager.buildVisualCodeCard(authUrl, dp(224)));
+        qrBox.addView(qrIv, new LinearLayout.LayoutParams(dp(224), dp(224)));
+
+        TextView cap = new TextView(this);
+        cap.setText("\nScan with your phone camera -> tap 'Continue with Google'!\n"
+                + "Or tap 'Sign in with Google on Tablet' below:\n" + authUrl);
+        cap.setTextColor(Color.WHITE);
+        cap.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        cap.setGravity(Gravity.CENTER);
+        qrBox.addView(cap);
+
+        Button browserBtn = Arc7Skin.actionButton(this,
+                "\uD83C\uDF10 Sign in with Google on This Tablet", 0xFF16A34A);
+        browserBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent b = new Intent(Arc7VpnActivity.this, Arc7BrowserActivity.class);
+                b.setData(Uri.parse(authUrl));
+                startActivity(b);
+            }
+        });
+        qrBox.addView(browserBtn);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.topMargin = dp(8);
+        lp.bottomMargin = dp(8);
+        holder.addView(qrBox, lp);
+    }
+
+    private void waitForGoogleCompletionAsync(final LinearLayout qrHolder, final TextView tsLogTv) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < 120 && alive; i++) {
+                    try { Thread.sleep(1500L); } catch (InterruptedException ignored) {}
+                    if (TailscaleManager.isTailscaleAuthenticated(Arc7VpnActivity.this)) {
+                        final String summary = TailscaleManager.queryStatusSummary(Arc7VpnActivity.this);
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                qrHolder.removeAllViews();
+                                tsLogTv.setText("\u2714 Google Sign-In Complete!\n" + summary);
+                                Toast.makeText(Arc7VpnActivity.this,
+                                        "Tailscale Google Sign-In complete — starting System VPN!",
+                                        Toast.LENGTH_LONG).show();
+                                requestAndLaunchSystemVpn();
+                            }
+                        });
+                        return;
+                    }
+                }
+            }
+        }).start();
     }
 
     @Override

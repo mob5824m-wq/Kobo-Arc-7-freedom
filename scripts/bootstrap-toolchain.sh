@@ -22,7 +22,7 @@ if [ ! -x "${TOOLCHAIN_DIR}/venv/bin/python" ]; then
     python3 -m venv "${TOOLCHAIN_DIR}/venv"
     "${TOOLCHAIN_DIR}/venv/bin/pip" install --upgrade pip
 fi
-"${TOOLCHAIN_DIR}/venv/bin/pip" install -q ziglang jdk4py pillow androguard loguru cryptography certifi pillow
+"${TOOLCHAIN_DIR}/venv/bin/pip" install -q ziglang jdk4py pillow androguard loguru cryptography certifi qrcode
 
 JDK_HOME="$("${TOOLCHAIN_DIR}/venv/bin/python" -c 'import jdk4py; print(jdk4py.JAVA_HOME)')"
 ln -sfn "${JDK_HOME}" "${TOOLCHAIN_DIR}/jdk"
@@ -62,6 +62,21 @@ if [ ! -s "${TOOLCHAIN_DIR}/jars/d8.jar" ] || [ ! -s "${TOOLCHAIN_DIR}/jars/apks
             cp -f "${found}" "${TOOLCHAIN_DIR}/jars/${dst}"
         fi
     done
+fi
+
+if [ ! -x "${TOOLCHAIN_DIR}/jdk/bin/javac" ] && [ -s "${TOOLCHAIN_DIR}/jars/ecj-3.45.0.jar" ]; then
+    cat > "${TOOLCHAIN_DIR}/jdk/bin/javac" << 'JAVACEOF'
+#!/usr/bin/env bash
+ARGS=()
+for a in "$@"; do
+    case "$a" in
+        -Xlint*) ;;
+        *) ARGS+=("$a") ;;
+    esac
+done
+exec "/opt/toolchain/jdk/bin/java" -jar "/opt/toolchain/jars/ecj-3.45.0.jar" -1.8 -nowarn "${ARGS[@]}"
+JAVACEOF
+    chmod +x "${TOOLCHAIN_DIR}/jdk/bin/javac"
 fi
 
 echo "==> [4/4] Fetching zlib 1.3.x C source for static ARMv7 libarc7tool.so..."

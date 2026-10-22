@@ -63,7 +63,7 @@ public class Arc7BoostActivity extends Activity {
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_boost,
-                "Arc7 Boost & Battery Doctor",
+                "System Boost & Battery Doctor",
                 "+384 MB zRAM / Swap Expander • Quad-Core CPU Profiles • Battery Health & RAM Cleaner",
                 refreshBtn));
 
