@@ -178,16 +178,16 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         mb = sz / 1048576.0
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
-        if fname == "Upgrade-My-Kobo-To-v1.8.1.apk":
+        if fname == "Upgrade-My-Kobo-To-v1.8.2.apk":
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; ALREADY HAVE AN EARLIER VERSION ON YOUR KOBO ARC 7? TAP THIS 1-TAP UPGRADER FIRST "
-                f"(fixes &ldquo;App not installed&rdquo; key conflict + &ldquo;uname: not found&rdquo; + installs v1.8.1, Widgets, F-Droid &amp; 120 2026 CAs!):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.8.1.apk\")'>"
-                f"&#11015; 1-Tap Upgrade Existing Kobo — Upgrade-My-Kobo-To-v1.8.1.apk ({size_txt})</a>"
+                f"&#9889; UPGRADING FROM v1.5–v1.8.0 (OR WANT FULL 1-TAP ROOT + F-DROID + DNS REFRESH)? "
+                f"(Note: v1.8.1 users can also install <code>KoboArc7Freedom.apk</code> directly!):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.8.2.apk\")'>"
+                f"&#11015; 1-Tap Upgrade Existing Kobo — Upgrade-My-Kobo-To-v1.8.2.apk ({size_txt})</a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.8.1.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.8.2.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
                     else ""
@@ -198,7 +198,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Fresh Kobo Install: KoboArc7Freedom.apk v1.8.1 ({size_txt}) — Full 8-App Suite</a>"
+                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v1.8.2 ({size_txt}) — Fixed Browser DNS + F-Droid + Full Suite</a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
@@ -380,9 +380,9 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v1.8.0 — Complete Installer, Widgets, USB ADB Backup &amp; Wi-Fi Portal</h1>"
-        "<p>Fixed SSL TLS 1.0–1.3 Upgrade Proxy &bull; Independent App Tasks &bull; Direct USB ADB Laptop Backup (0 MB Tablet Space!) &bull; "
-        "Home Screen Widgets &bull; Fixed F-Droid Index Bridge &bull; 120 Offline 2026 CAs &bull; Anti-Brick Root</p>"
+        "<h1>Kobo Arc 7 Freedom v1.8.2 — Built-In 4-Tier DNS + TLS 1.3 Browser, Working F-Droid, Widgets &amp; USB Backup</h1>"
+        "<p>Built-In UDP/TCP/DoH DNS Engine (Zero resolv.conf Needed!) &bull; Fixed F-Droid Signed Index &amp; Repo Refresh &bull; "
+        "TLS 1.0–1.3 Upgrade Proxy &bull; Direct USB ADB Laptop Backup &bull; Home Screen Widgets &bull; Anti-Brick Root</p>"
         + live_progress_widget
         + "".join(apk_buttons)
         + ("".join(other_buttons) if other_buttons else "")

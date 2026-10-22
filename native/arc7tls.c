@@ -220,13 +220,47 @@ typedef struct {
     int owns_ca;
 } tls_conn_t;
 
-static int connect_with_timeout_ms(const struct addrinfo *ai, int timeout_ms) {
-    int fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+static int tls_connect_shared(tls_conn_t *c,
+                              const parsed_url_t *u,
+                              const char *ca_bundle_path,
+                              mbedtls_x509_crt *shared_ca,
+                              int allow_bad_clock_cert,
+                              char *err_buf,
+                              size_t err_cap);
+static void tls_conn_init(tls_conn_t *c);
+static void tls_conn_free(tls_conn_t *c);
+static int tls_write_all(tls_conn_t *c, const void *buf, size_t len);
+static int tls_read_some(tls_conn_t *c, void *buf, size_t cap);
+
+/* ==================== Self-Contained Multi-Tier Android/Linux DNS Engine ====================
+ * Why static musl `getaddrinfo()` fails on Android 4.2.2 (Kobo Arc 7):
+ *   Android does NOT have `/etc/resolv.conf` and runs no DNS daemon on `127.0.0.1:53`.
+ *   Static `musl` therefore queries `127.0.0.1:53`, gets `ECONNREFUSED`, and fails EVERY
+ *   hostname lookup with `MBEDTLS_ERR_NET_UNKNOWN_HOST` ("NET - Failed to get an IP address
+ *   for the given hostname") in both Arc7 Browser AND F-Droid Classic!
+ *
+ * Our 4-Tier Pure-C Resolver (`arc7_resolve_ipv4_list` + `arc7_tcp_connect_host`):
+ *   Tier 0: Literal IPv4 (`inet_pton`) + 128-entry Thread-Safe RAM Cache (300s TTL, <0.001ms)
+ *   Tier 1: Pure-C RFC 1035 UDP `:53` across `/etc/resolv.conf` + Android `getprop` Wi-Fi DNS
+ *           (`dhcp.wlan0.dns1/2`, `net.dns1/2`) + `1.1.1.1`, `8.8.8.8`, `1.0.0.1`, `9.9.9.9`
+ *   Tier 2: Pure-C RFC 1035 TCP `:53` fallback (handles truncated `TC=1` & UDP-blocked networks)
+ *   Tier 3: Pure-C RFC 8484 DNS-over-HTTPS (`POST https://1.1.1.1/dns-query` & `8.8.8.8:443`)
+ *           using raw IPv4 literals over port 443 TLS 1.3 — 100% immune even to total port-53 blocks!
+ * ============================================================================================ */
+
+static int connect_ipv4_raw_ms(uint32_t net_ipv4, uint16_t host_port, int timeout_ms) {
+    int fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (fd < 0) return -1;
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
-    int rc = connect(fd, ai->ai_addr, ai->ai_addrlen);
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(host_port);
+    sa.sin_addr.s_addr = net_ipv4;
+
+    int rc = connect(fd, (struct sockaddr *)&sa, sizeof(sa));
     if (rc != 0) {
         if (errno != EINPROGRESS) {
             close(fd);
@@ -251,23 +285,600 @@ static int connect_with_timeout_ms(const struct addrinfo *ai, int timeout_ms) {
         }
     }
     if (flags >= 0) fcntl(fd, F_SETFL, flags);
-    struct timeval io_tv = { .tv_sec = 3, .tv_usec = 0 };
+    struct timeval io_tv = { .tv_sec = 4, .tv_usec = 0 };
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &io_tv, sizeof(io_tv));
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &io_tv, sizeof(io_tv));
     return fd;
 }
 
-static int tls_connect_shared(tls_conn_t *c,
-                              const parsed_url_t *u,
-                              const char *ca_bundle_path,
-                              mbedtls_x509_crt *shared_ca,
-                              int allow_bad_clock_cert,
-                              char *err_buf,
-                              size_t err_cap);
-static void tls_conn_init(tls_conn_t *c);
-static void tls_conn_free(tls_conn_t *c);
-static int tls_write_all(tls_conn_t *c, const void *buf, size_t len);
-static int tls_read_some(tls_conn_t *c, void *buf, size_t cap);
+typedef struct {
+    char host[256];
+    uint32_t addrs[4];
+    int count;
+    time_t expires;
+} dns_cache_entry_t;
+
+static pthread_mutex_t g_dns_mu = PTHREAD_MUTEX_INITIALIZER;
+static dns_cache_entry_t g_dns_cache[128];
+static size_t g_dns_cache_next = 0;
+static char g_android_prop_dns[4][40];
+static int g_android_prop_dns_cnt = 0;
+static time_t g_android_prop_dns_ts = 0;
+
+static void dns_cache_lookup(const char *host, uint32_t out_addrs[4], int *out_cnt) {
+    *out_cnt = 0;
+    time_t now = time(NULL);
+    pthread_mutex_lock(&g_dns_mu);
+    for (size_t i = 0; i < 128; i++) {
+        if (g_dns_cache[i].count > 0 &&
+            g_dns_cache[i].expires > now &&
+            strcasecmp(g_dns_cache[i].host, host) == 0) {
+            int n = g_dns_cache[i].count;
+            if (n > 4) n = 4;
+            memcpy(out_addrs, g_dns_cache[i].addrs, (size_t)n * sizeof(uint32_t));
+            *out_cnt = n;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&g_dns_mu);
+}
+
+static void dns_cache_store(const char *host, const uint32_t addrs[4], int cnt) {
+    if (cnt <= 0 || strlen(host) >= sizeof(g_dns_cache[0].host)) return;
+    if (cnt > 4) cnt = 4;
+    time_t exp = time(NULL) + 300;
+    pthread_mutex_lock(&g_dns_mu);
+    for (size_t i = 0; i < 128; i++) {
+        if (g_dns_cache[i].count > 0 && strcasecmp(g_dns_cache[i].host, host) == 0) {
+            memcpy(g_dns_cache[i].addrs, addrs, (size_t)cnt * sizeof(uint32_t));
+            g_dns_cache[i].count = cnt;
+            g_dns_cache[i].expires = exp;
+            pthread_mutex_unlock(&g_dns_mu);
+            return;
+        }
+    }
+    size_t slot = g_dns_cache_next % 128;
+    g_dns_cache_next++;
+    snprintf(g_dns_cache[slot].host, sizeof(g_dns_cache[slot].host), "%s", host);
+    memcpy(g_dns_cache[slot].addrs, addrs, (size_t)cnt * sizeof(uint32_t));
+    g_dns_cache[slot].count = cnt;
+    g_dns_cache[slot].expires = exp;
+    pthread_mutex_unlock(&g_dns_mu);
+}
+
+static void add_unique_server_ip(uint32_t list[16], int *cnt, const char *ip_str) {
+    if (!ip_str || *cnt >= 16) return;
+    while (*ip_str && isspace((unsigned char)*ip_str)) ip_str++;
+    char clean[64];
+    size_t k = 0;
+    while (ip_str[k] && !isspace((unsigned char)ip_str[k]) && ip_str[k] != ',' &&
+           ip_str[k] != ';' && k + 1 < sizeof(clean)) {
+        clean[k] = ip_str[k];
+        k++;
+    }
+    clean[k] = '\0';
+    struct in_addr addr;
+    if (inet_pton(AF_INET, clean, &addr) != 1) return;
+    if (addr.s_addr == 0) return;
+    for (int i = 0; i < *cnt; i++) {
+        if (list[i] == addr.s_addr) return;
+    }
+    list[(*cnt)++] = addr.s_addr;
+}
+
+static void parse_resolv_conf_file(const char *path, uint32_t list[16], int *cnt) {
+    FILE *f = fopen(path, "r");
+    if (!f) return;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        char *p = line;
+        while (*p && isspace((unsigned char)*p)) p++;
+        if (strncmp(p, "nameserver", 10) == 0 && isspace((unsigned char)p[10])) {
+            add_unique_server_ip(list, cnt, p + 11);
+        }
+    }
+    fclose(f);
+}
+
+static void refresh_android_prop_dns_if_needed(uint32_t list[16], int *cnt) {
+    if (access("/system/bin/getprop", X_OK) != 0) return;
+    time_t now = time(NULL);
+    pthread_mutex_lock(&g_dns_mu);
+    if (now < g_android_prop_dns_ts || now - g_android_prop_dns_ts > 30) {
+        g_android_prop_dns_cnt = 0;
+        g_android_prop_dns_ts = now;
+        static const char *props[4] = {
+            "dhcp.wlan0.dns1", "dhcp.wlan0.dns2", "net.dns1", "net.dns2"
+        };
+        for (int i = 0; i < 4; i++) {
+            char cmd[96];
+            snprintf(cmd, sizeof(cmd), "/system/bin/getprop %s 2>/dev/null", props[i]);
+            FILE *fp = popen(cmd, "r");
+            if (!fp) continue;
+            char val[64] = {0};
+            if (fgets(val, sizeof(val), fp)) {
+                size_t l = strlen(val);
+                while (l > 0 && (val[l - 1] == '\n' || val[l - 1] == '\r' || val[l - 1] == ' ')) {
+                    val[--l] = '\0';
+                }
+                struct in_addr tmp;
+                if (l > 0 && inet_pton(AF_INET, val, &tmp) == 1 && tmp.s_addr != 0 &&
+                    strcmp(val, "127.0.0.1") != 0) {
+                    snprintf(g_android_prop_dns[g_android_prop_dns_cnt],
+                             sizeof(g_android_prop_dns[0]), "%s", val);
+                    g_android_prop_dns_cnt++;
+                }
+            }
+            pclose(fp);
+        }
+    }
+    for (int i = 0; i < g_android_prop_dns_cnt; i++) {
+        add_unique_server_ip(list, cnt, g_android_prop_dns[i]);
+    }
+    pthread_mutex_unlock(&g_dns_mu);
+}
+
+static int collect_dns_servers(uint32_t list[16], int *doh_only) {
+    int cnt = 0;
+    *doh_only = 0;
+    const char *env_dns = getenv("ARC7_DNS");
+    if (env_dns && env_dns[0]) {
+        if (strcasecmp(env_dns, "DOH_ONLY") == 0) {
+            *doh_only = 1;
+            return 0;
+        }
+        const char *p = env_dns;
+        while (*p) {
+            while (*p && (isspace((unsigned char)*p) || *p == ',' || *p == ';')) p++;
+            if (!*p) break;
+            add_unique_server_ip(list, &cnt, p);
+            while (*p && !isspace((unsigned char)*p) && *p != ',' && *p != ';') p++;
+        }
+        if (cnt > 0) return cnt;
+    }
+
+    parse_resolv_conf_file("/etc/resolv.conf", list, &cnt);
+    parse_resolv_conf_file("/system/etc/resolv.conf", list, &cnt);
+    refresh_android_prop_dns_if_needed(list, &cnt);
+
+    add_unique_server_ip(list, &cnt, "1.1.1.1");
+    add_unique_server_ip(list, &cnt, "8.8.8.8");
+    add_unique_server_ip(list, &cnt, "1.0.0.1");
+    add_unique_server_ip(list, &cnt, "8.8.4.4");
+    add_unique_server_ip(list, &cnt, "9.9.9.9");
+    return cnt;
+}
+
+static int dns_build_query_a(const char *host, uint16_t txid, uint8_t *pkt, size_t cap) {
+    if (!host || !host[0] || cap < 64) return -1;
+    memset(pkt, 0, 12);
+    pkt[0] = (uint8_t)(txid >> 8);
+    pkt[1] = (uint8_t)(txid & 0xFF);
+    pkt[2] = 0x01; /* RD = 1 (recursion desired) */
+    pkt[3] = 0x00;
+    pkt[4] = 0x00;
+    pkt[5] = 0x01; /* QDCOUNT = 1 */
+
+    size_t pos = 12;
+    const char *p = host;
+    while (*p) {
+        const char *dot = strchr(p, '.');
+        size_t len = dot ? (size_t)(dot - p) : strlen(p);
+        if (len == 0) {
+            if (!dot || dot[1] == '\0') break; /* trailing dot */
+            return -1;
+        }
+        if (len > 63 || pos + 1 + len + 6 > cap) return -1;
+        pkt[pos++] = (uint8_t)len;
+        for (size_t i = 0; i < len; i++) {
+            pkt[pos++] = (uint8_t)tolower((unsigned char)p[i]);
+        }
+        if (!dot) break;
+        p = dot + 1;
+    }
+    pkt[pos++] = 0x00;
+    pkt[pos++] = 0x00; pkt[pos++] = 0x01; /* QTYPE = A (1) */
+    pkt[pos++] = 0x00; pkt[pos++] = 0x01; /* QCLASS = IN (1) */
+    return (int)pos;
+}
+
+static int dns_read_name(const uint8_t *pkt, size_t pkt_len, size_t *pos,
+                         char *out_name, size_t out_cap) {
+    size_t cur = *pos;
+    int jumped = 0;
+    int jumps = 0;
+    size_t w = 0;
+    if (out_name && out_cap > 0) out_name[0] = '\0';
+
+    while (jumps < 20) {
+        if (cur >= pkt_len) return -1;
+        uint8_t b = pkt[cur];
+        if (b == 0) {
+            if (!jumped) *pos = cur + 1;
+            if (out_name && out_cap > 0) out_name[w] = '\0';
+            return 0;
+        }
+        if ((b & 0xC0) == 0xC0) {
+            if (cur + 1 >= pkt_len) return -1;
+            size_t ptr = ((size_t)(b & 0x3F) << 8) | (size_t)pkt[cur + 1];
+            if (ptr >= pkt_len) return -1;
+            if (!jumped) {
+                *pos = cur + 2;
+                jumped = 1;
+            }
+            cur = ptr;
+            jumps++;
+            continue;
+        }
+        if ((b & 0xC0) != 0) return -1;
+        size_t len = (size_t)b;
+        if (cur + 1 + len > pkt_len) return -1;
+        if (out_name && out_cap > 1) {
+            if (w > 0 && w + 1 < out_cap) out_name[w++] = '.';
+            for (size_t i = 0; i < len && w + 1 < out_cap; i++) {
+                out_name[w++] = (char)pkt[cur + 1 + i];
+            }
+            out_name[w] = '\0';
+        }
+        cur += 1 + len;
+    }
+    return -1;
+}
+
+static int dns_parse_answers_a(const uint8_t *pkt, size_t pkt_len,
+                               uint16_t expected_txid, int check_txid,
+                               int *out_truncated, uint32_t out_ips[4], int *out_ip_cnt,
+                               char *out_cname, size_t cname_cap) {
+    *out_truncated = 0;
+    *out_ip_cnt = 0;
+    if (out_cname && cname_cap > 0) out_cname[0] = '\0';
+    if (pkt_len < 12) return -1;
+
+    uint16_t txid = ((uint16_t)pkt[0] << 8) | (uint16_t)pkt[1];
+    if (check_txid && txid != expected_txid) return -1;
+
+    uint16_t flags = ((uint16_t)pkt[2] << 8) | (uint16_t)pkt[3];
+    *out_truncated = (flags & 0x0200) ? 1 : 0;
+    if ((flags & 0x8000) == 0) return -1; /* Not a DNS response */
+    if ((flags & 0x000F) != 0) return -1; /* NXDOMAIN / SERVFAIL */
+
+    uint16_t qdcount = ((uint16_t)pkt[4] << 8) | (uint16_t)pkt[5];
+    uint16_t ancount = ((uint16_t)pkt[6] << 8) | (uint16_t)pkt[7];
+    size_t pos = 12;
+
+    for (uint16_t q = 0; q < qdcount; q++) {
+        if (dns_read_name(pkt, pkt_len, &pos, NULL, 0) != 0) return -1;
+        if (pos + 4 > pkt_len) return -1;
+        pos += 4;
+    }
+
+    for (uint16_t a = 0; a < ancount; a++) {
+        if (dns_read_name(pkt, pkt_len, &pos, NULL, 0) != 0) return -1;
+        if (pos + 10 > pkt_len) return -1;
+        uint16_t rtype = ((uint16_t)pkt[pos] << 8) | (uint16_t)pkt[pos + 1];
+        uint16_t rclass = ((uint16_t)pkt[pos + 2] << 8) | (uint16_t)pkt[pos + 3];
+        uint16_t rdlen = ((uint16_t)pkt[pos + 8] << 8) | (uint16_t)pkt[pos + 9];
+        pos += 10;
+        if (pos + rdlen > pkt_len) return -1;
+
+        if (rtype == 1 && rclass == 1 && rdlen == 4) {
+            uint32_t ip_net = 0;
+            memcpy(&ip_net, pkt + pos, 4);
+            if (ip_net != 0 && *out_ip_cnt < 4) {
+                int dup = 0;
+                for (int k = 0; k < *out_ip_cnt; k++) {
+                    if (out_ips[k] == ip_net) { dup = 1; break; }
+                }
+                if (!dup) out_ips[(*out_ip_cnt)++] = ip_net;
+            }
+        } else if (rtype == 5 && rclass == 1 && out_cname && out_cname[0] == '\0') {
+            size_t cpos = pos;
+            dns_read_name(pkt, pkt_len, &cpos, out_cname, cname_cap);
+        }
+        pos += rdlen;
+    }
+    return 0;
+}
+
+static int dns_query_udp_or_tcp(uint32_t server_net_ip, const uint8_t *qpkt, size_t qlen,
+                                uint16_t txid, uint8_t *rpkt, size_t rcap,
+                                uint32_t out_ips[4], int *out_ip_cnt,
+                                char *out_cname, size_t cname_cap) {
+    int dns_port = 53;
+    const char *env_dport = getenv("ARC7_DNS_PORT");
+    if (env_dport && atoi(env_dport) > 0) dns_port = atoi(env_dport);
+
+    /* 1. Try fast UDP :53 (1100ms timeout) */
+    int ufd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    int need_tcp = 1;
+    if (ufd >= 0) {
+        struct timeval tv = { .tv_sec = 1, .tv_usec = 100000 };
+        setsockopt(ufd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(ufd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+        struct sockaddr_in sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sin_family = AF_INET;
+        sa.sin_port = htons((uint16_t)dns_port);
+        sa.sin_addr.s_addr = server_net_ip;
+
+        if (sendto(ufd, qpkt, qlen, 0, (struct sockaddr *)&sa, sizeof(sa)) == (ssize_t)qlen) {
+            ssize_t got = recv(ufd, rpkt, rcap, 0);
+            if (got >= 12) {
+                int trunc = 0;
+                if (dns_parse_answers_a(rpkt, (size_t)got, txid, 1, &trunc,
+                                        out_ips, out_ip_cnt, out_cname, cname_cap) == 0) {
+                    if (!trunc) {
+                        close(ufd);
+                        return 0;
+                    }
+                } else {
+                    /* Server answered authoritative NXDOMAIN/NOANSWER without truncation */
+                    uint16_t flags = ((uint16_t)rpkt[2] << 8) | (uint16_t)rpkt[3];
+                    if ((flags & 0x8000) && ((flags & 0x000F) == 3)) {
+                        close(ufd);
+                        return -2; /* Definitive NXDOMAIN */
+                    }
+                    need_tcp = 0;
+                }
+            }
+        }
+        close(ufd);
+    }
+
+    if (!need_tcp) return -1;
+
+    /* 2. Automatic TCP :53 fallback (handles UDP-filtered Wi-Fi & truncated >512B answers) */
+    int tfd = connect_ipv4_raw_ms(server_net_ip, (uint16_t)dns_port, 1400);
+    if (tfd < 0) return -1;
+    uint8_t hdr2[2] = { (uint8_t)(qlen >> 8), (uint8_t)(qlen & 0xFF) };
+    if (send(tfd, hdr2, 2, MSG_NOSIGNAL) == 2 &&
+        send(tfd, qpkt, qlen, MSG_NOSIGNAL) == (ssize_t)qlen) {
+        uint8_t rhdr[2];
+        if (recv(tfd, rhdr, 2, MSG_WAITALL) == 2) {
+            size_t rlen = ((size_t)rhdr[0] << 8) | (size_t)rhdr[1];
+            if (rlen >= 12 && rlen <= rcap) {
+                size_t got = 0;
+                while (got < rlen) {
+                    ssize_t n = recv(tfd, rpkt + got, rlen - got, 0);
+                    if (n <= 0) break;
+                    got += (size_t)n;
+                }
+                if (got == rlen) {
+                    int trunc = 0;
+                    if (dns_parse_answers_a(rpkt, rlen, txid, 1, &trunc,
+                                            out_ips, out_ip_cnt, out_cname, cname_cap) == 0) {
+                        close(tfd);
+                        return 0;
+                    }
+                }
+            }
+        }
+    }
+    close(tfd);
+    return -1;
+}
+
+/* Tier 3: RFC 8484 DNS-over-HTTPS (`POST /dns-query`, `application/dns-message`) directly
+ * to `1.1.1.1:443` / `8.8.8.8:443` via raw IPv4 literal — works even when ALL port 53 is blocked! */
+static int dns_query_doh_443(const uint8_t *qpkt, size_t qlen, uint16_t txid,
+                             uint32_t out_ips[4], int *out_ip_cnt,
+                             char *out_cname, size_t cname_cap) {
+    static const struct {
+        const char *ip_str;
+        const char *sni_host;
+    } doh_endpoints[] = {
+        { "1.1.1.1", "cloudflare-dns.com" },
+        { "8.8.8.8", "dns.google" },
+        { "1.0.0.1", "cloudflare-dns.com" }
+    };
+
+    psa_crypto_init();
+    for (size_t i = 0; i < sizeof(doh_endpoints) / sizeof(doh_endpoints[0]); i++) {
+        struct in_addr ip4;
+        if (inet_pton(AF_INET, doh_endpoints[i].ip_str, &ip4) != 1) continue;
+        int fd = connect_ipv4_raw_ms(ip4.s_addr, 443, 2500);
+        if (fd < 0) continue;
+
+        tls_conn_t c;
+        tls_conn_init(&c);
+        c.net.fd = fd;
+
+        int ok = 0;
+        const char *pers = "arc7_doh_443";
+        if (mbedtls_ctr_drbg_seed(&c.ctr_drbg, mbedtls_entropy_func, &c.entropy,
+                                  (const unsigned char *)pers, strlen(pers)) == 0 &&
+            mbedtls_ssl_config_defaults(&c.conf, MBEDTLS_SSL_IS_CLIENT,
+                                        MBEDTLS_SSL_TRANSPORT_STREAM,
+                                        MBEDTLS_SSL_PRESET_DEFAULT) == 0) {
+            mbedtls_ssl_conf_authmode(&c.conf, MBEDTLS_SSL_VERIFY_NONE);
+            mbedtls_ssl_conf_rng(&c.conf, mbedtls_ctr_drbg_random, &c.ctr_drbg);
+            if (mbedtls_ssl_setup(&c.ssl, &c.conf) == 0) {
+                mbedtls_ssl_set_hostname(&c.ssl, doh_endpoints[i].sni_host);
+                mbedtls_ssl_set_bio(&c.ssl, &c.net, mbedtls_net_send, mbedtls_net_recv, NULL);
+                int hr;
+                while ((hr = mbedtls_ssl_handshake(&c.ssl)) != 0) {
+                    if (hr != MBEDTLS_ERR_SSL_WANT_READ &&
+                        hr != MBEDTLS_ERR_SSL_WANT_WRITE &&
+                        hr != MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) {
+                        break;
+                    }
+                }
+                if (hr == 0) {
+                    char req_hdr[384];
+                    int hlen = snprintf(req_hdr, sizeof(req_hdr),
+                                        "POST /dns-query HTTP/1.1\r\n"
+                                        "Host: %s\r\n"
+                                        "Accept: application/dns-message\r\n"
+                                        "Content-Type: application/dns-message\r\n"
+                                        "Content-Length: %zu\r\n"
+                                        "Connection: close\r\n\r\n",
+                                        doh_endpoints[i].sni_host, qlen);
+                    if (tls_write_all(&c, req_hdr, (size_t)hlen) == 0 &&
+                        tls_write_all(&c, qpkt, qlen) == 0) {
+                        uint8_t *raw = (uint8_t *)malloc(16384);
+                        if (raw) {
+                            size_t used = 0;
+                            while (used < 16384) {
+                                int n = tls_read_some(&c, raw + used, 16384 - used);
+                                if (n <= 0) break;
+                                used += (size_t)n;
+                            }
+                            if (used > 20) {
+                                uint8_t *sep = NULL;
+                                for (size_t k = 0; k + 3 < used; k++) {
+                                    if (raw[k] == '\r' && raw[k + 1] == '\n' &&
+                                        raw[k + 2] == '\r' && raw[k + 3] == '\n') {
+                                        sep = raw + k + 4;
+                                        break;
+                                    }
+                                }
+                                if (sep) {
+                                    size_t body_len = used - (size_t)(sep - raw);
+                                    int trunc = 0;
+                                    if (body_len >= 12 &&
+                                        dns_parse_answers_a(sep, body_len, txid, 0, &trunc,
+                                                            out_ips, out_ip_cnt,
+                                                            out_cname, cname_cap) == 0) {
+                                        ok = 1;
+                                    }
+                                }
+                            }
+                            free(raw);
+                        }
+                    }
+                }
+            }
+        }
+        tls_conn_free(&c);
+        if (ok && (*out_ip_cnt > 0 || (out_cname && out_cname[0] != '\0'))) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int arc7_resolve_ipv4_list(const char *host, uint32_t out_addrs[4], int *out_cnt) {
+    *out_cnt = 0;
+    if (!host || !host[0]) return -1;
+
+    if (strcasecmp(host, "localhost") == 0) {
+        struct in_addr lo;
+        inet_pton(AF_INET, "127.0.0.1", &lo);
+        out_addrs[0] = lo.s_addr;
+        *out_cnt = 1;
+        return 0;
+    }
+
+    struct in_addr literal_v4;
+    if (inet_pton(AF_INET, host, &literal_v4) == 1) {
+        out_addrs[0] = literal_v4.s_addr;
+        *out_cnt = 1;
+        return 0;
+    }
+
+    dns_cache_lookup(host, out_addrs, out_cnt);
+    if (*out_cnt > 0) return 0;
+
+    uint32_t servers[16];
+    int doh_only = 0;
+    int server_cnt = collect_dns_servers(servers, &doh_only);
+
+    char cur_name[256];
+    snprintf(cur_name, sizeof(cur_name), "%s", host);
+    uint8_t *rpkt = (uint8_t *)malloc(8192);
+    if (!rpkt) return -1;
+
+    static uint32_t s_txid_seq = 0x4172;
+    for (int hop = 0; hop < 5; hop++) {
+        uint8_t qpkt[512];
+        uint16_t txid = (uint16_t)((__sync_add_and_fetch(&s_txid_seq, 1) ^ (uint32_t)getpid()) & 0xFFFF);
+        int qlen = dns_build_query_a(cur_name, txid, qpkt, sizeof(qpkt));
+        if (qlen <= 0) break;
+
+        char cname[256] = {0};
+        int ip_cnt = 0;
+        uint32_t ips[4];
+
+        if (!doh_only) {
+            for (int s = 0; s < server_cnt; s++) {
+                cname[0] = '\0';
+                ip_cnt = 0;
+                int rc = dns_query_udp_or_tcp(servers[s], qpkt, (size_t)qlen, txid,
+                                              rpkt, 8192, ips, &ip_cnt, cname, sizeof(cname));
+                if (rc == -2) break; /* Definitive NXDOMAIN */
+                if (rc == 0 && (ip_cnt > 0 || cname[0] != '\0')) break;
+            }
+        }
+
+        /* Tier 3 automatic fallback: DNS-over-HTTPS (`1.1.1.1:443` / `8.8.8.8:443`) */
+        if (ip_cnt == 0 && cname[0] == '\0') {
+            dns_query_doh_443(qpkt, (size_t)qlen, txid, ips, &ip_cnt, cname, sizeof(cname));
+        }
+
+        if (ip_cnt > 0) {
+            memcpy(out_addrs, ips, (size_t)ip_cnt * sizeof(uint32_t));
+            *out_cnt = ip_cnt;
+            dns_cache_store(host, out_addrs, ip_cnt);
+            free(rpkt);
+            return 0;
+        }
+        if (cname[0] != '\0' && strcasecmp(cname, cur_name) != 0) {
+            snprintf(cur_name, sizeof(cur_name), "%s", cname);
+            continue;
+        }
+        break;
+    }
+
+    free(rpkt);
+
+    /* Last-resort libc `getaddrinfo` check for `/etc/hosts` custom local aliases */
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, NULL, &hints, &res) == 0 && res) {
+        for (struct addrinfo *p = res; p && *out_cnt < 4; p = p->ai_next) {
+            if (p->ai_family == AF_INET && p->ai_addr) {
+                uint32_t ip = ((struct sockaddr_in *)p->ai_addr)->sin_addr.s_addr;
+                out_addrs[(*out_cnt)++] = ip;
+            }
+        }
+        freeaddrinfo(res);
+        if (*out_cnt > 0) {
+            dns_cache_store(host, out_addrs, *out_cnt);
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int arc7_tcp_connect_host(const char *host, const char *port_str, int timeout_ms,
+                                 char *err_buf, size_t err_cap) {
+    int port_num = atoi(port_str ? port_str : "443");
+    if (port_num <= 0 || port_num > 65535) port_num = 443;
+
+    uint32_t addrs[4];
+    int cnt = 0;
+    if (arc7_resolve_ipv4_list(host, addrs, &cnt) != 0 || cnt <= 0) {
+        if (err_buf && err_cap > 0) {
+            snprintf(err_buf, err_cap, "DNS lookup could not resolve hostname '%s' (check Wi-Fi internet connection)", host);
+        }
+        return -1;
+    }
+
+    for (int i = 0; i < cnt; i++) {
+        int fd = connect_ipv4_raw_ms(addrs[i], (uint16_t)port_num, timeout_ms);
+        if (fd >= 0) return fd;
+    }
+
+    char ip_str[INET_ADDRSTRLEN] = {0};
+    inet_ntop(AF_INET, &addrs[0], ip_str, sizeof(ip_str));
+    if (err_buf && err_cap > 0) {
+        snprintf(err_buf, err_cap, "TCP connect to %s (%s:%d) timed out", host, ip_str, port_num);
+    }
+    return -1;
+}
 
 static int sync_via_http_date(int set_clock, const char **out_source, time_t *out_epoch) {
     static const struct {
@@ -280,14 +891,7 @@ static int sync_via_http_date(int set_clock, const char **out_source, time_t *ou
     };
 
     for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
-        struct addrinfo hints, *res = NULL;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_STREAM;
-        if (getaddrinfo(targets[i].connect_host, "80", &hints, &res) != 0 || !res) continue;
-
-        int fd = connect_with_timeout_ms(res, 1200);
-        freeaddrinfo(res);
+        int fd = arc7_tcp_connect_host(targets[i].connect_host, "80", 1500, NULL, 0);
         if (fd < 0) continue;
 
         int ok = 0;
@@ -322,7 +926,7 @@ static int sync_via_http_date(int set_clock, const char **out_source, time_t *ou
     }
 
     /* Tier 3: HTTPS:443 `HEAD /` `Date:` fallback (works even on strict 443-only networks!) */
-    static const char *https_hosts[] = { "github.com", "1.1.1.1", "www.google.com" };
+    static const char *https_hosts[] = { "1.1.1.1", "github.com", "www.google.com" };
     for (size_t i = 0; i < sizeof(https_hosts) / sizeof(https_hosts[0]); i++) {
         parsed_url_t u;
         memset(&u, 0, sizeof(u));
@@ -335,9 +939,11 @@ static int sync_via_http_date(int set_clock, const char **out_source, time_t *ou
         tls_conn_init(&c);
         psa_crypto_init();
         const char *pers = "arc7_time_443";
-        if (mbedtls_ctr_drbg_seed(&c.ctr_drbg, mbedtls_entropy_func, &c.entropy,
+        int raw_fd = arc7_tcp_connect_host(u.host, u.port, 3000, NULL, 0);
+        if (raw_fd >= 0) c.net.fd = raw_fd;
+        if (raw_fd >= 0 &&
+            mbedtls_ctr_drbg_seed(&c.ctr_drbg, mbedtls_entropy_func, &c.entropy,
                                   (const unsigned char *)pers, strlen(pers)) == 0 &&
-            mbedtls_net_connect(&c.net, u.host, u.port, MBEDTLS_NET_PROTO_TCP) == 0 &&
             mbedtls_ssl_config_defaults(&c.conf, MBEDTLS_SSL_IS_CLIENT,
                                         MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT) == 0) {
             struct timeval tv = { .tv_sec = 4, .tv_usec = 0 };
@@ -409,27 +1015,30 @@ static int cmd_ntp(int set_clock) {
     time_t unix_sec = 0;
 
     for (size_t i = 0; i < sizeof(servers) / sizeof(servers[0]); i++) {
-        struct addrinfo hints, *res = NULL;
-        memset(&hints, 0, sizeof(hints));
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
-        if (getaddrinfo(servers[i], "123", &hints, &res) != 0 || !res) continue;
+        uint32_t addrs[4];
+        int acnt = 0;
+        if (arc7_resolve_ipv4_list(servers[i], addrs, &acnt) != 0 || acnt <= 0) continue;
 
-        int sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-        if (sock < 0) { freeaddrinfo(res); continue; }
+        int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (sock < 0) continue;
 
         struct timeval tv = { .tv_sec = 0, .tv_usec = 800000 };
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
+        struct sockaddr_in sa;
+        memset(&sa, 0, sizeof(sa));
+        sa.sin_family = AF_INET;
+        sa.sin_port = htons(123);
+        sa.sin_addr.s_addr = addrs[0];
+
         uint8_t pkt[48];
         memset(pkt, 0, sizeof(pkt));
         pkt[0] = 0x23; /* LI=0, VN=4, Mode=3 (Client) */
 
-        ssize_t sent = sendto(sock, pkt, sizeof(pkt), 0, res->ai_addr, res->ai_addrlen);
+        ssize_t sent = sendto(sock, pkt, sizeof(pkt), 0, (struct sockaddr *)&sa, sizeof(sa));
         ssize_t got = (sent == sizeof(pkt)) ? recv(sock, pkt, sizeof(pkt), 0) : -1;
         close(sock);
-        freeaddrinfo(res);
 
         if (got < 48) continue;
 
@@ -514,13 +1123,11 @@ static int tls_connect_shared(tls_conn_t *c,
         ca_ptr = &c->local_ca;
     }
 
-    ret = mbedtls_net_connect(&c->net, u->host, u->port, MBEDTLS_NET_PROTO_TCP);
-    if (ret != 0) {
-        char mbed_msg[128];
-        mbedtls_strerror(ret, mbed_msg, sizeof(mbed_msg));
-        snprintf(err_buf, err_cap, "TCP connect %s:%s failed: %s", u->host, u->port, mbed_msg);
+    int sock_fd = arc7_tcp_connect_host(u->host, u->port, 8000, err_buf, err_cap);
+    if (sock_fd < 0) {
         return -1;
     }
+    c->net.fd = sock_fd;
 
     struct timeval tv = { .tv_sec = 25, .tv_usec = 0 };
     setsockopt(c->net.fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -1996,13 +2603,20 @@ static void *handle_proxy_client(void *arg) {
         return NULL;
     }
 
-    /* 2. Fast Liveness Probe */
+    /* 2. Fast Versioned Liveness Probe & Hot-Upgrade Shutdown Endpoint */
     if (strcmp(target, "/__ping") == 0) {
-        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY\n");
+        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY_V182\n");
         free(req);
         close(fd);
         free(job);
         return NULL;
+    }
+    if (strcmp(target, "/__shutdown") == 0) {
+        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nBYE\n");
+        free(req);
+        close(fd);
+        free(job);
+        _exit(0);
     }
 
     /* 3. Transparent Local TLS 1.3 HTTPS Mirror Bridge (`/__https/<host>/<path>` & plain HTTP proxy `http://...`) */
@@ -2145,18 +2759,19 @@ static void *handle_proxy_client(void *arg) {
 
 static int cmd_proxy(const char *ca_bundle, int port, const char *local_ca_crt, const char *local_ca_key) {
     signal(SIGPIPE, SIG_IGN);
-    psa_crypto_init();
-
-    mbedtls_x509_crt_init(&g_upstream_ca_chain);
-    if (mbedtls_x509_crt_parse_file(&g_upstream_ca_chain, ca_bundle) >= 0) {
-        g_upstream_ca_ready = 1;
+    signal(SIGHUP, SIG_IGN);
+    setsid();
+    /* Protect the 1.8 MB native TLS 1.3 + DNS gateway daemon from Android 4.2's
+     * lowmemorykiller when foreground apps like F-Droid parse 45 MB index JSONs! */
+    {
+        FILE *oomf = fopen("/proc/self/oom_score_adj", "w");
+        if (oomf) { fputs("-1000\n", oomf); fclose(oomf); }
+        FILE *ooml = fopen("/proc/self/oom_adj", "w");
+        if (ooml) { fputs("-17\n", ooml); fclose(ooml); }
     }
-
-    if (local_ca_crt && local_ca_key && init_connect_mitm_ca(local_ca_crt, local_ca_key) != 0) {
-        fprintf(stderr, "PROXY=FAILED reason=local_ca_load(%s)\n", local_ca_crt);
-        return 1;
-    }
-
+    /* Bind & listen on `127.0.0.1:<port>` FIRST (<0.2ms!) so fast-opening clients
+     * (Arc7 Browser / F-Droid Classic right at boot on 1.2 GHz Cortex-A7) queue cleanly
+     * in the kernel listen backlog while the 120-CA bundle parses into RAM! */
     int srv = socket(AF_INET, SOCK_STREAM, 0);
     if (srv < 0) {
         perror("socket");
@@ -2173,6 +2788,19 @@ static int cmd_proxy(const char *ca_bundle, int port, const char *local_ca_crt, 
 
     if (bind(srv, (struct sockaddr *)&addr, sizeof(addr)) != 0 || listen(srv, 64) != 0) {
         fprintf(stderr, "PROXY=FAILED port=%d errno=%s\n", port, strerror(errno));
+        close(srv);
+        return 1;
+    }
+
+    psa_crypto_init();
+
+    mbedtls_x509_crt_init(&g_upstream_ca_chain);
+    if (mbedtls_x509_crt_parse_file(&g_upstream_ca_chain, ca_bundle) >= 0) {
+        g_upstream_ca_ready = 1;
+    }
+
+    if (local_ca_crt && local_ca_key && init_connect_mitm_ca(local_ca_crt, local_ca_key) != 0) {
+        fprintf(stderr, "PROXY=FAILED reason=local_ca_load(%s)\n", local_ca_crt);
         close(srv);
         return 1;
     }

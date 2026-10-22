@@ -172,7 +172,7 @@ public class Android4Installer {
                 }
             }
 
-            // Disable any residual data/updated Kobo launcher or setup-wizard packages
+            // Disable only Kobo launcher / setup-wizard packages actually present on device (fast & logged!)
             String[] koboPkgs = new String[]{
                     "com.kobo.setupwizard",
                     "com.kobo.home",
@@ -186,12 +186,25 @@ public class Android4Installer {
             };
             StringBuilder disabledList = new StringBuilder();
             for (String kp : koboPkgs) {
-                moveScript.append("pm clear ").append(kp).append(" >/dev/null 2>&1 || true\n");
-                moveScript.append("pm disable ").append(kp).append(" >/dev/null 2>&1 || true\n");
-                disabledList.append(kp).append('\n');
+                boolean present = false;
+                try {
+                    if (appContext != null) {
+                        appContext.getPackageManager().getPackageInfo(kp, 0);
+                        present = true;
+                    } else if (new File("/data/data", kp).exists()) {
+                        present = true;
+                    }
+                } catch (Throwable ignored) {}
+                if (present) {
+                    moveScript.append("echo '  Disabling Kobo package: ").append(kp).append("'\n");
+                    moveScript.append("pm clear ").append(kp).append(" </dev/null >/dev/null 2>&1 || true\n");
+                    moveScript.append("pm disable ").append(kp).append(" </dev/null >/dev/null 2>&1 || true\n");
+                    disabledList.append(kp).append('\n');
+                }
             }
             if (!opts.keepKoboReaderApp) {
-                moveScript.append("pm disable com.kobobooks.android >/dev/null 2>&1 || true\n");
+                moveScript.append("echo '  Disabling Kobo Reader app'\n");
+                moveScript.append("pm disable com.kobobooks.android </dev/null >/dev/null 2>&1 || true\n");
                 disabledList.append("com.kobobooks.android\n");
             }
 
@@ -200,22 +213,27 @@ public class Android4Installer {
 
             cb.onProgress(70, "Applying Android 4.2 provisioning & Home-button fix...");
             // Write permanent first-boot & every-boot guard in /system/etc/install-recovery.sh
-            moveScript.append("cat << 'HOOK_EOF' > /system/etc/install-recovery.sh\n")
+            // IMPORTANT: redirect stdin/stdout/stderr (`>/dev/null 2>&1 </dev/null &`) on background subshells
+            // so `execRoot()` pipe EOF returns immediately without waiting for `sleep 8`!
+            moveScript.append("echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf 2>/dev/null || true\n")
+                      .append("echo 'nameserver 8.8.8.8' >> /system/etc/resolv.conf 2>/dev/null || true\n")
+                      .append("chmod 0644 /system/etc/resolv.conf 2>/dev/null || true\n")
+                      .append("cat << 'HOOK_EOF' > /system/etc/install-recovery.sh\n")
                       .append("#!/system/bin/sh\n")
                       .append("# Managed by Kobo Arc 7 Freedom - Vanilla Android 4.2 Provisioner & Root Daemon\n")
-                      .append("/system/xbin/su --daemon &\n")
-                      .append("(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) &\n")
+                      .append("/system/xbin/su --daemon >/dev/null 2>&1 </dev/null &\n")
+                      .append("(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) >/dev/null 2>&1 </dev/null &\n")
                       .append("exit 0\n")
                       .append("HOOK_EOF\n")
                       .append("chown 0:0 /system/etc/install-recovery.sh || true\n")
                       .append("chmod 0755 /system/etc/install-recovery.sh\n")
-                      .append("settings put global device_provisioned 1 2>/dev/null || true\n")
-                      .append("settings put secure device_provisioned 1 2>/dev/null || true\n")
-                      .append("settings put secure user_setup_complete 1 2>/dev/null || true\n");
+                      .append("settings put global device_provisioned 1 </dev/null 2>/dev/null || true\n")
+                      .append("settings put secure device_provisioned 1 </dev/null 2>/dev/null || true\n")
+                      .append("settings put secure user_setup_complete 1 </dev/null 2>/dev/null || true\n");
 
             if (opts.enableUnknownSources) {
-                moveScript.append("settings put global install_non_market_apps 1 2>/dev/null || true\n")
-                          .append("settings put secure install_non_market_apps 1 2>/dev/null || true\n");
+                moveScript.append("settings put global install_non_market_apps 1 </dev/null 2>/dev/null || true\n")
+                          .append("settings put secure install_non_market_apps 1 </dev/null 2>/dev/null || true\n");
             }
 
             moveScript.append("sync\n")

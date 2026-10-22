@@ -19,7 +19,7 @@ SERVE_DIR="${SCRIPT_DIR}/Kobo-WiFi-Files"
 mkdir -p "${SERVE_DIR}"
 
 BASE_RELEASE_URL="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for APK in KoboArc7Freedom.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+for APK in Upgrade-My-Kobo-To-v1.8.2.apk KoboArc7Freedom.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
     if [ ! -s "${SERVE_DIR}/${APK}" ]; then
         echo "==> Downloading ${APK} from GitHub Releases..."
         curl -fL --progress-bar "${BASE_RELEASE_URL}/${APK}" -o "${SERVE_DIR}/${APK}"

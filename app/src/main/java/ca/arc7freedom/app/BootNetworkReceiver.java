@@ -22,8 +22,10 @@ public class BootNetworkReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(final Context context, final Intent intent) {
         if (context == null || intent == null) return;
+        final String action = intent.getAction() != null ? intent.getAction() : "";
+        final boolean isPkgUpgrade = Intent.ACTION_MY_PACKAGE_REPLACED.equals(action);
         long now = System.currentTimeMillis();
-        if (Math.abs(now - lastCheckMs) < 15000L) return;
+        if (!isPkgUpgrade && Math.abs(now - lastCheckMs) < 15000L) return;
         lastCheckMs = now;
 
         final PendingResult pending = goAsync();
@@ -37,8 +39,8 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     // Ensure Home & Recents provisioning stays intact across reboots
                     if (rooted) {
                         shell.execRoot(
-                                "settings put global device_provisioned 1 >/dev/null 2>&1 || true; "
-                                + "settings put secure user_setup_complete 1 >/dev/null 2>&1 || true",
+                                "settings put global device_provisioned 1 </dev/null >/dev/null 2>&1 || true; "
+                                + "settings put secure user_setup_complete 1 </dev/null >/dev/null 2>&1 || true",
                                 null
                         );
                     }
@@ -64,15 +66,21 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         context.startService(new Intent(context, Arc7WifiDriveService.class));
                     }
 
-                    // Always keep our persistent 24/7 Local TLS 1.3 Gateway (`127.0.0.1:8118`) warm
-                    // across reboots so F-Droid Classic & Chrome never fail with SSL connection errors!
+                    // Always start the persistent 24/7 Local TLS 1.3 + 4-Tier DNS Gateway (`127.0.0.1:8118`)
+                    // IMMEDIATELY at boot or package update — even before Wi-Fi associates or MainActivity opens —
+                    // so F-Droid Classic & Arc7 Browser work instantly on first tap!
                     Arc7TlsGatewayService.ensureStarted(context);
+                    NetworkCertManager certMgr = new NetworkCertManager(context, shell);
+                    certMgr.ensureCaBundleFile();
+                    certMgr.startBrowserGateway();
+
+                    if (isPkgUpgrade && rooted) {
+                        new TabletOptimizerManager(context, shell).ensureCompanionAppsUpgradedSilently();
+                    }
 
                     ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
                     NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
                     if (active != null && active.isConnected()) {
-                        NetworkCertManager certMgr = new NetworkCertManager(context, shell);
-                        certMgr.ensureCaBundleFile();
                         if (Calendar.getInstance().get(Calendar.YEAR) < 2026 && rooted) {
                             String tlsPath = shell.getTlsEngineBinary().getAbsolutePath();
                             RootShell.ExecResult r = shell.execRoot("'" + tlsPath + "' ntp --set", null);
@@ -85,7 +93,6 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                                 }
                             }
                         }
-                        certMgr.startBrowserGateway();
                     }
                 } catch (Throwable ignored) {
                 } finally {

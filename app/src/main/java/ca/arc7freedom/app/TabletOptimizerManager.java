@@ -307,10 +307,21 @@ public class TabletOptimizerManager {
                 ctx.getPackageManager().getPackageInfo("eu.bubu1.fdroidclassic.debug", 0);
                 int sigCmp = ctx.getPackageManager().checkSignatures(
                         ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
+                android.content.SharedPreferences prefs =
+                        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
                 if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
                     installBundledFDroidClassic(new LogSink() {
                         @Override public void onLog(String line) {}
                     });
+                    prefs.edit().putBoolean("fdroid_clean_v182", true).commit();
+                } else if (!prefs.getBoolean("fdroid_clean_v182", false)) {
+                    // Wipe any partial HTTP 502 cache files & stale repo rows left from pre-v1.8.2 DNS failure
+                    // so F-Droid Classic initializes clean `http://127.0.0.1:8118/__https/...` repos from byte 0!
+                    shell.execRoot(
+                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
+                            "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
+                            null);
+                    prefs.edit().putBoolean("fdroid_clean_v182", true).commit();
                 }
             } catch (Throwable ignored) {}
         } catch (Throwable ignored) {}

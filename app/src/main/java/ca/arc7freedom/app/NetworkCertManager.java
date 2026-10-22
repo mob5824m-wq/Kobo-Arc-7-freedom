@@ -641,9 +641,71 @@ public class NetworkCertManager {
         return caDir;
     }
 
+    public static final String EXPECTED_GATEWAY_PING = "ARC7_TLS13_READY_V182";
+
+    public static String probeGatewayPing(int port) {
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress("127.0.0.1", port), 250);
+            s.setSoTimeout(400);
+            s.getOutputStream().write("GET /__ping HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".getBytes("UTF-8"));
+            s.getOutputStream().flush();
+            InputStream in = s.getInputStream();
+            byte[] buf = new byte[512];
+            StringBuilder sb = new StringBuilder();
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                sb.append(new String(buf, 0, n, "UTF-8"));
+            }
+            return sb.toString();
+        } catch (Throwable ignored) {
+            return "";
+        } finally {
+            try { s.close(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private void shutdownAnyStaleGateway(int port) {
+        stopBrowserGateway();
+        // Ask any previous daemon supporting `/__shutdown` to exit cleanly
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress("127.0.0.1", port), 200);
+            s.setSoTimeout(250);
+            s.getOutputStream().write("GET /__shutdown HTTP/1.0\r\nConnection: close\r\n\r\n".getBytes("UTF-8"));
+            s.getOutputStream().flush();
+        } catch (Throwable ignored) {
+        } finally {
+            try { s.close(); } catch (Throwable ignored) {}
+        }
+        // Also terminate any pre-v1.8.2 `libarc7tls.so` orphan PIDs via pure `/proc` scan (no `pkill` needed!)
+        String killLoop =
+                "for _p in /proc/[0-9]*; do " +
+                "  if [ -r \"$_p/cmdline\" ]; then " +
+                "    _cmd=$(tr '\\000' ' ' < \"$_p/cmdline\" 2>/dev/null || cat \"$_p/cmdline\" 2>/dev/null || true); " +
+                "    case \"$_cmd\" in *arc7tls*proxy*) kill -9 \"${_p##*/}\" 2>/dev/null || true ;; esac; " +
+                "  fi; " +
+                "done";
+        try {
+            shell.execSh(killLoop, null);
+            if (shell.isRootAvailable()) {
+                shell.execRoot(killLoop, null);
+            }
+        } catch (Throwable ignored) {}
+        for (int i = 0; i < 10; i++) {
+            if (!isLocalProxyListening(port)) break;
+            try { Thread.sleep(80); } catch (Throwable ignored) {}
+        }
+    }
+
     public synchronized boolean startBrowserGateway() {
         if (isLocalProxyListening(DEFAULT_PROXY_PORT)) {
-            return true;
+            String ping = probeGatewayPing(DEFAULT_PROXY_PORT);
+            if (ping.contains(EXPECTED_GATEWAY_PING)) {
+                return true;
+            }
+            // Older daemon binary is holding port 8118 across an in-place APK update — hot-swap it now!
+            shutdownAnyStaleGateway(DEFAULT_PROXY_PORT);
         }
         try {
             File bundleFile = ensureCaBundleFile();
@@ -651,6 +713,20 @@ public class NetworkCertManager {
             File localCaDir = ensureLocalUpgradeCaDir();
             File localCrt = new File(localCaDir, "local-ca.crt");
             File localKey = new File(localCaDir, "local-ca.key");
+
+            // Also ensure `/system/etc/resolv.conf` exists on rooted Android 4.2 devices so CLI tools work too
+            if (shell.isRootAvailable() && !new File("/system/etc/resolv.conf").exists()) {
+                try {
+                    shell.execRoot(
+                            RootShell.remountSystemRwCmd() + " && " +
+                            "echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf && " +
+                            "echo 'nameserver 8.8.8.8' >> /system/etc/resolv.conf && " +
+                            "chmod 0644 /system/etc/resolv.conf && " +
+                            "ln -s /system/etc/resolv.conf /etc/resolv.conf 2>/dev/null || true; " +
+                            RootShell.remountSystemRoCmd(),
+                            null);
+                } catch (Throwable ignored) {}
+            }
 
             ProcessBuilder pb;
             if (localCrt.exists() && localKey.exists()) {

@@ -85,14 +85,14 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v1.8.1 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v1.8.2 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap root upgrade (replaces old signing key + installs su/uname/cp + 120 2026 CAs + Widgets + F-Droid)...");
+        statusSub.setText("Preparing 1-tap root upgrade (installs v1.8.2 Built-In 4-Tier DNS + TLS 1.3 Engine + su/uname/cp + 120 2026 CAs + Widgets + F-Droid)...");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
@@ -109,7 +109,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v1.8.1 Upgrade Again");
+        actionBtn.setText("Run v1.8.2 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -126,7 +126,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v1.8.1 ->");
+        launchBtn.setText("Open Freedom v1.8.2 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -279,19 +279,19 @@ public class UpgraderActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    uiProgress(10, "Unpacking v1.8.1 APKs, multi-call su/uname/cp & 120 2026 Root CAs...");
-                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v1.8.1 ===");
+                    uiProgress(10, "Unpacking v1.8.2 APKs, 4-Tier DNS + TLS 1.3 Engine & 120 2026 Root CAs...");
+                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v1.8.2 ===");
 
                     File appFiles = getFilesDir();
                     makeWorldReadableDir(appFiles != null ? appFiles.getParentFile() : null);
                     makeWorldReadableDir(appFiles);
 
-                    File stageDir = new File(appFiles, "up181");
+                    File stageDir = new File(appFiles, "up182");
                     makeWorldReadableDir(stageDir);
                     File caDir = new File(stageDir, "cacerts");
                     makeWorldReadableDir(caDir);
 
-                    // 1. Extract main KoboArc7Freedom.apk (v1.8.1)
+                    // 1. Extract main KoboArc7Freedom.apk (v1.8.2)
                     File mainApk = new File(stageDir, "KoboArc7Freedom.apk");
                     InputStream mainIn = getAssets().open("KoboArc7Freedom.apk");
                     try {
@@ -299,7 +299,7 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         mainIn.close();
                     }
-                    uiLog("[1/5] Unpacked KoboArc7Freedom v1.8.1 (" + (mainApk.length() / 1024) + " KB)");
+                    uiLog("[1/5] Unpacked KoboArc7Freedom v1.8.2 (" + (mainApk.length() / 1024) + " KB)");
 
                     // 2. Extract multi-call `libarc7su.so`, `VanillaAndroid4Home.apk` (v48),
                     // `FDroidClassicLegacy.apk` (TLS 1.3 bridge), and all 120 `cacerts/*.0` directly
@@ -417,6 +417,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true\n");
 
                     // Step F: Replace `eu.bubu1.fdroidclassic.debug` with patched TLS-1.3-bridged `FDroidClassicLegacy`
+                    // and wipe any stale cached 502 files so F-Droid fetches a clean signed index immediately!
                     sh.append("_pm_fd=$(pm install -r /data/local/tmp/FDroidClassicLegacy.apk 2>&1 || true)\n");
                     sh.append("case \"$_pm_fd\" in\n");
                     sh.append("  *Success*) echo \"STEP_E_FDROID_INPLACE=$_pm_fd\" ;;\n");
@@ -427,8 +428,16 @@ public class UpgraderActivity extends Activity {
                     sh.append("    echo \"STEP_E_FDROID_CLEAN=$_pm_fd\"\n");
                     sh.append("    ;;\n");
                     sh.append("esac\n");
+                    sh.append("am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
+                    sh.append("pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
 
-                    // Clean DNS + mount `/system` clean `ro`
+                    // Stop any pre-v1.8.2 `libarc7tls.so` daemon so v1.8.2 binds 127.0.0.1:8118 cleanly
+                    sh.append("for _p in /proc/[0-9]*; do if [ -r \"$_p/cmdline\" ]; then _c=$(tr '\\000' ' ' < \"$_p/cmdline\" 2>/dev/null || true); case \"$_c\" in *arc7tls*proxy*) kill -9 \"${_p##*/}\" 2>/dev/null || true ;; esac; fi; done\n");
+
+                    // Provision `/system/etc/resolv.conf` + clean DNS + mount `/system` clean `ro`
+                    sh.append("echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf 2>/dev/null || true\n");
+                    sh.append("echo 'nameserver 8.8.8.8' >> /system/etc/resolv.conf 2>/dev/null || true\n");
+                    sh.append("chmod 0644 /system/etc/resolv.conf 2>/dev/null || true\n");
                     sh.append("setprop net.dns1 1.1.1.1; setprop net.dns2 8.8.8.8\n");
                     sh.append("settings put global captive_portal_detection_enabled 0 >/dev/null 2>&1 || true\n");
                     sh.append("sync\n");
@@ -455,8 +464,8 @@ public class UpgraderActivity extends Activity {
                     }
 
                     if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v1.8.1 + Widgets + F-Droid + 120 2026 CAs installed!");
-                        uiLog("[5/5] SUCCESS! Launching Kobo Arc 7 Freedom v1.8.1 now...");
+                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v1.8.2 + 4-Tier DNS + TLS 1.3 + F-Droid ready!");
+                        uiLog("[5/5] SUCCESS! Launching Kobo Arc 7 Freedom v1.8.2 now...");
                         ui.post(new Runnable() {
                             @Override
                             public void run() {

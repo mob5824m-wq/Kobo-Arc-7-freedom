@@ -141,8 +141,8 @@ public class MainActivity extends Activity {
             }
         }).start();
 
-        appendLog("Kobo Arc 7 Freedom v1.8.1 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", Pure-Toolbox Root Shell + Multi-Call su/uname/cp + 120 2026 CAs + TLS 1.3 + Separate App Tasks + USB ADB Backup + Home Widgets + Patched F-Droid).");
+        appendLog("Kobo Arc 7 Freedom v1.8.2 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Built-In 4-Tier Pure-C DNS + TLS 1.3 Engine + Pure-Toolbox Root Shell + Separate App Tasks + USB ADB Backup + Home Widgets + Patched F-Droid).");
         refreshDeviceSnapshotAsync();
     }
 

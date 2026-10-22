@@ -213,6 +213,7 @@ if not os.path.exists("build/mbedtls-arm/libmbedtls_all.a"):
         subprocess.run(
             zig + ["cc", "-target", "arm-linux-musleabi", "-march=armv7-a", "-mcpu=cortex_a8",
                    "-Os", "-ffunction-sections", "-fdata-sections",
+                   "-DMBEDTLS_THREADING_C", "-DMBEDTLS_THREADING_PTHREAD",
                    f"-I{mbed}/include", f"-I{mbed}/library", "-c", s, "-o", o],
             check=True,
         )
@@ -254,6 +255,7 @@ $ZIG_CMD cc $CFLAGS_ARM -DHAVE_UNISTD_H=1 -DHAVE_STDARG_H=1 -I"$ZLIB_DIR" native
     "$ZLIB_DIR"/trees.c "$ZLIB_DIR"/uncompr.c "$ZLIB_DIR"/zutil.c \
     -o build/native/armeabi-v7a/libarc7tool.so
 $ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
+    -DMBEDTLS_THREADING_C -DMBEDTLS_THREADING_PTHREAD \
     -I"$MBEDTLS_DIR/include" -I"$BEARSSL_DIR/inc" \
     native/arc7tls.c \
     build/mbedtls-arm/libmbedtls_all.a \
@@ -339,7 +341,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.8.1.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.8.2.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -363,6 +365,7 @@ compile_java_and_dex \
 
 (cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
+rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
     --ks-pass "pass:$KEYSTORE_PASS" \
@@ -372,7 +375,7 @@ compile_java_and_dex \
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v1.8.1.apk \
+    --out releases/Upgrade-My-Kobo-To-v1.8.2.apk \
     build/upgrader/aligned.apk
 
 echo "==> [7/8] Generating static Web Portals & writing SHA256SUMS.txt..."
@@ -380,7 +383,7 @@ rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v1.8.1.apk \
+    Upgrade-My-Kobo-To-v1.8.2.apk \
     KoboArc7Freedom.apk \
     VanillaAndroid4Home.apk \
     Backup-Kobo-To-Laptop-ADB.bat \
@@ -389,7 +392,7 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v1.8.1.apk \
+    releases/Upgrade-My-Kobo-To-v1.8.2.apk \
     releases/KoboArc7Freedom.apk \
     releases/VanillaAndroid4Home.apk \
     releases/Backup-Kobo-To-Laptop-ADB.bat \

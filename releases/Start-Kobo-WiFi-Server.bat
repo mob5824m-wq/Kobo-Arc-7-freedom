@@ -34,6 +34,7 @@ Write-Host "Serving folder: $ServeDir" -ForegroundColor Gray
 # Auto-download latest signed APKs from GitHub Releases if run standalone in Downloads!
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $NeededApks = @(
+    @{ Name = "Upgrade-My-Kobo-To-v1.8.2.apk"; Url = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Upgrade-My-Kobo-To-v1.8.2.apk" },
     @{ Name = "KoboArc7Freedom.apk"; Url = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk" },
     @{ Name = "VanillaAndroid4Home.apk"; Url = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/VanillaAndroid4Home.apk" }
 )

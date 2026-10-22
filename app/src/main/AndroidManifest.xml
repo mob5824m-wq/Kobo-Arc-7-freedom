@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="181"
-    android:versionName="1.8.1"
+    android:versionCode="182"
+    android:versionName="1.8.2"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -258,10 +258,11 @@
                 android:resource="@xml/widget_arc7_power_info" />
         </receiver>
 
-        <!-- Boot / Wi-Fi Receiver -->
+        <!-- Boot / Wi-Fi / Self-Upgrade Receiver -->
         <receiver android:name=".BootNetworkReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
                 <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
