@@ -172,26 +172,61 @@ public class Android4Installer {
                 }
             }
 
-            // Disable any residual data/updated Kobo launcher or setup-wizard packages
+            // Disable & archive Default Launchers, Kobo Care, & Discontinued packages present on device
             String[] koboPkgs = new String[]{
-                    "com.kobo.setupwizard",
+                    "com.android.launcher",
+                    "com.android.launcher2",
+                    "com.android.launcher3",
                     "com.kobo.home",
                     "com.kobo.launcher",
+                    "com.kobo.arc.home",
                     "com.kobo.tapestry",
+                    "com.kobo.care",
+                    "com.kobo.support",
+                    "com.kobo.help",
+                    "com.kobo.diagnostics",
+                    "com.kobo.analytics",
                     "com.kobo.arc.setup",
+                    "com.kobo.setup",
+                    "com.kobo.setupwizard",
                     "com.kobo.ota",
                     "com.kobo.updater",
                     "com.kobobooks.jit",
-                    "com.kobobooks.stubs"
+                    "com.kobobooks.stubs",
+                    "com.ideashower.readitlater.pro",
+                    "com.pocket.app",
+                    "com.zinio.mobile.android.reader",
+                    "uk.co.sevendigital.android",
+                    "com.rdio.android.ui",
+                    "com.google.android.apps.plus",
+                    "com.google.android.talk",
+                    "com.google.android.apps.magazines",
+                    "com.google.android.ears",
+                    "com.google.android.videos",
+                    "com.google.android.apps.genie.geniewidget"
             };
             StringBuilder disabledList = new StringBuilder();
             for (String kp : koboPkgs) {
-                moveScript.append("pm clear ").append(kp).append(" >/dev/null 2>&1 || true\n");
-                moveScript.append("pm disable ").append(kp).append(" >/dev/null 2>&1 || true\n");
-                disabledList.append(kp).append('\n');
+                boolean present = false;
+                try {
+                    if (appContext != null) {
+                        appContext.getPackageManager().getPackageInfo(kp, 0);
+                        present = true;
+                    } else if (new File("/data/data", kp).exists()) {
+                        present = true;
+                    }
+                } catch (Throwable ignored) {}
+                if (present) {
+                    moveScript.append("echo '  Removing/Disabling legacy package: ").append(kp).append("'\n");
+                    moveScript.append("pm uninstall ").append(kp).append(" </dev/null >/dev/null 2>&1 || true\n");
+                    moveScript.append("pm clear ").append(kp).append(" </dev/null >/dev/null 2>&1 || true\n");
+                    moveScript.append("pm disable ").append(kp).append(" </dev/null >/dev/null 2>&1 || true\n");
+                    disabledList.append(kp).append('\n');
+                }
             }
             if (!opts.keepKoboReaderApp) {
-                moveScript.append("pm disable com.kobobooks.android >/dev/null 2>&1 || true\n");
+                moveScript.append("echo '  Disabling Kobo Reader app'\n");
+                moveScript.append("pm disable com.kobobooks.android </dev/null >/dev/null 2>&1 || true\n");
                 disabledList.append("com.kobobooks.android\n");
             }
 
@@ -200,22 +235,27 @@ public class Android4Installer {
 
             cb.onProgress(70, "Applying Android 4.2 provisioning & Home-button fix...");
             // Write permanent first-boot & every-boot guard in /system/etc/install-recovery.sh
-            moveScript.append("cat << 'HOOK_EOF' > /system/etc/install-recovery.sh\n")
+            // IMPORTANT: redirect stdin/stdout/stderr (`>/dev/null 2>&1 </dev/null &`) on background subshells
+            // so `execRoot()` pipe EOF returns immediately without waiting for `sleep 8`!
+            moveScript.append("echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf 2>/dev/null || true\n")
+                      .append("echo 'nameserver 8.8.8.8' >> /system/etc/resolv.conf 2>/dev/null || true\n")
+                      .append("chmod 0644 /system/etc/resolv.conf 2>/dev/null || true\n")
+                      .append("cat << 'HOOK_EOF' > /system/etc/install-recovery.sh\n")
                       .append("#!/system/bin/sh\n")
                       .append("# Managed by Kobo Arc 7 Freedom - Vanilla Android 4.2 Provisioner & Root Daemon\n")
-                      .append("/system/xbin/su --daemon &\n")
-                      .append("(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) &\n")
+                      .append("/system/xbin/su --daemon >/dev/null 2>&1 </dev/null &\n")
+                      .append("(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) >/dev/null 2>&1 </dev/null &\n")
                       .append("exit 0\n")
                       .append("HOOK_EOF\n")
                       .append("chown 0:0 /system/etc/install-recovery.sh || true\n")
                       .append("chmod 0755 /system/etc/install-recovery.sh\n")
-                      .append("settings put global device_provisioned 1 2>/dev/null || true\n")
-                      .append("settings put secure device_provisioned 1 2>/dev/null || true\n")
-                      .append("settings put secure user_setup_complete 1 2>/dev/null || true\n");
+                      .append("settings put global device_provisioned 1 </dev/null 2>/dev/null || true\n")
+                      .append("settings put secure device_provisioned 1 </dev/null 2>/dev/null || true\n")
+                      .append("settings put secure user_setup_complete 1 </dev/null 2>/dev/null || true\n");
 
             if (opts.enableUnknownSources) {
-                moveScript.append("settings put global install_non_market_apps 1 2>/dev/null || true\n")
-                          .append("settings put secure install_non_market_apps 1 2>/dev/null || true\n");
+                moveScript.append("settings put global install_non_market_apps 1 </dev/null 2>/dev/null || true\n")
+                          .append("settings put secure install_non_market_apps 1 </dev/null 2>/dev/null || true\n");
             }
 
             moveScript.append("sync\n")
@@ -229,10 +269,29 @@ public class Android4Installer {
                 throw new IllegalStateException("System modification script failed: " + r2.stdout);
             }
 
-            cb.onProgress(100, "Normal Android 4.2 installed! (" + archivedCount
-                    + " Kobo APKs archived safely to " + archiveDir.getAbsolutePath() + ")");
+            // Also automatically provision Aurora Store (`com.aurora.store`), F-Droid Classic,
+            // native `python3` + `apt`, AND automatic local timezone + atomic time sync!
+            if (appContext != null) {
+                TabletOptimizerManager opt = new TabletOptimizerManager(appContext, shell);
+                TabletOptimizerManager.LogSink optLog = new TabletOptimizerManager.LogSink() {
+                    @Override public void onLog(String line) { cb.onLog(line); }
+                };
+                opt.installBundledAuroraStore(optLog);
+                opt.installBundledFDroidClassic(optLog);
+                opt.provisionPython3AndAptSystemWide(optLog, true);
+                try {
+                    new NetworkCertManager(appContext, shell).syncTimeAndTimezoneAutomatically(true,
+                            new NetworkCertManager.ProgressListener() {
+                                @Override public void onProgress(int pct, String stage) {}
+                                @Override public void onLog(String line) { cb.onLog(line); }
+                            });
+                } catch (Throwable ignored) {}
+            }
+
+            cb.onProgress(100, "Normal Android 4.2 + Aurora Store + Python 3 + apt installed! (" + archivedCount
+                    + " Kobo/Default-Launcher/Discontinued APKs archived safely to " + archiveDir.getAbsolutePath() + ")");
             cb.onLog("=== Conversion to Stock Android 4.2 Jelly Bean Complete! ===");
-            cb.onLog("Press the HOME button (or Reboot) and choose 'Android 4 Home' -> 'Always'!");
+            cb.onLog("Default stock launcher removed cleanly — pressing HOME launches Android 4 Home directly!");
         } finally {
             if (wl.isHeld()) wl.release();
         }
@@ -585,9 +644,11 @@ public class Android4Installer {
     public static boolean shouldArchiveKoboApk(String apkFileName, boolean keepReader) {
         String low = apkFileName.toLowerCase(Locale.US);
         /* CRITICAL BRICK GUARD: NEVER archive KoboArc7Freedom.apk, VanillaAndroid4Home.apk,
-         * Android framework resources, SystemUI, Settings, keyboard, or MTK/NVIDIA HALs! */
+         * AuroraStore.apk, F-Droid, Android framework resources, SystemUI, Settings, keyboard, or HALs! */
         if (low.contains("arc7freedom")
                 || low.contains("vanillaandroid4")
+                || low.contains("aurorastore")
+                || low.contains("fdroid")
                 || low.contains("framework")
                 || low.endsWith("-res.apk")
                 || low.contains("systemui")
@@ -608,10 +669,31 @@ public class Android4Installer {
         if (keepReader && (low.equals("koboreader.apk") || low.contains("kobobooks"))) {
             return false;
         }
+        // Archive ALL Kobo preloads (including Kobo Care), stock Default Launchers (`Launcher.apk` /
+        // `Launcher2.apk`), AND discontinued 2012-2013 services (`Pocket`, `Zinio`, `7digital`, `Rdio`,
+        // `Google+`, `Talk`/`Hangouts`, `Magazines`/`Currents`, `GoogleEars`, `Videos`, `GenieWidget`)!
         return low.contains("kobo")
                 || low.contains("tapestry")
                 || low.contains("arcsetup")
-                || low.contains("archome");
+                || low.contains("archome")
+                || low.equals("launcher.apk")
+                || low.equals("launcher2.apk")
+                || low.equals("launcher3.apk")
+                || low.contains("launcher2")
+                || low.contains("pocket")
+                || low.contains("readitlater")
+                || low.contains("zinio")
+                || low.contains("7digital")
+                || low.contains("sevendigital")
+                || low.contains("rdio")
+                || low.contains("plusone")
+                || low.equals("talk.apk")
+                || low.contains("hangouts")
+                || low.contains("magazines")
+                || low.contains("currents")
+                || low.contains("googleears")
+                || low.equals("videos.apk")
+                || low.contains("geniewidget");
     }
 
     private static String resolveSystemMountDevice(DeviceInspector.Snapshot snap) {

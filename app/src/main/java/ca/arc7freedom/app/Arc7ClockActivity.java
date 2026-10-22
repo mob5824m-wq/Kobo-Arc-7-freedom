@@ -20,6 +20,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.TimePicker;
 import android.widget.Toast;
@@ -113,11 +114,30 @@ public class Arc7ClockActivity extends Activity {
         title.setTypeface(Typeface.DEFAULT_BOLD);
         header.addView(title, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
+        final Button modeToggleBtn = makeButton(
+                Arc7ClockStore.is12HourMode(this) ? "12-HR (AM/PM)" : "24-HR MODE",
+                0xFF2E7D32);
+        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(38));
+        mlp.rightMargin = dp(8);
+        modeToggleBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean next = !Arc7ClockStore.is12HourMode(Arc7ClockActivity.this);
+                Arc7ClockStore.set12HourMode(Arc7ClockActivity.this, next);
+                modeToggleBtn.setText(next ? "12-HR (AM/PM)" : "24-HR MODE");
+                refreshAlarmsList();
+                updateLiveDisplays();
+            }
+        });
+        header.addView(modeToggleBtn, mlp);
+
         Button standBtn = makeButton("Nightstand Dock", 0xFF00838F);
         standBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivity(new Intent(Arc7ClockActivity.this, Arc7DeskClockActivity.class));
+                Arc7UiAnimator.startAnimated(Arc7ClockActivity.this,
+                        new Intent(Arc7ClockActivity.this, Arc7DeskClockActivity.class));
             }
         });
         header.addView(standBtn);
@@ -166,6 +186,7 @@ public class Arc7ClockActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
 
         int initialTab = getIntent() != null ? getIntent().getIntExtra("tab", 0) : 0;
         selectTab(Math.max(0, Math.min(3, initialTab)));
@@ -186,6 +207,7 @@ public class Arc7ClockActivity extends Activity {
     }
 
     private void selectTab(int idx) {
+        boolean changed = (currentTab != idx);
         currentTab = idx;
         for (int i = 0; i < 4; i++) {
             tabPages[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
@@ -194,6 +216,7 @@ public class Arc7ClockActivity extends Activity {
             if (i == idx) {
                 gd.setColor(0xFF0097A7);
                 tabButtons[i].setTextColor(Color.WHITE);
+                if (changed) Arc7UiAnimator.animatePageSwitch(tabPages[i]);
             } else {
                 gd.setColor(0xFF233446);
                 tabButtons[i].setTextColor(0xFFB0BEC5);
@@ -366,16 +389,17 @@ public class Arc7ClockActivity extends Activity {
             LinearLayout info = new LinearLayout(this);
             info.setOrientation(LinearLayout.VERTICAL);
             TextView timeTv = new TextView(this);
-            timeTv.setText(entry.formatTime24And12());
+            timeTv.setText(entry.formatTimePreferred(this));
             timeTv.setTextColor(entry.enabled ? Color.WHITE : 0xFF78909C);
             timeTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
             timeTv.setTypeface(Typeface.DEFAULT_BOLD);
             info.addView(timeTv);
 
             TextView metaTv = new TextView(this);
-            metaTv.setText(entry.label + "  •  " + entry.describeRepeat());
+            metaTv.setText(entry.label + "  •  " + entry.describeRepeat()
+                    + "\nVol: " + entry.volumePercent + "%  •  " + Arc7ClockStore.getChimeLabel(entry.chimeId));
             metaTv.setTextColor(entry.enabled ? 0xFF80DEEA : 0xFF607D8B);
-            metaTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            metaTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             info.addView(metaTv);
 
             info.setOnClickListener(new View.OnClickListener() {
@@ -421,12 +445,14 @@ public class Arc7ClockActivity extends Activity {
     }
 
     private void showEditAlarmDialog(final Arc7ClockStore.AlarmEntry existing) {
+        ScrollView scroll = new ScrollView(this);
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(16), dp(10), dp(16), dp(6));
+        form.setPadding(dp(16), dp(8), dp(16), dp(6));
+        scroll.addView(form);
 
         final TimePicker tp = new TimePicker(this);
-        tp.setIs24HourView(false);
+        tp.setIs24HourView(!Arc7ClockStore.is12HourMode(this));
         Calendar cal = Calendar.getInstance();
         tp.setCurrentHour(existing != null ? existing.hour : cal.get(Calendar.HOUR_OF_DAY));
         tp.setCurrentMinute(existing != null ? existing.minute : cal.get(Calendar.MINUTE));
@@ -465,16 +491,111 @@ public class Arc7ClockActivity extends Activity {
             }
         });
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
         rlp.topMargin = dp(8);
         form.addView(repeatCycleBtn, rlp);
 
+        // Nostalgic Apple & Android Alarm Chime Selector + Live Preview!
+        final int[] selectedChimeIdx = new int[]{
+                existing != null ? Arc7ClockStore.getChimeIndex(existing.chimeId) : 0
+        };
+        final int[] chosenVolPct = new int[]{
+                existing != null ? existing.volumePercent : 85
+        };
+
+        LinearLayout chimeRow = new LinearLayout(this);
+        chimeRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams crlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
+        crlp.topMargin = dp(8);
+
+        final Button chimeBtn = makeButton(
+                "Chime: " + Arc7ClockStore.CHIME_LABELS[selectedChimeIdx[0]], 0xFF4A148C);
+        chimeBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        chimeBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                new AlertDialog.Builder(Arc7ClockActivity.this, AlertDialog.THEME_HOLO_DARK)
+                        .setTitle("Choose Nostalgic Apple or Android Chime")
+                        .setSingleChoiceItems(Arc7ClockStore.CHIME_LABELS, selectedChimeIdx[0],
+                                new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int which) {
+                                        selectedChimeIdx[0] = which;
+                                        chimeBtn.setText("Chime: " + Arc7ClockStore.CHIME_LABELS[which]);
+                                        Arc7ClockStore.previewChime(
+                                                Arc7ClockActivity.this,
+                                                Arc7ClockStore.CHIME_IDS[which],
+                                                Math.max(15, chosenVolPct[0]));
+                                    }
+                                })
+                        .setPositiveButton("Use Selected Chime", new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int w) {
+                                Arc7ClockStore.stopAlarmRinging();
+                            }
+                        })
+                        .show();
+            }
+        });
+        chimeRow.addView(chimeBtn, new LinearLayout.LayoutParams(0, dp(44), 1f));
+
+        View cgap = new View(this);
+        chimeRow.addView(cgap, new LinearLayout.LayoutParams(dp(8), dp(1)));
+
+        Button previewBtn = makeButton("\u25B6 Test", 0xFF00838F);
+        previewBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7ClockStore.previewChime(
+                        Arc7ClockActivity.this,
+                        Arc7ClockStore.CHIME_IDS[selectedChimeIdx[0]],
+                        chosenVolPct[0]);
+            }
+        });
+        chimeRow.addView(previewBtn, new LinearLayout.LayoutParams(dp(92), dp(44)));
+        form.addView(chimeRow, crlp);
+
+        // Individual Per-Alarm Volume Slider (`0% - 100%`)
+        final TextView volLabel = new TextView(this);
+        volLabel.setText("Individual Alarm Volume: " + chosenVolPct[0] + "%");
+        volLabel.setTextColor(0xFFFFD54F);
+        volLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
+        volLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        volLabel.setPadding(dp(2), dp(10), dp(2), dp(2));
+        form.addView(volLabel);
+
+        SeekBar volBar = new SeekBar(this);
+        volBar.setMax(100);
+        volBar.setProgress(chosenVolPct[0]);
+        volBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                chosenVolPct[0] = progress;
+                volLabel.setText("Individual Alarm Volume: " + progress + "%"
+                        + (progress == 0 ? " (Silent Screen-Wake Only)" : ""));
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                if (chosenVolPct[0] > 0) {
+                    Arc7ClockStore.previewChime(
+                            Arc7ClockActivity.this,
+                            Arc7ClockStore.CHIME_IDS[selectedChimeIdx[0]],
+                            chosenVolPct[0]);
+                }
+            }
+        });
+        form.addView(volBar, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
         new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
                 .setTitle(existing == null ? "Set New Alarm" : "Edit Alarm")
-                .setView(form)
+                .setView(scroll)
                 .setPositiveButton("Save & Enable Alarm", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
+                        Arc7ClockStore.stopAlarmRinging();
                         tp.clearFocus();
                         List<Arc7ClockStore.AlarmEntry> list = Arc7ClockStore.loadAlarms(Arc7ClockActivity.this);
                         Arc7ClockStore.AlarmEntry target = null;
@@ -493,6 +614,8 @@ public class Arc7ClockActivity extends Activity {
                         String lbl = labelEt.getText().toString().trim();
                         target.label = lbl.isEmpty() ? "Alarm" : lbl;
                         target.repeatMask = repeatOptions[chosenIdx[0]];
+                        target.chimeId = Arc7ClockStore.CHIME_IDS[selectedChimeIdx[0]];
+                        target.volumePercent = chosenVolPct[0];
                         target.enabled = true;
                         Arc7ClockStore.saveAlarms(Arc7ClockActivity.this, list);
                         Arc7ClockStore.scheduleOrCancelAlarm(Arc7ClockActivity.this, target);
@@ -502,7 +625,12 @@ public class Arc7ClockActivity extends Activity {
                                 Toast.LENGTH_LONG).show();
                     }
                 })
-                .setNegativeButton("Cancel", null)
+                .setNegativeButton("Cancel", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        Arc7ClockStore.stopAlarmRinging();
+                    }
+                })
                 .show();
     }
 
@@ -767,9 +895,12 @@ public class Arc7ClockActivity extends Activity {
 
     private void updateLiveDisplays() {
         Date now = new Date();
+        boolean use12 = Arc7ClockStore.is12HourMode(this);
         if (currentTab == 0 && mainDigitalClockTv != null) {
-            mainDigitalClockTv.setText(new SimpleDateFormat("HH:mm:ss", Locale.US).format(now));
-            mainDateTv.setText(new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US).format(now));
+            mainDigitalClockTv.setText(Arc7ClockStore.formatClockNow(this, now, true));
+            TimeZone localTz = TimeZone.getDefault();
+            mainDateTv.setText(new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US).format(now)
+                    + "  •  " + localTz.getID());
             if (worldClockBox != null && worldClockBox.getChildCount() != WORLD_ZONES.length) {
                 worldClockBox.removeAllViews();
                 for (int i = 0; i < WORLD_ZONES.length; i++) {
@@ -782,7 +913,7 @@ public class Arc7ClockActivity extends Activity {
                 }
             }
             for (int i = 0; i < WORLD_ZONES.length && worldClockBox != null; i++) {
-                SimpleDateFormat zf = new SimpleDateFormat("HH:mm  (EEE)", Locale.US);
+                SimpleDateFormat zf = new SimpleDateFormat(use12 ? "h:mm a  (EEE)" : "HH:mm  (EEE)", Locale.US);
                 zf.setTimeZone(TimeZone.getTimeZone(WORLD_ZONES[i][1]));
                 TextView row = (TextView) worldClockBox.getChildAt(i);
                 row.setText(String.format(Locale.US, "%-22s %s", WORLD_ZONES[i][0], zf.format(now)));

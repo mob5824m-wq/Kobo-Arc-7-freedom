@@ -69,7 +69,7 @@ public class Arc7DeskClockActivity extends Activity {
         @Override
         public void run() {
             Date now = new Date();
-            txtClock.setText(new SimpleDateFormat("HH:mm", Locale.US).format(now));
+            txtClock.setText(Arc7ClockStore.formatClockNow(Arc7DeskClockActivity.this, now, false));
             txtDate.setText(new SimpleDateFormat("EEEE, MMMM d, yyyy  •  ss's'", Locale.US).format(now));
 
             /* Subtle pixel-shift every minute to protect aging IPS panel against image retention */
@@ -167,6 +167,14 @@ public class Arc7DeskClockActivity extends Activity {
         topControls.setGravity(Gravity.RIGHT);
         topControls.setPadding(dp(12), dp(10), dp(12), dp(10));
 
+        topControls.addView(miniBtn("12H / 24H", "#059669", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7ClockStore.set12HourMode(Arc7DeskClockActivity.this,
+                        !Arc7ClockStore.is12HourMode(Arc7DeskClockActivity.this));
+                txtClock.setText(Arc7ClockStore.formatClockNow(Arc7DeskClockActivity.this, new Date(), false));
+            }
+        }));
         topControls.addView(miniBtn("Set Weather City", "#0284C7", new View.OnClickListener() {
             @Override public void onClick(View v) { promptCityDialog(); }
         }));
@@ -195,6 +203,7 @@ public class Arc7DeskClockActivity extends Activity {
         });
 
         setContentView(frame);
+        Arc7UiAnimator.attachActivityAnimations(this);
         applyVisualMode();
         scanPhotosAsync();
         ui.post(clockTicker);

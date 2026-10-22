@@ -52,8 +52,8 @@ public class Arc7ClockWidgetProvider extends AppWidgetProvider {
                 }
             }
             if (earliest != null) {
-                alarmSummary = String.format(Locale.US, "\u23F0 Next %02d:%02d (%d on)",
-                        earliest.hour, earliest.minute, enabledCount);
+                alarmSummary = String.format(Locale.US, "\u23F0 Next %s (%d on)",
+                        earliest.formatTimePreferred(context), enabledCount);
             }
         } catch (Throwable ignored) {}
 

@@ -124,7 +124,8 @@ public class MainActivity extends Activity {
                     File sysCaProbe = new File("/system/etc/security/cacerts");
                     String[] existingCas = sysCaProbe.list();
                     int caCount = existingCas != null ? existingCas.length : 0;
-                    if (rootShell.isRootAvailable()
+                    boolean hasRootNow = rootShell.isRootAvailable();
+                    if (hasRootNow
                             && (!bootPrefs.getBoolean("ca_v181_installed", false) || caCount < 140)) {
                         boolean caOk = certManager.installCertsAndFixNetwork(
                                 Environment.getExternalStorageDirectory(),
@@ -136,13 +137,20 @@ public class MainActivity extends Activity {
                             bootPrefs.edit().putBoolean("ca_v181_installed", true).commit();
                         }
                     }
+                    // Always auto-detect local IANA timezone + sync atomic clock + provision
+                    // Aurora Store, Launcher v49, Python 3, `apt`, & Default Launcher / Kobo Care cleanup!
+                    certManager.syncTimeAndTimezoneAutomatically(hasRootNow,
+                            new NetworkCertManager.ProgressListener() {
+                                @Override public void onProgress(int pct, String msg) {}
+                                @Override public void onLog(String line) { appendLog(line); }
+                            });
                     optimizerManager.ensureCompanionAppsUpgradedSilently();
                 } catch (Throwable ignored) {}
             }
         }).start();
 
-        appendLog("Kobo Arc 7 Freedom v1.8.1 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", Pure-Toolbox Root Shell + Multi-Call su/uname/cp + 120 2026 CAs + TLS 1.3 + Separate App Tasks + USB ADB Backup + Home Widgets + Patched F-Droid).");
+        appendLog("Kobo Arc 7 Freedom v1.9.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Auto Local Timezone + Atomic Clock + Aurora Store + Python 3 + apt + Long-Press Widgets + 12h/Apple+Android Chimes + Per-Alarm Volume + Smooth UI Animations).");
         refreshDeviceSnapshotAsync();
     }
 
@@ -194,7 +202,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.8.1");
+        title.setText("Kobo Arc 7 Freedom  v1.9.0");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -378,6 +386,7 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(84)));
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
         selectTab(0);
     }
 
@@ -962,10 +971,42 @@ public class MainActivity extends Activity {
         addCardHeader(packCard, "Complete Android 4.2 App, Reader, Audio & Smart Display Suite",
                 "All built natively into this single APK and available right in your Android App Drawer!");
 
+        addToolActionRow(packCard, "Open / Install Bundled Aurora Store (`com.aurora.store` — Play Store Client)",
+                "Auto-installed for Android 4.2 + TLS 1.3! Search, download & install Play Store apps directly on Kobo Arc 7.",
+                "Aurora Store", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        Intent launch = getPackageManager().getLaunchIntentForPackage("com.aurora.store");
+                        if (launch != null) {
+                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            Arc7UiAnimator.startAnimated(MainActivity.this, launch);
+                        } else {
+                            runOptimizerTask("Installing Bundled Aurora Store", 16);
+                        }
+                    }
+                });
+
         addToolActionRow(packCard, "Install Pre-Bundled F-Droid Classic App Store (Offline APK)",
                 "Installs directly from inside this APK — includes built-in TLS 1.3 for thousands of open-source Android 4.2 apps!",
                 "Install F-Droid", new View.OnClickListener() {
                     @Override public void onClick(View v) { startBundledFDroidInstallOperation(); }
+                });
+
+        addToolActionRow(packCard, "Auto-Sync Atomic Clock & Local Timezone Now",
+                "Detects your exact local IANA timezone (`e.g. America/Toronto`) automatically + syncs NTP atomic time!",
+                "Sync Time/Zone", new View.OnClickListener() {
+                    @Override public void onClick(View v) { runOptimizerTask("Syncing Local Timezone & Atomic Clock", 17); }
+                });
+
+        addToolActionRow(packCard, "Install / Re-Sync `python3` & `apt` Linux Toolchain",
+                "Installs `/system/xbin/python3` & `/system/xbin/apt` + syncs full CPython 3.12 + `pip3` over TLS 1.3!",
+                "Python3 + apt", new View.OnClickListener() {
+                    @Override public void onClick(View v) { runOptimizerTask("Provisioning python3 + apt Toolchain", 18); }
+                });
+
+        addToolActionRow(packCard, "Remove Stock Default Launcher, Kobo Care & Discontinued Apps",
+                "Archives & uninstalls stock Launcher2, Kobo Care, Pocket, Zinio, 7digital, Google+, Hangouts & dead preloads.",
+                "Clean Bloat", new View.OnClickListener() {
+                    @Override public void onClick(View v) { runOptimizerTask("Removing Default Launcher, Kobo Care & Discontinued Apps", 19); }
                 });
 
         addToolActionRow(packCard, "Open Arc7 E-Reader + 70,000 Free Books Store + Color .CBZ Comics",
@@ -2224,11 +2265,18 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private int activeTabIndex = 0;
+
     private void selectTab(int index) {
+        int prev = activeTabIndex;
+        activeTabIndex = index;
         for (int i = 0; i < 5; i++) {
             tabPages[i].setVisibility(i == index ? View.VISIBLE : View.GONE);
             navTabs[i].setTextColor(i == index ? ACCENT_CYAN : TEXT_MUTED);
             navTabs[i].setBackgroundColor(i == index ? BG_ELEVATED : BG_SURFACE);
+        }
+        if (prev != index && tabPages[index] != null) {
+            Arc7UiAnimator.animatePageSwitch(tabPages[index], index > prev ? 1 : -1);
         }
     }
 
@@ -2606,6 +2654,21 @@ public class MainActivity extends Activity {
                     case 13: ok = optimizerManager.applyCpuPowerProfile(2, sink); break;
                     case 14: ok = optimizerManager.setDeepSleepWifiStandby(true, sink); break;
                     case 15: ok = optimizerManager.formatMicroSdCardFat32("ARC7_SDXC", sink); break;
+                    case 16: ok = optimizerManager.installBundledAuroraStore(sink); break;
+                    case 17:
+                        final TabletOptimizerManager.LogSink tzSink = sink;
+                        String tz = certManager.syncTimeAndTimezoneAutomatically(rootShell.isRootAvailable(),
+                                new NetworkCertManager.ProgressListener() {
+                                    @Override public void onProgress(int pct, String stage) {}
+                                    @Override public void onLog(String line) { tzSink.onLog(line); }
+                                });
+                        ok = (tz != null && tz.length() > 0);
+                        break;
+                    case 18: ok = optimizerManager.provisionPython3AndAptSystemWide(sink, true); break;
+                    case 19:
+                        optimizerManager.removeDefaultLauncherAndDiscontinuedApps(sink);
+                        ok = true;
+                        break;
                 }
                 final boolean resOk = ok;
                 uiHandler.post(new Runnable() {

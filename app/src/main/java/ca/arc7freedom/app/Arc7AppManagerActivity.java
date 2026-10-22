@@ -119,6 +119,7 @@ public class Arc7AppManagerActivity extends Activity {
         root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
         reloadPackagesAsync();
     }
 

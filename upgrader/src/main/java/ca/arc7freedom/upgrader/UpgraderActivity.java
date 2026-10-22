@@ -85,14 +85,14 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v1.8.1 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v1.9.0 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap root upgrade (replaces old signing key + installs su/uname/cp + 120 2026 CAs + Widgets + F-Droid)...");
+        statusSub.setText("Preparing 1-tap v1.9.0 upgrade (Auto Local Timezone + Aurora Store + Python 3 + apt + Long-Press Widgets + Apple/Android Chimes + Bloat Removal)...");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
@@ -109,7 +109,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v1.8.1 Upgrade Again");
+        actionBtn.setText("Run v1.9.0 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -126,7 +126,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v1.8.1 ->");
+        launchBtn.setText("Open Freedom v1.9.0 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -279,19 +279,19 @@ public class UpgraderActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    uiProgress(10, "Unpacking v1.8.1 APKs, multi-call su/uname/cp & 120 2026 Root CAs...");
-                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v1.8.1 ===");
+                    uiProgress(10, "Unpacking v1.9.0 APKs, Aurora Store, Python 3, apt & 120 2026 Root CAs...");
+                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v1.9.0 ===");
 
                     File appFiles = getFilesDir();
                     makeWorldReadableDir(appFiles != null ? appFiles.getParentFile() : null);
                     makeWorldReadableDir(appFiles);
 
-                    File stageDir = new File(appFiles, "up181");
+                    File stageDir = new File(appFiles, "up190");
                     makeWorldReadableDir(stageDir);
                     File caDir = new File(stageDir, "cacerts");
                     makeWorldReadableDir(caDir);
 
-                    // 1. Extract main KoboArc7Freedom.apk (v1.8.1)
+                    // 1. Extract main KoboArc7Freedom.apk (v1.9.0)
                     File mainApk = new File(stageDir, "KoboArc7Freedom.apk");
                     InputStream mainIn = getAssets().open("KoboArc7Freedom.apk");
                     try {
@@ -299,13 +299,13 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         mainIn.close();
                     }
-                    uiLog("[1/5] Unpacked KoboArc7Freedom v1.8.1 (" + (mainApk.length() / 1024) + " KB)");
+                    uiLog("[1/6] Unpacked KoboArc7Freedom v1.9.0 (" + (mainApk.length() / 1024) + " KB)");
 
-                    // 2. Extract multi-call `libarc7su.so`, `VanillaAndroid4Home.apk` (v48),
-                    // `FDroidClassicLegacy.apk` (TLS 1.3 bridge), and all 120 `cacerts/*.0` directly
-                    // from `KoboArc7Freedom.apk` in pure Java (zero shell `unzip` or `cp` needed!)
                     File suNew = new File(stageDir, "su_new");
+                    File pyNew = new File(stageDir, "py3_new");
+                    File aptNew = new File(stageDir, "apt_new");
                     File homeApk = new File(stageDir, "VanillaAndroid4Home.apk");
+                    File auroraApk = new File(stageDir, "AuroraStore.apk");
                     File fdroidApk = new File(stageDir, "FDroidClassicLegacy.apk");
                     int caCount = 0;
 
@@ -317,8 +317,14 @@ public class UpgraderActivity extends Activity {
                             String name = ze.getName();
                             if ("lib/armeabi-v7a/libarc7su.so".equals(name)) {
                                 writeStreamToWorldFile(zis, suNew, true);
+                            } else if ("lib/armeabi-v7a/libarc7py3.so".equals(name)) {
+                                writeStreamToWorldFile(zis, pyNew, true);
+                            } else if ("lib/armeabi-v7a/libarc7apt.so".equals(name)) {
+                                writeStreamToWorldFile(zis, aptNew, true);
                             } else if ("assets/VanillaAndroid4Home.apk".equals(name)) {
                                 writeStreamToWorldFile(zis, homeApk, false);
+                            } else if ("assets/starter-apps/AuroraStore.apk".equals(name)) {
+                                writeStreamToWorldFile(zis, auroraApk, false);
                             } else if ("assets/starter-apps/FDroidClassicLegacy.apk".equals(name)) {
                                 writeStreamToWorldFile(zis, fdroidApk, false);
                             } else if (name.startsWith("assets/cacerts/android-hashed/")
@@ -332,7 +338,7 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         zis.close();
                     }
-                    uiLog("[2/5] Extracted F-Droid Classic (" + (fdroidApk.length() / 1024) + " KB), VanillaAndroid4Home v48, su/uname/cp & " + caCount + " 2026 Root CAs");
+                    uiLog("[2/6] Extracted Aurora Store (" + (auroraApk.length() / 1024) + " KB), F-Droid Classic, VanillaAndroid4Home v49, Python 3, apt & " + caCount + " 2026 Root CAs");
 
                     uiProgress(40, "Running root package swap & installing 2026 CA store...");
 
@@ -371,10 +377,23 @@ public class UpgraderActivity extends Activity {
                     sh.append("chmod 0644 /data/misc/keychain/cacerts-added/* 2>/dev/null || true\n");
                     sh.append("echo 'STEP_B_2026_CAS=OK'\n");
 
-                    // Step C: Stage APKs into `/data/local/tmp/` (`0644`) so `system_server` reads them cleanly!
-                    sh.append("mkdir -p /data/local/tmp\n");
+                    // Step C: Stage APKs + Python3/apt binaries into `/data/local/tmp/` + `/system/xbin/`
+                    sh.append("mkdir -p /data/local/tmp /system/xbin /data/local/arc7linux/etc/ssl /data/local/arc7_kobo_archive\n");
+                    sh.append("if [ -f '").append(pyNew.getAbsolutePath()).append("' ]; then\n");
+                    sh.append("  cat '").append(pyNew.getAbsolutePath()).append("' > /system/xbin/python3 && chmod 0755 /system/xbin/python3\n");
+                    sh.append("  ln -sf /system/xbin/python3 /system/xbin/python 2>/dev/null || cat '").append(pyNew.getAbsolutePath()).append("' > /system/xbin/python\n");
+                    sh.append("  chmod 0755 /system/xbin/python\n");
+                    sh.append("fi\n");
+                    sh.append("if [ -f '").append(aptNew.getAbsolutePath()).append("' ]; then\n");
+                    sh.append("  cat '").append(aptNew.getAbsolutePath()).append("' > /system/xbin/apt && chmod 0755 /system/xbin/apt\n");
+                    sh.append("  ln -sf /system/xbin/apt /system/xbin/apt-get 2>/dev/null || cat '").append(aptNew.getAbsolutePath()).append("' > /system/xbin/apt-get\n");
+                    sh.append("  ln -sf /system/xbin/apt /system/xbin/apt-cache 2>/dev/null || cat '").append(aptNew.getAbsolutePath()).append("' > /system/xbin/apt-cache\n");
+                    sh.append("  chmod 0755 /system/xbin/apt-get /system/xbin/apt-cache\n");
+                    sh.append("fi\n");
+                    sh.append("echo 'STEP_PY3_APT=OK'\n");
                     sh.append("cat '").append(mainApk.getAbsolutePath()).append("' > /data/local/tmp/KoboArc7Freedom.apk && chmod 0644 /data/local/tmp/KoboArc7Freedom.apk\n");
                     sh.append("cat '").append(homeApk.getAbsolutePath()).append("' > /data/local/tmp/VanillaAndroid4Home.apk && chmod 0644 /data/local/tmp/VanillaAndroid4Home.apk\n");
+                    sh.append("cat '").append(auroraApk.getAbsolutePath()).append("' > /data/local/tmp/AuroraStore.apk && chmod 0644 /data/local/tmp/AuroraStore.apk\n");
                     sh.append("cat '").append(fdroidApk.getAbsolutePath()).append("' > /data/local/tmp/FDroidClassicLegacy.apk && chmod 0644 /data/local/tmp/FDroidClassicLegacy.apk\n");
 
                     // Step D: Replace `ca.arc7freedom.app` cleanly even if an older conflicting key was installed!
@@ -417,6 +436,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true\n");
 
                     // Step F: Replace `eu.bubu1.fdroidclassic.debug` with patched TLS-1.3-bridged `FDroidClassicLegacy`
+                    // and wipe any stale cached 502 files so F-Droid fetches a clean signed index immediately!
                     sh.append("_pm_fd=$(pm install -r /data/local/tmp/FDroidClassicLegacy.apk 2>&1 || true)\n");
                     sh.append("case \"$_pm_fd\" in\n");
                     sh.append("  *Success*) echo \"STEP_E_FDROID_INPLACE=$_pm_fd\" ;;\n");
@@ -427,14 +447,50 @@ public class UpgraderActivity extends Activity {
                     sh.append("    echo \"STEP_E_FDROID_CLEAN=$_pm_fd\"\n");
                     sh.append("    ;;\n");
                     sh.append("esac\n");
+                    sh.append("am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
+                    sh.append("pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
 
-                    // Clean DNS + mount `/system` clean `ro`
+                    // Step G: Install Aurora Store (`com.aurora.store`, Android 4.2 + TLS 1.3) automatically!
+                    sh.append("_pm_aur=$(pm install -r /data/local/tmp/AuroraStore.apk 2>&1 || true)\n");
+                    sh.append("case \"$_pm_aur\" in\n");
+                    sh.append("  *Success*) echo \"STEP_F_AURORA_INPLACE=$_pm_aur\" ;;\n");
+                    sh.append("  *)\n");
+                    sh.append("    pm uninstall com.aurora.store 2>/dev/null || true\n");
+                    sh.append("    _pm_aur=$(pm install -r /data/local/tmp/AuroraStore.apk 2>&1 || true)\n");
+                    sh.append("    echo \"STEP_F_AURORA_CLEAN=$_pm_aur\"\n");
+                    sh.append("    ;;\n");
+                    sh.append("esac\n");
+
+                    // Step H: Archive & uninstall Default Launcher + Kobo Care + Discontinued Apps!
+                    sh.append("for _apk in /system/app/*.apk; do\n");
+                    sh.append("  [ -e \"$_apk\" ] || continue\n");
+                    sh.append("  _bn=\"${_apk##*/}\"\n");
+                    sh.append("  case \"$_bn\" in\n");
+                    sh.append("    *VanillaAndroid4*|*Arc7Freedom*|*KoboReader.apk) continue ;;\n");
+                    sh.append("    Launcher.apk|Launcher2.apk|Launcher3.apk|*Launcher2*|*ArcHome*|*Tapestry*|*KoboCare*|*KoboSupport*|*KoboDiagnostics*|*KoboSetup*|*KoboOTA*|*KoboUpdater*|*Pocket*|*ReadItLater*|*Zinio*|*7digital*|*SevenDigital*|*Rdio*|*PlusOne*|*Talk.apk|*Hangouts*|*Magazines*|*Currents*|*GoogleEars*|*Videos.apk|*GenieWidget*)\n");
+                    sh.append("      mv \"$_apk\" \"/data/local/arc7_kobo_archive/$_bn\" 2>/dev/null || rm -f \"$_apk\"\n");
+                    sh.append("      _ox=\"${_apk%.apk}.odex\"; [ -e \"$_ox\" ] && (mv \"$_ox\" \"/data/local/arc7_kobo_archive/${_ox##*/}\" 2>/dev/null || rm -f \"$_ox\")\n");
+                    sh.append("      ;;\n");
+                    sh.append("  esac\n");
+                    sh.append("done\n");
+                    sh.append("for _pkg in com.android.launcher com.android.launcher2 com.android.launcher3 com.kobo.home com.kobo.launcher com.kobo.tapestry com.kobo.arc.home com.kobo.care com.kobo.support com.kobo.help com.kobo.diagnostics com.kobo.analytics com.ideashower.readitlater.pro com.pocket.app com.zinio.mobile.android.reader uk.co.sevendigital.android com.rdio.android.ui com.google.android.apps.plus com.google.android.talk com.google.android.apps.magazines com.google.android.ears com.google.android.videos com.google.android.apps.genie.geniewidget; do\n");
+                    sh.append("  pm uninstall \"$_pkg\" >/dev/null 2>&1 || true\n");
+                    sh.append("  pm disable \"$_pkg\" >/dev/null 2>&1 || true\n");
+                    sh.append("done\n");
+
+                    // Stop any older `libarc7tls.so` daemon so v1.9.0 binds 127.0.0.1:8118 cleanly
+                    sh.append("for _p in /proc/[0-9]*; do if [ -r \"$_p/cmdline\" ]; then _c=$(tr '\\000' ' ' < \"$_p/cmdline\" 2>/dev/null || true); case \"$_c\" in *arc7tls*proxy*) kill -9 \"${_p##*/}\" 2>/dev/null || true ;; esac; fi; done\n");
+
+                    // Provision `/system/etc/resolv.conf` + clean DNS + mount `/system` clean `ro`
+                    sh.append("echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf 2>/dev/null || true\n");
+                    sh.append("echo 'nameserver 8.8.8.8' >> /system/etc/resolv.conf 2>/dev/null || true\n");
+                    sh.append("chmod 0644 /system/etc/resolv.conf 2>/dev/null || true\n");
                     sh.append("setprop net.dns1 1.1.1.1; setprop net.dns2 8.8.8.8\n");
                     sh.append("settings put global captive_portal_detection_enabled 0 >/dev/null 2>&1 || true\n");
                     sh.append("sync\n");
                     sh.append("mount -o remount,ro /system 2>/dev/null || true\n");
                     sh.append("mount -o remount,ro / 2>/dev/null || true\n");
-                    sh.append("rm -f /data/local/tmp/KoboArc7Freedom.apk /data/local/tmp/VanillaAndroid4Home.apk /data/local/tmp/FDroidClassicLegacy.apk /data/local/tmp/VanillaHome.prev.apk\n");
+                    sh.append("rm -f /data/local/tmp/KoboArc7Freedom.apk /data/local/tmp/VanillaAndroid4Home.apk /data/local/tmp/AuroraStore.apk /data/local/tmp/FDroidClassicLegacy.apk /data/local/tmp/VanillaHome.prev.apk\n");
                     sh.append("echo 'ARC7_UPGRADE_OK'\n");
 
                     File scriptFile = new File(stageDir, "run_upgrade.sh");
@@ -444,7 +500,7 @@ public class UpgraderActivity extends Activity {
                             true);
 
                     String suBin = findExistingSu();
-                    uiLog("[4/5] Executing root upgrade via " + suBin + "...");
+                    uiLog("[4/6] Executing root upgrade via " + suBin + "...");
                     String combined = "";
                     String scriptBody = sh.toString();
                     for (int mode = 0; mode < 3; mode++) {
@@ -455,12 +511,12 @@ public class UpgraderActivity extends Activity {
                     }
 
                     if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v1.8.1 + Widgets + F-Droid + 120 2026 CAs installed!");
-                        uiLog("[5/5] SUCCESS! Launching Kobo Arc 7 Freedom v1.8.1 now...");
+                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v1.9.0 + Aurora Store + Python 3 + apt ready!");
+                        uiLog("[6/6] SUCCESS! Launching Kobo Arc 7 Freedom v1.9.0 now...");
                         ui.post(new Runnable() {
                             @Override
                             public void run() {
-                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v1.8.1!");
+                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v1.9.0!");
                                 launchBtn.setVisibility(View.VISIBLE);
                                 actionBtn.setEnabled(true);
                             }

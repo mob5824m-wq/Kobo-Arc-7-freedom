@@ -192,6 +192,7 @@ public class Arc7EbookReaderActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
 
         String intentPath = null;
         Intent it = getIntent();

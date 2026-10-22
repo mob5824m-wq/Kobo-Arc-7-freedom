@@ -438,6 +438,7 @@ public class Arc7BrowserActivity extends Activity {
         root.addView(webView, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
     }
 
     private void setLoadingState(final boolean loading) {
