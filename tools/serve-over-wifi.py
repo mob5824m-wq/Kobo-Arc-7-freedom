@@ -204,6 +204,8 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
 
     bat_href = "./Start-Kobo-WiFi-Server.bat"
     sh_href = "./Start-Kobo-WiFi-Server.sh"
+    adb_bat_href = "./Backup-Kobo-To-Laptop-ADB.bat"
+    adb_sh_href = "./Backup-Kobo-To-Laptop-ADB.sh"
     logo_src = "./logo-banner.png" if os.path.isfile(os.path.join(DOCS_DIR, "logo-banner.png")) else ""
 
     # Context banner tailored accurately to where this page is being viewed
@@ -357,14 +359,22 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v1.7 — Complete Installer &amp; Wi-Fi Sideload Portal</h1>"
-        "<p>Anti-Brick Root &bull; 120 Offline 2026 SSL Certs &bull; Modern TLS 1.3 Browser &bull; "
-        "Full OS Backup/Restore &bull; Clean Stock Android 4.2 Launcher &bull; Clock/Alarms/Timers &bull; 12 HD Wallpapers</p>"
+        "<h1>Kobo Arc 7 Freedom v1.8.0 — Complete Installer, Widgets, USB ADB Backup &amp; Wi-Fi Portal</h1>"
+        "<p>Fixed SSL TLS 1.0–1.3 Upgrade Proxy &bull; Independent App Tasks &bull; Direct USB ADB Laptop Backup (0 MB Tablet Space!) &bull; "
+        "Home Screen Widgets &bull; Fixed F-Droid Index Bridge &bull; 120 Offline 2026 CAs &bull; Anti-Brick Root</p>"
         + live_progress_widget
         + "".join(apk_buttons)
         + ("".join(other_buttons) if other_buttons else "")
         + "</div>"
         + top_banner
+        + "<div class='card'>"
+        "<h2>&#128187; NEW in v1.8.0 — 1-Click Direct Laptop Backup &amp; Restore Over USB ADB (0 MB Tablet Space!)</h2>"
+        "<p>Stream bit-for-bit flash partitions (<code>boot</code>, <code>recovery</code>, <code>nvram</code> Wi-Fi MAC calibration, "
+        "<code>uboot</code>, <code>system</code> OS) + your Books, Music &amp; Photos straight over USB onto your laptop — with cryptographic SHA-256 verification:</p>"
+        f"<a class='btn win' href='{adb_bat_href}'>&#128187; Download 1-Click Windows USB ADB Backup Tool (Backup-Kobo-To-Laptop-ADB.bat — Auto-Installs ADB!)</a>"
+        f"<a class='btn mac' href='{adb_sh_href}'>&#128187; Download 1-Click macOS / Linux USB ADB Backup Tool (Backup-Kobo-To-Laptop-ADB.sh)</a>"
+        "<p><i>Or with any laptop web browser:</i> plug USB in, run <code>adb forward tcp:18777 tcp:18777</code>, and open <code>http://127.0.0.1:18777</code>!</p>"
+        "</div>"
         + "<div class='card'>"
         "<h2>&#128246; Method A — 1-Click Home Wi-Fi Installer (No USB Cable, No MicroSD, No Python Needed!)</h2>"
         "<p>Download &amp; run the 1-click launcher on any computer connected to the <b>same home Wi-Fi</b> as your Kobo Arc 7. "
@@ -653,6 +663,13 @@ def write_static_pages() -> None:
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(DOCS_DIR, "Start-Kobo-WiFi-Server.bat"))
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(DOCS_DIR, "Start-Kobo-WiFi-Server.sh"))
     os.chmod(os.path.join(DOCS_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
+
+    for adb_helper in ("Backup-Kobo-To-Laptop-ADB.bat", "Backup-Kobo-To-Laptop-ADB.sh"):
+        src_h = os.path.join(RELEASES_DIR, adb_helper)
+        if os.path.isfile(src_h):
+            shutil.copyfile(src_h, os.path.join(DOCS_DIR, adb_helper))
+            if adb_helper.endswith(".sh"):
+                os.chmod(os.path.join(DOCS_DIR, adb_helper), 0o755)
 
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.bat"))
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"))

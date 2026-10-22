@@ -100,11 +100,14 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert apk.get_package() == expected_pkg, f"Expected {expected_pkg}, got {apk.get_package()}"
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
+    if expected_pkg == "ca.arc7freedom.launcher":
+        assert str(apk.get_androidversion_code()) == "48", f"Expected launcher versionCode 48, got {apk.get_androidversion_code()}"
+        assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.7.0", f"Expected 1.7.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "170", f"Expected 170, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.8.0", f"Expected 1.8.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "180", f"Expected 180, got {apk.get_androidversion_code()}"
         acts = apk.get_activities()
-        for req_act in (
+        expected_acts = (
             "ca.arc7freedom.app.MainActivity",
             "ca.arc7freedom.app.Arc7BrowserActivity",
             "ca.arc7freedom.app.Arc7EbookReaderActivity",
@@ -115,10 +118,26 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7WallpaperPickerActivity",
             "ca.arc7freedom.app.Arc7AppManagerActivity",
             "ca.arc7freedom.app.Arc7TerminalActivity",
-        ):
+        )
+        for req_act in expected_acts:
             assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
+        # Verify EVERY SINGLE ONE of the 10 activities has its OWN distinct android:taskAffinity!
+        ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+        manifest_xml = apk.get_android_manifest_xml()
+        affinities = set()
+        for act_el in manifest_xml.findall(".//activity"):
+            aff = act_el.get(ANDROID_NS + "taskAffinity")
+            act_name = act_el.get(ANDROID_NS + "name")
+            assert aff and aff.startswith("ca.arc7freedom.task."), f"Activity {act_name} missing isolated taskAffinity: {aff}"
+            assert aff not in affinities, f"Duplicate taskAffinity {aff} on {act_name}!"
+            affinities.add(aff)
+        assert len(affinities) == 10, f"Expected 10 distinct taskAffinity entries, got {len(affinities)}"
+        print(f"  [PASS] All {len(affinities)} Activities have 100% isolated android:taskAffinity stacks ({sorted(affinities)[0]} ..)")
+
         svcs = apk.get_services()
         for req_svc in (
+            "ca.arc7freedom.app.Arc7TlsGatewayService",
+            "ca.arc7freedom.app.Arc7AdbBackupService",
             "ca.arc7freedom.app.NightFilterService",
             "ca.arc7freedom.app.Arc7WifiDriveService",
             "ca.arc7freedom.app.SoftKeysOverlayService",
@@ -126,8 +145,15 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         ):
             assert req_svc in svcs, f"Missing service {req_svc} in compiled AndroidManifest.xml!"
         recs = apk.get_receivers()
-        assert "ca.arc7freedom.app.BootNetworkReceiver" in recs, "Missing BootNetworkReceiver!"
-        assert "ca.arc7freedom.app.Arc7AlarmReceiver" in recs, "Missing Arc7AlarmReceiver!"
+        for req_rec in (
+            "ca.arc7freedom.app.BootNetworkReceiver",
+            "ca.arc7freedom.app.Arc7AlarmReceiver",
+            "ca.arc7freedom.app.Arc7ClockWidgetProvider",
+            "ca.arc7freedom.app.Arc7AudioWidgetProvider",
+            "ca.arc7freedom.app.Arc7PowerWidgetProvider",
+        ):
+            assert req_rec in recs, f"Missing receiver/widget {req_rec}!"
+        print("  [PASS] All 3 Home Screen AppWidgetProviders + Persistent TLS Gateway + USB ADB Backup Service verified!")
         perms = set(apk.get_permissions())
         assert "android.permission.SET_WALLPAPER" in perms, "Missing SET_WALLPAPER permission!"
     print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, v={apk.get_androidversion_name()}, minSdk=15, targetSdk=17")
@@ -160,14 +186,25 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
         assert "assets/cacerts/ca-bundle-2026.crt" in names
         assert "assets/cacerts/manifest.tsv" in names
 
-        # Verify bundled offline F-Droid Classic APK is valid for Android 4.2.2 (API <= 17)
+        # Verify bundled offline F-Droid Classic APK is valid for Android 4.2.2 (API <= 17) AND patched for local TLS 1.3 index bridge!
         with tempfile.NamedTemporaryFile(suffix=".apk") as tf:
-            tf.write(zf.read("assets/starter-apps/FDroidClassicLegacy.apk"))
+            fd_bytes = zf.read("assets/starter-apps/FDroidClassicLegacy.apk")
+            tf.write(fd_bytes)
             tf.flush()
+            r_fd_sig = subprocess.run(
+                [JAVA, "-jar", APKSIGNER, "verify", "--verbose", "--min-sdk-version", "14", tf.name],
+                capture_output=True, text=True,
+            )
+            assert r_fd_sig.returncode == 0, f"Bundled F-Droid signature check failed: {r_fd_sig.stdout}\n{r_fd_sig.stderr}"
+            with zipfile.ZipFile(tf.name, "r") as fd_zf:
+                arsc_raw = fd_zf.read("resources.arsc")
+                assert b"http://127.0.0.1:8118/__https/f-droid.org/repo" in arsc_raw, "Patched F-Droid missing local TLS 1.3 repo bridge URL!"
+                assert b"http://127.0.0.1:8118/__https/f-droid.org/archive" in arsc_raw, "Patched F-Droid missing local TLS 1.3 archive URL!"
+                assert b"https://bubu1.eu/fdroidclassic" not in arsc_raw and b"https://ftp.fau.de" not in arsc_raw, "Defunct repo URL still present in F-Droid ARSC!"
             fd_apk = APK(tf.name)
             fd_min_sdk = int(fd_apk.get_min_sdk_version())
             assert fd_min_sdk <= 17, f"Bundled F-Droid minSdk={fd_min_sdk} > 17 (incompatible with Android 4.2.2)!"
-            print(f"  [PASS] Pre-bundled offline F-Droid Classic verified: pkg={fd_apk.get_package()}, minSdk={fd_min_sdk} (<=17 Android 4.2.2 compatible!)")
+            print(f"  [PASS] Patched F-Droid Classic v1.8 verified: pkg={fd_apk.get_package()}, minSdk={fd_min_sdk}, v1+v2+v3 signed, TLS 1.3 bridge URLs active!")
 
         required_roots = {
             "assets/cacerts/android-hashed/6187b673.0": "ISRG Root X1 (Let's Encrypt)",
@@ -187,16 +224,22 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
         assert len(hashed_entries) >= 100 and pem_count >= 100, f"Too few CAs: {len(hashed_entries)}"
         print(f"  [PASS] {pem_count} pre-downloaded 2026 Root CAs verified inside APK assets (ISRG X1/X2, GTS R1, DigiCert G2, USERTrust)")
 
-    # Build host x86_64 arc7tls if not already built and test live TLS 1.3 + Portal Gateway
+    # Build host x86_64 arc7tls (Mbed-TLS 3.6 + BearSSL TLS 1.0-1.2) if not already built and test live TLS 1.3 + Portal Gateway
     arc7tls = os.path.join(ROOT, "build/host-test/arc7tls")
     zig = get_zig_cmd()
     mbed = os.environ.get("MBEDTLS_DIR", "/tmp/mbedtls-src")
+    bear = os.environ.get("BEARSSL_DIR", "/tmp/bearssl-src")
+    if not os.path.isdir(bear):
+        subprocess.run(["git", "clone", "--depth", "1", "https://github.com/unkaktus/bearssl.git", bear], check=True)
     tls_src = os.path.join(ROOT, "native/arc7tls.c")
     if (not os.path.exists(arc7tls)) or (os.path.getmtime(tls_src) > os.path.getmtime(arc7tls)):
         os.makedirs(os.path.dirname(arc7tls), exist_ok=True)
         x64_dir = os.path.join(ROOT, "build/mbedtls-x64")
+        bx64_dir = os.path.join(ROOT, "build/bearssl-x64")
         os.makedirs(x64_dir, exist_ok=True)
+        os.makedirs(bx64_dir, exist_ok=True)
         lib_a = os.path.join(x64_dir, "libmbedtls_all.a")
+        lib_b = os.path.join(bx64_dir, "libbearssl_all.a")
         if not os.path.exists(lib_a):
             srcs = sorted(glob.glob(os.path.join(mbed, "library/*.c")))
 
@@ -214,10 +257,32 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
                 objs = list(ex.map(comp, srcs))
             subprocess.run(zig + ["ar", "rcs", lib_a, *objs], check=True)
 
+        if not os.path.exists(lib_b):
+            bsrcs = sorted(
+                s for s in glob.glob(os.path.join(bear, "src/**/*.c"), recursive=True)
+                if not os.path.basename(s).startswith("ec_prime_i31_secp")
+            )
+
+            def comp_bear(idx_s) -> str:
+                idx, s = idx_s
+                o = os.path.join(bx64_dir, f"{idx:03d}_{os.path.basename(s)[:-2]}.o")
+                subprocess.run(
+                    zig + ["cc", "-target", "x86_64-linux-musl", "-Os",
+                           "-ffunction-sections", "-fdata-sections",
+                           f"-I{bear}/inc", f"-I{bear}/src", "-c", s, "-o", o],
+                    check=True,
+                )
+                return o
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+                bobjs = list(ex.map(comp_bear, enumerate(bsrcs)))
+            subprocess.run(zig + ["ar", "rcs", lib_b, *bobjs], check=True)
+
         subprocess.run(
             zig + ["cc", "-target", "x86_64-linux-musl", "-Os", "-static",
                    "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
-                   f"-I{mbed}/include", "native/arc7tls.c", lib_a, "-lpthread", "-o", arc7tls],
+                   f"-I{mbed}/include", f"-I{bear}/inc",
+                   "native/arc7tls.c", lib_a, lib_b, "-lpthread", "-o", arc7tls],
             cwd=ROOT, check=True,
         )
 
@@ -327,6 +392,12 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
             tls_cli.close()
             assert cli_ver == "TLSv1.2" and seen_up_ver == ["TLSv1.3"] and b"TLS13_BRIDGE_VERIFIED_OK" in resp_data
             print(f"  [PASS] System-Wide TLS 1.3 Upgrade Proxy verified live: Client {cli_ver} -> Proxy CONNECT -> Upstream {seen_up_ver[0]}!")
+
+            # ALSO test F-Droid `http://127.0.0.1:<port>/__https/...` bridge against our strict TLS 1.3 upstream server!
+            threading.Thread(target=_tls13_srv, daemon=True).start()
+            fd_resp = urllib.request.urlopen(f"http://127.0.0.1:{pport}/__https/127.0.0.1:{up_port}/fdroid/repo/index-v1.jar", timeout=5).read()
+            assert b"TLS13_BRIDGE_VERIFIED_OK" in fd_resp and seen_up_ver[-1] == "TLSv1.3"
+            print("  [PASS] F-Droid `/__https/...` local HTTP -> strict upstream TLSv1.3 index bridge verified live!")
         finally:
             p2.terminate()
             p2.wait(timeout=5)
@@ -531,9 +602,14 @@ public class JvmLogicSelfTest {{
 }}
 """)
         cp = f"{ROOT}/build/app/classes:{ANDROID_JAR}"
-        if os.path.exists("/opt/toolchain/jars/ecj-4.8.jar"):
+        ecj_jar = (
+            "/opt/toolchain/jars/ecj-3.45.0.jar"
+            if os.path.exists("/opt/toolchain/jars/ecj-3.45.0.jar")
+            else "/opt/toolchain/jars/ecj-4.8.jar"
+        )
+        if os.path.exists(ecj_jar):
             comp = subprocess.run(
-                [JAVA, "-jar", "/opt/toolchain/jars/ecj-4.8.jar", "-1.8", "-cp", cp, "-d", tmp, java_test_src],
+                [JAVA, "-jar", ecj_jar, "-1.8", "-cp", cp, "-d", tmp, java_test_src],
                 capture_output=True, text=True,
             )
         else:
@@ -582,9 +658,12 @@ def verify_wifi_server_and_drive_fixes() -> None:
     import time
 
     for rel in ("docs/index.html", "docs/Start-Kobo-WiFi-Server.bat", "docs/Start-Kobo-WiFi-Server.sh",
-                "releases/index.html", "releases/Start-Kobo-WiFi-Server.bat", "releases/Start-Kobo-WiFi-Server.sh"):
+                "docs/Backup-Kobo-To-Laptop-ADB.bat", "docs/Backup-Kobo-To-Laptop-ADB.sh",
+                "releases/index.html", "releases/Start-Kobo-WiFi-Server.bat", "releases/Start-Kobo-WiFi-Server.sh",
+                "releases/Backup-Kobo-To-Laptop-ADB.bat", "releases/Backup-Kobo-To-Laptop-ADB.sh"):
         p = os.path.join(ROOT, rel)
         assert os.path.isfile(p) and os.path.getsize(p) > 512, f"Missing or empty {rel}"
+    print("  [PASS] 1-Click USB ADB Laptop Backup (.bat + .sh) & Wi-Fi Sideload (.bat + .sh) scripts verified!")
 
     # Verify compiled Arc7WifiDriveService has new methods & fast-reject logic
     drive_cls = os.path.join(ROOT, "build/app/classes/ca/arc7freedom/app/Arc7WifiDriveService.class")

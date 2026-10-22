@@ -108,18 +108,30 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.7.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", Anti-Brick Hardened + Custom App Icons + Clock/Alarms/Timers/Stopwatch + 12 HD Wallpapers + 120 2026 CAs + TLS 1.3 + 256GB SDXC).");
+
+        // Keep 24/7 Local TLS 1.3 Gateway (:8118 for Chrome + F-Droid Index) AND
+        // Direct USB ADB Laptop Backup Server (:18777, 0 MB tablet space) warm automatically!
+        Arc7TlsGatewayService.ensureStarted(this);
+        Arc7AdbBackupService.ensureStarted(this);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    certManager.startBrowserGateway();
+                    optimizerManager.ensureCompanionAppsUpgradedSilently();
+                } catch (Throwable ignored) {}
+            }
+        }).start();
+
+        appendLog("Kobo Arc 7 Freedom v1.8.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Fixed SSL TLS 1.0-1.3 Engine + Separate App Tasks + Direct USB ADB Laptop Backup + Home Widgets + Patched F-Droid Index Bridge).");
         refreshDeviceSnapshotAsync();
     }
 
     @Override
     protected void onDestroy() {
-        boolean sysProxy = getSharedPreferences(TabletOptimizerManager.PREFS, MODE_PRIVATE)
-                .getBoolean("sys_tls13_proxy", false);
-        if (certManager != null && !sysProxy) {
-            certManager.stopBrowserGateway();
-        }
+        // Keep persistent `127.0.0.1:8118` TLS 1.3 gateway running via `Arc7TlsGatewayService`
+        // so F-Droid Classic, Chrome, and background apps NEVER lose HTTPS connectivity when leaving MainActivity!
         super.onDestroy();
     }
 
@@ -164,7 +176,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.7");
+        title.setText("Kobo Arc 7 Freedom  v1.8");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -586,8 +598,63 @@ public class MainActivity extends Activity {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
 
+        // NEW in v1.8.0: Direct Zero-Storage Backup & Restore to Laptop over USB ADB (:18777)
+        LinearLayout usbCard = makeCard();
+        addCardHeader(usbCard, "NEW — Backup Directly to Your Laptop via USB ADB (0 MB Tablet Space Needed!)",
+                "Streams verified bit-for-bit partitions (boot, recovery, NVRAM Wi-Fi MAC calibration, uboot, system OS) "
+                + "plus your Books, Music & Photos directly over a USB cable straight onto your Windows / Mac / Linux laptop — "
+                + "even if your 8 GB Kobo Arc 7 is 99% full!");
+
+        final TextView usbStatusLabel = makeBodyText(
+                "Status: " + Arc7AdbBackupService.getLastStatusLine() + "\n\n"
+                + "Option 1 (1-Click Laptop Script): Plug USB in & run Backup-Kobo-To-Laptop-ADB.bat (Windows) or .sh (Mac/Linux).\n"
+                + "Option 2 (Any Laptop Browser): Plug USB in, run:\n"
+                + "    adb forward tcp:18777 tcp:18777\n"
+                + "and open http://127.0.0.1:18777 in Chrome / Edge / Safari / Firefox to download full SHA-256 verified .zip backups!");
+        usbStatusLabel.setTypeface(Typeface.MONOSPACE);
+        usbStatusLabel.setPadding(0, dp(8), 0, dp(8));
+        usbCard.addView(usbStatusLabel);
+
+        Button startUsbBtn = makePrimaryButton("Start / Refresh USB ADB Laptop Backup Server (:18777)");
+        startUsbBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7AdbBackupService.ensureStarted(MainActivity.this);
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (rootShell.isRootAvailable()) {
+                            rootShell.execRoot(
+                                    "settings put global adb_enabled 1 >/dev/null 2>&1 || true; "
+                                    + "setprop persist.service.adb.enable 1 >/dev/null 2>&1 || true; "
+                                    + "setprop service.adb.root 1 >/dev/null 2>&1 || true; "
+                                    + "start adbd >/dev/null 2>&1 || true",
+                                    null);
+                        }
+                        try { Thread.sleep(350L); } catch (Throwable ignored) {}
+                        uiHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                usbStatusLabel.setText(
+                                        "Status: ACTIVE — " + Arc7AdbBackupService.getLastStatusLine() + "\n"
+                                        + "Total streamed this session: "
+                                        + String.format(Locale.US, "%.2f MB", Arc7AdbBackupService.getTotalBytesStreamed() / 1048576.0)
+                                        + "\n\nOn your laptop run:  adb forward tcp:18777 tcp:18777  -> open http://127.0.0.1:18777\n"
+                                        + "Or double-click Backup-Kobo-To-Laptop-ADB.bat / .sh!");
+                                appendLog("USB ADB Laptop Backup Server ready on 127.0.0.1:18777 (0 MB tablet space used).");
+                                Toast.makeText(MainActivity.this,
+                                        "USB ADB Backup ready on 127.0.0.1:18777!", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }).start();
+            }
+        });
+        usbCard.addView(startUsbBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        page.addView(usbCard, cardMargin());
+
         LinearLayout cfgCard = makeCard();
-        addCardHeader(cfgCard, "Step 2 — Backup Complete Kobo Stock OS",
+        addCardHeader(cfgCard, "Option B — Backup Complete Kobo Stock OS to MicroSD / Internal Storage",
                 "Creates compressed, SHA-256 verified partition images so you can restore your exact factory "
                 + "Kobo OS (or unbrick with MediaTek SP Flash Tool via the generated scatter file) at any time.");
 

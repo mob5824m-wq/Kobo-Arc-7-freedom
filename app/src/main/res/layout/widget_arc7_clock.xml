@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_clock_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="#CC0F172A"
+    android:paddingLeft="16dp"
+    android:paddingRight="16dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextClock
+            android:id="@+id/widget_clock_time"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="h:mm a"
+            android:format24Hour="HH:mm"
+            android:textColor="#FFFFFFFF"
+            android:textSize="36sp"
+            android:textStyle="bold" />
+
+        <TextClock
+            android:id="@+id/widget_clock_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:format12Hour="EEEE, MMMM d, yyyy"
+            android:format24Hour="EEEE, MMMM d, yyyy"
+            android:textColor="#FF93C5FD"
+            android:textSize="13sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="right">
+
+        <TextView
+            android:id="@+id/widget_clock_alarm_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Alarms Ready"
+            android:textColor="#FF6EE7B7"
+            android:textSize="12sp"
+            android:paddingBottom="6dp" />
+
+        <Button
+            android:id="@+id/widget_clock_flip_btn"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="Nightstand Flip"
+            android:textColor="#FFFFFFFF"
+            android:background="#FF1D4ED8"
+            android:textSize="12sp"
+            android:paddingLeft="12dp"
+            android:paddingRight="12dp" />
+    </LinearLayout>
+</LinearLayout>

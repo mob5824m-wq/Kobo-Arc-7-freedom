@@ -47,6 +47,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PushbackInputStream;
 import java.net.HttpURLConnection;
+import java.net.Proxy;
 import java.net.URL;
 import java.util.List;
 import java.util.Locale;
@@ -121,6 +122,15 @@ public class Arc7BrowserActivity extends Activity {
         navigateTo(startUrl);
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getDataString() != null && intent.getDataString().trim().length() > 0) {
+            navigateTo(intent.getDataString().trim());
+        }
+    }
+
     private int dp(int v) {
         return Math.round(TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));
@@ -138,7 +148,8 @@ public class Arc7BrowserActivity extends Activity {
     private boolean pingTlsDaemon() {
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL("http://127.0.0.1:" + DAEMON_PORT + "/__ping").openConnection();
+            conn = (HttpURLConnection) new URL("http://127.0.0.1:" + DAEMON_PORT + "/__ping")
+                    .openConnection(Proxy.NO_PROXY);
             conn.setConnectTimeout(250);
             conn.setReadTimeout(400);
             return conn.getResponseCode() == 200;
@@ -636,7 +647,7 @@ public class Arc7BrowserActivity extends Activity {
             }
 
             URL proxyUrl = new URL("http://127.0.0.1:" + DAEMON_PORT + "/__arc7_raw?u=" + Uri.encode(url));
-            conn = (HttpURLConnection) proxyUrl.openConnection();
+            conn = (HttpURLConnection) proxyUrl.openConnection(Proxy.NO_PROXY);
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(25000);
@@ -655,11 +666,14 @@ public class Arc7BrowserActivity extends Activity {
                 finalUrl = url;
             }
 
-            // Persist any Set-Cookie headers back into Android CookieManager
+            // Persist any upstream Set-Cookie headers relayed via `X-Arc7-Cookie` or `Set-Cookie`
             Map<String, List<String>> hdrs = conn.getHeaderFields();
             if (hdrs != null) {
                 for (Map.Entry<String, List<String>> e : hdrs.entrySet()) {
-                    if (e.getKey() != null && "Set-Cookie".equalsIgnoreCase(e.getKey()) && e.getValue() != null) {
+                    if (e.getKey() != null
+                            && ("X-Arc7-Cookie".equalsIgnoreCase(e.getKey())
+                                || "Set-Cookie".equalsIgnoreCase(e.getKey()))
+                            && e.getValue() != null) {
                         for (String sc : e.getValue()) {
                             if (sc != null) CookieManager.getInstance().setCookie(finalUrl, sc);
                         }

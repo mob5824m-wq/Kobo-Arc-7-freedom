@@ -64,6 +64,10 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         context.startService(new Intent(context, Arc7WifiDriveService.class));
                     }
 
+                    // Always keep our persistent 24/7 Local TLS 1.3 Gateway (`127.0.0.1:8118`) warm
+                    // across reboots so F-Droid Classic & Chrome never fail with SSL connection errors!
+                    Arc7TlsGatewayService.ensureStarted(context);
+
                     ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
                     NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
                     if (active != null && active.isConnected()) {
@@ -76,7 +80,7 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                                 for (String ln : r.stdout.split("\n")) {
                                     if (ln.trim().startsWith("ANDROID_DATE=")) {
                                         String d = ln.trim().substring("ANDROID_DATE=".length()).trim();
-                                        shell.execRoot("date -u -s " + d + " >/dev/null 2>&1 || date -s " + d + " >/dev/null 2>&1 || true", null);
+                                        shell.execRoot("date -s " + d + " >/dev/null 2>&1 || true", null);
                                     }
                                 }
                             }

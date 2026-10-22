@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_power_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="#CC0F172A"
+    android:paddingLeft="12dp"
+    android:paddingRight="12dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
+
+    <TextView
+        android:id="@+id/widget_power_tls"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1.2"
+        android:gravity="center"
+        android:text="TLS 1.3 ON"
+        android:textColor="#FF6EE7B7"
+        android:background="#FF1E293B"
+        android:textStyle="bold"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_power_browser"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:layout_marginLeft="6dp"
+        android:text="Browser"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF1D4ED8"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_power_reader"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:layout_marginLeft="6dp"
+        android:text="Reader"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF0F766E"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_power_apps"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:layout_marginLeft="6dp"
+        android:text="Apps"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF4F46E5"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_power_term"
+        android:layout_width="0dp"
+        android:layout_height="38dp"
+        android:layout_weight="1"
+        android:layout_marginLeft="6dp"
+        android:text="Terminal"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF334155"
+        android:textSize="11sp" />
+</LinearLayout>

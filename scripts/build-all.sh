@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom — Reproducible Full Native + Dalvik (DEX 035) Build Script
+# Kobo Arc 7 Freedom v1.8.0 — Reproducible Full Native + Dalvik (DEX 035) Build
 #
-# Builds BOTH signed Android 4.2.2 (API 17 / minSdk 15) APKs from pure source:
+# Builds BOTH signed Android 4.2.2 (API 17 / minSdk 15) APKs + Patched F-Droid:
 #   1. Pre-packages all 120 modern 2026 Mozilla Root CA certificates offline
 #      into `app/src/main/assets/cacerts/` (`<subject_hash_old>.<idx>` + bundle)
-#   2. Cross-compiles all 4 static ARMv7 EABI5 native binaries:
+#   2. Patches `FDroidClassicLegacy.apk` binary `resources.arsc` (`default_repos`
+#      -> `http://127.0.0.1:8118/__https/...` + `F-Droid Archive` enabled) &
+#      signs with `arc7freedom.jks` (`v1+v2+v3` valid at API 14/15/17!)
+#   3. Cross-compiles all 4 static ARMv7 EABI5 native binaries:
 #        - `libarc7su.so`   (Setuid + daemon fallback `su`)
 #        - `libarc7root.so` (Multi-stage Linux 3.4 ARMv7 kernel root engine)
 #        - `libarc7tool.so` (Streaming zlib + FIPS-180-4 SHA-256 partition tool)
-#        - `libarc7tls.so`  (Mbed-TLS 3.6 LTS full TLS 1.3 + TLS 1.2 engine,
-#                            UDP NTP clock sync & local Browser Gateway)
-#   3. Builds & v1/v2/v3 signs `releases/VanillaAndroid4Home.apk` &
-#      `releases/KoboArc7Freedom.apk` + `releases/SHA256SUMS.txt`
+#        - `libarc7tls.so`  (BearSSL TLS 1.0–1.2 local server + Mbed-TLS 3.6 LTS
+#                            TLS 1.3 upstream + `/__https/` F-Droid bridge + NTP)
+#   4. Builds & v1/v2/v3 signs `releases/VanillaAndroid4Home.apk` (v48 Widgets)
+#      & `releases/KoboArc7Freedom.apk` (`v1.8.0`, code `180`) + `SHA256SUMS.txt`
 # ==============================================================================
 set -euo pipefail
 
@@ -62,13 +65,20 @@ else
 fi
 
 D8_BIN=""
+D8_JAR=""
 if [ -x "/opt/toolchain/sdk/build-tools/34.0.0/d8" ]; then
     D8_BIN="/opt/toolchain/sdk/build-tools/34.0.0/d8"
 elif [ -n "$LATEST_BUILD_TOOLS" ] && [ -x "$LATEST_BUILD_TOOLS/d8" ]; then
     D8_BIN="$LATEST_BUILD_TOOLS/d8"
+elif [ -f "/opt/toolchain/jars/d8.jar" ]; then
+    D8_JAR="/opt/toolchain/jars/d8.jar"
 fi
 
-ECJ="${ECJ:-/opt/toolchain/jars/ecj-4.8.jar}"
+if [ -f "/opt/toolchain/jars/ecj-3.45.0.jar" ]; then
+    ECJ="${ECJ:-/opt/toolchain/jars/ecj-3.45.0.jar}"
+else
+    ECJ="${ECJ:-/opt/toolchain/jars/ecj-4.8.jar}"
+fi
 DFODA="${DFODA:-/opt/toolchain/jars/dfoda0.0.9.jar}"
 
 if [ -f "/opt/toolchain/jars/apksigner.jar" ]; then
@@ -100,6 +110,19 @@ fi
 
 ZLIB_DIR="${ZLIB_DIR:-/tmp/zlib-src}"
 MBEDTLS_DIR="${MBEDTLS_DIR:-/tmp/mbedtls-src}"
+BEARSSL_DIR="${BEARSSL_DIR:-/tmp/bearssl-src}"
+
+mkdir -p build/keystore releases
+if [ ! -f build/keystore/arc7freedom.jks ]; then
+    "$KEYTOOL_BIN" -genkeypair -noprompt \
+        -keystore build/keystore/arc7freedom.jks \
+        -storepass arc7freedom \
+        -keypass arc7freedom \
+        -alias arc7key \
+        -keyalg RSA -keysize 2048 -sigalg SHA256withRSA \
+        -validity 10000 \
+        -dname "CN=Kobo Arc 7 Freedom, OU=Open Source, O=Arc7Freedom, L=Kitchener, ST=ON, C=CA"
+fi
 
 compile_java_and_dex() {
     local out_classes="$1"
@@ -125,6 +148,11 @@ compile_java_and_dex() {
         "$D8_BIN" --min-api 15 --lib "$ANDROID_JAR" \
             --output "$out_dex_dir" \
             "$out_classes/../classes.jar"
+    elif [ -n "$D8_JAR" ]; then
+        "$JAVA_BIN" -cp "$D8_JAR" com.android.tools.r8.D8 \
+            --min-api 15 --lib "$ANDROID_JAR" \
+            --output "$out_dex_dir" \
+            "$out_classes/../classes.jar"
     else
         "$JAVA_BIN" -cp "build:$DFODA" RunDexer \
             --dex "--saida=$out_dex_dir/classes.dex" \
@@ -132,56 +160,94 @@ compile_java_and_dex() {
     fi
 }
 
-echo "==> [1/7] Pre-packaging offline 2026 CAs, starter Android 4.2 App Store APK & launcher icons..."
+echo "==> [1/7] Pre-packaging offline 2026 CAs, patching F-Droid Classic TLS 1.3 Index Bridge & icons..."
 "$PY_BIN" scripts/generate-cacerts.py
 "$PY_BIN" scripts/generate-icons.py
 
 mkdir -p app/src/main/assets/starter-apps
+FDROID_RAW="/tmp/fdroid-upstream-raw.apk"
 FDROID_APK="app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"
 FDROID_URL="https://github.com/Smu1zel/fdroidclassiclegacy/releases/download/v1.3-beta2-PATCH/app-debug.apk"
-if [ ! -s "$FDROID_APK" ]; then
-    echo "    Downloading pre-bundled offline F-Droid Classic Legacy (Android 4.1+ / 4.2.2 + Conscrypt TLS 1.3)..."
-    curl -fsSL "$FDROID_URL" -o "$FDROID_APK"
+if [ ! -s "$FDROID_RAW" ]; then
+    echo "    Fetching upstream F-Droid Classic Legacy base APK..."
+    if ! curl -fsSL "$FDROID_URL" -o "$FDROID_RAW" 2>/dev/null; then
+        cp -f "$FDROID_APK" "$FDROID_RAW"
+    fi
 fi
+cp -f "$FDROID_RAW" "$FDROID_APK"
+"$PY_BIN" scripts/patch-fdroid-apk.py \
+    "$FDROID_APK" \
+    "$ZIPALIGN" \
+    "$JAVA_BIN" \
+    "$APKSIGNER_JAR" \
+    build/keystore/arc7freedom.jks \
+    arc7freedom \
+    arc7key
 ls -lh "$FDROID_APK"
 
-echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls)..."
+echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls w/ BearSSL+MbedTLS)..."
 if [ ! -d "$ZLIB_DIR" ]; then
     git clone --depth 1 https://github.com/madler/zlib.git "$ZLIB_DIR"
 fi
 if [ ! -d "$MBEDTLS_DIR" ]; then
     git clone --depth 1 --branch v3.6.2 https://github.com/Mbed-TLS/mbedtls.git "$MBEDTLS_DIR"
 fi
+if [ ! -d "$BEARSSL_DIR" ]; then
+    git clone --depth 1 https://github.com/unkaktus/bearssl.git "$BEARSSL_DIR"
+fi
 
-mkdir -p build/native/armeabi-v7a build/native/armeabi build/mbedtls-arm build/keystore releases
+mkdir -p build/native/armeabi-v7a build/native/armeabi build/mbedtls-arm build/bearssl-arm
 CFLAGS_ARM="-target arm-linux-musleabi -march=armv7-a -mcpu=cortex_a8 -Os -s -static -Wall -Wextra -Wno-unused-parameter"
 
-if [ ! -f build/mbedtls-arm/libmbedtls_all.a ]; then
-    "$PY_BIN" - "$MBEDTLS_DIR" << 'PYEOF'
-import concurrent.futures, glob, os, shutil, subprocess, sys
-mbed = sys.argv[1]
+if [ ! -f build/mbedtls-arm/libmbedtls_all.a ] || [ ! -f build/bearssl-arm/libbearssl_all.a ]; then
+    "$PY_BIN" - "$MBEDTLS_DIR" "$BEARSSL_DIR" << 'PYEOF'
+import concurrent.futures, glob, os, subprocess, sys
+mbed, bear = sys.argv[1], sys.argv[2]
 zig = [sys.executable, "-m", "ziglang"]
 try:
     import ziglang  # noqa
 except ImportError:
     zig = ["zig"]
-srcs = sorted(glob.glob(os.path.join(mbed, "library/*.c")))
-def comp(s):
-    o = os.path.join("build/mbedtls-arm", os.path.basename(s)[:-2] + ".o")
-    subprocess.run(
-        zig + ["cc", "-target", "arm-linux-musleabi", "-march=armv7-a", "-mcpu=cortex_a8",
-               "-Os", "-ffunction-sections", "-fdata-sections",
-               f"-I{mbed}/include", f"-I{mbed}/library", "-c", s, "-o", o],
-        check=True,
+
+if not os.path.exists("build/mbedtls-arm/libmbedtls_all.a"):
+    srcs = sorted(glob.glob(os.path.join(mbed, "library/*.c")))
+    def comp_m(s):
+        o = os.path.join("build/mbedtls-arm", os.path.basename(s)[:-2] + ".o")
+        subprocess.run(
+            zig + ["cc", "-target", "arm-linux-musleabi", "-march=armv7-a", "-mcpu=cortex_a8",
+                   "-Os", "-ffunction-sections", "-fdata-sections",
+                   f"-I{mbed}/include", f"-I{mbed}/library", "-c", s, "-o", o],
+            check=True,
+        )
+        return o
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        objs = list(ex.map(comp_m, srcs))
+    subprocess.run(zig + ["ar", "rcs", "build/mbedtls-arm/libmbedtls_all.a", *objs], check=True)
+
+if not os.path.exists("build/bearssl-arm/libbearssl_all.a"):
+    bsrcs = sorted(
+        s for s in glob.glob(os.path.join(bear, "src/**/*.c"), recursive=True)
+        if not os.path.basename(s).startswith("ec_prime_i31_secp")
     )
-    return o
-with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
-    objs = list(ex.map(comp, srcs))
-subprocess.run(zig + ["ar", "rcs", "build/mbedtls-arm/libmbedtls_all.a", *objs], check=True)
+    def comp_b(idx_s):
+        idx, s = idx_s
+        o = os.path.join("build/bearssl-arm", f"{idx:03d}_{os.path.basename(s)[:-2]}.o")
+        subprocess.run(
+            zig + ["cc", "-target", "arm-linux-musleabi", "-march=armv7-a", "-mcpu=cortex_a8",
+                   "-Os", "-ffunction-sections", "-fdata-sections",
+                   f"-I{bear}/inc", f"-I{bear}/src", "-c", s, "-o", o],
+            check=True,
+        )
+        return o
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        bobjs = list(ex.map(comp_b, enumerate(bsrcs)))
+    subprocess.run(zig + ["ar", "rcs", "build/bearssl-arm/libbearssl_all.a", *bobjs], check=True)
 PYEOF
 fi
 
 $ZIG_CMD cc $CFLAGS_ARM native/su.c -o build/native/armeabi-v7a/libarc7su.so
+$ZIG_CMD cc $CFLAGS_ARM native/arc7root.so.tmp 2>/dev/null || true
+rm -f build/native/armeabi-v7a/libarc7root.so.tmp
 $ZIG_CMD cc $CFLAGS_ARM native/arc7root.c -o build/native/armeabi-v7a/libarc7root.so -lpthread
 $ZIG_CMD cc $CFLAGS_ARM -DHAVE_UNISTD_H=1 -DHAVE_STDARG_H=1 -I"$ZLIB_DIR" native/arc7tool.c \
     "$ZLIB_DIR"/adler32.c "$ZLIB_DIR"/compress.c "$ZLIB_DIR"/crc32.c \
@@ -191,38 +257,16 @@ $ZIG_CMD cc $CFLAGS_ARM -DHAVE_UNISTD_H=1 -DHAVE_STDARG_H=1 -I"$ZLIB_DIR" native
     "$ZLIB_DIR"/trees.c "$ZLIB_DIR"/uncompr.c "$ZLIB_DIR"/zutil.c \
     -o build/native/armeabi-v7a/libarc7tool.so
 $ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
-    -I"$MBEDTLS_DIR/include" native/arc7tls.c build/mbedtls-arm/libmbedtls_all.a -lpthread \
+    -I"$MBEDTLS_DIR/include" -I"$BEARSSL_DIR/inc" \
+    native/arc7tls.c \
+    build/mbedtls-arm/libmbedtls_all.a \
+    build/bearssl-arm/libbearssl_all.a \
+    -lpthread \
     -o build/native/armeabi-v7a/libarc7tls.so
 
 cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
-if [ ! -f build/keystore/arc7freedom.jks ]; then
-    "$KEYTOOL_BIN" -genkeypair -noprompt \
-        -keystore build/keystore/arc7freedom.jks \
-        -storepass arc7freedom \
-        -keypass arc7freedom \
-        -alias arc7key \
-        -keyalg RSA -keysize 2048 -sigalg SHA256withRSA \
-        -validity 10000 \
-        -dname "CN=Kobo Arc 7 Freedom, OU=Open Source, O=Arc7Freedom, L=Kitchener, ST=ON, C=CA"
-fi
-
-if [ -z "$D8_BIN" ] && [ -f "$DFODA" ]; then
-    cat > build/RunDexer.java << 'JEOF'
-public class RunDexer {
-    public static void main(String[] args) throws Exception {
-        com.dfoda.dexer.Main.rodar(args);
-    }
-}
-JEOF
-    if [ -f "$ECJ" ]; then
-        "$JAVA_BIN" -jar "$ECJ" -1.8 -cp "$DFODA" -d build/ build/RunDexer.java
-    else
-        "$JAVAC_BIN" -source 1.8 -target 1.8 -Xlint:-options -cp "$DFODA" -d build/ build/RunDexer.java
-    fi
-fi
-
-echo "==> [3/7] Building standalone Stock Android 4.2 Home Launcher (VanillaAndroid4Home.apk)..."
+echo "==> [3/7] Building standalone Stock Android 4.2 Home Launcher v48 w/ Widgets (VanillaAndroid4Home.apk)..."
 rm -rf build/launcher && mkdir -p build/launcher/{res_compiled,gen,classes,dex}
 "$AAPT2" compile --dir launcher-android4/res -o build/launcher/res_compiled/res.zip
 "$AAPT2" link \
@@ -258,7 +302,7 @@ compile_java_and_dex \
 mkdir -p app/src/main/assets
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/7] Compiling & packaging KoboArc7Freedom.apk (API 17 + 120 2026 CAs + TLS 1.3 + ARMv7 binaries)..."
+echo "==> [4/7] Compiling & packaging KoboArc7Freedom.apk v1.8.0 (Widgets + USB ADB Backup + TLS 1.3 + Separate Tasks)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -299,8 +343,22 @@ echo "==> [5/7] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2)
     build/app/aligned.apk
 
 echo "==> [6/7] Generating static Web Portals & writing SHA256SUMS.txt..."
-rm -f releases/*.idsig
+rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
+chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
-(cd releases && sha256sum KoboArc7Freedom.apk VanillaAndroid4Home.apk Start-Kobo-WiFi-Server.bat Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
+(cd releases && sha256sum \
+    KoboArc7Freedom.apk \
+    VanillaAndroid4Home.apk \
+    Backup-Kobo-To-Laptop-ADB.bat \
+    Backup-Kobo-To-Laptop-ADB.sh \
+    Start-Kobo-WiFi-Server.bat \
+    Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
-ls -lh releases/KoboArc7Freedom.apk releases/VanillaAndroid4Home.apk releases/Start-Kobo-WiFi-Server.bat releases/Start-Kobo-WiFi-Server.sh docs/index.html
+ls -lh \
+    releases/KoboArc7Freedom.apk \
+    releases/VanillaAndroid4Home.apk \
+    releases/Backup-Kobo-To-Laptop-ADB.bat \
+    releases/Backup-Kobo-To-Laptop-ADB.sh \
+    releases/Start-Kobo-WiFi-Server.bat \
+    releases/Start-Kobo-WiFi-Server.sh \
+    docs/index.html

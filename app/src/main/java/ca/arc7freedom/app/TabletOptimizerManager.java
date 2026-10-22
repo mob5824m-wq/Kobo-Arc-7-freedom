@@ -183,7 +183,13 @@ public class TabletOptimizerManager {
      * ======================================================================== */
 
     public boolean installBundledFDroidClassic(LogSink log) {
-        log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (Android 4.2 + TLS 1.3) ===");
+        log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (Android 4.2 + Verified TLS 1.3 Bridge) ===");
+        // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway is live BEFORE F-Droid ever runs!
+        Arc7TlsGatewayService.ensureStarted(ctx);
+        try {
+            new NetworkCertManager(ctx, shell).startBrowserGateway();
+        } catch (Throwable ignored) {}
+
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
         if (!outDir.exists()) outDir.mkdirs();
         File outApk = new File(outDir, "FDroidClassic-Android4.2-TLS1.3.apk");
@@ -201,7 +207,7 @@ public class TabletOptimizerManager {
                 total += r;
             }
             fos.flush();
-            log.onLog("Extracted offline store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
+            log.onLog("Extracted patched TLS-1.3 F-Droid store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
         } catch (Throwable t) {
             log.onLog("ERROR extracting bundled F-Droid Classic APK: " + t.getMessage());
             return false;
@@ -211,22 +217,81 @@ public class TabletOptimizerManager {
         }
 
         if (shell.isRootAvailable()) {
+            // If an earlier unpatched debug build of F-Droid Classic is installed (which cached
+            // defunct `bubu1.eu` / TLS-1.3-only `ftp.fau.de` URLs in SQLite and had a different signing key),
+            // cleanly uninstall it first so our patched TLS-1.3 bridge APK installs with clean repo URLs!
+            boolean needCleanUninstall = false;
+            try {
+                int sigCmp = ctx.getPackageManager().checkSignatures(
+                        ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
+                if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
+                    needCleanUninstall = true;
+                }
+            } catch (Throwable ignored) {}
+            if (needCleanUninstall) {
+                log.onLog("Upgrading old F-Droid Classic installation & clearing dead repository URLs...");
+                shell.execRoot("pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true", null);
+            }
             log.onLog("Root detected — running silent `pm install -r` so Unknown Sources toggle isn't even needed...");
             RootShell.ExecResult pm = shell.execRoot(
                     "pm install -r " + RootShell.shellQuote(outApk.getAbsolutePath()), null);
             log.onLog(pm.stdout.trim());
             if (pm.stdout.contains("Success")) {
-                log.onLog("SUCCESS: F-Droid Classic (Android 4.2 + built-in modern TLS 1.3) is now installed in your App Drawer!");
+                log.onLog("SUCCESS: F-Droid Classic (`v1.8.0` Patched TLS 1.3 Index Bridge) is installed & ready — pull to refresh in F-Droid for 4,000+ working apps!");
                 return true;
             }
         }
 
-        log.onLog("Opening Android 4.2 Package Installer prompt (enable Settings -> Security -> Unknown Sources if prompted)...");
+        log.onLog("Opening Android 4.2 Package Installer prompt (if an older F-Droid Classic is installed, uninstall it once first so fresh repo URLs load)...");
         Intent prompt = new Intent(Intent.ACTION_VIEW);
         prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         ctx.startActivity(prompt);
         return true;
+    }
+
+    /**
+     * Silently upgrades companion APKs (`VanillaAndroid4Home.apk` -> `versionCode >= 48` with
+     * full Home Screen Widgets + isolated app tasks, AND migrates legacy `v1.7.0` F-Droid Classic
+     * installs to our `v1.8.0` TLS 1.3 Index Bridge build) right when `v1.8.0` starts!
+     */
+    public void ensureCompanionAppsUpgradedSilently() {
+        if (!shell.isRootAvailable()) return;
+        try {
+            int homeVer = 0;
+            try {
+                homeVer = ctx.getPackageManager()
+                        .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
+            } catch (Throwable ignored) {}
+            if (homeVer > 0 && homeVer < 48) {
+                File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
+                InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
+                FileOutputStream fos = new FileOutputStream(tmpHome);
+                byte[] buf = new byte[32768];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                fos.close();
+                in.close();
+                tmpHome.setReadable(true, false);
+                shell.execRoot(
+                        "pm install -r " + RootShell.shellQuote(tmpHome.getAbsolutePath()) +
+                        " && (appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null" +
+                        " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true)",
+                        null);
+                tmpHome.delete();
+            }
+
+            try {
+                ctx.getPackageManager().getPackageInfo("eu.bubu1.fdroidclassic.debug", 0);
+                int sigCmp = ctx.getPackageManager().checkSignatures(
+                        ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
+                if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
+                    installBundledFDroidClassic(new LogSink() {
+                        @Override public void onLog(String line) {}
+                    });
+                }
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
     }
 
     /* ========================================================================

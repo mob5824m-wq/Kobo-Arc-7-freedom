@@ -24,6 +24,10 @@ import java.util.Locale;
  */
 public class Arc7AudioService extends Service {
 
+    public static final String ACTION_TOGGLE    = "ca.arc7freedom.app.AUDIO_TOGGLE";
+    public static final String ACTION_REWIND_30 = "ca.arc7freedom.app.AUDIO_REWIND_30";
+    public static final String ACTION_FFWD_30   = "ca.arc7freedom.app.AUDIO_FFWD_30";
+
     private static final String PREFS = "arc7_audio_bookmarks";
 
     public class LocalBinder extends Binder {
@@ -64,6 +68,17 @@ public class Arc7AudioService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        if (intent != null && intent.getAction() != null) {
+            String act = intent.getAction();
+            if (ACTION_TOGGLE.equals(act)) {
+                togglePlayPause();
+            } else if (ACTION_REWIND_30.equals(act)) {
+                seekRelativeMs(-30000);
+            } else if (ACTION_FFWD_30.equals(act)) {
+                seekRelativeMs(30000);
+            }
+            Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), getCurrentTitle(), isPlaying());
+        }
         return START_STICKY;
     }
 
@@ -135,6 +150,7 @@ public class Arc7AudioService extends Service {
             player.start();
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putString("last_track", track.getAbsolutePath()).commit();
+            Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), track.getName(), true);
         } catch (Throwable t) {
             releasePlayer();
         }
@@ -152,6 +168,7 @@ public class Arc7AudioService extends Service {
             pausePlayback();
         } else {
             player.start();
+            Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), getCurrentTitle(), true);
         }
     }
 
@@ -159,6 +176,7 @@ public class Arc7AudioService extends Service {
         if (player != null && player.isPlaying()) {
             saveCurrentPosition();
             player.pause();
+            Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), getCurrentTitle(), false);
         }
     }
 

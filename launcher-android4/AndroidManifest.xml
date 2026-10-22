@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.launcher"
-    android:versionCode="42"
-    android:versionName="4.2.2-vanilla">
+    android:versionCode="48"
+    android:versionName="4.2.2-widgets">
 
     <uses-sdk
         android:minSdkVersion="15"
@@ -10,40 +10,31 @@
 
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.SET_WALLPAPER_HINTS" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.BIND_APPWIDGET" />
 
     <application
-        android:allowBackup="true"
-        android:hardwareAccelerated="true"
         android:icon="@drawable/ic_launcher_home"
-        android:label="@string/launcher_name"
+        android:label="Android 4.2 Home"
+        android:hardwareAccelerated="true"
+        android:allowBackup="true"
         android:theme="@android:style/Theme.Holo.Wallpaper.NoTitleBar">
 
         <activity
-            android:name="ca.arc7freedom.launcher.VanillaHomeActivity"
-            android:clearTaskOnLaunch="true"
-            android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true"
+            android:name=".VanillaHomeActivity"
+            android:label="Home"
             android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.launcher"
+            android:clearTaskOnLaunch="true"
             android:stateNotNeeded="true"
-            android:windowSoftInputMode="adjustPan|stateHidden">
+            android:screenOrientation="unspecified"
+            android:windowSoftInputMode="adjustPan"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.MONKEY" />
             </intent-filter>
         </activity>
-
-        <receiver
-            android:name="ca.arc7freedom.launcher.BootProvisionReceiver"
-            android:exported="true">
-            <intent-filter android:priority="1000">
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-            </intent-filter>
-        </receiver>
-
     </application>
 </manifest>
