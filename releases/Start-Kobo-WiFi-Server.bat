@@ -1,7 +1,7 @@
 <# : batch portion
 @echo off
 setlocal
-title Kobo Arc 7 Freedom v1.9.1 - Concurrent Home Wi-Fi OTA Rooting Server (:8000)
+title Kobo Arc 7 Freedom v2.4.1 - Concurrent Home Wi-Fi OTA Rooting Server (:8000)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((Get-Content -LiteralPath '%~f0' -Raw)))"
 pause
 exit /b
@@ -14,10 +14,10 @@ $Port = 8000
 $WorkDir = Join-Path $env:USERPROFILE "Downloads\Kobo-Arc-7-Freedom-WiFi"
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 
-# Copy local APKs first if user downloaded them alongside this .bat
+# Copy local assets (including logo-banner.png!) first if downloaded alongside this .bat
 $ScriptFolder = $PSScriptRoot
 if (-not $ScriptFolder) { $ScriptFolder = (Get-Location).Path }
-foreach ($localName in @("Upgrade-My-Kobo-To-v2.4.0.apk", "KoboArc7Freedom.apk", "VLC.apk", "AuroraStore.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
+foreach ($localName in @("logo-banner.png", "Upgrade-My-Kobo-To-v2.4.1.apk", "KoboArc7Freedom.apk", "VLC.apk", "AuroraStore.apk", "FDroidClassicLegacy.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
     foreach ($candidateDir in @($ScriptFolder, (Join-Path $ScriptFolder "..\releases"))) {
         $cand = Join-Path $candidateDir $localName
         if (Test-Path -LiteralPath $cand) {
@@ -29,23 +29,25 @@ foreach ($localName in @("Upgrade-My-Kobo-To-v2.4.0.apk", "KoboArc7Freedom.apk",
 $RawBase = "https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 $ReleaseBase = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
 $RequiredFiles = @(
-    "Upgrade-My-Kobo-To-v2.4.0.apk",
+    "logo-banner.png",
+    "Upgrade-My-Kobo-To-v2.4.1.apk",
     "KoboArc7Freedom.apk",
     "VLC.apk",
     "AuroraStore.apk",
+    "FDroidClassicLegacy.apk",
     "VanillaAndroid4Home.apk",
     "SHA256SUMS.txt"
 )
 
 foreach ($f in $RequiredFiles) {
     $dst = Join-Path $WorkDir $f
-    if (-not (Test-Path -LiteralPath $dst) -or ((Get-Item -LiteralPath $dst).Length -lt 512)) {
+    if (-not (Test-Path -LiteralPath $dst) -or ((Get-Item -LiteralPath $dst).Length -lt 128)) {
         Write-Host "==> Downloading $f ..." -ForegroundColor Cyan
         $ok = $false
         foreach ($base in @($RawBase, $ReleaseBase)) {
             try {
                 Invoke-WebRequest -UseBasicParsing -Uri "$base/$f" -OutFile $dst -TimeoutSec 120
-                if ((Test-Path -LiteralPath $dst) -and ((Get-Item -LiteralPath $dst).Length -gt 200)) {
+                if ((Test-Path -LiteralPath $dst) -and ((Get-Item -LiteralPath $dst).Length -gt 128)) {
                     $ok = $true
                     break
                 }
@@ -84,16 +86,16 @@ $Listener.Start()
 
 Write-Host ""
 Write-Host "========================================================================" -ForegroundColor Green
-Write-Host "  KOBO ARC 7 FREEDOM v1.9.1 - CONCURRENT WI-FI OTA ROOTING SERVER LIVE!" -ForegroundColor Green
+Write-Host "  KOBO ARC 7 FREEDOM v2.4.1 - CONCURRENT WI-FI OTA ROOTING SERVER LIVE!" -ForegroundColor Green
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host "  1. On Kobo Arc 7, enable: Settings -> Security -> Unknown sources"
-Write-Host "  2. Open Kobo's Browser and type this exact address (with http://):"
+Write-Host "  2. Open Browser on your Kobo and type this exact address (with http://):"
 foreach ($ip in $Ips) {
     Write-Host ""
     Write-Host "       http://${ip}:${Port}" -ForegroundColor Yellow
 }
 Write-Host ""
-Write-Host "  3. Tap 'KoboArc7Freedom.apk' (new root) or 'Upgrade-My-Kobo-To-v1.9.1.apk'!"
+Write-Host "  3. Tap 'Upgrade-My-Kobo-To-v2.4.1.apk' or 'KoboArc7Freedom.apk'!"
 Write-Host "========================================================================" -ForegroundColor Green
 Write-Host ""
 
@@ -104,7 +106,6 @@ $ClientHandler = {
         $Client.SendTimeout = 120000
         $Stream = $Client.GetStream()
 
-        # Read HTTP request header lines
         $HeaderBuf = New-Object System.Collections.Generic.List[byte]
         $b = 0
         $FirstByteChecked = $false
@@ -113,7 +114,6 @@ $ClientHandler = {
             if ($b -lt 0) { return }
             if (-not $FirstByteChecked) {
                 $FirstByteChecked = $true
-                # Immediately reject accidental TLS ClientHello (0x16 / 0x80) so HTTPS-First falls back to HTTP in <1ms!
                 if ($b -eq 0x16 -or $b -eq 0x80) { return }
             }
             $HeaderBuf.Add([byte]$b)
@@ -147,9 +147,16 @@ $ClientHandler = {
             }
         }
 
+        if ($SafeName -eq "favicon.ico") {
+            $EmptyHdr = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 204 No Content`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+            $Stream.Write($EmptyHdr, 0, $EmptyHdr.Length)
+            return
+        }
+
         if ([string]::IsNullOrWhiteSpace($SafeName) -or $SafeName -eq "index.html") {
             $Rows = ""
             foreach ($item in Get-ChildItem -LiteralPath $ServeRoot -File | Sort-Object Name) {
+                if ($item.Extension -match '^\.(png|jpg|jpeg|gif|webp|svg|ico)$') { continue }
                 $mb = "{0:N2} MB" -f ($item.Length / 1MB)
                 $cls = if ($item.Name -match '^Upgrade-My-Kobo|^KoboArc7Freedom') { "btn primary" } else { "btn" }
                 $Rows += "<a class='$cls' href='./$($item.Name)'>Download $($item.Name) ($mb)</a>"
@@ -157,7 +164,10 @@ $ClientHandler = {
                     $Rows += "<a class='sub' href='./raw/$($item.Name)'>Alternate Direct Binary Stream ($($item.Name))</a>"
                 }
             }
-            $Html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kobo Arc 7 v1.9.1 OTA Portal</title><style>body{font-family:sans-serif;background:#0b1017;color:#f8fafc;padding:18px;}.card{background:#151e29;border:1px solid #2b3b4e;border-radius:12px;padding:18px;max-width:660px;margin:auto;}h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;text-decoration:none;padding:15px;border-radius:9px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}.primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}.sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body><div class='card'><h1>Kobo Arc 7 Freedom v1.9.1 — Wi-Fi OTA Rooting &amp; Installer</h1><p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b>.<br>2. Tap a blue button below to download directly over Wi-Fi.<br>3. Pull down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>$Rows</div></body></html>"
+            $BannerTag = if (Test-Path -LiteralPath (Join-Path $ServeRoot "logo-banner.png")) {
+                "<div style='text-align:center;max-width:660px;margin:0 auto 14px auto;'><img src='./logo-banner.png' alt='Kobo Arc 7 Freedom' style='max-width:100%;max-height:112px;border-radius:10px;'></div>"
+            } else { "" }
+            $Html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kobo Arc 7 Freedom v2.4.1 — Local Wi-Fi Installer</title><style>body{font-family:sans-serif;background:#0b1017;color:#f8fafc;padding:18px;}.card{background:#151e29;border:1px solid #2b3b4e;border-radius:12px;padding:18px;max-width:660px;margin:auto;}h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;text-decoration:none;padding:15px;border-radius:9px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}.primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}.sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body>$BannerTag<div class='card'><h1>Kobo Arc 7 Freedom v2.4.1 — Wi-Fi OTA Rooting &amp; Installer</h1><p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b>.<br>2. Tap a blue button below to download directly over Wi-Fi.<br>3. Pull down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>$Rows</div></body></html>"
             $BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($Html)
             $Hdr = "HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($BodyBytes.Length)`r`nConnection: close`r`nCache-Control: no-store`r`n`r`n"
             $HdrBytes = [System.Text.Encoding]::ASCII.GetBytes($Hdr)
@@ -193,8 +203,29 @@ $ClientHandler = {
         }
 
         $SendLen = ($EndPos - $StartPos) + 1
-        $Mime = if ($ForceOctet) { "application/octet-stream" } elseif ($SafeName.ToLower().EndsWith(".apk")) { "application/vnd.android.package-archive" } else { "text/plain; charset=utf-8" }
-        $Hdr = "$StatusLine`r`nContent-Type: $Mime`r`nContent-Length: $SendLen`r`nAccept-Ranges: bytes`r`n${RangeResp}Content-Disposition: attachment; filename=`"$SafeName`"`r`nConnection: close`r`n`r`n"
+        $Ext = $FileInfo.Extension.ToLowerInvariant()
+        $IsInlineImage = (-not $ForceOctet) -and ($Ext -in @(".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico"))
+        $Mime = if ($ForceOctet) {
+            "application/octet-stream"
+        } elseif ($Ext -eq ".png") {
+            "image/png"
+        } elseif ($Ext -eq ".jpg" -or $Ext -eq ".jpeg") {
+            "image/jpeg"
+        } elseif ($Ext -eq ".gif") {
+            "image/gif"
+        } elseif ($Ext -eq ".webp") {
+            "image/webp"
+        } elseif ($Ext -eq ".svg") {
+            "image/svg+xml"
+        } elseif ($Ext -eq ".ico") {
+            "image/x-icon"
+        } elseif ($Ext -eq ".apk") {
+            "application/vnd.android.package-archive"
+        } else {
+            "text/plain; charset=utf-8"
+        }
+        $DispHdr = if ($IsInlineImage) { "" } else { "Content-Disposition: attachment; filename=`"$SafeName`"`r`n" }
+        $Hdr = "$StatusLine`r`nContent-Type: $Mime`r`nContent-Length: $SendLen`r`nAccept-Ranges: bytes`r`n${RangeResp}${DispHdr}Connection: close`r`n`r`n"
         $HdrBytes = [System.Text.Encoding]::ASCII.GetBytes($Hdr)
         $Stream.Write($HdrBytes, 0, $HdrBytes.Length)
 
@@ -205,7 +236,7 @@ $ClientHandler = {
                 $Fs.Position = $StartPos
                 $Buf = New-Object byte[] 65536
                 $Rem = $SendLen
-                while ($Rem -gt 0) {
+                while ($Rem > 0) {
                     $Want = [int][Math]::Min([int64]$Buf.Length, $Rem)
                     $Read = $Fs.Read($Buf, 0, $Want)
                     if ($Read -le 0) { break }
@@ -213,7 +244,6 @@ $ClientHandler = {
                     $Rem -= $Read
                 }
                 $Stream.Flush()
-                Write-Host "[OTA] Completed $SafeName!" -ForegroundColor Green
             } finally {
                 $Fs.Close()
             }

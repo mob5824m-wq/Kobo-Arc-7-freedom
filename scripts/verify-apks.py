@@ -111,14 +111,14 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
-        assert str(apk.get_androidversion_code()) == "54", f"Expected launcher versionCode 54, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "55", f"Expected launcher versionCode 55, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.4.0", f"Expected upgrader 2.4.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "240", f"Expected upgrader 240, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.4.1", f"Expected upgrader 2.4.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "241", f"Expected upgrader 241, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.4.0", f"Expected 2.4.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "240", f"Expected 240, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.4.1", f"Expected 2.4.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "241", f"Expected 241, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1033,6 +1033,56 @@ def verify_wifi_server_and_drive_fixes() -> None:
         c.close()
         assert r.status == 200 and "KoboArc7Freedom.apk" in body and "Start-Kobo-WiFi-Server.bat" in body
 
+        # v2.4.1 Gate A: Parse EVERY `<img>` via real `HTMLParser` (`attrs['src']` + `attrs['onerror']`)!
+        import base64
+        import io
+        import re
+        import shutil
+        from html.parser import HTMLParser
+        from PIL import Image
+
+        def _extract_img_tags(html_str: str):
+            found = []
+            class _P(HTMLParser):
+                def handle_starttag(self, tag, attrs):
+                    if tag.lower() == "img":
+                        found.append(dict(attrs))
+            p = _P()
+            p.feed(html_str)
+            return found
+
+        img_tags = _extract_img_tags(body)
+        img_srcs = [t.get("src", "") for t in img_tags]
+        assert len(img_srcs) >= 8 and "./logo-banner.png" in img_srcs, (
+            f"Expected banner + squircle app icons in live Wi-Fi page, found: {img_srcs!r}"
+        )
+        for itag in img_tags:
+            isrc = itag.get("src", "")
+            onerr = itag.get("onerror", "")
+            assert not isrc.startswith("https://"), f"Factory Kobo cannot load HTTPS image on local Wi-Fi portal: {isrc}"
+            req_path = "/" + isrc.lstrip("./")
+            ci = http.client.HTTPConnection("127.0.0.1", 18891, timeout=5)
+            ci.request("GET", req_path)
+            ri = ci.getresponse()
+            img_ct = ri.getheader("Content-Type", "")
+            img_cd = ri.getheader("Content-Disposition")
+            img_raw = ri.read()
+            ci.close()
+            assert ri.status == 200, f"Image {req_path} returned HTTP {ri.status}!"
+            assert img_ct.startswith("image/"), f"Image {req_path} returned wrong Content-Type: {img_ct!r}"
+            assert not img_cd or "attachment" not in img_cd.lower(), (
+                f"Image {req_path} wrongly sent Content-Disposition attachment: {img_cd!r}"
+            )
+            assert img_raw[:8] == b"\x89PNG\r\n\x1a\n", f"Image {req_path} is not valid PNG bytes!"
+            Image.open(io.BytesIO(img_raw)).verify()
+            # Also verify embedded base64 `onerror` fallback decodes cleanly!
+            m64 = re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", onerr)
+            assert m64, f"Missing embedded data:image/png fallback on {isrc}"
+            fb_bytes = base64.b64decode(m64.group(1))
+            assert fb_bytes[:8] == b"\x89PNG\r\n\x1a\n"
+            Image.open(io.BytesIO(fb_bytes)).verify()
+        print(f"  [PASS] Live Wi-Fi Installer (`tools/serve-over-wifi.py`): ALL {len(img_srcs)} HTTP `image/png` endpoints + {len(img_srcs)} embedded base64 fallbacks decoded cleanly!")
+
         c = http.client.HTTPConnection("127.0.0.1", 18891, timeout=5)
         c.request("GET", "/KoboArc7Freedom.apk", headers={"Range": "bytes=0-3"})
         r = c.getresponse()
@@ -1060,6 +1110,100 @@ def verify_wifi_server_and_drive_fixes() -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=5)
+
+    # v2.4.1 Gate B: Serve `releases/` via plain `python -m http.server 18894` AND standalone `Start-Kobo-WiFi-Server.sh 18893` outside repo!
+    raw_http_proc = subprocess.Popen(
+        [sys.executable, "-m", "http.server", "18894", "--bind", "127.0.0.1", "--directory", os.path.join(ROOT, "releases")],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    try:
+        for _ in range(30):
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", 18894, timeout=2)
+                c.request("GET", "/")
+                r = c.getresponse()
+                rel_body = r.read().decode("utf-8")
+                c.close()
+                if r.status == 200:
+                    break
+            except OSError:
+                time.sleep(0.05)
+        rel_imgs = [t.get("src", "") for t in _extract_img_tags(rel_body)]
+        assert len(rel_imgs) >= 8 and "./logo-banner.png" in rel_imgs
+        assert "./Upgrade-My-Kobo-To-v2.4.1.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
+        for isrc in rel_imgs:
+            assert not isrc.startswith("https://"), f"releases/index.html has non-local HTTPS img: {isrc}"
+            ci = http.client.HTTPConnection("127.0.0.1", 18894, timeout=5)
+            ci.request("GET", "/" + isrc.lstrip("./"))
+            ri = ci.getresponse()
+            raw_b = ri.read()
+            ci.close()
+            assert ri.status == 200 and raw_b[:8] == b"\x89PNG\r\n\x1a\n", f"Static releases/ image {isrc} failed HTTP 200 PNG!"
+            Image.open(io.BytesIO(raw_b)).verify()
+        print(f"  [PASS] `python -m http.server` inside `releases/`: ALL {len(rel_imgs)} images & zero-SSL APK links verified!")
+    finally:
+        raw_http_proc.terminate()
+        raw_http_proc.wait(timeout=5)
+
+    with tempfile.TemporaryDirectory() as iso_dir:
+        iso_sh = os.path.join(iso_dir, "Start-Kobo-WiFi-Server.sh")
+        shutil.copyfile(os.path.join(ROOT, "releases/Start-Kobo-WiFi-Server.sh"), iso_sh)
+        os.chmod(iso_sh, 0o755)
+        iso_files = os.path.join(iso_dir, "Kobo-WiFi-Files")
+        os.makedirs(iso_files, exist_ok=True)
+        # Pre-seed placeholder APKs >= 128B EXCEPT `logo-banner.png` so we ALSO prove offline PNG fallback!
+        for seed_name in (
+            "Upgrade-My-Kobo-To-v2.4.1.apk",
+            "KoboArc7Freedom.apk",
+            "VLC.apk",
+            "AuroraStore.apk",
+            "FDroidClassicLegacy.apk",
+            "VanillaAndroid4Home.apk",
+            "SHA256SUMS.txt",
+        ):
+            with open(os.path.join(iso_files, seed_name), "wb") as sf:
+                sf.write(b"PK\x03\x04" + b"\x00" * 512)
+        sh_proc = subprocess.Popen(
+            ["bash", iso_sh, "18893"],
+            cwd=iso_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        try:
+            sh_body = ""
+            for _ in range(40):
+                try:
+                    c = http.client.HTTPConnection("127.0.0.1", 18893, timeout=2)
+                    c.request("GET", "/")
+                    r = c.getresponse()
+                    sh_body = r.read().decode("utf-8")
+                    c.close()
+                    if r.status == 200:
+                        break
+                except OSError:
+                    time.sleep(0.1)
+            sh_imgs = [t.get("src", "") for t in _extract_img_tags(sh_body)]
+            assert len(sh_imgs) >= 1 and "./logo-banner.png" in sh_imgs, f"Standalone .sh missing logo-banner.png: {sh_imgs!r}"
+            for isrc in sh_imgs:
+                ci = http.client.HTTPConnection("127.0.0.1", 18893, timeout=5)
+                ci.request("GET", "/" + isrc.lstrip("./"))
+                ri = ci.getresponse()
+                ct_sh = ri.getheader("Content-Type", "")
+                cd_sh = ri.getheader("Content-Disposition")
+                b_sh = ri.read()
+                ci.close()
+                assert ri.status == 200 and ct_sh.startswith("image/") and (not cd_sh or "attachment" not in cd_sh.lower())
+                assert b_sh[:8] == b"\x89PNG\r\n\x1a\n"
+                Image.open(io.BytesIO(b_sh)).verify()
+            print(f"  [PASS] Standalone `Start-Kobo-WiFi-Server.sh` (isolated outside repo, even offline): HTTP 200 inline PNG banner decoded cleanly!")
+        finally:
+            sh_proc.terminate()
+            sh_proc.wait(timeout=5)
+
+    # Verify Arc7WifiDriveService `:8080` serves `/logo.png` + `image/png` + clean notification label AND Browser handles all local IP/port URLs!
+    assert b"/logo.png" in cls_bytes and b"image/png" in cls_bytes and b"Wireless Drive Live on :" in cls_bytes
+    assert b"Arc7 Wi-Fi Drive Live on :" not in cls_bytes
 
 
 def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
@@ -2133,6 +2277,15 @@ public class VerifyV220Suite {
         PinnedShortcutsStore.moveDrawerOrderItem(memCtx, drawer, 3, 0);
         assert PinnedShortcutsStore.isCustomDrawerSort(memCtx) && "pkg/D".equals(PinnedShortcutsStore.loadDrawerOrder(memCtx).get(0));
 
+        // v2.4.1 Browser local URL detection across all LAN / Hotspot / Tailscale / host:port cases!
+        assert Arc7BrowserActivity.isPlainIpOrLocalHost("192.168.1.50:8000");
+        assert Arc7BrowserActivity.isPlainIpOrLocalHost("172.20.10.2:8000");
+        assert Arc7BrowserActivity.isPlainIpOrLocalHost("100.101.102.103:8000");
+        assert Arc7BrowserActivity.isPlainIpOrLocalHost("my-laptop:8000");
+        assert Arc7BrowserActivity.isPlainIpOrLocalHost("macbook.local");
+        assert !Arc7BrowserActivity.isPlainIpOrLocalHost("github.com");
+        assert !Arc7BrowserActivity.isPlainIpOrLocalHost("youtube.com");
+
         System.out.println("JVM_V220_FULL_SUITE_OK");
         System.out.println("JVM_V230_FULL_SUITE_OK");
     }
@@ -2997,8 +3150,8 @@ public class TestV240Live {
 
 
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.4.0.apk")
-    for stale_ver in ("v2.3.0", "v2.3.1"):
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.4.1.apk")
+    for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0"):
         assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
             f"Stale {stale_ver} upgrader APK left in releases/!"
         )

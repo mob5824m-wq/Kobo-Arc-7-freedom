@@ -419,12 +419,12 @@ public class Arc7BrowserActivity extends Activity {
                 if (url.startsWith("https://arc7.home")) return null;
                 if (isDirectBinaryDownloadUrl(url)) return null;
 
-                // Let plain `http://` local LAN / localhost servers run directly in WebKit
-                // so local POST uploads, router pages, and Wi-Fi Drive stream natively!
-                if (url.startsWith("http://") && isLocalNetworkUrl(url)) {
+                // Plain `http://` needs zero TLS 1.3 bridging — let Android WebKit load all `http://`
+                // pages, `<img>` icons/banners, and multipart `<form>` uploads directly over TCP!
+                if (url.startsWith("http://")) {
                     return null;
                 }
-                if (!url.startsWith("https://") && !url.startsWith("http://")) {
+                if (!url.startsWith("https://")) {
                     return null;
                 }
                 return fetchViaPersistentTlsDaemon(url);
@@ -556,15 +556,25 @@ public class Arc7BrowserActivity extends Activity {
         return false;
     }
 
-    private static boolean isPlainIpOrLocalHost(String input) {
+    public static boolean isPlainIpOrLocalHost(String input) {
         int slash = input.indexOf('/');
         String hp = slash >= 0 ? input.substring(0, slash) : input;
+        if (hp.startsWith("[")) {
+            return !hp.endsWith(":443");
+        }
         int colon = hp.indexOf(':');
         String h = colon >= 0 ? hp.substring(0, colon) : hp;
-        return "localhost".equalsIgnoreCase(h)
-                || h.startsWith("192.168.")
-                || h.startsWith("10.")
-                || h.startsWith("127.");
+        String portStr = colon >= 0 ? hp.substring(colon + 1) : "";
+        if (portStr.length() > 0 && !"443".equals(portStr)) {
+            return true;
+        }
+        String low = h.toLowerCase(Locale.US);
+        if ("localhost".equals(low) || !low.contains(".")
+                || low.endsWith(".local") || low.endsWith(".lan")
+                || low.endsWith(".home") || low.endsWith(".internal")) {
+            return true;
+        }
+        return low.matches("^\\d+\\.\\d+\\.\\d+\\.\\d+$");
     }
 
     private void loadHomePage() {
