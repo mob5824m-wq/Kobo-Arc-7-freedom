@@ -85,14 +85,14 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v2.3.0 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v2.3.1 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap v2.3.0 upgrade (School Wi-Fi Rescue + System-Wide VPN & Official Tailscale + PC Stream Deck + Drag-and-Drop Launcher v53 + VK Books + VLC + 120 2026 Root CAs)...");
+        statusSub.setText("Preparing 1-tap v2.3.1 upgrade (Fixed F-Droid v1303 SHA-256 Index & APK Verifier + School Wi-Fi Rescue + System-Wide VPN & Official Tailscale + PC Stream Deck + Drag-and-Drop Launcher v53 + VK Books + VLC + 120 2026 Root CAs)...");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
@@ -109,7 +109,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v2.3.0 Upgrade Again");
+        actionBtn.setText("Run v2.3.1 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -126,7 +126,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v2.3.0 ->");
+        launchBtn.setText("Open Freedom v2.3.1 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -279,8 +279,8 @@ public class UpgraderActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    uiProgress(10, "Unpacking v2.3.0 APKs, Launcher v53 (Drag-and-Drop Icons), School Wi-Fi & Tailscale VPN, PC Stream Deck, VLC, Aurora Store v4.8.5, F-Droid v1302, Python 3, apt & 120 2026 Root CAs...");
-                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v2.3.0 ===");
+                    uiProgress(10, "Unpacking v2.3.1 APKs, F-Droid v1303 (Android 4.2 SHA-256 Fix), Launcher v53 (Drag-and-Drop Icons), School Wi-Fi & Tailscale VPN, PC Stream Deck, VLC, Aurora Store v4.8.5, Python 3, apt & 120 2026 Root CAs...");
+                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v2.3.1 ===");
 
                     File appFiles = getFilesDir();
                     makeWorldReadableDir(appFiles != null ? appFiles.getParentFile() : null);
@@ -291,7 +291,7 @@ public class UpgraderActivity extends Activity {
                     File caDir = new File(stageDir, "cacerts");
                     makeWorldReadableDir(caDir);
 
-                    // 1. Extract main KoboArc7Freedom.apk (v2.3.0)
+                    // 1. Extract main KoboArc7Freedom.apk (v2.3.1)
                     File mainApk = new File(stageDir, "KoboArc7Freedom.apk");
                     InputStream mainIn = getAssets().open("KoboArc7Freedom.apk");
                     try {
@@ -299,7 +299,7 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         mainIn.close();
                     }
-                    uiLog("[1/7] Unpacked KoboArc7Freedom v2.3.0 (" + (mainApk.length() / 1024) + " KB)");
+                    uiLog("[1/7] Unpacked KoboArc7Freedom v2.3.1 (" + (mainApk.length() / 1024) + " KB)");
 
                     File suNew = new File(stageDir, "su_new");
                     File pyNew = new File(stageDir, "py3_new");
@@ -536,12 +536,12 @@ public class UpgraderActivity extends Activity {
                     }
 
                     if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v2.3.0 + School Wi-Fi & Tailscale VPN + Stream Deck + Launcher v53 + VLC ready!");
-                        uiLog("[7/7] SUCCESS! Launching Kobo Arc 7 Freedom v2.3.0 now...");
+                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v2.3.1 + Fixed F-Droid v1303 + School Wi-Fi & Tailscale VPN + Stream Deck + Launcher v53 + VLC ready!");
+                        uiLog("[7/7] SUCCESS! Launching Kobo Arc 7 Freedom v2.3.1 now...");
                         ui.post(new Runnable() {
                             @Override
                             public void run() {
-                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v2.3.0!");
+                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v2.3.1!");
                                 launchBtn.setVisibility(View.VISIBLE);
                                 actionBtn.setEnabled(true);
                             }
@@ -554,7 +554,7 @@ public class UpgraderActivity extends Activity {
                         }, 900);
                     } else {
                         // Tablet not yet rooted at all -> export to Download and open standard PackageInstaller
-                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v2.3.0.apk");
+                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v2.3.1.apk");
                         if (dl.getParentFile() != null) dl.getParentFile().mkdirs();
                         InputStream in2 = getAssets().open("KoboArc7Freedom.apk");
                         try {

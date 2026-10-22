@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v2.3.0");
+        title.setText("Kobo Arc 7 Freedom  v2.3.1");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -1086,9 +1086,9 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.3.0 OS App Suite + Customizable App Bar Studio
+        // Card 1: Complete v2.3.1 OS App Suite + Customizable App Bar Studio
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.3.0 Daily-Driver App & Media Suite",
+        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.3.1 Daily-Driver App & Media Suite",
                 "Includes Strict School Wi-Fi Rescue + System-Wide VPN & Official Tailscale, 1280x800 PC Stream Deck Pro "
                 + "(OBS + Media + Discord + Custom Deck Studio), Drag-and-Drop Rearrangeable Launcher v53, 4-Store E-Reader "
                 + "(VK + Gutenberg + Open Library + Standard Ebooks), PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost & VLC!");

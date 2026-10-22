@@ -114,11 +114,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "53", f"Expected launcher versionCode 53, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.3.0", f"Expected upgrader 2.3.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "230", f"Expected upgrader 230, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.3.1", f"Expected upgrader 2.3.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "231", f"Expected upgrader 231, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.3.0", f"Expected 2.3.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "230", f"Expected 230, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.3.1", f"Expected 2.3.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "231", f"Expected 231, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1252,7 +1252,7 @@ public class VerifyV190Suite {
 
 
 def verify_v191_aurora_and_fdroid_fixes() -> None:
-    print("\n=== Verifying v1.9.1 Aurora Store APK Signer/Validator & F-Droid v1302 Non-Colliding Certificates ===")
+    print("\n=== Verifying v2.3.1 Aurora Store APK Signer & F-Droid v1303 Android 4.2 SHA-256 `Incorrect signature` Fix ===")
     fdroid_apk = os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk")
     fdroid_rel = os.path.join(ROOT, "releases/FDroidClassicLegacy.apk")
     assert os.path.exists(fdroid_rel) and os.path.getsize(fdroid_rel) == os.path.getsize(fdroid_apk), (
@@ -1267,9 +1267,11 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
 
     from androguard.core.dex import DEX
     fd_obj = APK(fdroid_apk)
-    assert str(fd_obj.get_androidversion_code()) == "1302", f"Expected F-Droid v1302, got {fd_obj.get_androidversion_code()}"
+    assert str(fd_obj.get_androidversion_code()) == "1303", f"Expected F-Droid v1303, got {fd_obj.get_androidversion_code()}"
 
     seen_classes = {}
+    verified_indexv1_noverify = False
+    verified_installed_apk_safe = False
     with zipfile.ZipFile(fdroid_apk, "r") as zf:
         for dn in sorted(n for n in zf.namelist() if n.endswith(".dex")):
             raw = zf.read(dn)
@@ -1279,6 +1281,28 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
                 cname = cls.get_name()
                 assert cname not in seen_classes, f"Duplicate DEX class {cname} in {dn} and {seen_classes[cname]}"
                 seen_classes[cname] = dn
+                if cname == "Lorg/fdroid/fdroid/IndexV1Updater;":
+                    for m in cls.get_methods():
+                        if m.get_name() == "processDownloadedIndex":
+                            ins = list(m.get_code().get_bc().get_instructions())
+                            assert ins[0].get_name() == "new-instance" and "JarFile" in ins[0].get_output()
+                            assert ins[1].get_raw().hex() == "1201", (
+                                f"REGRESSION: IndexV1Updater.processDownloadedIndex still calls new JarFile(indexFile, true): {ins[1].get_raw().hex()}!"
+                            )
+                            verified_indexv1_noverify = True
+                elif cname == "Lorg/fdroid/fdroid/data/App;":
+                    for m in cls.get_methods():
+                        if m.get_name() == "initInstalledApk":
+                            outs = [i.get_output() for i in m.get_code().get_bc().get_instructions()]
+                            assert not any("Ljava/util/jar/JarFile;-><init>" in o for o in outs), (
+                                "REGRESSION: App.initInstalledApk still calls new JarFile(installedFile)!"
+                            )
+                            assert any("Arc7Bridge;->populateInstalledApkInfo" in o for o in outs), (
+                                "Missing Arc7Bridge.populateInstalledApkInfo hook in App.initInstalledApk!"
+                            )
+                            verified_installed_apk_safe = True
+        assert verified_indexv1_noverify, "Did not verify IndexV1Updater.processDownloadedIndex verify=false!"
+        assert verified_installed_apk_safe, "Did not verify App.initInstalledApk safe hook!"
         assert "Lorg/fdroid/fdroid/Arc7Bridge;" in seen_classes
         assert "Lorg/fdroid/fdroid/Arc7ApkKit;" in seen_classes
 
@@ -1289,12 +1313,18 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
         assert b"http://127.0.0.1:8118/__https/guardianproject.info/fdroid/repo" in arsc_raw
         assert b"http://127.0.0.1:8118/__https/archive.newpipe.net/fdroid/repo" in arsc_raw
 
-    # Live JVM test of `Arc7ApkKit` (AOSP Bug #38321 SHA256withRSA `index-v1.jar` verifier + v2-only -> SHA1withRSA JAR v1 APK signer)!
+    # Live JVM test of `Arc7ApkKit` across ALL 2026 F-Droid PKCS#7 / CMS formats:
+    #   (A) Exact `fdroidserver 2.4.5` (`apksigner --min-sdk-version 23 --max-sdk-version 24`) SHA256withRSA JAR
+    #   (B) 4096-bit RSA + RFC 5652 CMS `SignedAttributes` (`0xA0 -> 0x31` SET) + SHA-256 JAR
+    #   (C) 4096-bit RSA + ITU-T X.690 BER Indefinite-Length (`30 80 ... 00 00`) PKCS#7 JAR
+    #   (D) `new JarFile(f, false)` (`getCodeSigners() == null`) + Tamper rejection + v2->v1 APK repair!
     aurora_classes = os.path.join(ROOT, "build/aurora/classes")
     with tempfile.TemporaryDirectory() as td:
         v2_only = os.path.join(td, "v2_only.apk")
         v1_repaired = os.path.join(td, "v1_repaired.apk")
         idx_jar = os.path.join(td, "index-v1.jar")
+        idx_cms_4096 = os.path.join(td, "index-cms-4096.jar")
+        idx_ber_4096 = os.path.join(td, "index-ber-4096.jar")
         idx_tampered = os.path.join(td, "index-tampered.jar")
 
         subprocess.run(
@@ -1320,8 +1350,9 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
         assert pre_chk.returncode != 0, "Expected Android 4.2 apksigner verification to reject v2-only APK!"
 
         raw_idx = os.path.join(td, "raw_index.jar")
+        payload_json = b'{"repo":{"name":"F-Droid Live Test 2026"},"apps":[]}'
         with zipfile.ZipFile(raw_idx, "w", zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr("index-v1.json", '{"repo":{"name":"F-Droid Live Test"},"apps":[]}')
+            zf.writestr("index-v1.json", payload_json)
         subprocess.run(
             [
                 JAVA, "-jar", APKSIGNER, "sign",
@@ -1329,7 +1360,8 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
                 "--ks-key-alias", "arc7freedom",
                 "--ks-pass", "pass:arc7freedom2026",
                 "--key-pass", "pass:arc7freedom2026",
-                "--min-sdk-version", "24",
+                "--min-sdk-version", "23",
+                "--max-sdk-version", "24",
                 "--v1-signing-enabled", "true",
                 "--v2-signing-enabled", "false",
                 "--v3-signing-enabled", "false",
@@ -1338,6 +1370,60 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
             ],
             check=True,
         )
+
+        # Build genuine 4096-bit RSA RFC 5652 CMS `SignedAttributes` (`0xA0 -> 0x31`) AND BER `30 80` index JARs!
+        import base64 as _b64, datetime as _dt, hashlib
+        from cryptography import x509 as _x509
+        from cryptography.x509.oid import NameOID as _NOID
+        from cryptography.hazmat.primitives import hashes as _hashes, serialization as _ser
+        from cryptography.hazmat.primitives.asymmetric import rsa as _rsa
+        from cryptography.hazmat.primitives.serialization import pkcs7 as _pkcs7
+
+        rsa4096_key = _rsa.generate_private_key(public_exponent=65537, key_size=4096)
+        subj4096 = _x509.Name([_x509.NameAttribute(_NOID.COMMON_NAME, "FDroid 4096 SHA256 Test Repo")])
+        now_utc = _dt.datetime.now(_dt.timezone.utc)
+        cert4096 = (
+            _x509.CertificateBuilder()
+            .subject_name(subj4096)
+            .issuer_name(subj4096)
+            .public_key(rsa4096_key.public_key())
+            .serial_number(_x509.random_serial_number())
+            .not_valid_before(now_utc - _dt.timedelta(days=1))
+            .not_valid_after(now_utc + _dt.timedelta(days=3650))
+            .sign(rsa4096_key, _hashes.SHA256())
+        )
+        cert4096_fp = hashlib.sha256(cert4096.public_bytes(_ser.Encoding.DER)).hexdigest().upper()
+
+        mf_4096 = (
+            b"Manifest-Version: 1.0\r\n\r\n"
+            b"Name: index-v1.json\r\n"
+            b"SHA-256-Digest: " + _b64.b64encode(hashlib.sha256(payload_json).digest()) + b"\r\n\r\n"
+        )
+        sf_4096 = (
+            b"Signature-Version: 1.0\r\n"
+            b"SHA-256-Digest-Manifest: " + _b64.b64encode(hashlib.sha256(mf_4096).digest()) + b"\r\n\r\n"
+        )
+        cms_der = (
+            _pkcs7.PKCS7SignatureBuilder()
+            .set_data(sf_4096)
+            .add_signer(cert4096, rsa4096_key, _hashes.SHA256())
+            .sign(_ser.Encoding.DER, [_pkcs7.PKCS7Options.DetachedSignature, _pkcs7.PKCS7Options.Binary])
+        )
+        with zipfile.ZipFile(idx_cms_4096, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("META-INF/MANIFEST.MF", mf_4096)
+            zf.writestr("META-INF/FDROID.SF", sf_4096)
+            zf.writestr("META-INF/FDROID.RSA", cms_der)
+            zf.writestr("index-v1.json", payload_json)
+
+        # Wrap inner ContentInfo body in genuine ITU-T X.690 BER indefinite-length `30 80 ... 00 00`!
+        assert cms_der[0] == 0x30 and cms_der[1] == 0x82
+        cms_ber = b"\x30\x80" + cms_der[4:] + b"\x00\x00"
+        with zipfile.ZipFile(idx_ber_4096, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("META-INF/MANIFEST.MF", mf_4096)
+            zf.writestr("META-INF/FDROID.SF", sf_4096)
+            zf.writestr("META-INF/FDROID.RSA", cms_ber)
+            zf.writestr("index-v1.json", payload_json)
+
         with zipfile.ZipFile(idx_jar, "r") as zin, zipfile.ZipFile(idx_tampered, "w") as zout:
             for inf in zin.infolist():
                 b = zin.read(inf.filename)
@@ -1350,14 +1436,26 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
             fh.write("""import java.io.File;
 import java.security.MessageDigest;
 import java.security.cert.X509Certificate;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import com.aurora.store.Arc7ApkKit;
 
 public class VerifyV191Kit {
+    private static String sha256Hex(X509Certificate cert) throws Exception {
+        byte[] fp = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
+        StringBuilder sb = new StringBuilder();
+        for (byte b : fp) sb.append(String.format("%02X", b & 0xFF));
+        return sb.toString();
+    }
+
     public static void main(String[] args) throws Exception {
         File v2Only = new File(args[0]);
         File v1Fixed = new File(args[1]);
         File idxJar = new File(args[2]);
         File tamperedJar = new File(args[3]);
+        File cms4096Jar = new File(args[5]);
+        File ber4096Jar = new File(args[6]);
+        String want4096Fp = args[7];
 
         Arc7ApkKit.ApkInspection pre = Arc7ApkKit.inspectApk(v2Only);
         assert pre.isCompatibleWithAndroid42() && !pre.hasValidAndroid42V1Sig : "Expected v1 repair required";
@@ -1366,11 +1464,23 @@ public class VerifyV191Kit {
         Arc7ApkKit.ApkInspection post = Arc7ApkKit.inspectApk(v1Fixed);
         assert post.isCompatibleWithAndroid42() && post.hasValidAndroid42V1Sig;
 
+        // Confirm `new JarFile(idxJar, false)` sets `getCodeSigners() == null` identically on JVM & Android 4.2!
+        JarFile jfNoVerify = new JarFile(idxJar, false);
+        JarEntry je = (JarEntry) jfNoVerify.getEntry("index-v1.json");
+        assert je != null && je.getCodeSigners() == null;
+        jfNoVerify.close();
+
+        // 1. Official `apksigner --min-sdk-version 23` SHA256withRSA JAR:
         X509Certificate cert = Arc7ApkKit.verifyPkcs7JarAndExtractCert(idxJar, "index-v1.json");
-        byte[] fp = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
-        StringBuilder sb = new StringBuilder();
-        for (byte b : fp) sb.append(String.format("%02X", b & 0xFF));
-        assert sb.toString().equals("11FD17ED80C913EFCBF98F7673DA009042E7647E44E5D6C5F42FCAA5CE4CD10F");
+        assert sha256Hex(cert).equals("11FD17ED80C913EFCBF98F7673DA009042E7647E44E5D6C5F42FCAA5CE4CD10F");
+
+        // 2. 4096-bit RSA + RFC 5652 CMS `SignedAttributes` (`0xA0 -> 0x31`) JAR:
+        X509Certificate certCms = Arc7ApkKit.verifyPkcs7JarAndExtractCert(cms4096Jar, "index-v1.json");
+        assert sha256Hex(certCms).equals(want4096Fp) : "4096-bit CMS SignedAttributes verification mismatch!";
+
+        // 3. 4096-bit RSA + ITU-T X.690 BER Indefinite-Length (`30 80 ... 00 00`) JAR:
+        X509Certificate certBer = Arc7ApkKit.verifyPkcs7JarAndExtractCert(ber4096Jar, "index-v1.json");
+        assert sha256Hex(certBer).equals(want4096Fp) : "4096-bit BER indefinite-length verification mismatch!";
 
         boolean caughtTamper = false;
         try {
@@ -1379,7 +1489,7 @@ public class VerifyV191Kit {
             caughtTamper = true;
         }
         assert caughtTamper : "Tampered index-v1.jar MUST throw SecurityException!";
-        System.out.println("JVM_V191_KIT_VERIFIED_OK");
+        System.out.println("JVM_V231_KIT_VERIFIED_OK");
     }
 }
 """)
@@ -1389,10 +1499,11 @@ public class VerifyV191Kit {
         else:
             subprocess.run([JAVA, "-jar", ecj_jar, "-1.8", "-cp", f"{ANDROID_JAR}:{aurora_classes}", "-d", td, proof_java], check=True)
         out = subprocess.check_output(
-            [JAVA, "-ea", "-cp", f"{td}:{ANDROID_JAR}:{aurora_classes}", "VerifyV191Kit", v2_only, v1_repaired, idx_jar, idx_tampered, td],
+            [JAVA, "-ea", "-cp", f"{td}:{ANDROID_JAR}:{aurora_classes}", "VerifyV191Kit",
+             v2_only, v1_repaired, idx_jar, idx_tampered, td, idx_cms_4096, idx_ber_4096, cert4096_fp],
             text=True,
         )
-        assert "JVM_V191_KIT_VERIFIED_OK" in out
+        assert "JVM_V231_KIT_VERIFIED_OK" in out
 
         # Prove official Google `apksigner verify --min-sdk-version 15 --max-sdk-version 17` + `zipalign -c 4` PASS on repaired APK!
         subprocess.run([ZIPALIGN, "-c", "4", v1_repaired], check=True)
@@ -1400,7 +1511,7 @@ public class VerifyV191Kit {
             [JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", v1_repaired],
             check=True,
         )
-    print("  [PASS] FDroidClassicLegacy v1302 (7 non-colliding repos, 0 DEX dups, PKCS#7 SHA256withRSA) + AuroraStore v4.8.5 Arc7ApkKit SHA1withRSA v1 signer verified!")
+    print("  [PASS] FDroidClassicLegacy v1303 (`verify=false` bytecode + 4096-bit RSA CMS/BER/DER SHA-256 verifier + 7 non-colliding repos) + AuroraStore v4.8.5 verified!")
 
 
 def verify_v200_all_11_upgrades() -> None:
@@ -2598,8 +2709,8 @@ def verify_v230_native_vpn_streamdeck_and_relay(main_apk: str) -> None:
 
 
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.3.0.apk")
-    assert not os.path.exists(os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.2.0.apk")), "Stale v2.2.0 upgrader APK left in releases/!"
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.3.1.apk")
+    assert not os.path.exists(os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.3.0.apk")), "Stale v2.3.0 upgrader APK left in releases/!"
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",

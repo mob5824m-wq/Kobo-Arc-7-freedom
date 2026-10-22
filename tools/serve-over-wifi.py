@@ -183,18 +183,18 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
         mirror = _mirror_href(fname)
-        if fname == "Upgrade-My-Kobo-To-v2.3.0.apk":
+        if fname == "Upgrade-My-Kobo-To-v2.3.1.apk":
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.3.0 — School Wi-Fi Rescue + System-Wide VPN &amp; Official Tailscale + PC Stream Deck + Drag-and-Drop Launcher v53 + VLC):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.3.0.apk\")'>"
-                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v2.3.0.apk ({size_txt})</a>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.3.1 — Fixed F-Droid v1303 SHA-256 Verifier + School Wi-Fi Rescue + System-Wide VPN &amp; Tailscale + Stream Deck + Launcher v53 + VLC):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.3.1.apk\")'>"
+                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v2.3.1.apk ({size_txt})</a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.3.0.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.3.1.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
-                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — Upgrade-My-Kobo-To-v2.3.0.apk</a>"
+                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — Upgrade-My-Kobo-To-v2.3.1.apk</a>"
                 )
                 + "</div>"
             )
@@ -202,7 +202,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.3.0 ({size_txt}) — School Wi-Fi &amp; Tailscale VPN + PC Stream Deck + Drag-Drop Launcher v53 + VLC</a>"
+                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.3.1 ({size_txt}) — Fixed F-Droid v1303 + School Wi-Fi &amp; Tailscale VPN + Stream Deck + Launcher v53 + VLC</a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
@@ -224,7 +224,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         elif fname == "FDroidClassicLegacy.apk":
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"FDroidClassicLegacy.apk\")'>"
-                f"&#11015; Download Patched F-Droid Classic v1302 (Verified Non-Colliding Certs + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</a>"
+                f"&#11015; Download Patched F-Droid Classic v1303 (Android 4.2 SHA-256 Index &amp; APK Fix + Verified Certs + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</a>"
             )
         elif fname == "VanillaAndroid4Home.apk":
             apk_buttons.append(
@@ -401,7 +401,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v1.9.1 — Over-The-Air Rooting Portal, Aurora Store v4.8.5, Verified F-Droid v1302, Python 3 + apt &amp; Animated Suite</h1>"
+        "<h1>Kobo Arc 7 Freedom v2.3.1 — Over-The-Air Rooting Portal, Fixed F-Droid v1303, Aurora Store v4.8.5, School Wi-Fi &amp; Tailscale VPN, Stream Deck &amp; VLC</h1>"
         "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; Automatic Local Timezone + Atomic Clock &bull; "
         "Bundled Aurora Store + F-Droid &bull; Built-In Python 3 &amp; apt &bull; Long-Press Home Widgets &bull; 12h + Apple/Android Chimes &amp; Per-Alarm Volume</p>"
         + live_progress_widget
