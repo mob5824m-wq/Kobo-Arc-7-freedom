@@ -78,6 +78,9 @@ def get_zig_cmd() -> list:
         return ["zig"]
 
 
+PERMANENT_CERT_SHA256 = "11fd17ed80c913efcbf98f7673da009042e7647e44e5d6c5f42fcaa5ce4cd10f"
+
+
 def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     name = os.path.basename(apk_path)
     print(f"\n=== Verifying {name} ===")
@@ -88,13 +91,16 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     print("  [PASS] 4-byte zipalign check passed")
 
     r = subprocess.run(
-        [JAVA, "-jar", APKSIGNER, "verify", "--verbose", "--min-sdk-version", "15", apk_path],
+        [JAVA, "-jar", APKSIGNER, "verify", "--verbose", "--print-certs", "--min-sdk-version", "15", apk_path],
         capture_output=True, text=True,
     )
     assert r.returncode == 0, f"apksigner failed on {name}: {r.stdout}\n{r.stderr}"
     assert "Verified using v1 scheme (JAR signing): true" in r.stdout, "Missing Android 4.2 JAR v1 signature!"
     assert "Verified using v2 scheme (APK Signature Scheme v2): true" in r.stdout
-    print("  [PASS] APK Signature v1 (Android 4.2 JAR) + v2 + v3 verified at minSdk=15")
+    assert PERMANENT_CERT_SHA256 in r.stdout.lower(), (
+        f"CRITICAL: {name} was NOT signed with permanent release keystore ({PERMANENT_CERT_SHA256})!\n{r.stdout}"
+    )
+    print(f"  [PASS] APK Signature v1 + v2 + v3 verified with PERMANENT release certificate ({PERMANENT_CERT_SHA256[:16]}...)")
 
     apk = APK(apk_path)
     assert apk.get_package() == expected_pkg, f"Expected {expected_pkg}, got {apk.get_package()}"
@@ -103,9 +109,12 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     if expected_pkg == "ca.arc7freedom.launcher":
         assert str(apk.get_androidversion_code()) == "48", f"Expected launcher versionCode 48, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
+    if expected_pkg == "ca.arc7freedom.upgrader":
+        assert str(apk.get_androidversion_name()) == "1.8.1", f"Expected upgrader 1.8.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "181", f"Expected upgrader 181, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.8.0", f"Expected 1.8.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "180", f"Expected 180, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.8.1", f"Expected 1.8.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "181", f"Expected 181, got {apk.get_androidversion_code()}"
         acts = apk.get_activities()
         expected_acts = (
             "ca.arc7freedom.app.MainActivity",
@@ -789,7 +798,78 @@ def verify_wifi_server_and_drive_fixes() -> None:
         proc.wait(timeout=5)
 
 
+def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
+    print("\n=== Verifying 1-Tap Upgrader APK, Pure-Toolbox Shell Safety & Multi-Call `su` (`uname`/`cp`) ===")
+    with zipfile.ZipFile(upgrader_apk, "r") as zf:
+        unames = set(zf.namelist())
+        assert "assets/KoboArc7Freedom.apk" in unames, "Upgrader missing embedded KoboArc7Freedom.apk!"
+        embedded_main = zf.read("assets/KoboArc7Freedom.apk")
+        with tempfile.NamedTemporaryFile(suffix=".apk") as tf:
+            tf.write(embedded_main)
+            tf.flush()
+            with zipfile.ZipFile(tf.name, "r") as mzf:
+                mnames = set(mzf.namelist())
+                assert "lib/armeabi-v7a/libarc7su.so" in mnames
+                assert "assets/VanillaAndroid4Home.apk" in mnames
+                assert "assets/starter-apps/FDroidClassicLegacy.apk" in mnames
+                ca_hashed = [n for n in mnames if n.startswith("assets/cacerts/android-hashed/") and n.endswith(".0")]
+                assert len(ca_hashed) >= 120, f"Expected >=120 hashed CAs, got {len(ca_hashed)}"
+    print(f"  [PASS] Upgrade-My-Kobo-To-v1.8.1.apk ({os.path.getsize(upgrader_apk)//1048576} MB) embeds signed KoboArc7Freedom.apk + FDroidClassicLegacy.apk + {len(ca_hashed)} 2026 CAs")
+
+    # Compile `native/su.c` natively on host Linux and test live multi-call `uname` and `cp` symlinks!
+    zig = get_zig_cmd()
+    with tempfile.TemporaryDirectory() as td:
+        su_host = os.path.join(td, "su")
+        subprocess.run(zig + ["cc", "-O2", os.path.join(ROOT, "native/su.c"), "-o", su_host], check=True)
+        uname_link = os.path.join(td, "uname")
+        cp_link = os.path.join(td, "cp")
+        os.symlink(su_host, uname_link)
+        os.symlink(su_host, cp_link)
+
+        u_all = subprocess.check_output([uname_link, "-a"], text=True).strip()
+        u_sr = subprocess.check_output([uname_link, "-sr"], text=True).strip()
+        assert "Linux" in u_all and len(u_all.split()) >= 5, f"Unexpected uname -a output: {u_all!r}"
+        assert u_sr.startswith("Linux "), f"Unexpected uname -sr output: {u_sr!r}"
+
+        src_f = os.path.join(td, "sample.0")
+        dst_dir = os.path.join(td, "cacerts")
+        os.makedirs(dst_dir)
+        with open(src_f, "wb") as f:
+            f.write(b"BEGIN CERTIFICATE TEST 2026\n")
+        subprocess.run([cp_link, "-f", src_f, dst_dir + "/"], check=True)
+        copied = os.path.join(dst_dir, "sample.0")
+        assert os.path.isfile(copied) and open(copied, "rb").read() == b"BEGIN CERTIFICATE TEST 2026\n"
+    print(f"  [PASS] Multi-call `su` native `uname -a` ({u_sr!r}) & `cp -f ... cacerts/` verified live!")
+
+    # Verify ZERO Java source files invoke missing Kobo Android 4.2 toolbox applets (`uname`, `grep`, `cp -`, `printf `)
+    import re
+    banned_patterns = [
+        re.compile(r"(?<!/sbin/)(?<!/xbin/)\buname\s+-"),
+        re.compile(r"\bgrep\s+"),
+        re.compile(r"\bcp\s+-"),
+        re.compile(r"\bprintf\s+'"),
+    ]
+    for jpath in sorted(
+        glob.glob(os.path.join(ROOT, "app/src/main/java/**/*.java"), recursive=True)
+        + glob.glob(os.path.join(ROOT, "launcher/src/main/java/**/*.java"), recursive=True)
+    ):
+        txt = open(jpath, "r", encoding="utf-8").read()
+        for lineno, line in enumerate(txt.splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("*"):
+                continue
+            for pat in banned_patterns:
+                assert not pat.search(line), f"BANNED non-toolbox shell command {pat.pattern!r} in {jpath}:{lineno}: {line}"
+    print("  [PASS] 100% pure Android 4.2 `mksh` + `toolbox` verified (0 `uname`, `cp`, `grep`, or `printf` shell calls in Java!)")
+
+
 def main() -> None:
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v1.8.1.apk")
+    check_apk(
+        upgrader_apk,
+        "ca.arc7freedom.upgrader",
+        [],
+    )
     home_apk = os.path.join(ROOT, "releases/VanillaAndroid4Home.apk")
     check_apk(
         home_apk,
@@ -811,6 +891,7 @@ def main() -> None:
             "lib/armeabi/libarc7tls.so",
         ],
     )
+    verify_upgrader_and_multicall_su(upgrader_apk, main_apk)
     verify_icons_and_logo(main_apk, home_apk)
     check_bundled_cacerts_and_tls_engine(main_apk)
     check_boot_inspector_and_java_logic()

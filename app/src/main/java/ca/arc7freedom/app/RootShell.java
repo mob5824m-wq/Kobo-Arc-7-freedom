@@ -177,6 +177,8 @@ public class RootShell {
         return new ExecResult(res.exitCode == 0 ? 1 : res.exitCode, res.stdout);
     }
 
+    private static volatile boolean sAppletsSynced = false;
+
     public ExecResult execRoot(String shellScript, LineListener listener) {
         String su = findWorkingSuBinary();
         if (su == null) {
@@ -190,6 +192,24 @@ public class RootShell {
         }
         if (su == null) {
             return new ExecResult(126, "Root access is not active yet. Tap 'Root Kobo Arc 7 Now' on Tab 1 first.");
+        }
+
+        // One-time silent self-heal per process: ensure `/sbin/{su,uname,cp}` & `/system/xbin/{uname,cp}`
+        // exist even on tablets originally rooted by earlier builds lacking `uname`/`cp` applets!
+        if (!sAppletsSynced) {
+            sAppletsSynced = true;
+            try {
+                String suBinSrc = getSuPayloadBinary().getAbsolutePath();
+                String syncSh =
+                        "(mount -o remount,rw / 2>/dev/null || mount -o remount,rw rootfs / 2>/dev/null) && "
+                        + "mkdir -p /sbin && cat '" + suBinSrc + "' > /sbin/su.new && "
+                        + "chown 0:0 /sbin/su.new 2>/dev/null; chmod 06755 /sbin/su.new && "
+                        + "mv /sbin/su.new /sbin/su && "
+                        + "ln -s /sbin/su /sbin/uname 2>/dev/null || true; "
+                        + "ln -s /sbin/su /sbin/cp 2>/dev/null || true; "
+                        + "mount -o remount,ro / 2>/dev/null || true";
+                executeWithMode(su, cachedSuMode, syncSh, null);
+            } catch (Throwable ignored) {}
         }
 
         ExecResult primary = executeWithMode(su, cachedSuMode, shellScript, listener);

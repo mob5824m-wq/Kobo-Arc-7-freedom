@@ -112,16 +112,13 @@ ZLIB_DIR="${ZLIB_DIR:-/tmp/zlib-src}"
 MBEDTLS_DIR="${MBEDTLS_DIR:-/tmp/mbedtls-src}"
 BEARSSL_DIR="${BEARSSL_DIR:-/tmp/bearssl-src}"
 
-mkdir -p build/keystore releases
-if [ ! -f build/keystore/arc7freedom.jks ]; then
-    "$KEYTOOL_BIN" -genkeypair -noprompt \
-        -keystore build/keystore/arc7freedom.jks \
-        -storepass arc7freedom \
-        -keypass arc7freedom \
-        -alias arc7key \
-        -keyalg RSA -keysize 2048 -sigalg SHA256withRSA \
-        -validity 10000 \
-        -dname "CN=Kobo Arc 7 Freedom, OU=Open Source, O=Arc7Freedom, L=Kitchener, ST=ON, C=CA"
+mkdir -p releases
+KEYSTORE_PATH="keystore/arc7freedom-release.jks"
+KEYSTORE_PASS="arc7freedom2026"
+KEYSTORE_ALIAS="arc7freedom"
+if [ ! -f "$KEYSTORE_PATH" ]; then
+    echo "ERROR: Permanent release keystore missing at $KEYSTORE_PATH!"
+    exit 1
 fi
 
 compile_java_and_dex() {
@@ -180,9 +177,9 @@ cp -f "$FDROID_RAW" "$FDROID_APK"
     "$ZIPALIGN" \
     "$JAVA_BIN" \
     "$APKSIGNER_JAR" \
-    build/keystore/arc7freedom.jks \
-    arc7freedom \
-    arc7key
+    "$KEYSTORE_PATH" \
+    "$KEYSTORE_PASS" \
+    "$KEYSTORE_ALIAS"
 ls -lh "$FDROID_APK"
 
 echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls w/ BearSSL+MbedTLS)..."
@@ -288,10 +285,10 @@ compile_java_and_dex \
 (cd build/launcher/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/launcher/unsigned.apk build/launcher/aligned.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
-    --ks build/keystore/arc7freedom.jks \
-    --ks-pass pass:arc7freedom \
-    --key-pass pass:arc7freedom \
-    --ks-key-alias arc7key \
+    --ks "$KEYSTORE_PATH" \
+    --ks-pass "pass:$KEYSTORE_PASS" \
+    --key-pass "pass:$KEYSTORE_PASS" \
+    --ks-key-alias "$KEYSTORE_ALIAS" \
     --min-sdk-version 15 \
     --v1-signing-enabled true \
     --v2-signing-enabled true \
@@ -302,7 +299,7 @@ compile_java_and_dex \
 mkdir -p app/src/main/assets
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/7] Compiling & packaging KoboArc7Freedom.apk v1.8.0 (Widgets + USB ADB Backup + TLS 1.3 + Separate Tasks)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v1.8.1 (Pure-Toolbox Root + 120 CAs + TLS 1.3 + USB ADB Backup + Widgets)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -328,13 +325,13 @@ cp build/native/armeabi/*.so build/app/stage/lib/armeabi/
 (cd build/app/dex && zip -qj ../unsigned.apk classes.dex)
 (cd build/app/stage && zip -qr -0 ../unsigned.apk lib)
 
-echo "==> [5/7] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2) + v2 + v3 schemes..."
+echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificate (v1 + v2 + v3)..."
 "$ZIPALIGN" -f -p 4 build/app/unsigned.apk build/app/aligned.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
-    --ks build/keystore/arc7freedom.jks \
-    --ks-pass pass:arc7freedom \
-    --key-pass pass:arc7freedom \
-    --ks-key-alias arc7key \
+    --ks "$KEYSTORE_PATH" \
+    --ks-pass "pass:$KEYSTORE_PASS" \
+    --key-pass "pass:$KEYSTORE_PASS" \
+    --ks-key-alias "$KEYSTORE_ALIAS" \
     --min-sdk-version 15 \
     --v1-signing-enabled true \
     --v2-signing-enabled true \
@@ -342,11 +339,48 @@ echo "==> [5/7] Aligning & signing KoboArc7Freedom.apk with v1 (JAR Android 4.2)
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/7] Generating static Web Portals & writing SHA256SUMS.txt..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.8.1.apk)..."
+rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
+cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
+"$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
+"$AAPT2" link \
+    -I "$ANDROID_JAR" \
+    --manifest upgrader/src/main/AndroidManifest.xml \
+    -A build/upgrader/assets \
+    -0 .apk \
+    --java build/upgrader/gen \
+    --min-sdk-version 15 \
+    --target-sdk-version 17 \
+    --no-compile-sdk-metadata \
+    -o build/upgrader/unsigned.apk \
+    build/upgrader/res_compiled/res.zip
+
+compile_java_and_dex \
+    build/upgrader/classes \
+    build/upgrader/dex \
+    build/upgrader/gen/ca/arc7freedom/upgrader/R.java \
+    upgrader/src/main/java/ca/arc7freedom/upgrader/*.java
+
+(cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
+"$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
+"$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
+    --ks "$KEYSTORE_PATH" \
+    --ks-pass "pass:$KEYSTORE_PASS" \
+    --key-pass "pass:$KEYSTORE_PASS" \
+    --ks-key-alias "$KEYSTORE_ALIAS" \
+    --min-sdk-version 15 \
+    --v1-signing-enabled true \
+    --v2-signing-enabled true \
+    --v3-signing-enabled true \
+    --out releases/Upgrade-My-Kobo-To-v1.8.1.apk \
+    build/upgrader/aligned.apk
+
+echo "==> [7/8] Generating static Web Portals & writing SHA256SUMS.txt..."
 rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
+    Upgrade-My-Kobo-To-v1.8.1.apk \
     KoboArc7Freedom.apk \
     VanillaAndroid4Home.apk \
     Backup-Kobo-To-Laptop-ADB.bat \
@@ -355,6 +389,7 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
+    releases/Upgrade-My-Kobo-To-v1.8.1.apk \
     releases/KoboArc7Freedom.apk \
     releases/VanillaAndroid4Home.apk \
     releases/Backup-Kobo-To-Laptop-ADB.bat \

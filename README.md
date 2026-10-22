@@ -6,15 +6,19 @@
 
 ---
 
-## Ready-to-Install Signed APKs
+## Ready-to-Install Signed APKs (`v1.8.1`)
 
-Both pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** signed APKs are ready right now in:
+All pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** APKs are permanently signed with `keystore/arc7freedom-release.jks` (`SHA256: 11:FD:17:ED:...`) so all future updates install cleanly in-place:
 
-1. **[Live Web Installer & Wi-Fi Launcher Portal (`docs/index.html`)](https://mob5824m-wq.github.io/Kobo-Arc-7-freedom/)** — download APKs directly, grab the 1-click USB ADB Laptop Backup tool, or run the 1-click home Wi-Fi server!
-2. **[GitHub Releases (`v1.8.0` Latest)](../../releases/tag/v1.8.0)** — direct one-click downloads:
-   - **`KoboArc7Freedom.apk`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`) — **`v1.8.0`** (fixes all SSL connection errors, independent app tasks, USB ADB Laptop Backup, Home Screen Widgets, and F-Droid index updates!)
-   - **`Backup-Kobo-To-Laptop-ADB.bat`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Backup-Kobo-To-Laptop-ADB.bat` — Windows 10/11 1-click USB ADB direct flash/files backup to your laptop using **`0 MB`** of tablet storage; auto-installs Google `adb` if needed!)
-   - **`Backup-Kobo-To-Laptop-ADB.sh`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Backup-Kobo-To-Laptop-ADB.sh` — macOS / Linux 1-click USB ADB direct laptop backup tool with live SHA-256 verification)
+> **⚡ Already have an earlier version (`v1.5.0` – `v1.8.0`) on your Kobo Arc 7 (or saw `"App not installed"` / `"sh:<stdin>[1]: uname: not found"`)?**
+> Download **`Upgrade-My-Kobo-To-v1.8.1.apk`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Upgrade-My-Kobo-To-v1.8.1.apk`) and install it in **1 tap**! Because it uses a fresh package name (`ca.arc7freedom.upgrader`), Android 4.2 installs it with **zero certificate conflict** and automatically uses your Kobo's active `su` (`uid=0(root)`) to install `/sbin/{su,uname,cp}`, `KoboArc7Freedom v1.8.1`, `VanillaAndroid4Home v48` (Widgets), `FDroidClassicLegacy v1.8.1`, and all **120 modern 2026 Root CAs** in 5 seconds!
+
+1. **[Live Web Installer & Wi-Fi Launcher Portal (`docs/index.html`)](https://mob5824m-wq.github.io/Kobo-Arc-7-freedom/)** — download `Upgrade-My-Kobo-To-v1.8.1.apk` or `KoboArc7Freedom.apk`, grab the 1-click USB ADB Auto-Upgrade & Backup tool, or run the 1-click home Wi-Fi server!
+2. **[GitHub Releases (`v1.8.1` Latest)](../../releases/tag/v1.8.1)** — direct one-click downloads:
+   - **`Upgrade-My-Kobo-To-v1.8.1.apk`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Upgrade-My-Kobo-To-v1.8.1.apk`) — **1-Tap Signature-Conflict-Free Root Upgrader (`ca.arc7freedom.upgrader`)** for upgrading from any earlier `v1.5.0`–`v1.8.0` install!
+   - **`KoboArc7Freedom.apk`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`) — **`v1.8.1`** (pure Android 4.2 `toolbox`-compatible root scripts, multi-call `su`/`uname`/`cp`, 120 2026 CAs, BearSSL+mbedTLS TLS 1.3 gateway, separate app tasks, USB ADB Laptop Backup, Home Screen Widgets, and F-Droid index bridge!)
+   - **`Backup-Kobo-To-Laptop-ADB.bat`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Backup-Kobo-To-Laptop-ADB.bat` — Windows 10/11 1-click USB ADB auto-upgrader + direct flash/files backup to your laptop using **`0 MB`** of tablet storage!)
+   - **`Backup-Kobo-To-Laptop-ADB.sh`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Backup-Kobo-To-Laptop-ADB.sh` — macOS / Linux 1-click USB ADB auto-upgrader + direct laptop backup tool with live SHA-256 verification)
    - **`Start-Kobo-WiFi-Server.bat`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Start-Kobo-WiFi-Server.bat` — Windows 10/11 1-click home Wi-Fi server, **zero Python needed**, auto-unlocks Windows Firewall!)
    - **`Start-Kobo-WiFi-Server.sh`** (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Start-Kobo-WiFi-Server.sh` — macOS / Linux 1-click home Wi-Fi server)
 3. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 **10-Isolated-Task Activity + 6-Service + 3-Home-Widget + 4-ARMv7-Binary** suite (`~12.5 MB` — BearSSL `TLS 1.0–1.2` + Mbed-TLS 3.6 `TLS 1.3` persistent gateway, patched **F-Droid Classic** TLS 1.3 index bridge, **Direct USB ADB Laptop Backup Server (`:18777`, `0 MB` tablet space)**, **3 Built-In Home Screen Widgets**, **all 120 modern 2026 Root CAs offline**, **`Arc7 Browser`**, **`Arc7 Clock`**, **`Arc7 Wallpapers`**, **`Arc7 E-Reader` + 70k Gutenberg Store + `.CBZ` Comics**, **`Arc7 Audio`**, **`Arc7 App Manager`**, **`Arc7 Terminal`**, **`256 GB` MicroSDXC `FAT32` Formatter**, and **`VanillaAndroid4Home.apk` v48**!)

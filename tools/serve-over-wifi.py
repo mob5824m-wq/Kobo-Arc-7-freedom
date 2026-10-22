@@ -169,26 +169,43 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             return f"{GITHUB_LATEST_BASE}/{q}"
         return f"./{q}"
 
-    # Build primary download cards
+    # Build primary download cards (`Upgrade-My-Kobo-To-v1.8.1.apk` FIRST so existing users never hit a key mismatch!)
+    upgrader_html = ""
+    main_html = ""
     apk_buttons = []
     other_buttons = []
     for fname, sz in files_meta:
         mb = sz / 1048576.0
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
-        if fname == "KoboArc7Freedom.apk":
-            apk_buttons.insert(
-                0,
+        if fname == "Upgrade-My-Kobo-To-v1.8.1.apk":
+            upgrader_html = (
+                f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
+                f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
+                f"&#9889; ALREADY HAVE AN EARLIER VERSION ON YOUR KOBO ARC 7? TAP THIS 1-TAP UPGRADER FIRST "
+                f"(fixes &ldquo;App not installed&rdquo; key conflict + &ldquo;uname: not found&rdquo; + installs v1.8.1, Widgets, F-Droid &amp; 120 2026 CAs!):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.8.1.apk\")'>"
+                f"&#11015; 1-Tap Upgrade Existing Kobo — Upgrade-My-Kobo-To-v1.8.1.apk ({size_txt})</a>"
+                + (
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.8.1.apk\")'>"
+                    f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
+                    if not static_mode
+                    else ""
+                )
+                + "</div>"
+            )
+        elif fname == "KoboArc7Freedom.apk":
+            main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Step 1: Download KoboArc7Freedom.apk ({size_txt}) — Full 8-App Suite</a>"
+                f"&#11015; Fresh Kobo Install: KoboArc7Freedom.apk v1.8.1 ({size_txt}) — Full 8-App Suite</a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
                     else ""
                 )
-                + "</div>",
+                + "</div>"
             )
         elif fname == "VanillaAndroid4Home.apk":
             apk_buttons.append(
@@ -201,6 +218,10 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             other_buttons.append(
                 f"<a class='btn small' href='{link}'>&#128196; {html.escape(fname)} ({size_txt})</a>"
             )
+    if main_html:
+        apk_buttons.insert(0, main_html)
+    if upgrader_html:
+        apk_buttons.insert(0, upgrader_html)
 
     bat_href = "./Start-Kobo-WiFi-Server.bat"
     sh_href = "./Start-Kobo-WiFi-Server.sh"

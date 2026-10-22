@@ -118,13 +118,31 @@ public class MainActivity extends Activity {
             public void run() {
                 try {
                     certManager.startBrowserGateway();
+                    // Automatically install all 120 modern 2026 Root CAs + clean DNS + NTP clock sync
+                    // on rooted Kobo Arc 7 hardware if not yet populated in /system/etc/security/cacerts!
+                    android.content.SharedPreferences bootPrefs = getSharedPreferences("arc7_boot_init", MODE_PRIVATE);
+                    File sysCaProbe = new File("/system/etc/security/cacerts");
+                    String[] existingCas = sysCaProbe.list();
+                    int caCount = existingCas != null ? existingCas.length : 0;
+                    if (rootShell.isRootAvailable()
+                            && (!bootPrefs.getBoolean("ca_v181_installed", false) || caCount < 140)) {
+                        boolean caOk = certManager.installCertsAndFixNetwork(
+                                Environment.getExternalStorageDirectory(),
+                                new NetworkCertManager.ProgressListener() {
+                                    @Override public void onProgress(int pct, String msg) {}
+                                    @Override public void onLog(String line) { appendLog(line); }
+                                });
+                        if (caOk) {
+                            bootPrefs.edit().putBoolean("ca_v181_installed", true).commit();
+                        }
+                    }
                     optimizerManager.ensureCompanionAppsUpgradedSilently();
                 } catch (Throwable ignored) {}
             }
         }).start();
 
-        appendLog("Kobo Arc 7 Freedom v1.8.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", Fixed SSL TLS 1.0-1.3 Engine + Separate App Tasks + Direct USB ADB Laptop Backup + Home Widgets + Patched F-Droid Index Bridge).");
+        appendLog("Kobo Arc 7 Freedom v1.8.1 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Pure-Toolbox Root Shell + Multi-Call su/uname/cp + 120 2026 CAs + TLS 1.3 + Separate App Tasks + USB ADB Backup + Home Widgets + Patched F-Droid).");
         refreshDeviceSnapshotAsync();
     }
 
@@ -176,7 +194,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.8");
+        title.setText("Kobo Arc 7 Freedom  v1.8.1");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);

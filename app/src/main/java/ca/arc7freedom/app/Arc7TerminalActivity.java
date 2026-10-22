@@ -89,12 +89,12 @@ public class Arc7TerminalActivity extends Activity {
         String[][] presets = {
             {"id", "id"},
             {"df / Storage", "df"},
-            {"RAM / free", "grep -E 'MemTotal|MemFree|Buffers|Cached|Swap' /proc/meminfo"},
+            {"RAM / free", "while IFS= read -r l; do case \"$l\" in MemTotal:*|MemFree:*|Buffers:*|Cached:*|Swap*) echo \"$l\" ;; esac; done < /proc/meminfo"},
             {"Partitions", "cat /proc/emmc 2>/dev/null || cat /proc/dumchar_info 2>/dev/null || cat /proc/partitions"},
             {"Mounts", "mount"},
             {"Network", "netstat 2>/dev/null || cat /proc/net/route"},
             {"Kernel Version", "cat /proc/version && uptime"},
-            {"Props", "getprop | grep -E 'product|build|usb|dns'"}
+            {"Props", "getprop | while IFS= read -r l; do case \"$l\" in *product*|*build*|*usb*|*dns*) echo \"$l\" ;; esac; done"}
         };
         for (int i = 0; i < presets.length; i++) {
             final String cmdStr = presets[i][1];

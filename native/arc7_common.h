@@ -169,7 +169,9 @@ static __attribute__((unused)) int arc7_install_persistent_root(const char *su_s
         chmod("/sbin", 0755);
         if (arc7_copy_file(su_source_path, "/sbin/su", 06755) == 0) {
             installed_sbin = 1;
-            printf("STAGE: Installed setuid root su to /sbin/su (06755)\n");
+            symlink("/sbin/su", "/sbin/uname");
+            symlink("/sbin/su", "/sbin/cp");
+            printf("STAGE: Installed setuid root su (+ uname/cp applets) to /sbin/su (06755)\n");
             fflush(stdout);
         }
         mount("rootfs", "/", "rootfs", MS_REMOUNT | MS_RDONLY, NULL);
@@ -191,6 +193,10 @@ static __attribute__((unused)) int arc7_install_persistent_root(const char *su_s
     fflush(stdout);
     int installed_xbin = (arc7_copy_file(su_source_path, "/system/xbin/su", 06755) == 0);
     int installed_bin = (arc7_copy_file(su_source_path, "/system/bin/su", 06755) == 0);
+    if (installed_xbin) {
+        symlink("/system/xbin/su", "/system/xbin/uname");
+        symlink("/system/xbin/su", "/system/xbin/cp");
+    }
 
     if (!installed_xbin && !installed_bin && !installed_sbin) {
         fprintf(stderr, "ERROR: Failed to write su binary to /system/xbin/su or /sbin/su (%s)\n", strerror(errno));

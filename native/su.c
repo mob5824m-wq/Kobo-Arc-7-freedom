@@ -1,9 +1,112 @@
 #include "arc7_common.h"
+#include <dirent.h>
 #include <grp.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
+
+/* Built-in POSIX `uname` applet (stock Android 4.2 toolbox omits `/system/bin/uname`!) */
+static int applet_uname(int argc, char **argv) {
+    struct utsname u;
+    memset(&u, 0, sizeof(u));
+    if (uname(&u) != 0) {
+        strcpy(u.sysname, "Linux");
+        strcpy(u.nodename, "localhost");
+        strcpy(u.release, "3.4.5");
+        strcpy(u.version, "#1 SMP PREEMPT");
+        strcpy(u.machine, "armv7l");
+    }
+    int f_s = 0, f_n = 0, f_r = 0, f_v = 0, f_m = 0, f_o = 0;
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] != '-') continue;
+        for (const char *p = argv[i] + 1; *p; p++) {
+            if (*p == 'a') { f_s = f_n = f_r = f_v = f_m = f_o = 1; }
+            else if (*p == 's') f_s = 1;
+            else if (*p == 'n') f_n = 1;
+            else if (*p == 'r') f_r = 1;
+            else if (*p == 'v') f_v = 1;
+            else if (*p == 'm' || *p == 'p' || *p == 'i') f_m = 1;
+            else if (*p == 'o') f_o = 1;
+        }
+    }
+    if (!f_s && !f_n && !f_r && !f_v && !f_m && !f_o) f_s = 1;
+    int first = 1;
+    #define EMIT_PART(str) do { if (!first) putchar(' '); fputs((str), stdout); first = 0; } while (0)
+    if (f_s) EMIT_PART(u.sysname);
+    if (f_n) EMIT_PART(u.nodename);
+    if (f_r) EMIT_PART(u.release);
+    if (f_v) EMIT_PART(u.version);
+    if (f_m) EMIT_PART(u.machine);
+    if (f_o) EMIT_PART("GNU/Linux");
+    #undef EMIT_PART
+    putchar('\n');
+    return 0;
+}
+
+/* Built-in POSIX `cp` applet (stock Android 4.2 toolbox omits `/system/bin/cp`!) */
+static int copy_single_entry(const char *src, const char *dst, int no_clobber) {
+    struct stat st_src, st_dst;
+    if (stat(src, &st_src) != 0 || !S_ISREG(st_src.st_mode)) return -1;
+    if (no_clobber && stat(dst, &st_dst) == 0) return 0;
+
+    int in_fd = open(src, O_RDONLY);
+    if (in_fd < 0) return -1;
+    int out_fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st_src.st_mode & 07777);
+    if (out_fd < 0) {
+        close(in_fd);
+        return -1;
+    }
+    unsigned char buf[32768];
+    ssize_t n;
+    while ((n = read(in_fd, buf, sizeof(buf))) > 0) {
+        ssize_t off = 0;
+        while (off < n) {
+            ssize_t w = write(out_fd, buf + off, (size_t)(n - off));
+            if (w <= 0) { close(in_fd); close(out_fd); return -1; }
+            off += w;
+        }
+    }
+    close(in_fd);
+    close(out_fd);
+    return 0;
+}
+
+static int applet_cp(int argc, char **argv) {
+    int no_clobber = 0;
+    int first_arg = argc;
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-' && argv[i][1] != '\0') {
+            if (strcmp(argv[i], "--") == 0) { first_arg = i + 1; break; }
+            for (const char *p = argv[i] + 1; *p; p++) {
+                if (*p == 'n') no_clobber = 1;
+            }
+        } else {
+            first_arg = i;
+            break;
+        }
+    }
+    int npos = argc - first_arg;
+    if (npos < 2) return 1;
+    const char *dst = argv[argc - 1];
+    struct stat st_dst;
+    int dst_is_dir = (stat(dst, &st_dst) == 0 && S_ISDIR(st_dst.st_mode));
+    int rc = 0;
+    for (int i = first_arg; i < argc - 1; i++) {
+        const char *src = argv[i];
+        char target[1024];
+        if (dst_is_dir || dst[strlen(dst) - 1] == '/') {
+            const char *slash = strrchr(src, '/');
+            const char *base = slash ? slash + 1 : src;
+            snprintf(target, sizeof(target), "%s/%s", dst, base);
+            if (copy_single_entry(src, target, no_clobber) != 0) rc = 1;
+        } else {
+            if (copy_single_entry(src, dst, no_clobber) != 0) rc = 1;
+        }
+    }
+    return rc;
+}
 
 static void setup_root_credentials(void) {
     gid_t groups[] = {0, 1000, 1003, 1004, 1007, 1011, 1015, 1023, 1028, 3001, 3002, 3003};
@@ -218,6 +321,13 @@ static void append_quoted_arg(char *buf, size_t cap, const char *arg) {
 }
 
 int main(int argc, char **argv) {
+    if (argc > 0 && argv[0] != NULL) {
+        const char *slash = strrchr(argv[0], '/');
+        const char *prog = slash ? slash + 1 : argv[0];
+        if (strcmp(prog, "uname") == 0) return applet_uname(argc, argv);
+        if (strcmp(prog, "cp") == 0) return applet_cp(argc, argv);
+    }
+
     const char *shell = "/system/bin/sh";
     char cmd_buf[32768];
     cmd_buf[0] = '\0';

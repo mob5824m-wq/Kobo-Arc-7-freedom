@@ -273,10 +273,32 @@ public class TabletOptimizerManager {
                 fos.close();
                 in.close();
                 tmpHome.setReadable(true, false);
+                String qHome = RootShell.shellQuote(tmpHome.getAbsolutePath());
                 shell.execRoot(
-                        "pm install -r " + RootShell.shellQuote(tmpHome.getAbsolutePath()) +
-                        " && (appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null" +
-                        " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true)",
+                        "_out=$(pm install -r " + qHome + " 2>&1 || true)\n" +
+                        "case \"$_out\" in\n" +
+                        "  *Success*) ;;\n" +
+                        "  *)\n" +
+                        "    (mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
+                        "    if [ -f /system/app/VanillaAndroid4Home.apk ]; then\n" +
+                        "      cat /system/app/VanillaAndroid4Home.apk > /data/local/tmp/VanillaHome.bak.apk\n" +
+                        "    fi\n" +
+                        "    cat " + qHome + " > /system/app/VanillaAndroid4Home.apk\n" +
+                        "    chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
+                        "    pm uninstall ca.arc7freedom.launcher 2>/dev/null || true\n" +
+                        "    pm install -r " + qHome + " 2>/dev/null || {\n" +
+                        "      if [ -f /data/local/tmp/VanillaHome.bak.apk ]; then\n" +
+                        "        cat /data/local/tmp/VanillaHome.bak.apk > /system/app/VanillaAndroid4Home.apk\n" +
+                        "        chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
+                        "        pm install -r /data/local/tmp/VanillaHome.bak.apk 2>/dev/null || true\n" +
+                        "      fi\n" +
+                        "    }\n" +
+                        "    sync\n" +
+                        "    mount -o remount,ro /system 2>/dev/null || true\n" +
+                        "    ;;\n" +
+                        "esac\n" +
+                        "appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null" +
+                        " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true",
                         null);
                 tmpHome.delete();
             }
@@ -335,9 +357,13 @@ public class TabletOptimizerManager {
                 script.append("  SRC='").append(internalBase).append("/").append(folder).append("'\n");
                 script.append("  mkdir -p \"$SRC\"\n");
                 if (copyExistingFirst) {
-                    script.append("  cp -rn \"$SRC/\"* \"$SD_BASE/").append(folder).append("/\" 2>/dev/null || true\n");
+                    script.append("  for _mf in \"$SRC\"/*; do\n")
+                          .append("    [ -f \"$_mf\" ] && [ ! -e \"$SD_BASE/").append(folder).append("/${_mf##*/}\" ] && cat \"$_mf\" > \"$SD_BASE/")
+                          .append(folder).append("/${_mf##*/}\" 2>/dev/null || true\n")
+                          .append("  done\n");
                 }
-                script.append("  grep -qs \" $SRC \" /proc/mounts || mount -o bind \"$SD_BASE/")
+                script.append("  _mounted=0; while IFS= read -r _ml; do case \"$_ml\" in *\" $SRC \"*) _mounted=1; break ;; esac; done < /proc/mounts\n")
+                      .append("  [ \"$_mounted\" = \"1\" ] || mount -o bind \"$SD_BASE/")
                       .append(folder).append("\" \"$SRC\" 2>/dev/null || true\n");
                 script.append("fi\n");
             }
@@ -462,7 +488,7 @@ public class TabletOptimizerManager {
         }
         if (!enable) {
             String cmd = RootShell.remountSystemRwCmd()
-                    + " && if [ -f /system/etc/hosts.arc7.bak ]; then cp -f /system/etc/hosts.arc7.bak /system/etc/hosts; else printf '127.0.0.1 localhost\\n' > /system/etc/hosts; fi"
+                    + " && if [ -f /system/etc/hosts.arc7.bak ]; then cat /system/etc/hosts.arc7.bak > /system/etc/hosts; else echo '127.0.0.1 localhost' > /system/etc/hosts; fi"
                     + " && rm -f /system/etc/hosts.arc7.bak && chmod 0644 /system/etc/hosts && sync"
                     + " && " + RootShell.remountSystemRoCmd() + " && echo RESTORED_OK";
             RootShell.ExecResult r = shell.execRoot(cmd, null);
@@ -488,8 +514,8 @@ public class TabletOptimizerManager {
         }
 
         String cmd = RootShell.remountSystemRwCmd()
-                + " && [ -f /system/etc/hosts.arc7.bak ] || cp -a /system/etc/hosts /system/etc/hosts.arc7.bak"
-                + " && cp -f '" + stage.getAbsolutePath() + "' /system/etc/hosts"
+                + " && { [ -f /system/etc/hosts.arc7.bak ] || cat /system/etc/hosts > /system/etc/hosts.arc7.bak; }"
+                + " && cat '" + stage.getAbsolutePath() + "' > /system/etc/hosts"
                 + " && chmod 0644 /system/etc/hosts && sync"
                 + " && " + RootShell.remountSystemRoCmd()
                 + " && echo ADBLOCK_HOSTS_OK";
@@ -556,8 +582,9 @@ public class TabletOptimizerManager {
         String desc;
         if (mode == 0) {
             desc = "E-Book Ultra Battery Saver (2 active Cortex-A7 cores + powersave/ondemand)";
-            cmd = "for g in powersave conservative ondemand hotplug; do " +
-                  "  grep -qw \"$g\" /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null && { echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; break; }; " +
+            cmd = "_avail=\" $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null) \"; " +
+                  "for g in powersave conservative ondemand hotplug; do " +
+                  "  case \"$_avail\" in *\" $g \"*) echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null; break ;; esac; " +
                   "done; " +
                   "echo 0 > /sys/devices/system/cpu/cpu2/online 2>/dev/null || true; " +
                   "echo 0 > /sys/devices/system/cpu/cpu3/online 2>/dev/null || true; " +
@@ -571,8 +598,9 @@ public class TabletOptimizerManager {
         } else {
             desc = "Balanced Adaptive Daily Mode (hotplug / interactive dynamic scaling)";
             cmd = "for c in 0 1 2 3; do echo 1 > /sys/devices/system/cpu/cpu$c/online 2>/dev/null || true; done; " +
+                  "_avail=\" $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null) \"; " +
                   "for g in hotplug interactive ondemand; do " +
-                  "  grep -qw \"$g\" /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null && { echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; break; }; " +
+                  "  case \"$_avail\" in *\" $g \"*) echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null; break ;; esac; " +
                   "done; echo CPU_PROFILE_OK";
         }
         RootShell.ExecResult r = shell.execRoot(cmd, null);
@@ -642,7 +670,12 @@ public class TabletOptimizerManager {
             String devShort = cand.substring("/dev/block/".length());
             String safeProbe =
                 "[ -b '" + cand + "' ] || exit 1; " +
-                "if grep -E '^" + cand + "(p[0-9]+)? (/|/system|/data|/cache|/protect_f|/protect_s|/boot|/recovery) ' /proc/mounts >/dev/null 2>&1; then echo INTERNAL_OS_DISK; exit 2; fi; " +
+                "while IFS= read -r _ml; do " +
+                "  case \"$_ml\" in " +
+                "    '" + cand + "'*' / '*|'" + cand + "'*' /system '*|'" + cand + "'*' /data '*|'" + cand + "'*' /cache '*|'" + cand + "'*' /protect_'*|'" + cand + "'*' /boot '*|'" + cand + "'*' /recovery '*) " +
+                "      echo INTERNAL_OS_DISK; exit 2 ;; " +
+                "  esac; " +
+                "done < /proc/mounts; " +
                 "DEV_TYPE=$(cat /sys/block/" + devShort + "/device/type 2>/dev/null || echo UNKNOWN); " +
                 "if [ \"$DEV_TYPE\" = \"MMC\" ]; then echo SOLDERED_EMMC; exit 3; fi; " +
                 "echo SAFE_REMOVABLE_SD";

@@ -32,16 +32,16 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru
 
-      - name: Generate vector logo, icons, static web portals & build v1.8.0 APKs from source
+      - name: Generate vector logo, icons, static web portals & build v1.8.1 APKs from source
         run: |
           chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh
           python3 scripts/generate-icons.py
           ./scripts/build-all.sh
 
-      - name: Run full v1.8.0 APK signature, SSL TLS 1.0->1.3, Separate Tasks, Widgets, F-Droid & USB ADB Backup verification
+      - name: Run full v1.8.1 Permanent Signing Cert, Pure-Toolbox Root, Upgrader, SSL TLS 1.3, Widgets, F-Droid & USB Backup verification
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v1.8.0 APKs, static web portals & 1-click USB/Wi-Fi launchers back to branch
+      - name: Commit refreshed signed v1.8.1 APKs, static web portals & 1-click USB/Wi-Fi launchers back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
@@ -56,6 +56,7 @@ jobs:
             docs/Start-Kobo-WiFi-Server.sh \
             releases/index.html \
             releases/logo-banner.png \
+            releases/Upgrade-My-Kobo-To-v1.8.1.apk \
             releases/KoboArc7Freedom.apk \
             releases/VanillaAndroid4Home.apk \
             releases/Backup-Kobo-To-Laptop-ADB.bat \
@@ -66,15 +67,16 @@ jobs:
             app/src/main/assets/VanillaAndroid4Home.apk \
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v1.8.0 APKs & web installer portals [skip ci]"
+            git commit -m "chore: update pre-built signed v1.8.1 APKs & web installer portals [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v1.8.0 APKs, USB ADB Backup & Wi-Fi launchers artifact
+      - name: Upload built v1.8.1 APKs, 1-Tap Upgrader, USB ADB Backup & Wi-Fi launchers artifact
         uses: actions/upload-artifact@v4
         with:
           name: kobo-arc-7-freedom-apks
           path: |
+            releases/Upgrade-My-Kobo-To-v1.8.1.apk
             releases/KoboArc7Freedom.apk
             releases/VanillaAndroid4Home.apk
             releases/Backup-Kobo-To-Laptop-ADB.bat
@@ -89,32 +91,31 @@ jobs:
         with:
           path: docs
 
-      - name: Publish signed v1.8.0 APKs & 1-click USB ADB / Wi-Fi tools to GitHub Releases
+      - name: Publish signed v1.8.1 APKs, 1-Tap Root Upgrader & USB ADB / Wi-Fi tools to GitHub Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v1.8.0 (`ca.arc7freedom.app`)
+          ## Kobo Arc 7 Freedom v1.8.1 (`ca.arc7freedom.app` + `Upgrade-My-Kobo-To-v1.8.1.apk`)
 
-          **Major Real-Hardware Fix & Feature Release — Fixes All 5 User-Reported Issues on Kobo Arc 7 (`Android 4.2.2`):**
+          **Critical Real-Hardware Root & Upgrade Fix (`v1.8.1`) — Fixes `"sh:<stdin>[1]: uname: not found"` + Fixes APK Upgrade Signature Conflicts Forever:**
 
-          1. **Fixed `"SSL connection error"` Everywhere (`native/arc7tls.c`, `Arc7TlsGatewayService`, `NetworkCertManager`, `Arc7BrowserActivity`):**
-             - **Root Cause Found:** Android 4.2's 2013 OpenSSL sends `TLS 1.0` `ClientHello`s by default, while `Mbed-TLS 3.6` rejected every `TLS 1.0 / 1.1` handshake immediately AND `MainActivity.onDestroy()` previously stopped `127.0.0.1:8118` whenever you switched apps!
-             - **Fix:** `libarc7tls.so` now embeds **BearSSL `TLS 1.0 / 1.1 / 1.2`** for local Android 4.2 app connections + **Mbed-TLS 3.6 `TLS 1.3`** for upstream 2026 internet servers, runs persistently inside `Arc7TlsGatewayService` (`START_STICKY`), generates `notBefore = 2012-01-01` local certificates immune to dead-battery 2013 clocks, bypasses system proxy loops on `127.0.0.1`, syncs `X-Arc7-Cookie` headers, and overrides `onReceivedSslError` cleanly.
-          2. **Fixed `"All apps just open Arc Freedom"` (`app/src/main/AndroidManifest.xml`, `VanillaHomeActivity.java`):**
-             - Every single standalone app activity (`Arc7 Browser`, `Arc7 E-Reader`, `Arc7 Audio`, `Arc7 Clock`, `Arc7 Nightstand`, `Arc7 Wallpapers`, `Arc7 App Manager`, `Arc7 Terminal`) now declares its **own independent `android:taskAffinity="ca.arc7freedom.task.*"`** + `singleTask`, and `VanillaAndroid4Home` launches every app cleanly into an isolated task stack instead of re-foregrounding `MainActivity`!
-          3. **Added Direct Laptop Backup & Restore via USB ADB — Uses `0 MB` of Tablet Space! (`Arc7AdbBackupService`, Tab 3 UI, `Backup-Kobo-To-Laptop-ADB.bat / .sh`):**
-             - Streams bit-for-bit partitions (`boot`, `recovery`, `nvram` Wi-Fi MAC calibration, `uboot`, `system.ext4.img`), partition layout, `build.prop`, and personal media files directly over USB (`adb forward tcp:18777 tcp:18777`) onto Windows / macOS / Linux with full live `SHA-256` verification!
-          4. **Home Screen Widgets Now Work + 3 Built-In Arc7 Widgets (`VanillaAndroid4Home v48` + `Arc7Clock/Audio/PowerWidgetProvider`):**
-             - Full `AppWidgetHost` + `AppWidgetManager` support in `VanillaAndroid4Home.apk` (`+ Widget` top button OR long-press empty space on home screen, resize height, long-press to remove, persists across reboots) plus 3 built-in widgets (**Digital Clock & Next Alarm**, **Music & Audiobook Player**, **Quick Dock & Live TLS 1.3 Status**).
-          5. **Fixed `"F-Droid error getting index file"` (`scripts/patch-fdroid-apk.py` + `/__https/...` Bridge + Auto-Upgrade):**
-             - Patched `FDroidClassicLegacy.apk`'s compiled `resources.arsc` (`default_repos`) to route through our verified local `http://127.0.0.1:8118/__https/...` TLS 1.3 gateway, removed defunct `bubu1.eu` & TLS-1.3-only `ftp.fau.de` errors, enabled official **F-Droid + F-Droid Archive** out of the box, and auto-migrates older installs cleanly!
+          ### ALREADY HAVE AN EARLIER VERSION (`v1.5.0` – `v1.8.0`) ON YOUR KOBO ARC 7?
+          Download and install **`Upgrade-My-Kobo-To-v1.8.1.apk`** (`ca.arc7freedom.upgrader`) in 1 tap!
+          - Why earlier updates failed to install: previous CI builds generated ephemeral signing certificates, causing Android 4.2 `PackageInstaller` to reject upgrades with `"App not installed"` (`INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES`), keeping your tablet stuck on `v1.5.0`/`v1.6.0` (which ran `id && uname -a` even though stock Kobo Android 4.2 `/system/bin/toolbox` omits `uname` and `cp`!).
+          - **`Upgrade-My-Kobo-To-v1.8.1.apk`** installs cleanly with **zero signature conflict** and uses your tablet's already-working `uid=0(root)` `su` to automatically install in 5 seconds:
+            1. Multi-call **`/sbin/{su,uname,cp}`** + **`/system/xbin/{su,uname,cp}`** native ARMv7 applets
+            2. **`KoboArc7Freedom v1.8.1`** signed with our permanent version-controlled certificate (`keystore/arc7freedom-release.jks`) so every future release updates seamlessly in-place forever!
+            3. **`VanillaAndroid4Home v4.2.8` (`v48`)** with working Home Screen Widgets + isolated app task stacks
+            4. **`FDroidClassicLegacy v1.8.1`** pre-configured for our instant `http://127.0.0.1:8118/__https/...` TLS 1.3 repository bridge
+            5. **All 120 modern 2026 Root CA `.0` certificates** directly into `/system/etc/security/cacerts/` via pure `mksh` + `cat` (zero reliance on `/system/bin/cp` or `grep`!)
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v1.8.0 >/dev/null 2>&1; then
-            gh release upload v1.8.0 \
+          if gh release view v1.8.1 >/dev/null 2>&1; then
+            gh release upload v1.8.1 \
+              releases/Upgrade-My-Kobo-To-v1.8.1.apk \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
@@ -124,7 +125,8 @@ jobs:
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v1.8.0 \
+            gh release create v1.8.1 \
+              releases/Upgrade-My-Kobo-To-v1.8.1.apk \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
@@ -134,13 +136,14 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v1.8.0 — Fixed SSL Error, Fixed App Task Launching, USB ADB Laptop Backup, Home Widgets & Fixed F-Droid Index!" \
+              --title "Kobo Arc 7 Freedom v1.8.1 — 1-Tap Root Upgrader + Fixed 'uname/cp not found' + Permanent Signing Cert + TLS 1.3 + Widgets + F-Droid!" \
               --notes-file /tmp/release-notes.md
           fi
 
-          for TAG in v1.7.0 v1.6.0 v1.5.0 v1.4.0 v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
+          for TAG in v1.8.0 v1.7.0 v1.6.0 v1.5.0 v1.4.0 v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" \
+                releases/Upgrade-My-Kobo-To-v1.8.1.apk \
                 releases/KoboArc7Freedom.apk \
                 releases/VanillaAndroid4Home.apk \
                 releases/Backup-Kobo-To-Laptop-ADB.bat \
