@@ -553,7 +553,7 @@ public class TabletOptimizerManager {
                 homeVer = ctx.getPackageManager()
                         .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
             } catch (Throwable ignored) {}
-            if (homeVer < 50) {
+            if (homeVer < 51) {
                 File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
                 InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
                 FileOutputStream fos = new FileOutputStream(tmpHome);
