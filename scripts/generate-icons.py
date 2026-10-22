@@ -508,6 +508,81 @@ def draw_ic_sys_video(c):
     c.triangle((0.42, 0.37), (0.42, 0.65), (0.66, 0.51), (109, 40, 217, 255))
 
 
+def draw_ic_pdf(c):
+    c.rounded_tile((220, 38, 38), (153, 27, 27), (252, 165, 165))
+    c.rect(0.24, 0.17, 0.76, 0.83, W, 0.06)
+    c.triangle((0.58, 0.17), (0.76, 0.17), (0.76, 0.35), (254, 202, 202, 255))
+    c.rect(0.32, 0.36, 0.68, 0.43, (220, 38, 38, 255), 0.02)
+    c.rect(0.32, 0.50, 0.68, 0.56, (185, 28, 28, 220), 0.02)
+    c.rect(0.32, 0.63, 0.56, 0.69, (185, 28, 28, 220), 0.02)
+
+
+def draw_ic_weather(c):
+    c.rounded_tile((14, 165, 233), (2, 132, 199), (186, 230, 253))
+    c.circle(0.62, 0.36, 0.16, (253, 224, 71, 255))
+    c.circle(0.39, 0.58, 0.16, W)
+    c.circle(0.55, 0.54, 0.19, W)
+    c.circle(0.69, 0.61, 0.13, W)
+    c.rect(0.34, 0.59, 0.72, 0.74, W, 0.05)
+
+
+def draw_ic_radio(c):
+    c.rounded_tile((234, 88, 12), (154, 52, 18), (253, 186, 116))
+    c.rect(0.20, 0.40, 0.80, 0.80, W, 0.08)
+    c.line(0.30, 0.40, 0.68, 0.20, 0.055, W)
+    c.circle(0.37, 0.60, 0.10, (234, 88, 12, 255))
+    c.rect(0.54, 0.51, 0.72, 0.56, (154, 52, 18, 255), 0.02)
+    c.rect(0.54, 0.63, 0.72, 0.68, (154, 52, 18, 255), 0.02)
+
+
+def draw_ic_arcade(c):
+    c.rounded_tile((147, 51, 234), (88, 28, 135), (216, 180, 254))
+    c.rect(0.16, 0.32, 0.84, 0.72, W, 0.14)
+    c.rect(0.31, 0.44, 0.37, 0.60, (126, 34, 206, 255), 0.015)
+    c.rect(0.26, 0.49, 0.42, 0.55, (126, 34, 206, 255), 0.015)
+    c.circle(0.62, 0.56, 0.052, (239, 68, 68, 255))
+    c.circle(0.71, 0.47, 0.052, (16, 185, 129, 255))
+
+
+def draw_ic_shield(c):
+    c.rounded_tile((5, 150, 105), (6, 78, 59), (110, 231, 183))
+    c.triangle((0.50, 0.82), (0.22, 0.48), (0.78, 0.48), W)
+    c.rect(0.24, 0.22, 0.76, 0.52, W, 0.07)
+    c.line(0.38, 0.49, 0.47, 0.59, 0.06, (5, 150, 105, 255))
+    c.line(0.47, 0.59, 0.64, 0.38, 0.06, (5, 150, 105, 255))
+
+
+def draw_ic_boost(c):
+    c.rounded_tile((8, 145, 178), (15, 23, 42), (103, 232, 249))
+    c.arc(0.50, 0.56, 0.28, 195, 345, 0.065, W)
+    c.line(0.50, 0.56, 0.67, 0.36, 0.065, (250, 204, 21, 255))
+    c.circle(0.50, 0.56, 0.065, W)
+
+
+def draw_ic_display(c):
+    c.rounded_tile((37, 99, 235), (30, 41, 59), (147, 197, 253))
+    c.rect(0.17, 0.23, 0.65, 0.58, (191, 219, 254, 235), 0.05)
+    c.rect(0.35, 0.40, 0.83, 0.75, W, 0.05)
+    c.rect(0.42, 0.47, 0.76, 0.68, (37, 99, 235, 255), 0.025)
+
+
+def draw_ic_split(c):
+    c.rounded_tile((20, 184, 166), (15, 118, 110), (153, 246, 228))
+    c.rect(0.17, 0.24, 0.47, 0.76, W, 0.05)
+    c.rect(0.53, 0.24, 0.83, 0.76, (204, 251, 241, 235), 0.05)
+    c.line(0.50, 0.18, 0.50, 0.82, 0.035, (253, 224, 71, 255))
+
+
+def draw_ic_dictionary(c):
+    c.rounded_tile((30, 64, 175), (23, 37, 84), (147, 197, 253))
+    c.rect(0.24, 0.18, 0.76, 0.82, W, 0.06)
+    c.rect(0.24, 0.18, 0.34, 0.82, (96, 165, 250, 255), 0.03)
+    c.rect(0.58, 0.18, 0.67, 0.40, (244, 63, 94, 255), 0.01)
+    c.line(0.42, 0.58, 0.51, 0.34, 0.05, (30, 64, 175, 255))
+    c.line(0.51, 0.34, 0.60, 0.58, 0.05, (30, 64, 175, 255))
+    c.line(0.45, 0.50, 0.57, 0.50, 0.045, (30, 64, 175, 255))
+
+
 ALL_ICONS = [
     ("ic_launcher.png", draw_ic_launcher),
     ("ic_launcher_home.png", draw_ic_home),
@@ -537,6 +612,18 @@ ALL_ICONS = [
     ("ic_sys_search.png", draw_ic_sys_search),
     ("ic_sys_music.png", draw_ic_sys_music),
     ("ic_sys_video.png", draw_ic_sys_video),
+    ("ic_pdf.png", draw_ic_pdf),
+    ("ic_weather.png", draw_ic_weather),
+    ("ic_radio.png", draw_ic_radio),
+    ("ic_recorder.png", draw_ic_sys_recorder),
+    ("ic_arcade.png", draw_ic_arcade),
+    ("ic_shield.png", draw_ic_shield),
+    ("ic_boost.png", draw_ic_boost),
+    ("ic_display.png", draw_ic_display),
+    ("ic_split.png", draw_ic_split),
+    ("ic_splitview.png", draw_ic_split),
+    ("ic_dictionary.png", draw_ic_dictionary),
+    ("ic_wiki.png", draw_ic_dictionary),
 ]
 
 
@@ -619,8 +706,8 @@ def draw_banner():
             cx += 6 * scale
 
     stamp_text("KOBO ARC 7 FREEDOM", 232, 54, 6, (248, 250, 252, 255))
-    stamp_text("ARC7 OS SKIN + VLC + CHROMEBOOK USB + APPS V2.0", 234, 118, 3, (56, 189, 248, 255))
-    stamp_text("CALENDAR + PHOTOS + CAMERA + ARCHIVE CHIMES + APK INSTALLER", 234, 156, 2, (167, 243, 208, 255))
+    stamp_text("VK BOOKS + PDF SCAN + WEATHER + RADIO + SHIELD V2.2", 234, 118, 3, (56, 189, 248, 255))
+    stamp_text("ZRAM BOOST + 2ND SCREEN + SPLIT VIEW + ARCADE + VLC", 234, 156, 2, (167, 243, 208, 255))
 
     write_rgba_png(os.path.join(ROOT, "releases", "logo-banner.png"), w, h, px)
 

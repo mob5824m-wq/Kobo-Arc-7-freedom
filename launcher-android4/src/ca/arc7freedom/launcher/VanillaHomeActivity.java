@@ -71,7 +71,7 @@ import java.util.Locale;
  */
 public class VanillaHomeActivity extends Activity {
 
-    private static final int PAGE_COUNT = 3;
+    private static final int MAX_PAGES = 5;
     private static final int APPWIDGET_HOST_ID = 1024;
     private static final int REQ_BIND_APPWIDGET = 4101;
     private static final int REQ_CONFIGURE_APPWIDGET = 4102;
@@ -80,6 +80,7 @@ public class VanillaHomeActivity extends Activity {
         String label;
         String pkg;
         String cls;
+        String folderToken; // non-null when entry represents an `@folder:Name|...` desktop folder!
         Drawable icon;
     }
 
@@ -93,7 +94,8 @@ public class VanillaHomeActivity extends Activity {
     private final List<AppEntry> allApps = new ArrayList<AppEntry>();
     private final List<AppEntry> filteredApps = new ArrayList<AppEntry>();
     private final List<AppEntry> currentPageShortcuts = new ArrayList<AppEntry>();
-    private final TextView[] pageDots = new TextView[PAGE_COUNT];
+    private final TextView[] pageDots = new TextView[MAX_PAGES];
+    private GridView desktopGridView;
 
     private AppWidgetManager appWidgetManager;
     private AppWidgetHost appWidgetHost;
@@ -175,7 +177,7 @@ public class VanillaHomeActivity extends Activity {
                 float dx = e2.getX() - e1.getX();
                 float dy = e2.getY() - e1.getY();
                 if (Math.abs(dx) > dp(75) && Math.abs(dx) > Math.abs(dy) * 1.3f) {
-                    if (dx < 0 && currentPage < PAGE_COUNT - 1) {
+                    if (dx < 0 && currentPage < PinnedShortcutsStore.getPageCount(VanillaHomeActivity.this) - 1) {
                         switchToPage(currentPage + 1);
                         return true;
                     } else if (dx > 0 && currentPage > 0) {
@@ -342,7 +344,8 @@ public class VanillaHomeActivity extends Activity {
 
         // Pinned Home Shortcuts Grid
         GridView desktopGrid = new GridView(this);
-        desktopGrid.setNumColumns(5);
+        desktopGridView = desktopGrid;
+        desktopGrid.setNumColumns(PinnedShortcutsStore.getDesktopColumns(this));
         desktopGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
         desktopGrid.setVerticalSpacing(dp(10));
         desktopGrid.setHorizontalSpacing(dp(8));
@@ -361,12 +364,12 @@ public class VanillaHomeActivity extends Activity {
         desktopView.addView(desktopGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // 3-Page Dot Indicator Row
+        // Multi-Page Dot Indicator Row (3..5 pages)
         LinearLayout dotsRow = new LinearLayout(this);
         dotsRow.setOrientation(LinearLayout.HORIZONTAL);
         dotsRow.setGravity(Gravity.CENTER);
         dotsRow.setPadding(0, dp(3), 0, dp(5));
-        for (int i = 0; i < PAGE_COUNT; i++) {
+        for (int i = 0; i < MAX_PAGES; i++) {
             final int targetPage = i;
             TextView dot = new TextView(this);
             dot.setText("\u25CF");
@@ -567,7 +570,7 @@ public class VanillaHomeActivity extends Activity {
     }
 
     private void switchToPage(int index) {
-        int clamped = Math.max(0, Math.min(PAGE_COUNT - 1, index));
+        int clamped = Math.max(0, Math.min(PinnedShortcutsStore.getPageCount(this) - 1, index));
         int dir = clamped > currentPage ? 1 : (clamped < currentPage ? -1 : 0);
         currentPage = clamped;
         refreshCurrentPageShortcuts();
@@ -609,7 +612,7 @@ public class VanillaHomeActivity extends Activity {
             } catch (Throwable ignored) {}
 
             if (info == null) {
-                PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, PAGE_COUNT);
+                PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, MAX_PAGES);
                 continue;
             }
 
@@ -661,7 +664,7 @@ public class VanillaHomeActivity extends Activity {
                 frame.addView(gear, glp);
                 widgetsContainer.addView(frame);
             } catch (Throwable t) {
-                PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, PAGE_COUNT);
+                PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, MAX_PAGES);
             }
         }
     }
@@ -899,7 +902,7 @@ public class VanillaHomeActivity extends Activity {
                         } else if (which == 3) {
                             PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 250);
                         } else {
-                            PinnedShortcutsStore.removeWidgetEverywhere(VanillaHomeActivity.this, rec.appWidgetId, PAGE_COUNT);
+                            PinnedShortcutsStore.removeWidgetEverywhere(VanillaHomeActivity.this, rec.appWidgetId, MAX_PAGES);
                             try { appWidgetHost.deleteAppWidgetId(rec.appWidgetId); } catch (Throwable ignored) {}
                         }
                         refreshCurrentPageShortcuts();
@@ -926,8 +929,24 @@ public class VanillaHomeActivity extends Activity {
             }
         }
 
+        if (desktopGridView != null) {
+            desktopGridView.setNumColumns(PinnedShortcutsStore.getDesktopColumns(this));
+        }
+        int totalPages = PinnedShortcutsStore.getPageCount(this);
+        if (currentPage >= totalPages) currentPage = totalPages - 1;
+
         for (int i = 0; i < saved.size(); i++) {
             String key = saved.get(i);
+            if (PinnedShortcutsStore.isFolderToken(key)) {
+                AppEntry fe = new AppEntry();
+                fe.folderToken = key;
+                fe.pkg = "@folder";
+                fe.cls = String.valueOf(i);
+                fe.label = "📁 " + PinnedShortcutsStore.parseFolderName(key);
+                fe.icon = getResources().getDrawable(R.drawable.ic_files);
+                currentPageShortcuts.add(fe);
+                continue;
+            }
             for (int j = 0; j < allApps.size(); j++) {
                 AppEntry e = allApps.get(j);
                 if ((e.pkg + "/" + e.cls).equals(key)) {
@@ -940,8 +959,9 @@ public class VanillaHomeActivity extends Activity {
         Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
         AppBarConfigStore.Config cfg = AppBarConfigStore.load(this);
         int activeDot = cfg.accentOverride != 0 ? cfg.accentOverride : t.accentColor;
-        for (int i = 0; i < PAGE_COUNT; i++) {
+        for (int i = 0; i < MAX_PAGES; i++) {
             if (pageDots[i] != null) {
+                pageDots[i].setVisibility(i < totalPages ? View.VISIBLE : View.GONE);
                 boolean active = (i == currentPage);
                 pageDots[i].setTextColor(active ? activeDot : 0x66FFFFFF);
                 pageDots[i].setTextSize(TypedValue.COMPLEX_UNIT_SP, active ? 16 : 12);
@@ -1126,8 +1146,10 @@ public class VanillaHomeActivity extends Activity {
         if (drawerDividerView != null) {
             drawerDividerView.setBackgroundColor(accent);
         }
-        for (int i = 0; i < PAGE_COUNT; i++) {
+        int totalPages = PinnedShortcutsStore.getPageCount(this);
+        for (int i = 0; i < MAX_PAGES; i++) {
             if (pageDots[i] != null) {
+                pageDots[i].setVisibility(i < totalPages ? View.VISIBLE : View.GONE);
                 pageDots[i].setTextColor(i == currentPage ? accent : 0x66FFFFFF);
             }
         }
@@ -1183,6 +1205,82 @@ public class VanillaHomeActivity extends Activity {
 
     private ResolvedBarSlot resolveBarToken(final String token) {
         if (token == null) return null;
+        if (PinnedShortcutsStore.isFolderToken(token)) {
+            final String fname = PinnedShortcutsStore.parseFolderName(token);
+            return makeBuiltinSlot(token, fname, R.drawable.ic_files, new View.OnClickListener() {
+                @Override public void onClick(View v) { showFolderPopupDialog(token); }
+            });
+        }
+        if ("@pdf".equals(token)) {
+            return makeBuiltinSlot(token, "PDF Scan", R.drawable.ic_pdf, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7PdfViewerActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@weather".equals(token)) {
+            return makeBuiltinSlot(token, "Weather", R.drawable.ic_weather, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7WeatherActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@radio".equals(token)) {
+            return makeBuiltinSlot(token, "Radio/RSS", R.drawable.ic_radio, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7RadioRssActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@recorder".equals(token)) {
+            return makeBuiltinSlot(token, "Recorder", R.drawable.ic_recorder, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7RecorderActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@arcade".equals(token)) {
+            return makeBuiltinSlot(token, "Arcade", R.drawable.ic_arcade, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ArcadeActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@shield".equals(token)) {
+            return makeBuiltinSlot(token, "Shield", R.drawable.ic_shield, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ShieldActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@boost".equals(token)) {
+            return makeBuiltinSlot(token, "Boost", R.drawable.ic_boost, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BoostActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@secondscreen".equals(token)) {
+            return makeBuiltinSlot(token, "2nd Screen", R.drawable.ic_display, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7SecondScreenActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@splitview".equals(token)) {
+            return makeBuiltinSlot(token, "Split View", R.drawable.ic_splitview, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7SplitViewActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@wiki".equals(token)) {
+            return makeBuiltinSlot(token, "Dict/Wiki", R.drawable.ic_wiki, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7DictionaryWikiActivity")) openDrawer();
+                }
+            });
+        }
         if ("@browser".equals(token)) {
             return makeBuiltinSlot(token, "Browser", R.drawable.ic_browser, new View.OnClickListener() {
                 @Override
@@ -1693,7 +1791,17 @@ public class VanillaHomeActivity extends Activity {
                 { "@notes", "Arc7 Notes, Checklists & Sketchpad" },
                 { "@calculator", "Arc7 Scientific Calculator & Converter" },
                 { "@clock", "Arc7 Clock, Alarms & Chimes" },
-                { "@ereader", "Arc7 E-Book Reader (EPUB / PDF / Gutenberg)" },
+                { "@ereader", "Arc7 E-Book Reader (VK / FB2 / EPUB / PDF / Gutenberg)" },
+                { "@pdf", "Arc7 PDF Viewer & Document Scanner" },
+                { "@weather", "Arc7 Weather (Open-Meteo Forecast)" },
+                { "@radio", "Arc7 Radio, Podcasts & Offline RSS" },
+                { "@recorder", "Arc7 Studio Voice Recorder" },
+                { "@arcade", "Arc7 Offline Arcade (Chess / 2048 / Solitaire)" },
+                { "@wiki", "Arc7 Offline Dictionary & Wikipedia" },
+                { "@splitview", "Arc7 Dual-Pane Split View" },
+                { "@secondscreen", "Arc7 Chromebook / PC Second Screen" },
+                { "@shield", "Arc7 Shield (System AdBlock & Firewall)" },
+                { "@boost", "Arc7 Boost (+384 MB Swap & CPU Profiles)" },
                 { "@audio", "Arc7 Music & Audio Player" },
                 { "@wired", "Chromebook Wired USB Internet" },
                 { "@terminal", "Root Shell Terminal (Python 3 + apt)" },
@@ -2059,6 +2167,105 @@ public class VanillaHomeActivity extends Activity {
                                 AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
                             }
                         });
+
+                // Section 5: Multi-Page Desktops, Grid Density, Folders, PIN Lock & Layout Backup (v52)
+                addStudioHeader(rootBox, "5. MULTI-PAGE DESKTOP, FOLDERS, PIN LOCK & BACKUP (v52)", accent);
+
+                final String[] colOpts = new String[]{
+                        "4 Columns (Large Tablet Icons)",
+                        "5 Columns (Balanced Default)",
+                        "6 Columns (Wide Landscape Grid)",
+                        "7 Columns (Ultra-Dense Pro Grid)"
+                };
+                int curColIdx = PinnedShortcutsStore.getDesktopColumns(VanillaHomeActivity.this) - 4;
+                addSelectorRow(rootBox, "Desktop Grid Density", colOpts[curColIdx], colOpts, curColIdx,
+                        new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                PinnedShortcutsStore.setDesktopColumns(VanillaHomeActivity.this, 4 + which);
+                                refreshCurrentPageShortcuts();
+                                renderRef[0].run();
+                            }
+                        });
+
+                final String[] pageOpts = new String[]{
+                        "3 Home Desktop Pages",
+                        "4 Home Desktop Pages",
+                        "5 Home Desktop Pages"
+                };
+                int curPageIdx = PinnedShortcutsStore.getPageCount(VanillaHomeActivity.this) - 3;
+                addSelectorRow(rootBox, "Desktop Page Count", pageOpts[curPageIdx], pageOpts, curPageIdx,
+                        new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                PinnedShortcutsStore.setPageCount(VanillaHomeActivity.this, 3 + which);
+                                refreshCurrentPageShortcuts();
+                                renderRef[0].run();
+                            }
+                        });
+
+                TextView mkFolderBtn = makeTopChip("📁 + Create App Folder (Desktop / App Bar)", 0xFF0284C7);
+                mkFolderBtn.setGravity(Gravity.CENTER);
+                mkFolderBtn.setPadding(dp(12), dp(9), dp(12), dp(9));
+                mkFolderBtn.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) { showCreateFolderDialog(); }
+                });
+                LinearLayout.LayoutParams fbtnLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                fbtnLp.bottomMargin = dp(6);
+                rootBox.addView(mkFolderBtn, fbtnLp);
+
+                TextView pinBtn = makeTopChip("🔒 Set 4-Digit App Lock PIN ("
+                        + (PinnedShortcutsStore.getPinCode(VanillaHomeActivity.this).isEmpty() ? "Not Set" : "Active") + ")", 0xFF7C3AED);
+                pinBtn.setGravity(Gravity.CENTER);
+                pinBtn.setPadding(dp(12), dp(9), dp(12), dp(9));
+                pinBtn.setOnClickListener(new View.OnClickListener() {
+                    @Override public void onClick(View v) { showSetPinDialog(renderRef[0]); }
+                });
+                LinearLayout.LayoutParams pbtnLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                pbtnLp.bottomMargin = dp(6);
+                rootBox.addView(pinBtn, pbtnLp);
+
+                LinearLayout bkRow = new LinearLayout(VanillaHomeActivity.this);
+                bkRow.setOrientation(LinearLayout.HORIZONTAL);
+                TextView expBtn = makeTopChip("💾 Backup Layout JSON", 0xFF059669);
+                expBtn.setGravity(Gravity.CENTER);
+                expBtn.setPadding(dp(10), dp(9), dp(10), dp(9));
+                expBtn.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        try {
+                            java.io.File out = PinnedShortcutsStore.exportLayoutBackupJson(VanillaHomeActivity.this);
+                            Toast.makeText(VanillaHomeActivity.this, "Saved: " + out.getAbsolutePath(), Toast.LENGTH_LONG).show();
+                        } catch (Throwable t) {
+                            Toast.makeText(VanillaHomeActivity.this, "Backup error: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+                bkRow.addView(expBtn, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+                TextView impBtn = makeTopChip("📂 Restore Layout JSON", 0xFF334155);
+                impBtn.setGravity(Gravity.CENTER);
+                impBtn.setPadding(dp(10), dp(9), dp(10), dp(9));
+                impBtn.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        try {
+                            PinnedShortcutsStore.importLayoutBackupJson(VanillaHomeActivity.this);
+                            refreshCurrentPageShortcuts();
+                            rebuildDock();
+                            renderRef[0].run();
+                            Toast.makeText(VanillaHomeActivity.this, "Restored Home & App Bar layout!", Toast.LENGTH_LONG).show();
+                        } catch (Throwable t) {
+                            Toast.makeText(VanillaHomeActivity.this, "No backup JSON found yet.", Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+                LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                ilp.leftMargin = dp(8);
+                bkRow.addView(impBtn, ilp);
+                rootBox.addView(bkRow);
             }
         };
 
@@ -2188,27 +2395,185 @@ public class VanillaHomeActivity extends Activity {
         return false;
     }
 
-    private void launchEntry(AppEntry e) {
-        Intent i = new Intent(Intent.ACTION_MAIN);
-        i.addCategory(Intent.CATEGORY_LAUNCHER);
-        i.setComponent(new ComponentName(e.pkg, e.cls));
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-        safeStart(i);
-        closeDrawer();
+    private void launchEntry(final AppEntry e) {
+        if (e.folderToken != null) {
+            showFolderPopupDialog(e.folderToken);
+            return;
+        }
+        Runnable go = new Runnable() {
+            @Override
+            public void run() {
+                Intent i = new Intent(Intent.ACTION_MAIN);
+                i.addCategory(Intent.CATEGORY_LAUNCHER);
+                i.setComponent(new ComponentName(e.pkg, e.cls));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                safeStart(i);
+                closeDrawer();
+            }
+        };
+        if (PinnedShortcutsStore.isAppLocked(this, e.pkg)) {
+            promptPinBeforeRun(e.label, go);
+        } else {
+            go.run();
+        }
+    }
+
+    private void promptPinBeforeRun(String label, final Runnable onUnlocked) {
+        final EditText pinInput = new EditText(this);
+        pinInput.setSingleLine(true);
+        pinInput.setHint("Enter 4-digit PIN");
+        new AlertDialog.Builder(this)
+                .setTitle("🔒 Unlock " + label)
+                .setView(pinInput)
+                .setPositiveButton("Unlock", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        if (PinnedShortcutsStore.getPinCode(VanillaHomeActivity.this)
+                                .equals(pinInput.getText().toString().trim())) {
+                            onUnlocked.run();
+                        } else {
+                            Toast.makeText(VanillaHomeActivity.this, "Incorrect PIN!", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showSetPinDialog(final Runnable afterSet) {
+        final EditText pinInput = new EditText(this);
+        pinInput.setSingleLine(true);
+        pinInput.setHint("4-digit PIN (leave blank to disable PIN lock)");
+        pinInput.setText(PinnedShortcutsStore.getPinCode(this));
+        new AlertDialog.Builder(this)
+                .setTitle("Set 4-Digit App Lock PIN")
+                .setView(pinInput)
+                .setPositiveButton("Save PIN", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        PinnedShortcutsStore.setPinCode(VanillaHomeActivity.this, pinInput.getText().toString());
+                        if (afterSet != null) afterSet.run();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showFolderPopupDialog(final String folderToken) {
+        final String fname = PinnedShortcutsStore.parseFolderName(folderToken);
+        final List<String> comps = PinnedShortcutsStore.parseFolderMembers(folderToken);
+        final List<String> labels = new ArrayList<String>();
+        for (int i = 0; i < comps.size(); i++) {
+            String key = comps.get(i);
+            String found = key;
+            for (int j = 0; j < allApps.size(); j++) {
+                AppEntry ae = allApps.get(j);
+                if ((ae.pkg + "/" + ae.cls).equals(key)) { found = ae.label; break; }
+            }
+            labels.add(found);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("📁 " + fname)
+                .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        String key = comps.get(which);
+                        int sl = key.indexOf('/');
+                        if (sl > 0) launchExplicitOrPackage(key.substring(0, sl), key.substring(sl + 1));
+                    }
+                })
+                .setNeutralButton("Delete Folder", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        PinnedShortcutsStore.removeRawEntry(VanillaHomeActivity.this, currentPage, folderToken);
+                        refreshCurrentPageShortcuts();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void showCreateFolderDialog() {
+        if (allApps.isEmpty()) return;
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(8), dp(12), dp(8));
+
+        final EditText nameEt = new EditText(this);
+        nameEt.setHint("Folder Name (e.g. Reading & Study  or  Media)");
+        nameEt.setSingleLine(true);
+        box.addView(nameEt);
+
+        ScrollView sv = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        final CheckBox[] checks = new CheckBox[allApps.size()];
+        for (int i = 0; i < allApps.size(); i++) {
+            CheckBox cb = new CheckBox(this);
+            cb.setText("  " + allApps.get(i).label);
+            checks[i] = cb;
+            list.addView(cb);
+        }
+        sv.addView(list);
+        box.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(240)));
+
+        new AlertDialog.Builder(this)
+                .setTitle("Create App Folder")
+                .setView(box)
+                .setPositiveButton("Add to Home Page " + (currentPage + 1), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        List<String> sel = new ArrayList<String>();
+                        for (int i = 0; i < checks.length; i++) {
+                            if (checks[i].isChecked()) sel.add(allApps.get(i).pkg + "/" + allApps.get(i).cls);
+                        }
+                        if (!sel.isEmpty()) {
+                            String tok = PinnedShortcutsStore.buildFolderToken(nameEt.getText().toString(), sel);
+                            PinnedShortcutsStore.addRawEntry(VanillaHomeActivity.this, currentPage, tok);
+                            refreshCurrentPageShortcuts();
+                        }
+                    }
+                })
+                .setNeutralButton("Add to App Bar", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        List<String> sel = new ArrayList<String>();
+                        for (int i = 0; i < checks.length; i++) {
+                            if (checks[i].isChecked()) sel.add(allApps.get(i).pkg + "/" + allApps.get(i).cls);
+                        }
+                        if (!sel.isEmpty()) {
+                            AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
+                            if (cfg.items.size() < AppBarConfigStore.MAX_SLOTS) {
+                                cfg.items.add(PinnedShortcutsStore.buildFolderToken(nameEt.getText().toString(), sel));
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                            }
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void showAppOptions(final AppEntry e, final boolean onDesktop) {
+        if (e.folderToken != null) {
+            showFolderPopupDialog(e.folderToken);
+            return;
+        }
         final AppBarConfigStore.Config barCfg = AppBarConfigStore.load(this);
         final boolean inBar = AppBarConfigStore.containsComponent(barCfg, e.pkg, e.cls);
+        final boolean lockedNow = PinnedShortcutsStore.isAppLocked(this, e.pkg);
         final String barAction = inBar ? "Unpin from App Bar" : "Pin to App Bar";
         final String pageAction = onDesktop
                 ? "Unpin from Page " + (currentPage + 1)
                 : "Pin to Home Page " + (currentPage + 1);
+        final String lockAction = lockedNow ? "🔓 Unlock App PIN Protection" : "🔒 Lock App Behind 4-Digit PIN";
         final String[] items = new String[]{
                 "Open " + e.label,
                 barAction,
                 pageAction,
-                "Customize App Bar...",
+                lockAction,
+                "Customize App Bar & Desktop...",
                 "App Info"
         };
         new AlertDialog.Builder(this)
@@ -2246,6 +2611,19 @@ public class VanillaHomeActivity extends Activity {
                                         "Pinned " + e.label + " to Page " + (currentPage + 1), Toast.LENGTH_SHORT).show();
                             }
                         } else if (which == 3) {
+                            if (PinnedShortcutsStore.getPinCode(VanillaHomeActivity.this).isEmpty()) {
+                                showSetPinDialog(new Runnable() {
+                                    @Override public void run() {
+                                        PinnedShortcutsStore.setAppLocked(VanillaHomeActivity.this, e.pkg, true);
+                                        Toast.makeText(VanillaHomeActivity.this, "Locked " + e.label, Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+                            } else {
+                                PinnedShortcutsStore.setAppLocked(VanillaHomeActivity.this, e.pkg, !lockedNow);
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        (!lockedNow ? "Locked " : "Unlocked ") + e.label, Toast.LENGTH_SHORT).show();
+                            }
+                        } else if (which == 4) {
                             showAppBarCustomizerDialog();
                         } else {
                             Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

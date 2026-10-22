@@ -23,6 +23,15 @@ public class BootNetworkReceiver extends BroadcastReceiver {
     public void onReceive(final Context context, final Intent intent) {
         if (context == null || intent == null) return;
         final String action = intent.getAction() != null ? intent.getAction() : "";
+        if (Intent.ACTION_POWER_CONNECTED.equals(action)) {
+            if (context.getSharedPreferences("arc7_desk_clock", Context.MODE_PRIVATE)
+                    .getBoolean("auto_dock_on_charge", false)) {
+                Intent dock = new Intent(context, Arc7DeskClockActivity.class);
+                dock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                try { context.startActivity(dock); } catch (Throwable ignored) {}
+            }
+            return;
+        }
         final boolean isPkgUpgrade = Intent.ACTION_MY_PACKAGE_REPLACED.equals(action);
         long now = System.currentTimeMillis();
         if (!isPkgUpgrade && Math.abs(now - lastCheckMs) < 15000L) return;

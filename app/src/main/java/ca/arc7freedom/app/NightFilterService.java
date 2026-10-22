@@ -27,16 +27,18 @@ public class NightFilterService extends Service {
     public static final int MODE_SEPIA     = 1;
     public static final int MODE_AMBER     = 2;
     public static final int MODE_EXTRA_DIM = 3;
+    public static final int MODE_AUTO_SUNSET = 4;
 
     private WindowManager wm;
     private View overlayView;
 
     public static String modeLabel(int mode) {
         switch (mode) {
-            case MODE_SEPIA:     return "Warm Sepia Reading Tint";
-            case MODE_AMBER:     return "Deep Amber Night Filter (No Blue Light)";
-            case MODE_EXTRA_DIM: return "Extra-Dim Darkroom Filter";
-            default:             return "OFF (Normal Display)";
+            case MODE_SEPIA:       return "Warm Sepia Reading Tint (3400K)";
+            case MODE_AMBER:       return "Deep Amber Night Filter (2200K No Blue Light)";
+            case MODE_EXTRA_DIM:   return "Extra-Dim Candlelight Darkroom (1800K)";
+            case MODE_AUTO_SUNSET: return "Automatic Sunset-to-Sunrise Night Light (20:00–07:00)";
+            default:               return "OFF (Normal Display)";
         }
     }
 
@@ -45,6 +47,10 @@ public class NightFilterService extends Service {
             case MODE_SEPIA:     return Color.argb(54, 255, 179, 71);
             case MODE_AMBER:     return Color.argb(88, 255, 128, 0);
             case MODE_EXTRA_DIM: return Color.argb(136, 18, 8, 0);
+            case MODE_AUTO_SUNSET: {
+                int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+                return (hour >= 20 || hour < 7) ? Color.argb(84, 255, 134, 16) : Color.TRANSPARENT;
+            }
             default:             return Color.TRANSPARENT;
         }
     }

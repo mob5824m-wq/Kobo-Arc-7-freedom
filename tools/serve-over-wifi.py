@@ -183,18 +183,18 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
         mirror = _mirror_href(fname)
-        if fname == "Upgrade-My-Kobo-To-v2.1.0.apk":
+        if fname == "Upgrade-My-Kobo-To-v2.2.0.apk":
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.1.0 — Customizable Home &amp; In-App Bars + Arc7 OS Skin + VLC + Photos + Camera + Calendar + Chromebook USB Internet):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.1.0.apk\")'>"
-                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v2.1.0.apk ({size_txt})</a>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.2.0 — Customizable Home &amp; In-App Bars + Arc7 OS Skin + VLC + Photos + Camera + Calendar + Chromebook USB Internet):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.2.0.apk\")'>"
+                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v2.2.0.apk ({size_txt})</a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.1.0.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.2.0.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
-                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — Upgrade-My-Kobo-To-v2.1.0.apk</a>"
+                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — Upgrade-My-Kobo-To-v2.2.0.apk</a>"
                 )
                 + "</div>"
             )
@@ -202,7 +202,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.1.0 ({size_txt}) — Full Root + Customizable App Bar + VLC + Camera + Photos + Calendar</a>"
+                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.2.0 ({size_txt}) — Full Root + Customizable App Bar + VLC + Camera + Photos + Calendar</a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"

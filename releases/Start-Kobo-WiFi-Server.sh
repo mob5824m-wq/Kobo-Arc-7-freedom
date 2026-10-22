@@ -19,7 +19,7 @@ mkdir -p "${SERVE_DIR}"
 
 RAW_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for APK in Upgrade-My-Kobo-To-v2.1.0.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+for APK in Upgrade-My-Kobo-To-v2.2.0.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
     if [ -f "${SCRIPT_DIR}/${APK}" ] && [ ! -s "${SERVE_DIR}/${APK}" ]; then
         cp -f "${SCRIPT_DIR}/${APK}" "${SERVE_DIR}/${APK}"
     fi

@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.os.PowerManager;
 
 import java.io.File;
+import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -19,14 +20,22 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Upgrade #9 (Backend): Background Screen-Off Music & Audiobook Playback Service
- * (`PARTIAL_WAKE_LOCK` + automatic audiobook bookmark resume + bedtime sleep timer!).
+ * Background Screen-Off Music, Audiobook, Live Internet Radio & Podcast Playback Service (`v2.2.0`):
+ *   - `PARTIAL_WAKE_LOCK` screen-off playback
+ *   - Automatic audiobook/podcast position bookmarks
+ *   - Live Internet Radio & HTTPS stream URL playback routed automatically through local TLS 1.3 gateway
+ *   - Smooth 30-second exponential volume fade-out Sleep Timer!
  */
 public class Arc7AudioService extends Service {
 
-    public static final String ACTION_TOGGLE    = "ca.arc7freedom.app.AUDIO_TOGGLE";
-    public static final String ACTION_REWIND_30 = "ca.arc7freedom.app.AUDIO_REWIND_30";
-    public static final String ACTION_FFWD_30   = "ca.arc7freedom.app.AUDIO_FFWD_30";
+    public static final String ACTION_TOGGLE      = "ca.arc7freedom.app.AUDIO_TOGGLE";
+    public static final String ACTION_REWIND_30   = "ca.arc7freedom.app.AUDIO_REWIND_30";
+    public static final String ACTION_FFWD_30     = "ca.arc7freedom.app.AUDIO_FFWD_30";
+    public static final String ACTION_PLAY_STREAM = "ca.arc7freedom.app.AUDIO_PLAY_STREAM";
+    public static final String ACTION_SLEEP_TIMER = "ca.arc7freedom.app.AUDIO_SLEEP_TIMER";
+    public static final String EXTRA_STREAM_URL   = "stream_url";
+    public static final String EXTRA_STREAM_TITLE = "stream_title";
+    public static final String EXTRA_SLEEP_MINS   = "sleep_minutes";
 
     private static final String PREFS = "arc7_audio_bookmarks";
 
@@ -41,24 +50,39 @@ public class Arc7AudioService extends Service {
     private MediaPlayer player;
     private final List<File> playlist = new ArrayList<File>();
     private int currentIndex = -1;
+    private String activeStreamTitle = null;
     private long sleepDeadlineMs = 0L;
 
     private final Runnable checkpointTask = new Runnable() {
         @Override
         public void run() {
             saveCurrentPosition();
-            if (sleepDeadlineMs > 0L && System.currentTimeMillis() >= sleepDeadlineMs) {
-                sleepDeadlineMs = 0L;
-                pausePlayback();
+            if (sleepDeadlineMs > 0L) {
+                long remMs = sleepDeadlineMs - System.currentTimeMillis();
+                if (remMs <= 0L) {
+                    sleepDeadlineMs = 0L;
+                    setPlayerVolumeSafe(1.0f);
+                    pausePlayback();
+                } else if (remMs <= 30000L) {
+                    // Smooth bedside fade-out over the final 30 seconds!
+                    float vol = Math.max(0.03f, remMs / 30000f);
+                    setPlayerVolumeSafe(vol * vol);
+                }
             }
-            handler.postDelayed(this, 4000L);
+            handler.postDelayed(this, 1000L);
         }
     };
+
+    private synchronized void setPlayerVolumeSafe(float v) {
+        if (player != null) {
+            try { player.setVolume(v, v); } catch (Throwable ignored) {}
+        }
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
-        handler.postDelayed(checkpointTask, 4000L);
+        handler.postDelayed(checkpointTask, 1000L);
     }
 
     @Override
@@ -76,13 +100,53 @@ public class Arc7AudioService extends Service {
                 seekRelativeMs(-30000);
             } else if (ACTION_FFWD_30.equals(act)) {
                 seekRelativeMs(30000);
+            } else if (ACTION_PLAY_STREAM.equals(act)) {
+                final String url = intent.getStringExtra(EXTRA_STREAM_URL);
+                final String title = intent.getStringExtra(EXTRA_STREAM_TITLE);
+                if (url != null && !url.isEmpty()) {
+                    new Thread(new Runnable() {
+                        @Override public void run() { playStreamUrl(url, title); }
+                    }).start();
+                }
+            } else if (ACTION_SLEEP_TIMER.equals(act)) {
+                setSleepTimerMinutes(intent.getIntExtra(EXTRA_SLEEP_MINS, 30));
             }
             Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), getCurrentTitle(), isPlaying());
         }
         return START_STICKY;
     }
 
+    public synchronized void playStreamUrl(String streamUrl, final String title) {
+        saveCurrentPosition();
+        releasePlayer();
+        currentIndex = -1;
+        activeStreamTitle = title == null || title.isEmpty() ? "Live Internet Stream" : title;
+        try {
+            String effectiveUrl = streamUrl;
+            if (streamUrl.startsWith("https://")) {
+                RootShell sh = new RootShell(getApplicationContext());
+                NetworkCertManager cm = new NetworkCertManager(getApplicationContext(), sh);
+                cm.ensureCaBundleFile();
+                cm.startBrowserGateway();
+                int port = NetworkCertManager.BROWSER_GATEWAY_PORT;
+                effectiveUrl = "http://127.0.0.1:" + port + "/__arc7_raw?url="
+                        + URLEncoder.encode(streamUrl, "UTF-8");
+            }
+            player = new MediaPlayer();
+            player.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
+            player.setDataSource(effectiveUrl);
+            player.setVolume(1.0f, 1.0f);
+            player.prepare();
+            player.start();
+            Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), activeStreamTitle, true);
+        } catch (Throwable t) {
+            releasePlayer();
+        }
+    }
+
     public synchronized void loadTrackAndFolderQueue(File pickedAudioFile) {
+        activeStreamTitle = null;
         playlist.clear();
         File parent = pickedAudioFile.getParentFile();
         if (parent != null && parent.isDirectory()) {
@@ -110,6 +174,13 @@ public class Arc7AudioService extends Service {
         startTrackAtIndex(currentIndex, true);
     }
 
+    public static void startSleepTimer(android.content.Context ctx, int minutes) {
+        Intent svc = new Intent(ctx, Arc7AudioService.class);
+        svc.setAction(ACTION_SLEEP_TIMER);
+        svc.putExtra(EXTRA_SLEEP_MINS, minutes);
+        ctx.startService(svc);
+    }
+
     public static boolean isAudioName(String n) {
         String l = n.toLowerCase(Locale.US);
         return l.endsWith(".mp3") || l.endsWith(".m4a") || l.endsWith(".aac") ||
@@ -120,6 +191,7 @@ public class Arc7AudioService extends Service {
         if (idx < 0 || idx >= playlist.size()) return;
         saveCurrentPosition();
         releasePlayer();
+        activeStreamTitle = null;
         currentIndex = idx;
         final File track = playlist.get(idx);
 
@@ -128,6 +200,7 @@ public class Arc7AudioService extends Service {
             player.setAudioStreamType(AudioManager.STREAM_MUSIC);
             player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
             player.setDataSource(track.getAbsolutePath());
+            player.setVolume(1.0f, 1.0f);
             player.prepare();
 
             if (restoreBookmark) {
@@ -167,6 +240,7 @@ public class Arc7AudioService extends Service {
         if (player.isPlaying()) {
             pausePlayback();
         } else {
+            player.setVolume(1.0f, 1.0f);
             player.start();
             Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), getCurrentTitle(), true);
         }
@@ -181,14 +255,14 @@ public class Arc7AudioService extends Service {
     }
 
     public synchronized void seekRelativeMs(int deltaMs) {
-        if (player == null) return;
+        if (player == null || activeStreamTitle != null) return;
         int next = Math.max(0, Math.min(player.getDuration(), player.getCurrentPosition() + deltaMs));
         player.seekTo(next);
         saveCurrentPosition();
     }
 
     public synchronized void seekAbsoluteMs(int posMs) {
-        if (player == null) return;
+        if (player == null || activeStreamTitle != null) return;
         player.seekTo(Math.max(0, Math.min(player.getDuration(), posMs)));
     }
 
@@ -200,7 +274,12 @@ public class Arc7AudioService extends Service {
     }
 
     public void setSleepTimerMinutes(int minutes) {
-        sleepDeadlineMs = minutes <= 0 ? 0L : (System.currentTimeMillis() + minutes * 60000L);
+        if (minutes <= 0) {
+            sleepDeadlineMs = 0L;
+            setPlayerVolumeSafe(1.0f);
+        } else {
+            sleepDeadlineMs = System.currentTimeMillis() + minutes * 60000L;
+        }
     }
 
     public long remainingSleepSeconds() {
@@ -214,10 +293,11 @@ public class Arc7AudioService extends Service {
 
     public int getCurrentIndex() { return currentIndex; }
     public boolean isPlaying() { return player != null && player.isPlaying(); }
-    public int getPositionMs() { return player != null ? player.getCurrentPosition() : 0; }
-    public int getDurationMs() { return player != null ? player.getDuration() : 0; }
+    public int getPositionMs() { return player != null && activeStreamTitle == null ? player.getCurrentPosition() : 0; }
+    public int getDurationMs() { return player != null && activeStreamTitle == null ? player.getDuration() : 0; }
 
     public String getCurrentTitle() {
+        if (activeStreamTitle != null) return "📻 " + activeStreamTitle;
         if (currentIndex >= 0 && currentIndex < playlist.size()) {
             return playlist.get(currentIndex).getName();
         }
