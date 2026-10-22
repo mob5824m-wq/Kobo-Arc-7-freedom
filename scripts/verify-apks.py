@@ -1464,7 +1464,11 @@ public class VerifyV200Suite {
 """)
         app_classes = os.path.join(ROOT, "build/app/classes")
         launcher_classes = os.path.join(ROOT, "build/launcher/classes")
-        subprocess.run([JAVAC, "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v200], check=True)
+        ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar"
+        if os.path.exists(ecj_jar):
+            subprocess.run([JAVA, "-jar", ecj_jar, "-1.8", "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v200], check=True)
+        else:
+            subprocess.run([JAVAC, "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v200], check=True)
         out = subprocess.check_output([JAVA, "-ea", "-cp", f"{td}:{ANDROID_JAR}:{app_classes}:{launcher_classes}", "VerifyV200Suite"], text=True)
         assert "JVM_V200_PASSED" in out
 
