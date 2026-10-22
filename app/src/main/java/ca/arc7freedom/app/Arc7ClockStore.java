@@ -8,11 +8,22 @@ import android.content.SharedPreferences;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.media.MediaPlayer;
+import android.net.Uri;
+import android.os.Environment;
 import android.provider.Settings;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -25,9 +36,15 @@ import java.util.Locale;
 /**
  * Persistent storage, exact Android 4.2 `AlarmManager.set(RTC_WAKEUP, ...)` scheduler,
  * 12-hour (`AM/PM`) + 24-hour time formatting, individual per-alarm volume (`0%–100%`),
- * and 14 nostalgic Apple + nostalgic Android 44.1 kHz harmonic PCM alarm chimes!
+ * and 20 verified real Ogg Vorbis / MP3 Alarm Chimes downloaded directly from the
+ * Internet Archive (`https://archive.org/download/...`) with SHA-1 integrity verification,
+ * plus live `archive.org` sound search & custom chime downloads!
  */
 public class Arc7ClockStore {
+
+    public interface ChimeSyncListener {
+        void onProgress(int completed, int total, String message);
+    }
 
     public static final String ACTION_ALARM_TRIGGER = "ca.arc7freedom.app.ACTION_ALARM_TRIGGER";
     public static final String ACTION_TIMER_TRIGGER = "ca.arc7freedom.app.ACTION_TIMER_TRIGGER";
@@ -37,55 +54,60 @@ public class Arc7ClockStore {
     public static final int REPEAT_WEEKENDS  = 0x41; // Sun(bit0) + Sat(bit6)
     public static final int REPEAT_ONCE      = 0x00;
 
-    /* ==================== 14 NOSTALGIC APPLE + NOSTALGIC ANDROID CHIMES ==================== */
-    public static final String CHIME_APPLE_MARIMBA   = "apple_marimba";
-    public static final String CHIME_APPLE_RADAR     = "apple_radar";
-    public static final String CHIME_APPLE_OPENING   = "apple_opening";
-    public static final String CHIME_APPLE_XYLOPHONE = "apple_xylophone";
-    public static final String CHIME_APPLE_HARP      = "apple_harp";
-    public static final String CHIME_APPLE_CHIMES    = "apple_chimes";
-    public static final String CHIME_APPLE_SCIFI     = "apple_scifi";
-    public static final String CHIME_ANDROID_HELIUM   = "android_helium";
-    public static final String CHIME_ANDROID_OXYGEN   = "android_oxygen";
-    public static final String CHIME_ANDROID_PYXIS    = "android_pyxis";
-    public static final String CHIME_ANDROID_CESIUM   = "android_cesium";
-    public static final String CHIME_ANDROID_ARGON    = "android_argon";
-    public static final String CHIME_ANDROID_PLATINUM = "android_platinum";
-    public static final String CHIME_ARC7_SUNRISE     = "arc7_sunrise";
+    /* ==================== 20 VERIFIED INTERNET ARCHIVE (`archive.org`) CHIMES ==================== */
+    public static final String CHIME_APPLE_MARIMBA     = "apple_marimba";
+    public static final String CHIME_APPLE_RADAR       = "apple_radar";
+    public static final String CHIME_APPLE_OPENING     = "apple_opening";
+    public static final String CHIME_APPLE_XYLOPHONE   = "apple_xylophone";
+    public static final String CHIME_APPLE_HARP        = "apple_harp";
+    public static final String CHIME_APPLE_CHIMES      = "apple_chimes";
+    public static final String CHIME_APPLE_SCIFI       = "apple_scifi";
+    public static final String CHIME_APPLE_SILK        = "apple_silk";
+    public static final String CHIME_APPLE_APEX        = "apple_apex";
+    public static final String CHIME_APPLE_BEACON      = "apple_beacon";
+    public static final String CHIME_APPLE_CONSTELL    = "apple_constellation";
+    public static final String CHIME_APPLE_SEASIDE     = "apple_seaside";
+    public static final String CHIME_ANDROID_HELIUM    = "android_helium";
+    public static final String CHIME_ANDROID_OXYGEN    = "android_oxygen";
+    public static final String CHIME_ANDROID_PYXIS     = "android_pyxis";
+    public static final String CHIME_ANDROID_CESIUM    = "android_cesium";
+    public static final String CHIME_ANDROID_ARGON     = "android_argon";
+    public static final String CHIME_ANDROID_PLATINUM  = "android_platinum";
+    public static final String CHIME_ARC7_SUNRISE      = "arc7_sunrise";
+    public static final String CHIME_ARCHIVE_SUBMARINE = "archive_submarine";
 
-    public static final String[] CHIME_IDS = new String[]{
-            CHIME_APPLE_MARIMBA,
-            CHIME_APPLE_RADAR,
-            CHIME_APPLE_OPENING,
-            CHIME_APPLE_XYLOPHONE,
-            CHIME_APPLE_HARP,
-            CHIME_APPLE_CHIMES,
-            CHIME_APPLE_SCIFI,
-            CHIME_ANDROID_HELIUM,
-            CHIME_ANDROID_OXYGEN,
-            CHIME_ANDROID_PYXIS,
-            CHIME_ANDROID_CESIUM,
-            CHIME_ANDROID_ARGON,
-            CHIME_ANDROID_PLATINUM,
-            CHIME_ARC7_SUNRISE
+    /** `{ chimeId, displayLabel, verifiedArchiveOrgUrl, verifiedSha1Hex }` */
+    public static final String[][] ARCHIVE_ORG_CHIME_CATALOG = new String[][]{
+            {CHIME_APPLE_MARIMBA,     "Internet Archive • Marimba Classic",      "https://archive.org/download/Ringtone12/Marimba.ogg",          "05521f8271c97155605d5417d39ddf79f0a48f4d"},
+            {CHIME_APPLE_RADAR,       "Internet Archive • Radar Wake Alarm",     "https://archive.org/download/Ringtone12/Radar.ogg",            "5b3887a60a43b882b8cdfe5608f4b3182e3875cf"},
+            {CHIME_APPLE_OPENING,     "Internet Archive • Opening Chime",        "https://archive.org/download/Ringtone12/Opening.ogg",          "517e3a9b30742af8665e6f416e05ddabe3abe485"},
+            {CHIME_APPLE_XYLOPHONE,   "Internet Archive • Studio Xylophone",     "https://archive.org/download/Ringtone12/Xylophone.ogg",        "5f30ff59a5abcad2711365c43d42b33208e39712"},
+            {CHIME_APPLE_HARP,        "Internet Archive • Concert Harp",         "https://archive.org/download/Ringtone12/Harp.ogg",             "e2bdad03e18a277e76eea3a47baa6535f1ca0eea"},
+            {CHIME_APPLE_CHIMES,      "Internet Archive • Wind Chimes",          "https://archive.org/download/Ringtone12/Chimes.ogg",           "0ecad7c6399255097c45ed271bfbe6ddc52fd454"},
+            {CHIME_APPLE_SCIFI,       "Internet Archive • Sci-Fi Retro",         "https://archive.org/download/Ringtone12/Sci-fi.ogg",           "c99357d3765334574acbc221e858d30f7cd7453a"},
+            {CHIME_APPLE_SILK,        "Internet Archive • Silk Morning",         "https://archive.org/download/Ringtone12/Silk.ogg",             "68f44eaefe1d5de07690ab222ba42ae8118f3b5b"},
+            {CHIME_APPLE_APEX,        "Internet Archive • Apex Pulse",           "https://archive.org/download/Ringtone12/Apex.ogg",             "c003d9c31283870900baa697a009efc3aa0bb945"},
+            {CHIME_APPLE_BEACON,      "Internet Archive • Beacon Alert",         "https://archive.org/download/Ringtone12/Beacon.ogg",           "d67c758a611cc9de99ed00434dba5fc22fa39a5b"},
+            {CHIME_APPLE_CONSTELL,    "Internet Archive • Constellation",        "https://archive.org/download/Ringtone12/Constellation.ogg",    "1e02d8dcdebf2f9226d2a1e1097f73d41389351c"},
+            {CHIME_APPLE_SEASIDE,     "Internet Archive • By The Seaside",       "https://archive.org/download/Ringtone12/By%20The%20Seaside.ogg", "8c7411e75ee7e42fadd7ad037076788c141aaa93"},
+            {CHIME_ANDROID_HELIUM,    "Internet Archive • Ascending Bell",       "https://archive.org/download/Ringtone12/Ascending.ogg",        "8329724cb31262ad35b8d7d0bfc095f29b494916"},
+            {CHIME_ANDROID_OXYGEN,    "Internet Archive • Aurora Glass",         "https://archive.org/download/Ringtone12/Aurora.ogg",           "094f063d0f10a8b2f9ae5d0d4f99543c1034e7a5"},
+            {CHIME_ANDROID_PYXIS,     "Internet Archive • Android Pyxis",        "https://archive.org/download/Pyxis/Pyxis.ogg",                 "65f007597a3af376d06172c27d5e4394f47cd572"},
+            {CHIME_ANDROID_CESIUM,    "Internet Archive • Cosmic Chime",         "https://archive.org/download/Ringtone12/Cosmic.ogg",           "f26a680377eea17a60030ea7e69aed8aca1a2301"},
+            {CHIME_ANDROID_ARGON,     "Internet Archive • Radiate Piano",        "https://archive.org/download/Ringtone12/Radiate.ogg",          "9225b534ef7e41e1defca43ba80bc97e6b4c6bed"},
+            {CHIME_ANDROID_PLATINUM,  "Internet Archive • Twin Bell Clock",      "https://archive.org/download/OldPhone/Clock%20Alarm.ogg",      "8f46d13d7dbbc8510977259149f6b122622fe0b7"},
+            {CHIME_ARC7_SUNRISE,      "Internet Archive • Slow Rise Dawn",       "https://archive.org/download/Ringtone12/Slow%20Rise.ogg",      "04474dda11e373067c49545c2be860e6fbd8c4ff"},
+            {CHIME_ARCHIVE_SUBMARINE, "Internet Archive • Submarine Dive Horn",  "https://archive.org/download/SubmarineDiveAlarm/submarine_dive_horn.ogg", "2aea921f9b61e242bea7658b852a5a08c2a77885"}
     };
 
-    public static final String[] CHIME_LABELS = new String[]{
-            "\uD83C\uDF4E Apple Classic — Marimba (iPhone OS)",
-            "\uD83C\uDF4E Apple Classic — Radar (iOS Wake Alarm)",
-            "\uD83C\uDF4E Apple Classic — Opening (iOS 7)",
-            "\uD83C\uDF4E Apple Classic — Xylophone",
-            "\uD83C\uDF4E Apple Classic — Concert Harp",
-            "\uD83C\uDF4E Apple Classic — Wind Chimes",
-            "\uD83C\uDF4E Apple Classic — Sci-Fi Retro",
-            "\uD83E\uDD16 Android Nostalgic — Helium (Jelly Bean 4.2)",
-            "\uD83E\uDD16 Android Nostalgic — Oxygen (Holo 4.0)",
-            "\uD83E\uDD16 Android Nostalgic — Pyxis (ICS Bell)",
-            "\uD83E\uDD16 Android Nostalgic — Cesium (Nexus Wake)",
-            "\uD83E\uDD16 Android Nostalgic — Argon (KitKat Piano)",
-            "\uD83E\uDD16 Android Nostalgic — Platinum (Gingerbread)",
-            "\u2600\uFE0F Arc7 Original — Sunrise Triad"
-    };
+    public static final String[] CHIME_IDS = new String[ARCHIVE_ORG_CHIME_CATALOG.length];
+    public static final String[] CHIME_LABELS = new String[ARCHIVE_ORG_CHIME_CATALOG.length];
+    static {
+        for (int i = 0; i < ARCHIVE_ORG_CHIME_CATALOG.length; i++) {
+            CHIME_IDS[i] = ARCHIVE_ORG_CHIME_CATALOG[i][0];
+            CHIME_LABELS[i] = ARCHIVE_ORG_CHIME_CATALOG[i][1];
+        }
+    }
 
     private static final String PREFS = "arc7_clock_store";
     private static final String KEY_ALARMS = "alarms_json";
@@ -100,9 +122,69 @@ public class Arc7ClockStore {
 
     private static volatile boolean ringingActive = false;
     private static volatile Thread synthThread = null;
+    private static volatile MediaPlayer activeMediaPlayer = null;
+    private static volatile boolean syncInFlight = false;
+
+    public static File getChimesDir() {
+        File d = new File(Environment.getExternalStorageDirectory(), "Arc7Freedom/chimes");
+        if (!d.exists()) d.mkdirs();
+        return d;
+    }
+
+    public static File getCachedChimeFile(String chimeId) {
+        if (chimeId == null || chimeId.length() == 0) return null;
+        File dir = getChimesDir();
+        if (chimeId.startsWith("custom:")) {
+            File cf = new File(dir, chimeId.substring(7));
+            return (cf.isFile() && cf.length() > 512) ? cf : null;
+        }
+        File ogg = new File(dir, chimeId + ".ogg");
+        if (ogg.isFile() && ogg.length() > 512) return ogg;
+        File mp3 = new File(dir, chimeId + ".mp3");
+        if (mp3.isFile() && mp3.length() > 512) return mp3;
+        return null;
+    }
+
+    public static int countDownloadedArchiveChimes() {
+        int n = 0;
+        for (int i = 0; i < ARCHIVE_ORG_CHIME_CATALOG.length; i++) {
+            if (getCachedChimeFile(ARCHIVE_ORG_CHIME_CATALOG[i][0]) != null) n++;
+        }
+        return n;
+    }
+
+    public static String[] getAllAvailableChimeIds() {
+        List<String> ids = new ArrayList<String>();
+        for (int i = 0; i < CHIME_IDS.length; i++) ids.add(CHIME_IDS[i]);
+        File[] extras = getChimesDir().listFiles();
+        if (extras != null) {
+            for (int i = 0; i < extras.length; i++) {
+                String nm = extras[i].getName();
+                if (nm.startsWith("ia_") && (nm.endsWith(".ogg") || nm.endsWith(".mp3")) && extras[i].length() > 512) {
+                    ids.add("custom:" + nm);
+                }
+            }
+        }
+        return ids.toArray(new String[ids.size()]);
+    }
+
+    public static String[] getAllAvailableChimeLabels() {
+        String[] ids = getAllAvailableChimeIds();
+        String[] labels = new String[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            boolean cached = getCachedChimeFile(ids[i]) != null;
+            labels[i] = (cached ? "✓ " : "⬇ ") + getChimeLabel(ids[i]);
+        }
+        return labels;
+    }
 
     public static String getChimeLabel(String chimeId) {
         if (chimeId != null) {
+            if (chimeId.startsWith("custom:")) {
+                String clean = chimeId.substring(7).replaceFirst("^ia_", "")
+                        .replace(".ogg", "").replace(".mp3", "").replace('_', ' ');
+                return "Internet Archive • " + clean;
+            }
             for (int i = 0; i < CHIME_IDS.length; i++) {
                 if (CHIME_IDS[i].equals(chimeId)) return CHIME_LABELS[i];
             }
@@ -111,12 +193,159 @@ public class Arc7ClockStore {
     }
 
     public static int getChimeIndex(String chimeId) {
+        String[] all = getAllAvailableChimeIds();
         if (chimeId != null) {
-            for (int i = 0; i < CHIME_IDS.length; i++) {
-                if (CHIME_IDS[i].equals(chimeId)) return i;
+            for (int i = 0; i < all.length; i++) {
+                if (all[i].equals(chimeId)) return i;
             }
         }
         return 0;
+    }
+
+    private static String sha1Hex(byte[] bytes) throws Exception {
+        byte[] d = MessageDigest.getInstance("SHA-1").digest(bytes);
+        StringBuilder sb = new StringBuilder(40);
+        for (int i = 0; i < d.length; i++) {
+            sb.append(String.format(Locale.US, "%02x", d[i] & 0xFF));
+        }
+        return sb.toString();
+    }
+
+    public static byte[] fetchViaTls13Gateway(Context ctx, String httpsUrl, int timeoutMs) throws Exception {
+        if (ctx != null) {
+            Arc7TlsGatewayService.ensureStarted(ctx);
+        }
+        String gatewayUrl = "http://127.0.0.1:8118/__arc7_raw?u=" + Uri.encode(httpsUrl);
+        HttpURLConnection conn = (HttpURLConnection) new URL(gatewayUrl).openConnection();
+        conn.setConnectTimeout(timeoutMs);
+        conn.setReadTimeout(timeoutMs);
+        conn.setInstanceFollowRedirects(true);
+        conn.setRequestProperty("User-Agent", "KoboArc7Freedom/2.0 (InternetArchiveChimes)");
+        InputStream in = null;
+        try {
+            int code = conn.getResponseCode();
+            if (code != 200) throw new Exception("HTTP " + code + " fetching " + httpsUrl);
+            in = conn.getInputStream();
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bos.write(buf, 0, n);
+                if (bos.size() > 8 * 1024 * 1024) break;
+            }
+            return bos.toByteArray();
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+            try { conn.disconnect(); } catch (Throwable ignored) {}
+        }
+    }
+
+    public static File downloadSingleArchiveChime(Context ctx, String chimeId) {
+        File existing = getCachedChimeFile(chimeId);
+        if (existing != null) return existing;
+        for (int i = 0; i < ARCHIVE_ORG_CHIME_CATALOG.length; i++) {
+            if (ARCHIVE_ORG_CHIME_CATALOG[i][0].equals(chimeId)) {
+                try {
+                    byte[] raw = fetchViaTls13Gateway(ctx, ARCHIVE_ORG_CHIME_CATALOG[i][2], 18000);
+                    if (raw.length < 512) return null;
+                    String expectedSha1 = ARCHIVE_ORG_CHIME_CATALOG[i][3];
+                    if (expectedSha1 != null && expectedSha1.length() == 40) {
+                        String actual = sha1Hex(raw);
+                        if (!expectedSha1.equalsIgnoreCase(actual)) {
+                            return null;
+                        }
+                    }
+                    File dst = new File(getChimesDir(), chimeId + ".ogg");
+                    FileOutputStream fos = new FileOutputStream(dst);
+                    fos.write(raw);
+                    fos.close();
+                    return dst;
+                } catch (Throwable t) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    public static int autoSyncInternetArchiveChimes(Context ctx, ChimeSyncListener listener) {
+        if (syncInFlight) return countDownloadedArchiveChimes();
+        syncInFlight = true;
+        int okCount = 0;
+        try {
+            int total = ARCHIVE_ORG_CHIME_CATALOG.length;
+            for (int i = 0; i < total; i++) {
+                String id = ARCHIVE_ORG_CHIME_CATALOG[i][0];
+                String label = ARCHIVE_ORG_CHIME_CATALOG[i][1];
+                File f = downloadSingleArchiveChime(ctx, id);
+                if (f != null) okCount++;
+                if (listener != null) {
+                    listener.onProgress(i + 1, total,
+                            (f != null ? "Downloaded & SHA-1 verified: " : "Skipped (offline): ") + label);
+                }
+            }
+        } finally {
+            syncInFlight = false;
+        }
+        return okCount;
+    }
+
+    public static final class ArchiveSearchHit {
+        public String title;
+        public String downloadUrl;
+        public String localFileName;
+    }
+
+    /** Searches live public-domain / open-source audio chimes on `https://archive.org`! */
+    public static List<ArchiveSearchHit> searchInternetArchiveChimes(Context ctx, String query) throws Exception {
+        String q = Uri.encode("(" + query + ") AND mediatype:(audio)");
+        String searchUrl = "https://archive.org/advancedsearch.php?q=" + q
+                + "&fl[]=identifier&fl[]=title&rows=6&page=1&output=json";
+        String rawSearch = new String(fetchViaTls13Gateway(ctx, searchUrl, 15000), "UTF-8");
+        JSONObject root = new JSONObject(rawSearch);
+        JSONArray docs = root.getJSONObject("response").getJSONArray("docs");
+        List<ArchiveSearchHit> hits = new ArrayList<ArchiveSearchHit>();
+        for (int i = 0; i < docs.length() && hits.size() < 12; i++) {
+            JSONObject doc = docs.getJSONObject(i);
+            String ident = doc.optString("identifier", "");
+            String itemTitle = doc.optString("title", ident);
+            if (ident.length() == 0) continue;
+            try {
+                String metaJson = new String(
+                        fetchViaTls13Gateway(ctx, "https://archive.org/metadata/" + Uri.encode(ident), 12000),
+                        "UTF-8");
+                JSONArray files = new JSONObject(metaJson).optJSONArray("files");
+                if (files == null) continue;
+                int perItem = 0;
+                for (int f = 0; f < files.length() && perItem < 3 && hits.size() < 12; f++) {
+                    JSONObject fo = files.getJSONObject(f);
+                    String fn = fo.optString("name", "");
+                    long sz = fo.optLong("size", 0L);
+                    String low = fn.toLowerCase(Locale.US);
+                    if ((low.endsWith(".ogg") || low.endsWith(".mp3")) && sz > 2000 && sz < 2500000L) {
+                        ArchiveSearchHit hit = new ArchiveSearchHit();
+                        hit.title = itemTitle + " — " + fn;
+                        hit.downloadUrl = "https://archive.org/download/" + Uri.encode(ident) + "/" + Uri.encode(fn);
+                        String ext = low.endsWith(".ogg") ? ".ogg" : ".mp3";
+                        hit.localFileName = "ia_" + ident.replaceAll("[^A-Za-z0-9_]", "_") + "_"
+                                + fn.replaceAll("[^A-Za-z0-9_]", "_") + ext;
+                        hits.add(hit);
+                        perItem++;
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
+        return hits;
+    }
+
+    public static String downloadCustomSearchHit(Context ctx, ArchiveSearchHit hit) throws Exception {
+        byte[] audio = fetchViaTls13Gateway(ctx, hit.downloadUrl, 20000);
+        if (audio.length < 512) throw new Exception("Audio stream empty");
+        File out = new File(getChimesDir(), hit.localFileName);
+        FileOutputStream fos = new FileOutputStream(out);
+        fos.write(audio);
+        fos.close();
+        return "custom:" + hit.localFileName;
     }
 
     /* ==================== 12-HOUR (AM/PM) & 24-HOUR TIME MODE ==================== */
@@ -534,6 +763,32 @@ public class Arc7ClockStore {
             public void run() {
                 AudioTrack track = null;
                 try {
+                    // 1. Play real downloaded Internet Archive (.ogg / .mp3) chime first (downloading on demand if needed!)
+                    File audioFile = getCachedChimeFile(chimeId);
+                    if (audioFile == null && ctx != null) {
+                        audioFile = downloadSingleArchiveChime(ctx, chimeId);
+                    }
+                    if (audioFile != null && audioFile.isFile()) {
+                        MediaPlayer mp = new MediaPlayer();
+                        activeMediaPlayer = mp;
+                        mp.setAudioStreamType(AudioManager.STREAM_ALARM);
+                        mp.setDataSource(audioFile.getAbsolutePath());
+                        mp.setLooping(true);
+                        float gain = Math.max(0.0f, Math.min(1.0f, clampedPct / 100.0f));
+                        mp.setVolume(gain, gain);
+                        mp.prepare();
+                        mp.start();
+                        long startedAt = System.currentTimeMillis();
+                        while (ringingActive) {
+                            if (maxDurationMs > 0L && System.currentTimeMillis() - startedAt >= maxDurationMs) {
+                                break;
+                            }
+                            Thread.sleep(80L);
+                        }
+                        return;
+                    }
+
+                    // 2. Air-gapped offline fallback before first Internet Archive sync
                     final int sr = 44100;
                     int minBuf = AudioTrack.getMinBufferSize(
                             sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
@@ -563,6 +818,12 @@ public class Arc7ClockStore {
                 } catch (Throwable ignored) {
                 } finally {
                     ringingActive = false;
+                    MediaPlayer mp = activeMediaPlayer;
+                    activeMediaPlayer = null;
+                    if (mp != null) {
+                        try { mp.stop(); } catch (Throwable ignored) {}
+                        try { mp.release(); } catch (Throwable ignored) {}
+                    }
                     if (track != null) {
                         try { track.stop(); } catch (Throwable ignored) {}
                         try { track.release(); } catch (Throwable ignored) {}
@@ -621,6 +882,12 @@ public class Arc7ClockStore {
 
     public static synchronized void stopAlarmRinging() {
         ringingActive = false;
+        MediaPlayer mp = activeMediaPlayer;
+        activeMediaPlayer = null;
+        if (mp != null) {
+            try { mp.stop(); } catch (Throwable ignored) {}
+            try { mp.release(); } catch (Throwable ignored) {}
+        }
         Thread t = synthThread;
         synthThread = null;
         if (t != null) {

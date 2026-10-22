@@ -17,15 +17,15 @@ fi
 SERVE_DIR="${SCRIPT_DIR}/Kobo-WiFi-Files"
 mkdir -p "${SERVE_DIR}"
 
-PAGES_BASE="https://mob5824m-wq.github.io/Kobo-Arc-7-freedom"
+RAW_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for APK in Upgrade-My-Kobo-To-v1.9.1.apk KoboArc7Freedom.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+for APK in Upgrade-My-Kobo-To-v2.0.0.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
     if [ -f "${SCRIPT_DIR}/${APK}" ] && [ ! -s "${SERVE_DIR}/${APK}" ]; then
         cp -f "${SCRIPT_DIR}/${APK}" "${SERVE_DIR}/${APK}"
     fi
     if [ ! -s "${SERVE_DIR}/${APK}" ]; then
         echo "==> Downloading ${APK}..."
-        curl -fL --progress-bar "${PAGES_BASE}/${APK}" -o "${SERVE_DIR}/${APK}" \
+        curl -fL --progress-bar "${RAW_BASE}/${APK}" -o "${SERVE_DIR}/${APK}" \
             || curl -fL --progress-bar "${RELEASE_BASE}/${APK}" -o "${SERVE_DIR}/${APK}"
     fi
 done

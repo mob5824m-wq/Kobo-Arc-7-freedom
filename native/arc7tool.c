@@ -8,19 +8,29 @@
 
 #define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
+#include <netinet/in.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/select.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <time.h>
 #include <zlib.h>
+
+#ifndef SO_ORIGINAL_DST
+#define SO_ORIGINAL_DST 80
+#endif
 
 /* ======================== Embedded FIPS 180-4 SHA-256 ======================== */
 typedef struct {
@@ -1140,6 +1150,136 @@ static int cmd_format_fat32(const char *path, const char *label, int write_mbr) 
     return rc;
 }
 
+/* ======================== Kernel `SO_ORIGINAL_DST` Transparent USB NAT Relay ======================== */
+typedef struct {
+    int cfd;
+    uint16_t proxy_port;
+} nat_conn_arg_t;
+
+static void *nat_relay_worker(void *argp) {
+    nat_conn_arg_t *arg = (nat_conn_arg_t *)argp;
+    int cfd = arg->cfd;
+    uint16_t proxy_port = arg->proxy_port;
+    free(arg);
+
+    struct sockaddr_in orig;
+    socklen_t olen = sizeof(orig);
+    if (getsockopt(cfd, SOL_IP, SO_ORIGINAL_DST, &orig, &olen) != 0) {
+        close(cfd);
+        return NULL;
+    }
+    char dst_ip[INET_ADDRSTRLEN] = {0};
+    inet_ntop(AF_INET, &orig.sin_addr, dst_ip, sizeof(dst_ip));
+    int dst_port = ntohs(orig.sin_port);
+    if (strcmp(dst_ip, "127.0.0.1") == 0) {
+        close(cfd);
+        return NULL;
+    }
+
+    int pfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (pfd < 0) {
+        close(cfd);
+        return NULL;
+    }
+    struct sockaddr_in psa;
+    memset(&psa, 0, sizeof(psa));
+    psa.sin_family = AF_INET;
+    psa.sin_port = htons(proxy_port);
+    psa.sin_addr.s_addr = htonl(0x7F000001U);
+    if (connect(pfd, (struct sockaddr *)&psa, sizeof(psa)) != 0) {
+        close(pfd);
+        close(cfd);
+        return NULL;
+    }
+
+    char req[160];
+    int rl = snprintf(req, sizeof(req), "CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n",
+                      dst_ip, dst_port, dst_ip, dst_port);
+    if (send(pfd, req, (size_t)rl, MSG_NOSIGNAL) != rl) {
+        close(pfd);
+        close(cfd);
+        return NULL;
+    }
+
+    char hdr[512];
+    size_t used = 0;
+    while (used + 1 < sizeof(hdr)) {
+        ssize_t n = recv(pfd, hdr + used, 1, 0);
+        if (n <= 0) { close(pfd); close(cfd); return NULL; }
+        used += (size_t)n;
+        hdr[used] = '\0';
+        if (used >= 4 && strcmp(hdr + used - 4, "\r\n\r\n") == 0) break;
+    }
+    if (strncmp(hdr, "HTTP/1.1 200", 12) != 0 && strncmp(hdr, "HTTP/1.0 200", 12) != 0) {
+        close(pfd);
+        close(cfd);
+        return NULL;
+    }
+
+    uint8_t *buf = (uint8_t *)malloc(32768);
+    if (buf) {
+        int maxfd = (cfd > pfd ? cfd : pfd) + 1;
+        while (1) {
+            fd_set rfds;
+            FD_ZERO(&rfds);
+            FD_SET(cfd, &rfds);
+            FD_SET(pfd, &rfds);
+            struct timeval tv = { .tv_sec = 90, .tv_usec = 0 };
+            int sr = select(maxfd, &rfds, NULL, NULL, &tv);
+            if (sr <= 0) break;
+            if (FD_ISSET(cfd, &rfds)) {
+                ssize_t n = recv(cfd, buf, 32768, 0);
+                if (n <= 0 || send(pfd, buf, (size_t)n, MSG_NOSIGNAL) != n) break;
+            }
+            if (FD_ISSET(pfd, &rfds)) {
+                ssize_t n = recv(pfd, buf, 32768, 0);
+                if (n <= 0 || send(cfd, buf, (size_t)n, MSG_NOSIGNAL) != n) break;
+            }
+        }
+        free(buf);
+    }
+    close(pfd);
+    close(cfd);
+    return NULL;
+}
+
+static int cmd_usb_nat_relay(uint16_t listen_port, uint16_t proxy_port) {
+    signal(SIGPIPE, SIG_IGN);
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd < 0) return 1;
+    int one = 1;
+    setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(listen_port);
+    sa.sin_addr.s_addr = htonl(INADDR_ANY);
+    if (bind(sfd, (struct sockaddr *)&sa, sizeof(sa)) != 0 || listen(sfd, 64) != 0) {
+        close(sfd);
+        return 1;
+    }
+    printf("USB_NAT_RELAY_READY port=%u proxy=%u\n", (unsigned)listen_port, (unsigned)proxy_port);
+    fflush(stdout);
+    while (1) {
+        int cfd = accept(sfd, NULL, NULL);
+        if (cfd < 0) continue;
+        nat_conn_arg_t *arg = (nat_conn_arg_t *)malloc(sizeof(*arg));
+        if (!arg) { close(cfd); continue; }
+        arg->cfd = cfd;
+        arg->proxy_port = proxy_port;
+        pthread_t th;
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+        pthread_attr_setstacksize(&attr, 262144);
+        if (pthread_create(&th, &attr, nat_relay_worker, arg) != 0) {
+            close(cfd);
+            free(arg);
+        }
+        pthread_attr_destroy(&attr);
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc >= 3 && strcmp(argv[1], "sha256") == 0) {
         uint64_t lim = (argc >= 4) ? strtoull(argv[3], NULL, 0) : 0;
@@ -1169,14 +1309,18 @@ int main(int argc, char **argv) {
         const char *lbl = (argc >= 4) ? argv[3] : "ARC7_SDXC";
         return cmd_format_fat32(argv[2], lbl, 1);
     }
+    if (argc >= 4 && strcmp(argv[1], "usb-nat-relay") == 0) {
+        return cmd_usb_nat_relay((uint16_t)atoi(argv[2]), (uint16_t)atoi(argv[3]));
+    }
     fprintf(stderr,
             "arc7tool usage:\n"
             "  arc7tool sha256 <path> [limit_bytes]\n"
             "  arc7tool dump-gz <src_dev_or_file> <dst.img.gz> [offset_bytes] [max_bytes]\n"
-            "  arc7tool flash <src.img_or_gz> <dst_dev_or_file> [offset_bytes]\n"
+            "  arc7tool flash <src.img_or_file> <dst_dev_or_file> [offset_bytes]\n"
             "  arc7tool inspect-boot <boot_or_recovery.img>\n"
             "  arc7tool patch-boot-adb <in_boot.img> <out_patched.img>\n"
             "  arc7tool format-fat32 <partition_or_img> [LABEL]\n"
-            "  arc7tool format-sdxc-card <whole_mmcblk1_or_img> [LABEL]\n");
+            "  arc7tool format-sdxc-card <whole_mmcblk1_or_img> [LABEL]\n"
+            "  arc7tool usb-nat-relay <listen_port> <proxy_port>\n");
     return 1;
 }

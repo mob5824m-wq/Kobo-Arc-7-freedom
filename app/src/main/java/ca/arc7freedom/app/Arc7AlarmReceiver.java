@@ -17,8 +17,13 @@ public class Arc7AlarmReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
-        boolean isTimer = Arc7ClockStore.ACTION_TIMER_TRIGGER.equals(action);
-        String label = intent.getStringExtra("label");
+        boolean isCal = Arc7CalendarStore.ACTION_CALENDAR_REMINDER.equals(action);
+        boolean isTimer = Arc7ClockStore.ACTION_TIMER_TRIGGER.equals(action) || isCal;
+        String label = isCal
+                ? ("Calendar: " + intent.getStringExtra("title")
+                    + (intent.getStringExtra("location") != null && intent.getStringExtra("location").length() > 0
+                        ? " @ " + intent.getStringExtra("location") : ""))
+                : intent.getStringExtra("label");
         int alarmId = intent.getIntExtra("alarm_id", -1);
         String chimeId = intent.getStringExtra("chime_id");
         int volumePct = intent.getIntExtra("volume_pct", 85);

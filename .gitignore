@@ -1,6 +1,7 @@
 # Build outputs & intermediate artifacts (release APKs under releases/ ARE tracked intentionally!)
 /build/
 /**/build/
+/app/src/main/assets/starter-apps/VLC.apk
 .gradle/
 local.properties
 *.iml

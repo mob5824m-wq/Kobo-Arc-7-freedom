@@ -356,12 +356,61 @@ compile_java_and_dex \
     build/aurora/aligned.apk
 
 mkdir -p app/src/main/assets/starter-apps
+cp -f app/src/main/res/drawable-mdpi/ic_vlc.png vlc-player/res/drawable-mdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-hdpi/ic_vlc.png vlc-player/res/drawable-hdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-xhdpi/ic_vlc.png vlc-player/res/drawable-xhdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-xxhdpi/ic_vlc.png vlc-player/res/drawable-xxhdpi/ic_vlc.png
+set +e
+"$PY_BIN" scripts/fetch-vlc-apk.py \
+    "app/src/main/assets/starter-apps/VLC.apk" \
+    "releases/VLC.apk" \
+    "$ZIPALIGN" \
+    "$JAVA_BIN" \
+    "$APKSIGNER_JAR" \
+    "$KEYSTORE_PATH" \
+    "$KEYSTORE_PASS" \
+    "$KEYSTORE_ALIAS"
+VLC_RC=$?
+set -e
+if [ "$VLC_RC" -ne 0 ]; then
+    rm -rf build/vlc && mkdir -p build/vlc/{res_compiled,gen,classes,dex}
+    "$AAPT2" compile --dir vlc-player/res -o build/vlc/res_compiled/res.zip
+    "$AAPT2" link \
+        -I "$ANDROID_JAR" \
+        --manifest vlc-player/AndroidManifest.xml \
+        --java build/vlc/gen \
+        --min-sdk-version 15 \
+        --target-sdk-version 17 \
+        --no-compile-sdk-metadata \
+        -o build/vlc/unsigned.apk \
+        build/vlc/res_compiled/res.zip
+    compile_java_and_dex \
+        build/vlc/classes \
+        build/vlc/dex \
+        build/vlc/gen/org/videolan/vlc/R.java \
+        vlc-player/src/org/videolan/vlc/*.java
+    (cd build/vlc/dex && zip -qj ../unsigned.apk classes.dex)
+    "$ZIPALIGN" -f -p 4 build/vlc/unsigned.apk build/vlc/aligned.apk
+    "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
+        --ks "$KEYSTORE_PATH" \
+        --ks-pass "pass:$KEYSTORE_PASS" \
+        --key-pass "pass:$KEYSTORE_PASS" \
+        --ks-key-alias "$KEYSTORE_ALIAS" \
+        --min-sdk-version 15 \
+        --v1-signing-enabled true \
+        --v2-signing-enabled true \
+        --v3-signing-enabled true \
+        --out releases/VLC.apk \
+        build/vlc/aligned.apk
+    cp -f releases/VLC.apk app/src/main/assets/starter-apps/VLC.apk
+fi
 cp -f releases/AuroraStore.apk app/src/main/assets/starter-apps/AuroraStore.apk
 
-mkdir -p app/src/main/assets
+mkdir -p app/src/main/assets/chromebook
+cp -f releases/Start-Chromebook-Wired-Internet.sh app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v1.8.1 (Pure-Toolbox Root + 120 CAs + TLS 1.3 + USB ADB Backup + Widgets)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.0.0 (Custom Skin + Reskinned Icons + VLC + Calendar + Photos + Camera + Calc + Notes + Files + Archive.org Chimes + Chromebook USB Internet + Custom APK Installer)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -401,7 +450,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.9.1.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.0.0.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -425,7 +474,7 @@ compile_java_and_dex \
 
 (cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
-rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk releases/Upgrade-My-Kobo-To-v1.8.2.apk
+rm -f releases/Upgrade-My-Kobo-To-v1.*.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
     --ks-pass "pass:$KEYSTORE_PASS" \
@@ -435,35 +484,38 @@ rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk releases/Upgrade-My-Kobo-To-v1.8.2.
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v1.9.1.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.0.0.apk \
     build/upgrader/aligned.apk
-# Keep a backwards-compatible copy at `Upgrade-My-Kobo-To-v1.9.0.apk` AND ship standalone `FDroidClassicLegacy.apk` (`v1302`)!
-cp -f releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v1.9.0.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
-echo "==> [7/8] Generating static Web Portals & writing SHA256SUMS.txt..."
+echo "==> [7/8] Generating local Wi-Fi portal & writing SHA256SUMS.txt..."
+rm -rf docs
 rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
-chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh tools/serve-over-wifi.sh
+chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v1.9.1.apk \
+    Upgrade-My-Kobo-To-v2.0.0.apk \
     KoboArc7Freedom.apk \
+    VLC.apk \
     AuroraStore.apk \
     FDroidClassicLegacy.apk \
     VanillaAndroid4Home.apk \
+    Start-Chromebook-Wired-Internet.sh \
     Backup-Kobo-To-Laptop-ADB.bat \
     Backup-Kobo-To-Laptop-ADB.sh \
     Start-Kobo-WiFi-Server.bat \
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v1.9.1.apk \
+    releases/Upgrade-My-Kobo-To-v2.0.0.apk \
     releases/KoboArc7Freedom.apk \
+    releases/VLC.apk \
     releases/AuroraStore.apk \
     releases/FDroidClassicLegacy.apk \
     releases/VanillaAndroid4Home.apk \
+    releases/Start-Chromebook-Wired-Internet.sh \
     releases/Backup-Kobo-To-Laptop-ADB.bat \
     releases/Backup-Kobo-To-Laptop-ADB.sh \
     releases/Start-Kobo-WiFi-Server.bat \
     releases/Start-Kobo-WiFi-Server.sh \
-    docs/index.html
+    releases/index.html

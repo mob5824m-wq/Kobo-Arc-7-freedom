@@ -19,7 +19,7 @@ Stock Browser (`DownloadManager`) failure modes:
 Usage:
   python3 tools/serve-over-wifi.py              # Start server on 0.0.0.0:8000
   python3 tools/serve-over-wifi.py 8080         # Custom port
-  python3 tools/serve-over-wifi.py --write-static  # Generate static docs/index.html & releases/index.html
+  python3 tools/serve-over-wifi.py --write-static  # Generate static releases/index.html
 """
 import html
 import http.server
@@ -37,7 +37,6 @@ import urllib.parse
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RELEASES_DIR = os.environ.get("ARC7_SERVE_DIR") or os.path.join(ROOT_DIR, "releases")
-DOCS_DIR = os.path.join(ROOT_DIR, "docs")
 TOOLS_DIR = os.path.join(ROOT_DIR, "tools")
 DEFAULT_PORT = 8000
 GITHUB_REPO = "mob5824m-wq/Kobo-Arc-7-freedom"
@@ -167,14 +166,13 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         q = urllib.parse.quote(fname)
         if static_mode:
             # Direct zero-302-redirect Fastly CDN raw binary stream from `main` branch!
-            # Works on GitHub Pages (`mob5824m-wq.github.io`), `htmlpreview.github.io`, `raw.githack.com`, AND local HTML!
             return f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/releases/{q}"
         return f"./{q}"
 
     def _mirror_href(fname: str) -> str:
         return f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(fname)}"
 
-    # Build primary download cards (`Upgrade-My-Kobo-To-v1.9.1.apk` FIRST so existing users never hit a key mismatch!)
+    # Build primary download cards (`Upgrade-My-Kobo-To-v2.0.0.apk` FIRST so existing users never hit a key mismatch!)
     upgrader_html = ""
     main_html = ""
     aurora_html = ""
@@ -185,35 +183,38 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         size_txt = f"{mb:.2f} MB" if mb >= 0.1 else f"{max(1, sz // 1024)} KB"
         link = _href(fname)
         mirror = _mirror_href(fname)
-        if fname == "Upgrade-My-Kobo-To-v1.9.1.apk":
+        if fname == "Upgrade-My-Kobo-To-v2.0.0.apk":
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v1.9.1 — Fixed Aurora Store APK Installs + Fixed F-Droid Certificates + Python 3 + apt):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.9.1.apk\")'>"
-                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v1.9.1.apk ({size_txt})</a>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.0.0 — Custom Arc7 OS Skin + VLC + Photos + Camera + Calendar + Archive.org Chimes + Chromebook Wired Internet):</div>"
+                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.0.0.apk\")'>"
+                f"&#11015; 1-Tap OTA Root &amp; Upgrade — Upgrade-My-Kobo-To-v2.0.0.apk ({size_txt})</a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v1.9.1.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"Upgrade-My-Kobo-To-v2.0.0.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
-                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Mirror — Upgrade-My-Kobo-To-v1.9.1.apk</a>"
+                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — Upgrade-My-Kobo-To-v2.0.0.apk</a>"
                 )
                 + "</div>"
             )
-        elif fname == "Upgrade-My-Kobo-To-v1.9.0.apk":
-            continue
         elif fname == "KoboArc7Freedom.apk":
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v1.9.1 ({size_txt}) — Full Root + Suite + Auto Timezone + Python 3 + apt</a>"
+                f"&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.0.0 ({size_txt}) — Full Root + Suite + VLC + Camera + Photos + Calendar</a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
-                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Mirror — KoboArc7Freedom.apk</a>"
+                    else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — KoboArc7Freedom.apk</a>"
                 )
                 + "</div>"
+            )
+        elif fname == "VLC.apk":
+            apk_buttons.append(
+                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"VLC.apk\")'>"
+                f"&#11015; Download Standalone VLC Media Player (Android 4.2 ARMv7) — VLC.apk ({size_txt})</a>"
             )
         elif fname == "AuroraStore.apk":
             aurora_html = (
@@ -247,7 +248,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
     sh_href = "./Start-Kobo-WiFi-Server.sh"
     adb_bat_href = "./Backup-Kobo-To-Laptop-ADB.bat"
     adb_sh_href = "./Backup-Kobo-To-Laptop-ADB.sh"
-    logo_src = "./logo-banner.png" if os.path.isfile(os.path.join(DOCS_DIR, "logo-banner.png")) else ""
+    logo_src = "./logo-banner.png" if os.path.isfile(os.path.join(RELEASES_DIR, "logo-banner.png")) else ""
 
     # Context banner tailored accurately to where this page is being viewed
     if env_kind == "lan" and lan_ips:
@@ -697,35 +698,15 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
 
 
 def write_static_pages() -> None:
-    os.makedirs(DOCS_DIR, exist_ok=True)
     os.makedirs(RELEASES_DIR, exist_ok=True)
-
-    # Copy helper launchers into `docs/` & `releases/` so static hosting and GitHub Pages serve them directly too!
-    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(DOCS_DIR, "Start-Kobo-WiFi-Server.bat"))
-    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(DOCS_DIR, "Start-Kobo-WiFi-Server.sh"))
-    os.chmod(os.path.join(DOCS_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
-
-    for adb_helper in ("Backup-Kobo-To-Laptop-ADB.bat", "Backup-Kobo-To-Laptop-ADB.sh"):
-        src_h = os.path.join(RELEASES_DIR, adb_helper)
-        if os.path.isfile(src_h):
-            shutil.copyfile(src_h, os.path.join(DOCS_DIR, adb_helper))
-            if adb_helper.endswith(".sh"):
-                os.chmod(os.path.join(DOCS_DIR, adb_helper), 0o755)
-
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.bat"))
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"))
     os.chmod(os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
-    if os.path.isfile(os.path.join(DOCS_DIR, "logo-banner.png")):
-        shutil.copyfile(os.path.join(DOCS_DIR, "logo-banner.png"), os.path.join(RELEASES_DIR, "logo-banner.png"))
 
-    docs_html = render_portal_html(static_mode=True)
-    with open(os.path.join(DOCS_DIR, "index.html"), "w", encoding="utf-8") as f:
-        f.write(docs_html)
-    with open(os.path.join(DOCS_DIR, ".nojekyll"), "w", encoding="utf-8") as f:
-        f.write("")
+    rel_html = render_portal_html(static_mode=True)
     with open(os.path.join(RELEASES_DIR, "index.html"), "w", encoding="utf-8") as f:
-        f.write(docs_html)
-    print("Generated static web portals: docs/index.html + releases/index.html")
+        f.write(rel_html)
+    print("Generated static local Wi-Fi portal: releases/index.html")
 
 
 def main() -> None:

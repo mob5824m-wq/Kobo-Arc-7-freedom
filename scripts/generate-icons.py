@@ -1,19 +1,39 @@
 #!/usr/bin/env python3
 """
-Generates:
-  1. High-resolution project logo banner (`docs/logo-banner.png`, 960x240)
+Generates ALL custom Kobo Arc 7 OS Skin vector assets & Reskinned System App Icon Pack:
+  1. High-resolution project logo banner (`releases/logo-banner.png`, 960x240 — NO `docs/`!)
   2. Header emblem drawable (`app/src/main/res/drawable-xhdpi/arc7_logo_header.png`, 96x96)
-  3. 8 distinct multi-DPI (`mdpi`=48, `hdpi`=72, `xhdpi`=96, `xxhdpi`=144) launcher icons
-     for `KoboArc7Freedom.apk`:
-       - ic_launcher.png   (Kobo Arc 7 Freedom — Unlocked Cyan Hardware Shield)
-       - ic_browser.png    (Arc7 Browser — Cobalt Globe + Emerald TLS 1.3 Badge)
-       - ic_ereader.png    (Arc7 E-Reader — Warm Amber Open Book + Bookmark Ribbon)
-       - ic_audio.png      (Arc7 Audio — Royal Violet Headphones + EQ Bars)
-       - ic_clock.png      (Arc7 Clock — Teal Chronometer Dial + Twin Alarm Bells)
-       - ic_wallpaper.png  (Arc7 Wallpapers — Sunset Frame + Mountain Peaks + Sun)
-       - ic_appmgr.png     (Arc7 App Manager — Indigo 2x2 App Grid + Check Accent)
-       - ic_terminal.png   (Arc7 Terminal — Obsidian Console + Neon `>_` Prompt)
-  4. Multi-DPI launcher icon (`ic_launcher_home.png`) for `VanillaAndroid4Home.apk`.
+  3. 28 crisp 2x-SSAA multi-DPI (`mdpi`=48, `hdpi`=72, `xhdpi`=96, `xxhdpi`=144) squircle
+     icons generated into BOTH `app/src/main/res/drawable-*/` AND `launcher-android4/res/drawable-*/`
+     reskinning EVERY built-in app AND EVERY default Android 4.2 / Kobo system app:
+       - ic_launcher.png        (Kobo Arc 7 Freedom Control Center — Unlocked Cyan Shield)
+       - ic_launcher_home.png   (Arc7 Home Launcher — Glass House + Dock Dots)
+       - ic_browser.png         (Browser — Cobalt Globe + Emerald TLS 1.3 Lock)
+       - ic_ereader.png         (E-Reader / Kobo Books — Amber Parchment Open Book)
+       - ic_audio.png           (Audio / Music — Royal Violet Studio Headphones + EQ)
+       - ic_clock.png           (Clock & Alarms — Teal Chronometer + Twin Bells)
+       - ic_wallpaper.png       (Wallpapers & Skin Studio — Sunset Peaks + Swatch)
+       - ic_appmgr.png          (App Manager — Indigo 2x2 Squircle Grid + Check)
+       - ic_terminal.png        (Root Terminal — Obsidian Console + Neon `>_`)
+       - ic_wired_net.png       (Chromebook Wired Internet — Electric Cyan USB + Ethernet Globe)
+       - ic_calendar.png        (Calendar & Agenda — Crisp Coral Top Header + `22` Grid)
+       - ic_calculator.png      (Scientific Calculator — Slate Pad + Orange `=` Accent)
+       - ic_notes.png           (Notes & Sketchpad — Warm Canary Pad + Fountain Pen)
+       - ic_files.png           (Files & ZIP Explorer — Sky Folder + Tab Bevel)
+       - ic_photos.png          (Photos & Editor — Prismatic Pinwheel Flower Blossom)
+       - ic_camera.png          (Arc7 HD Camera — Charcoal Body + Sapphire Multi-Coated Lens)
+       - ic_apk_installer.png   (Custom APK Installer — Emerald Package Box + Down Arrow)
+       - ic_vlc.png             (VLC Media Player — Iconic Orange & White Traffic Cone)
+       - ic_aurora.png          (Aurora Store — Northern Lights Borealis Shopping Bag)
+       - ic_fdroid.png          (F-Droid Classic — Open-Source Cobalt Robot Emblem)
+       - ic_sys_settings.png    (Android System Settings — Precision Titanium 8-Tooth Gear)
+       - ic_sys_downloads.png   (System Downloads — Teal Tray + Crisp Down Arrow)
+       - ic_sys_email.png       (System Email — Sky Envelope + Folded Seal)
+       - ic_sys_contacts.png    (System Contacts / People — Azure Portrait Silhouette)
+       - ic_sys_recorder.png    (System Sound Recorder — Studio Ruby Condenser Mic)
+       - ic_sys_search.png      (System Quick Search — Frosted Magnifying Lens)
+       - ic_sys_music.png       (System Music — Crimson Eighth-Note Vinyl Tile)
+       - ic_sys_video.png       (System Videos — Cinema Clapper + Play Triangle)
 
 Zero external dependencies (pure Python 3 standard library `zlib` + `struct` with 2x SSAA).
 """
@@ -26,12 +46,11 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def write_rgba_png(path, w, h, pixels):
-    """pixels: bytearray of length w * h * 4 (RGBA)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     raw = bytearray()
     stride = w * 4
     for y in range(h):
-        raw.append(0)  # Filter type 0 (None)
+        raw.append(0)
         row_start = y * stride
         raw.extend(pixels[row_start:row_start + stride])
 
@@ -55,8 +74,6 @@ def write_rgba_png(path, w, h, pixels):
 
 
 class Canvas:
-    """Normalized [0..1]x[0..1] vector helper backed by pixel buffer, downsampled 2x for crisp AA."""
-
     def __init__(self, size):
         self.out_size = size
         self.n = size * 2
@@ -78,25 +95,28 @@ class Canvas:
 
     def rounded_tile(self, top_rgb, bot_rgb, border_rgb=None):
         n = self.n
-        margin = 0.06 * n
-        rad = 0.21 * n
+        margin = 0.055 * n
+        rad = 0.225 * n
         x0, y0, x1, y1 = margin, margin, n - margin, n - margin
         for py in range(n):
             t = py / max(1.0, n - 1.0)
             r = int(top_rgb[0] * (1.0 - t) + bot_rgb[0] * t)
             g = int(top_rgb[1] * (1.0 - t) + bot_rgb[1] * t)
             b = int(top_rgb[2] * (1.0 - t) + bot_rgb[2] * t)
+            for py_off in (0,):
+                pass
             for px in range(n):
                 cx = min(max(px + 0.5, x0 + rad), x1 - rad)
                 cy = min(max(py + 0.5, y0 + rad), y1 - rad)
                 dist = math.hypot((px + 0.5) - cx, (py + 0.5) - cy)
                 if dist <= rad:
                     self.blend(px, py, r, g, b, 255)
-                    # Subtle top glass highlight
-                    if py < margin + 0.14 * n:
-                        self.blend(px, py, 255, 255, 255, 26)
-                    if border_rgb and dist >= rad - max(1.8, 0.022 * n):
-                        self.blend(px, py, border_rgb[0], border_rgb[1], border_rgb[2], 190)
+                    if py < margin + 0.16 * n:
+                        self.blend(px, py, 255, 255, 255, 30)
+                    elif py > y1 - 0.10 * n:
+                        self.blend(px, py, 0, 0, 0, 34)
+                    if border_rgb and dist >= rad - max(1.8, 0.024 * n):
+                        self.blend(px, py, border_rgb[0], border_rgb[1], border_rgb[2], 205)
 
     def circle(self, ux, uy, ur, color, stroke_u=0.0):
         n = self.n
@@ -110,9 +130,8 @@ class Canvas:
                 if stroke_u <= 0:
                     if d <= rad:
                         self.blend(px, py, r, g, b, a)
-                else:
-                    if abs(d - rad) <= sw * 0.5:
-                        self.blend(px, py, r, g, b, a)
+                elif abs(d - rad) <= sw * 0.5:
+                    self.blend(px, py, r, g, b, a)
 
     def arc(self, ux, uy, ur, deg_start, deg_end, stroke_u, color):
         n = self.n
@@ -179,177 +198,346 @@ class Canvas:
         miny = max(0, int(min(ay, by, cy) - 1))
         maxy = min(n, int(max(ay, by, cy) + 2))
 
-        def edge(x1, y1, x2, y2, px, py):
-            return (px - x1) * (y2 - y1) - (py - y1) * (x2 - x1)
+        def edge(x0, y0, x1, y1, xp, yp):
+            return (xp - x0) * (y1 - y0) - (yp - y0) * (x1 - x0)
 
         area = edge(ax, ay, bx, by, cx, cy)
+        if abs(area) < 1e-6:
+            return
         for py in range(miny, maxy):
             for px in range(minx, maxx):
-                e0 = edge(ax, ay, bx, by, px + 0.5, py + 0.5)
-                e1 = edge(bx, by, cx, cy, px + 0.5, py + 0.5)
-                e2 = edge(cx, cy, ax, ay, px + 0.5, py + 0.5)
-                if (area >= 0 and e0 >= 0 and e1 >= 0 and e2 >= 0) or (
-                    area < 0 and e0 <= 0 and e1 <= 0 and e2 <= 0
-                ):
+                xp, yp = px + 0.5, py + 0.5
+                w0 = edge(bx, by, cx, cy, xp, yp)
+                w1 = edge(cx, cy, ax, ay, xp, yp)
+                w2 = edge(ax, ay, bx, by, xp, yp)
+                if (w0 >= 0 and w1 >= 0 and w2 >= 0) or (w0 <= 0 and w1 <= 0 and w2 <= 0):
                     self.blend(px, py, r, g, b, a)
 
     def downsample(self):
-        out = bytearray(self.out_size * self.out_size * 4)
-        for y in range(self.out_size):
-            for x in range(self.out_size):
+        s = self.out_size
+        out = bytearray(s * s * 4)
+        for y in range(s):
+            for x in range(s):
                 r = g = b = a = 0
                 for dy in (0, 1):
                     for dx in (0, 1):
-                        idx = ((y * 2 + dy) * self.n + (x * 2 + dx)) * 4
-                        r += self.buf[idx]
-                        g += self.buf[idx + 1]
-                        b += self.buf[idx + 2]
-                        a += self.buf[idx + 3]
-                oi = (y * self.out_size + x) * 4
-                out[oi] = r >> 2
-                out[oi + 1] = g >> 2
-                out[oi + 2] = b >> 2
-                out[oi + 3] = a >> 2
+                        i = ((y * 2 + dy) * self.n + (x * 2 + dx)) * 4
+                        r += self.buf[i]
+                        g += self.buf[i + 1]
+                        b += self.buf[i + 2]
+                        a += self.buf[i + 3]
+                o = (y * s + x) * 4
+                out[o] = r // 4
+                out[o + 1] = g // 4
+                out[o + 2] = b // 4
+                out[o + 3] = a // 4
         return out
 
 
-def icon_freedom(sz):
-    c = Canvas(sz)
-    c.rounded_tile((12, 42, 74), (7, 20, 38), (51, 181, 229))
-    # Open cyan shackle at top (unlocked freedom!)
-    c.arc(0.45, 0.40, 0.14, 180, 355, 0.065, (120, 226, 255, 255))
-    c.line(0.31, 0.40, 0.31, 0.50, 0.065, (120, 226, 255, 255))
-    # Shield / padlock body
-    c.rect(0.26, 0.46, 0.74, 0.80, (51, 181, 229, 255), 0.07)
-    # Keyhole
-    c.circle(0.50, 0.59, 0.055, (10, 26, 46, 255))
-    c.rect(0.475, 0.60, 0.525, 0.72, (10, 26, 46, 255), 0.015)
-    return c.downsample()
+W = (255, 255, 255, 255)
+W_SOFT = (235, 245, 255, 220)
 
 
-def icon_browser(sz):
-    c = Canvas(sz)
-    c.rounded_tile((21, 101, 192), (10, 46, 108), (100, 181, 246))
-    # Globe circle + meridians + parallels
-    c.circle(0.50, 0.50, 0.30, (255, 255, 255, 245), 0.045)
-    c.line(0.20, 0.50, 0.80, 0.50, 0.036, (187, 222, 251, 240))
-    c.line(0.25, 0.36, 0.75, 0.36, 0.030, (187, 222, 251, 210))
-    c.line(0.25, 0.64, 0.75, 0.64, 0.030, (187, 222, 251, 210))
-    c.line(0.50, 0.20, 0.50, 0.80, 0.036, (187, 222, 251, 240))
-    c.arc(0.36, 0.50, 0.33, 308, 52, 0.032, (255, 255, 255, 220))
-    c.arc(0.64, 0.50, 0.33, 128, 232, 0.032, (255, 255, 255, 220))
-    # Green TLS 1.3 security badge bottom-right
-    c.circle(0.73, 0.73, 0.13, (46, 204, 113, 255))
-    c.line(0.675, 0.73, 0.715, 0.77, 0.038, (255, 255, 255, 255))
-    c.line(0.715, 0.77, 0.79, 0.685, 0.038, (255, 255, 255, 255))
-    return c.downsample()
+# ==================== 28 CUSTOM SQUIRCLE ICON DRAWERS ====================
+
+def draw_ic_launcher(c):
+    c.rounded_tile((12, 34, 62), (7, 16, 30), (56, 189, 248))
+    c.triangle((0.50, 0.18), (0.80, 0.30), (0.20, 0.30), (14, 165, 233, 255))
+    c.rect(0.20, 0.30, 0.80, 0.58, (14, 165, 233, 255), 0.05)
+    c.triangle((0.20, 0.56), (0.80, 0.56), (0.50, 0.84), (2, 132, 199, 255))
+    c.arc(0.56, 0.40, 0.10, 180, 355, 0.055, W)
+    c.rect(0.36, 0.44, 0.64, 0.66, W, 0.045)
+    c.circle(0.50, 0.54, 0.038, (12, 34, 62, 255))
 
 
-def icon_ereader(sz):
-    c = Canvas(sz)
-    c.rounded_tile((217, 119, 36), (146, 64, 14), (251, 191, 36))
-    # Left & right open pages
-    c.rect(0.19, 0.25, 0.49, 0.76, (255, 250, 240, 255), 0.04)
-    c.rect(0.51, 0.25, 0.81, 0.76, (250, 242, 226, 255), 0.04)
-    # Text lines on left & right page
-    for y in (0.36, 0.46, 0.56, 0.66):
-        c.line(0.25, y, 0.44, y, 0.028, (120, 90, 60, 210))
-        c.line(0.56, y, 0.75, y, 0.028, (120, 90, 60, 210))
-    # Crimson ribbon bookmark on right page
-    c.rect(0.66, 0.23, 0.74, 0.50, (220, 38, 38, 255), 0.01)
-    return c.downsample()
+def draw_ic_home(c):
+    c.rounded_tile((20, 118, 196), (11, 45, 92), (125, 211, 252))
+    c.triangle((0.50, 0.20), (0.82, 0.47), (0.18, 0.47), W)
+    c.rect(0.27, 0.45, 0.73, 0.77, W, 0.04)
+    c.rect(0.43, 0.56, 0.57, 0.77, (14, 116, 190, 255), 0.03)
+    c.circle(0.35, 0.84, 0.025, (186, 230, 253, 230))
+    c.circle(0.50, 0.84, 0.032, W)
+    c.circle(0.65, 0.84, 0.025, (186, 230, 253, 230))
 
 
-def icon_audio(sz):
-    c = Canvas(sz)
-    c.rounded_tile((124, 58, 237), (67, 20, 138), (196, 181, 253))
-    # Headphones arch + ear cups
-    c.arc(0.50, 0.50, 0.28, 180, 360, 0.065, (255, 255, 255, 255))
-    c.rect(0.18, 0.48, 0.29, 0.73, (255, 255, 255, 255), 0.045)
-    c.rect(0.71, 0.48, 0.82, 0.73, (255, 255, 255, 255), 0.045)
-    # Equalizer bars inside
-    bars = [(0.37, 0.54, 0.72), (0.455, 0.42, 0.72), (0.545, 0.48, 0.72), (0.63, 0.57, 0.72)]
-    for x, top, bot in bars:
-        c.rect(x - 0.026, top, x + 0.026, bot, (56, 226, 255, 255), 0.018)
-    return c.downsample()
+def draw_ic_browser(c):
+    c.rounded_tile((30, 108, 235), (17, 46, 138), (96, 165, 250))
+    c.circle(0.48, 0.49, 0.27, W, 0.05)
+    c.line(0.21, 0.49, 0.75, 0.49, 0.042, W_SOFT)
+    c.line(0.48, 0.22, 0.48, 0.76, 0.042, W_SOFT)
+    c.arc(0.35, 0.49, 0.24, 305, 55, 0.038, W_SOFT)
+    c.arc(0.61, 0.49, 0.24, 125, 235, 0.038, W_SOFT)
+    c.circle(0.73, 0.72, 0.14, (16, 185, 129, 255))
+    c.line(0.67, 0.72, 0.72, 0.77, 0.045, W)
+    c.line(0.72, 0.77, 0.80, 0.67, 0.045, W)
 
 
-def icon_clock(sz):
-    c = Canvas(sz)
-    c.rounded_tile((13, 148, 136), (15, 62, 68), (94, 234, 212))
-    # Twin alarm bells at top corners
-    c.line(0.24, 0.28, 0.34, 0.19, 0.055, (255, 224, 130, 255))
-    c.line(0.76, 0.28, 0.66, 0.19, 0.055, (255, 224, 130, 255))
-    # Crisp white clock dial + rim
-    c.circle(0.50, 0.53, 0.28, (255, 255, 255, 250))
-    c.circle(0.50, 0.53, 0.28, (20, 83, 88, 255), 0.035)
-    # Hour hand (10:10 look), minute hand, coral sweep hand
-    c.line(0.50, 0.53, 0.38, 0.44, 0.046, (15, 23, 42, 255))
-    c.line(0.50, 0.53, 0.65, 0.40, 0.038, (15, 23, 42, 255))
-    c.line(0.50, 0.53, 0.55, 0.72, 0.026, (239, 68, 68, 255))
-    c.circle(0.50, 0.53, 0.032, (239, 68, 68, 255))
-    return c.downsample()
+def draw_ic_ereader(c):
+    c.rounded_tile((234, 138, 28), (154, 68, 12), (253, 224, 71))
+    c.rect(0.19, 0.25, 0.49, 0.75, W, 0.04)
+    c.rect(0.51, 0.25, 0.81, 0.75, (254, 243, 199, 255), 0.04)
+    for y in (0.36, 0.46, 0.56, 0.65):
+        c.line(0.25, y, 0.43, y, 0.034, (180, 83, 9, 210))
+        c.line(0.57, y, 0.75, y, 0.034, (180, 83, 9, 210))
+    c.rect(0.64, 0.22, 0.72, 0.46, (220, 38, 38, 255), 0.01)
 
 
-def icon_wallpaper(sz):
-    c = Canvas(sz)
-    c.rounded_tile((190, 24, 93), (49, 16, 86), (251, 146, 60))
-    # Golden sun
-    c.circle(0.67, 0.35, 0.10, (253, 224, 71, 255))
-    # Twin layered mountains inside rounded frame
-    c.triangle((0.14, 0.78), (0.43, 0.40), (0.72, 0.78), (244, 244, 255, 245))
-    c.triangle((0.40, 0.78), (0.66, 0.48), (0.87, 0.78), (199, 210, 254, 240))
-    c.rect(0.14, 0.17, 0.86, 0.83, (255, 255, 255, 0))
-    return c.downsample()
+def draw_ic_audio(c):
+    c.rounded_tile((139, 61, 235), (67, 22, 142), (196, 181, 253))
+    c.arc(0.50, 0.50, 0.27, 180, 360, 0.065, W)
+    c.rect(0.19, 0.48, 0.30, 0.72, W, 0.05)
+    c.rect(0.70, 0.48, 0.81, 0.72, W, 0.05)
+    c.rect(0.37, 0.55, 0.43, 0.73, (56, 189, 248, 255), 0.02)
+    c.rect(0.47, 0.44, 0.53, 0.73, (244, 114, 182, 255), 0.02)
+    c.rect(0.57, 0.51, 0.63, 0.73, (52, 211, 153, 255), 0.02)
 
 
-def icon_appmgr(sz):
-    c = Canvas(sz)
-    c.rounded_tile((55, 65, 130), (26, 32, 68), (129, 140, 248))
-    # 2x2 crisp rounded app tiles
-    c.rect(0.23, 0.23, 0.46, 0.46, (96, 165, 250, 255), 0.05)
-    c.rect(0.54, 0.23, 0.77, 0.46, (251, 191, 36, 255), 0.05)
-    c.rect(0.23, 0.54, 0.46, 0.77, (192, 132, 252, 255), 0.05)
-    c.rect(0.54, 0.54, 0.77, 0.77, (52, 211, 153, 255), 0.05)
-    # Check mark on bottom-right tile
-    c.line(0.595, 0.655, 0.64, 0.705, 0.036, (15, 35, 28, 255))
-    c.line(0.64, 0.705, 0.72, 0.61, 0.036, (15, 35, 28, 255))
-    return c.downsample()
+def draw_ic_clock(c):
+    c.rounded_tile((13, 148, 136), (11, 68, 74), (94, 234, 212))
+    c.circle(0.50, 0.53, 0.27, W)
+    c.circle(0.50, 0.53, 0.27, (20, 184, 166, 255), 0.035)
+    c.line(0.24, 0.26, 0.35, 0.19, 0.055, W)
+    c.line(0.76, 0.26, 0.65, 0.19, 0.055, W)
+    c.line(0.50, 0.53, 0.50, 0.35, 0.048, (15, 23, 42, 255))
+    c.line(0.50, 0.53, 0.64, 0.59, 0.042, (15, 23, 42, 255))
+    c.circle(0.50, 0.53, 0.035, (239, 68, 68, 255))
 
 
-def icon_terminal(sz):
-    c = Canvas(sz)
-    c.rounded_tile((24, 30, 38), (9, 12, 16), (74, 222, 128))
-    # Window dots
-    c.circle(0.25, 0.24, 0.030, (239, 68, 68, 255))
-    c.circle(0.35, 0.24, 0.030, (250, 204, 21, 255))
-    c.circle(0.45, 0.24, 0.030, (74, 222, 128, 255))
-    # Crisp green `>_` prompt
-    c.line(0.25, 0.42, 0.44, 0.55, 0.055, (74, 222, 128, 255))
-    c.line(0.44, 0.55, 0.25, 0.68, 0.055, (74, 222, 128, 255))
-    c.line(0.50, 0.68, 0.74, 0.68, 0.055, (74, 222, 128, 255))
-    return c.downsample()
+def draw_ic_wallpaper(c):
+    c.rounded_tile((236, 72, 153), (79, 70, 229), (249, 168, 212))
+    c.circle(0.67, 0.34, 0.095, (253, 224, 71, 255))
+    c.triangle((0.14, 0.78), (0.43, 0.42), (0.70, 0.78), (255, 255, 255, 235))
+    c.triangle((0.44, 0.78), (0.68, 0.50), (0.88, 0.78), (224, 231, 255, 220))
 
 
-def icon_home(sz):
-    c = Canvas(sz)
-    c.rounded_tile((37, 138, 214), (16, 68, 128), (130, 210, 255))
-    # Roof triangle + house walls + glowing doorway
-    c.triangle((0.18, 0.50), (0.50, 0.21), (0.82, 0.50), (255, 255, 255, 255))
-    c.rect(0.28, 0.48, 0.72, 0.79, (255, 255, 255, 255), 0.03)
-    c.rect(0.43, 0.58, 0.57, 0.79, (21, 94, 160, 255), 0.02)
-    return c.downsample()
+def draw_ic_appmgr(c):
+    c.rounded_tile((79, 70, 229), (30, 27, 94), (165, 180, 252))
+    for gx, gy in ((0.24, 0.24), (0.54, 0.24), (0.24, 0.54)):
+        c.rect(gx, gy, gx + 0.22, gy + 0.22, W, 0.05)
+    c.rect(0.54, 0.54, 0.76, 0.76, (52, 211, 153, 255), 0.05)
+    c.line(0.59, 0.65, 0.64, 0.70, 0.042, W)
+    c.line(0.64, 0.70, 0.72, 0.60, 0.042, W)
 
 
-def icon_aurora(sz):
-    c = Canvas(sz)
-    c.rounded_tile((16, 185, 129), (79, 70, 229), (125, 211, 252))
-    # Shopping bag handle + body + Aurora star/A emblem
-    c.arc(0.50, 0.34, 0.14, 180, 360, 0.045, (255, 255, 255, 255))
-    c.rect(0.24, 0.35, 0.76, 0.79, (255, 255, 255, 245), 0.07)
-    c.triangle((0.50, 0.44), (0.37, 0.71), (0.63, 0.71), (15, 118, 110, 255))
-    c.circle(0.50, 0.62, 0.048, (255, 255, 255, 255))
-    return c.downsample()
+def draw_ic_terminal(c):
+    c.rounded_tile((24, 31, 44), (9, 12, 18), (52, 211, 153))
+    c.line(0.24, 0.35, 0.43, 0.48, 0.058, (52, 211, 153, 255))
+    c.line(0.43, 0.48, 0.24, 0.61, 0.058, (52, 211, 153, 255))
+    c.rect(0.48, 0.58, 0.75, 0.65, W, 0.02)
+
+
+def draw_ic_wired_net(c):
+    c.rounded_tile((6, 130, 196), (8, 47, 73), (34, 211, 238))
+    # USB trident + Ethernet link plug
+    c.line(0.50, 0.20, 0.50, 0.76, 0.052, W)
+    c.triangle((0.50, 0.15), (0.42, 0.27), (0.58, 0.27), W)
+    c.line(0.50, 0.58, 0.32, 0.44, 0.044, W)
+    c.line(0.32, 0.44, 0.32, 0.35, 0.044, W)
+    c.circle(0.32, 0.34, 0.048, (52, 211, 153, 255))
+    c.line(0.50, 0.50, 0.68, 0.38, 0.044, W)
+    c.line(0.68, 0.38, 0.68, 0.29, 0.044, W)
+    c.rect(0.63, 0.24, 0.73, 0.34, (250, 204, 21, 255), 0.015)
+    c.circle(0.50, 0.77, 0.068, W)
+
+
+def draw_ic_calendar(c):
+    c.rounded_tile((248, 250, 252), (226, 232, 240), (203, 213, 225))
+    # Crisp red calendar header bar + binder rings + bold '22' bars
+    c.rect(0.06, 0.06, 0.94, 0.35, (239, 68, 68, 255), 0.14)
+    c.rect(0.06, 0.24, 0.94, 0.36, (220, 38, 38, 255), 0.0)
+    c.rect(0.30, 0.13, 0.37, 0.27, W, 0.03)
+    c.rect(0.63, 0.13, 0.70, 0.27, W, 0.03)
+    # Clean bold "22" digits on crisp white calendar sheet
+    for ox in (0.24, 0.54):
+        c.rect(ox, 0.44, ox + 0.21, 0.50, (15, 23, 42, 255), 0.02)
+        c.rect(ox + 0.14, 0.44, ox + 0.21, 0.62, (15, 23, 42, 255), 0.02)
+        c.rect(ox, 0.57, ox + 0.21, 0.63, (15, 23, 42, 255), 0.02)
+        c.rect(ox, 0.57, ox + 0.07, 0.76, (15, 23, 42, 255), 0.02)
+        c.rect(ox, 0.71, ox + 0.21, 0.78, (15, 23, 42, 255), 0.02)
+
+
+def draw_ic_calculator(c):
+    c.rounded_tile((30, 41, 59), (15, 23, 42), (100, 116, 139))
+    c.rect(0.20, 0.17, 0.80, 0.34, (56, 189, 248, 235), 0.05)
+    for row in range(3):
+        for col in range(2):
+            bx = 0.20 + col * 0.20
+            by = 0.41 + row * 0.145
+            c.rect(bx, by, bx + 0.15, by + 0.105, (203, 213, 225, 235), 0.03)
+    # Bright orange '=' operator column
+    c.rect(0.62, 0.41, 0.80, 0.515, (249, 115, 22, 255), 0.03)
+    c.rect(0.62, 0.555, 0.80, 0.805, (249, 115, 22, 255), 0.04)
+    c.rect(0.66, 0.64, 0.76, 0.675, W, 0.01)
+    c.rect(0.66, 0.70, 0.76, 0.735, W, 0.01)
+
+
+def draw_ic_notes(c):
+    c.rounded_tile((250, 204, 21), (217, 119, 6), (254, 240, 138))
+    c.rect(0.18, 0.18, 0.82, 0.82, (254, 252, 232, 255), 0.07)
+    c.rect(0.18, 0.18, 0.82, 0.31, (245, 158, 11, 255), 0.05)
+    for y in (0.42, 0.54, 0.66):
+        c.line(0.26, y, 0.64, y, 0.035, (120, 53, 15, 185))
+    c.line(0.56, 0.72, 0.80, 0.44, 0.085, (15, 23, 42, 255))
+    c.triangle((0.50, 0.78), (0.53, 0.68), (0.61, 0.75), (239, 68, 68, 255))
+
+
+def draw_ic_files(c):
+    c.rounded_tile((14, 165, 233), (3, 105, 161), (125, 211, 252))
+    c.rect(0.16, 0.24, 0.47, 0.38, (253, 224, 71, 255), 0.05)
+    c.rect(0.16, 0.32, 0.84, 0.79, (254, 240, 138, 255), 0.07)
+    c.rect(0.16, 0.40, 0.84, 0.79, W, 0.06)
+    c.rect(0.42, 0.53, 0.58, 0.60, (2, 132, 199, 220), 0.03)
+
+
+def draw_ic_photos(c):
+    c.rounded_tile((255, 255, 255), (226, 232, 240), (199, 210, 254))
+    petals = [
+        (0.50, 0.30, (239, 68, 68, 220)),
+        (0.68, 0.39, (249, 115, 22, 220)),
+        (0.68, 0.60, (234, 179, 8, 220)),
+        (0.50, 0.70, (16, 185, 129, 220)),
+        (0.32, 0.60, (14, 165, 233, 220)),
+        (0.32, 0.39, (168, 85, 247, 220)),
+    ]
+    for px, py, col in petals:
+        c.circle(px, py, 0.145, col)
+    c.circle(0.50, 0.50, 0.075, W)
+
+
+def draw_ic_camera(c):
+    c.rounded_tile((51, 65, 85), (15, 23, 42), (148, 163, 184))
+    c.rect(0.36, 0.20, 0.64, 0.31, (203, 213, 225, 255), 0.04)
+    c.rect(0.16, 0.28, 0.84, 0.78, (30, 41, 59, 255), 0.09)
+    c.circle(0.50, 0.54, 0.21, W)
+    c.circle(0.50, 0.54, 0.165, (14, 116, 190, 255))
+    c.circle(0.50, 0.54, 0.095, (7, 25, 58, 255))
+    c.circle(0.45, 0.49, 0.035, (125, 211, 252, 230))
+    c.circle(0.74, 0.36, 0.032, (239, 68, 68, 255))
+
+
+def draw_ic_apk_installer(c):
+    c.rounded_tile((16, 185, 129), (4, 120, 87), (110, 231, 183))
+    c.rect(0.21, 0.22, 0.79, 0.78, W, 0.08)
+    c.rect(0.45, 0.30, 0.55, 0.56, (5, 150, 105, 255), 0.02)
+    c.triangle((0.35, 0.52), (0.65, 0.52), (0.50, 0.69), (5, 150, 105, 255))
+    c.rect(0.34, 0.71, 0.66, 0.75, (5, 150, 105, 255), 0.02)
+
+
+def draw_ic_vlc(c):
+    c.rounded_tile((255, 136, 0), (204, 82, 0), (254, 215, 170))
+    c.rect(0.19, 0.73, 0.81, 0.83, W, 0.035)
+    c.triangle((0.50, 0.16), (0.74, 0.75), (0.26, 0.75), (255, 115, 0, 255))
+    c.line(0.38, 0.43, 0.62, 0.43, 0.075, W)
+    c.line(0.32, 0.60, 0.68, 0.60, 0.082, W)
+
+
+def draw_ic_aurora(c):
+    c.rounded_tile((16, 185, 129), (59, 130, 246), (167, 243, 208))
+    c.arc(0.50, 0.34, 0.11, 180, 360, 0.05, W)
+    c.rect(0.24, 0.34, 0.76, 0.80, W, 0.08)
+    c.triangle((0.50, 0.44), (0.63, 0.70), (0.37, 0.70), (16, 185, 129, 255))
+
+
+def draw_ic_fdroid(c):
+    c.rounded_tile((25, 118, 210), (13, 71, 161), (144, 202, 249))
+    c.line(0.33, 0.19, 0.40, 0.30, 0.045, W)
+    c.line(0.67, 0.19, 0.60, 0.30, 0.045, W)
+    c.rect(0.25, 0.28, 0.75, 0.50, (139, 195, 74, 255), 0.07)
+    c.circle(0.39, 0.39, 0.045, W)
+    c.circle(0.61, 0.39, 0.045, W)
+    c.rect(0.25, 0.53, 0.75, 0.81, (66, 165, 245, 255), 0.07)
+    c.circle(0.50, 0.67, 0.075, W, 0.038)
+
+
+def draw_ic_sys_settings(c):
+    c.rounded_tile((71, 85, 105), (30, 41, 59), (148, 163, 184))
+    for i in range(8):
+        ang = math.radians(i * 45.0)
+        c.line(0.50 + 0.18 * math.cos(ang), 0.50 + 0.18 * math.sin(ang),
+               0.50 + 0.31 * math.cos(ang), 0.50 + 0.31 * math.sin(ang), 0.095, W)
+    c.circle(0.50, 0.50, 0.22, W)
+    c.circle(0.50, 0.50, 0.10, (30, 41, 59, 255))
+
+
+def draw_ic_sys_downloads(c):
+    c.rounded_tile((8, 145, 178), (21, 94, 117), (103, 232, 249))
+    c.rect(0.44, 0.21, 0.56, 0.53, W, 0.025)
+    c.triangle((0.30, 0.49), (0.70, 0.49), (0.50, 0.69), W)
+    c.rect(0.24, 0.72, 0.76, 0.80, W, 0.03)
+
+
+def draw_ic_sys_email(c):
+    c.rounded_tile((2, 132, 199), (30, 64, 175), (147, 197, 253))
+    c.rect(0.17, 0.28, 0.83, 0.74, W, 0.06)
+    c.line(0.20, 0.31, 0.50, 0.55, 0.045, (2, 132, 199, 255))
+    c.line(0.80, 0.31, 0.50, 0.55, 0.045, (2, 132, 199, 255))
+
+
+def draw_ic_sys_contacts(c):
+    c.rounded_tile((37, 99, 235), (29, 78, 216), (147, 197, 253))
+    c.circle(0.50, 0.37, 0.135, W)
+    c.arc(0.50, 0.83, 0.25, 195, 345, 0.19, W)
+
+
+def draw_ic_sys_recorder(c):
+    c.rounded_tile((225, 29, 72), (136, 19, 55), (253, 164, 175))
+    c.rect(0.40, 0.20, 0.60, 0.56, W, 0.10)
+    c.arc(0.50, 0.48, 0.19, 0, 180, 0.045, W)
+    c.line(0.50, 0.67, 0.50, 0.80, 0.048, W)
+    c.line(0.36, 0.80, 0.64, 0.80, 0.048, W)
+
+
+def draw_ic_sys_search(c):
+    c.rounded_tile((59, 130, 246), (29, 78, 216), (191, 219, 254))
+    c.circle(0.45, 0.45, 0.19, W, 0.065)
+    c.line(0.59, 0.59, 0.77, 0.77, 0.075, W)
+
+
+def draw_ic_sys_music(c):
+    c.rounded_tile((236, 72, 153), (190, 18, 60), (251, 207, 232))
+    c.line(0.42, 0.66, 0.42, 0.27, 0.055, W)
+    c.line(0.70, 0.60, 0.70, 0.22, 0.055, W)
+    c.line(0.42, 0.27, 0.70, 0.22, 0.085, W)
+    c.circle(0.35, 0.68, 0.085, W)
+    c.circle(0.63, 0.62, 0.085, W)
+
+
+def draw_ic_sys_video(c):
+    c.rounded_tile((124, 58, 237), (67, 56, 202), (196, 181, 253))
+    c.rect(0.18, 0.25, 0.82, 0.77, W, 0.07)
+    c.triangle((0.42, 0.37), (0.42, 0.65), (0.66, 0.51), (109, 40, 217, 255))
+
+
+ALL_ICONS = [
+    ("ic_launcher.png", draw_ic_launcher),
+    ("ic_launcher_home.png", draw_ic_home),
+    ("ic_browser.png", draw_ic_browser),
+    ("ic_ereader.png", draw_ic_ereader),
+    ("ic_audio.png", draw_ic_audio),
+    ("ic_clock.png", draw_ic_clock),
+    ("ic_wallpaper.png", draw_ic_wallpaper),
+    ("ic_appmgr.png", draw_ic_appmgr),
+    ("ic_terminal.png", draw_ic_terminal),
+    ("ic_wired_net.png", draw_ic_wired_net),
+    ("ic_calendar.png", draw_ic_calendar),
+    ("ic_calculator.png", draw_ic_calculator),
+    ("ic_notes.png", draw_ic_notes),
+    ("ic_files.png", draw_ic_files),
+    ("ic_photos.png", draw_ic_photos),
+    ("ic_camera.png", draw_ic_camera),
+    ("ic_apk_installer.png", draw_ic_apk_installer),
+    ("ic_vlc.png", draw_ic_vlc),
+    ("ic_aurora.png", draw_ic_aurora),
+    ("ic_fdroid.png", draw_ic_fdroid),
+    ("ic_sys_settings.png", draw_ic_sys_settings),
+    ("ic_sys_downloads.png", draw_ic_sys_downloads),
+    ("ic_sys_email.png", draw_ic_sys_email),
+    ("ic_sys_contacts.png", draw_ic_sys_contacts),
+    ("ic_sys_recorder.png", draw_ic_sys_recorder),
+    ("ic_sys_search.png", draw_ic_sys_search),
+    ("ic_sys_music.png", draw_ic_sys_music),
+    ("ic_sys_video.png", draw_ic_sys_video),
+]
 
 
 FONT_5X7 = {
@@ -362,7 +550,6 @@ FONT_5X7 = {
     "G": ["01111", "10000", "10000", "10011", "10001", "10001", "01111"],
     "H": ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
     "I": ["11111", "00100", "00100", "00100", "00100", "00100", "11111"],
-    "J": ["00111", "00010", "00010", "00010", "10010", "10010", "01100"],
     "K": ["10001", "10010", "10100", "11000", "10100", "10010", "10001"],
     "L": ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
     "M": ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
@@ -376,183 +563,88 @@ FONT_5X7 = {
     "V": ["10001", "10001", "10001", "10001", "10001", "01010", "00100"],
     "W": ["10001", "10001", "10001", "10101", "10101", "11011", "10001"],
     "Y": ["10001", "10001", "01010", "00100", "00100", "00100", "00100"],
-    "Z": ["11111", "00001", "00010", "00100", "01000", "10000", "11111"],
     "0": ["01110", "10011", "10101", "10101", "11001", "10001", "01110"],
     "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
     "2": ["01110", "10001", "00001", "00110", "01000", "10000", "11111"],
     "3": ["11110", "00001", "00001", "01110", "00001", "00001", "11110"],
     "4": ["00010", "00110", "01010", "10010", "11111", "00010", "00010"],
-    "5": ["11111", "10000", "10000", "11110", "00001", "00001", "11110"],
     "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
     ".": ["00000", "00000", "00000", "00000", "00000", "01100", "01100"],
-    "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
     "+": ["00000", "00100", "00100", "11111", "00100", "00100", "00000"],
-    "/": ["00001", "00010", "00100", "00100", "01000", "10000", "00000"],
+    "-": ["00000", "00000", "00000", "11111", "00000", "00000", "00000"],
     " ": ["00000", "00000", "00000", "00000", "00000", "00000", "00000"],
 }
 
 
-def draw_text_block(buf, w, h, x, y, text, scale, rgb):
-    cx = x
-    for ch in text.upper():
-        glyph = FONT_5X7.get(ch, FONT_5X7[" "])
-        for gy in range(7):
-            for gx in range(5):
-                if glyph[gy][gx] == "1":
-                    for sy in range(scale):
-                        for sx in range(scale):
-                            px, py = cx + gx * scale + sx, y + gy * scale + sy
-                            if 0 <= px < w and 0 <= py < h:
-                                idx = (py * w + px) * 4
-                                buf[idx] = rgb[0]
-                                buf[idx + 1] = rgb[1]
-                                buf[idx + 2] = rgb[2]
-                                buf[idx + 3] = 255
-        cx += 6 * scale
-
-
-def generate_logo_banner():
-    w, h = 960, 250
-    try:
-        from PIL import Image, ImageDraw, ImageFont
-
-        img = Image.new("RGBA", (w, h), (10, 20, 36, 255))
-        px = img.load()
-        for y in range(h):
-            t = y / (h - 1.0)
-            for x in range(w):
-                sx = x / (w - 1.0)
-                if y < 4 or y >= h - 4:
-                    px[x, y] = (51, 181, 229, 255)
-                else:
-                    px[x, y] = (
-                        min(255, int(8 + 14 * (1.0 - t) + 18 * sx)),
-                        min(255, int(18 + 30 * (1.0 - t) + 26 * sx)),
-                        min(255, int(36 + 58 * (1.0 - t) + 44 * sx)),
-                        255,
-                    )
-
-        # Left large unlocked shield emblem
-        emb_raw = icon_freedom(176)
-        emb_img = Image.frombytes("RGBA", (176, 176), bytes(emb_raw))
-        img.alpha_composite(emb_img, (32, 37))
-
-        bold_candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        ]
-        reg_candidates = [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        ]
-        f_title = f_sub = f_tag = ImageFont.load_default()
-        for p in bold_candidates:
-            if os.path.exists(p):
-                f_title = ImageFont.truetype(p, 46)
-                f_tag = ImageFont.truetype(p, 17)
-                break
-        for p in reg_candidates:
-            if os.path.exists(p):
-                f_sub = ImageFont.truetype(p, 21)
-                break
-
-        d = ImageDraw.Draw(img)
-        d.text((236, 34), "KOBO ARC 7 FREEDOM", fill=(255, 255, 255, 255), font=f_title)
-        d.text(
-            (238, 92),
-            "Android 4.2 Jelly Bean  •  2026 TLS 1.3  •  Alarms & Wallpapers",
-            fill=(104, 214, 255, 255),
-            font=f_sub,
-        )
-        d.text(
-            (238, 124),
-            "ZERO-BRICK VERIFIED SUITE  v1.9.1   •   MT8125 & TEGRA 3",
-            fill=(134, 239, 172, 255),
-            font=f_tag,
-        )
-
-        # Row of all 8 crisp suite app icons right inside the banner!
-        suite_fns = [
-            icon_freedom,
-            icon_browser,
-            icon_ereader,
-            icon_audio,
-            icon_clock,
-            icon_wallpaper,
-            icon_appmgr,
-            icon_terminal,
-        ]
-        for idx, fn in enumerate(suite_fns):
-            mini = Image.frombytes("RGBA", (54, 54), bytes(fn(54)))
-            img.alpha_composite(mini, (238 + idx * 66, 160))
-
-        os.makedirs(os.path.join(ROOT, "docs"), exist_ok=True)
-        img.save(os.path.join(ROOT, "docs", "logo-banner.png"), "PNG")
-        return
-    except Exception:
-        pass
-
-    buf = bytearray(w * h * 4)
+def draw_banner():
+    w, h = 960, 240
+    px = bytearray(w * h * 4)
     for y in range(h):
-        t = y / (h - 1.0)
+        ty = y / (h - 1.0)
         for x in range(w):
-            sx = x / (w - 1.0)
-            idx = (y * w + x) * 4
-            buf[idx] = min(255, int(8 + 14 * (1.0 - t) + 18 * sx))
-            buf[idx + 1] = min(255, int(18 + 32 * (1.0 - t) + 28 * sx))
-            buf[idx + 2] = min(255, int(34 + 62 * (1.0 - t) + 46 * sx))
-            buf[idx + 3] = 255
-            if y < 4 or y >= h - 4:
-                buf[idx], buf[idx + 1], buf[idx + 2] = 51, 181, 229
-    emblem = icon_freedom(168)
-    ox, oy = 32, 36
-    for ey in range(168):
-        for ex in range(168):
-            si = (ey * 168 + ex) * 4
-            sa = emblem[si + 3] / 255.0
+            tx = x / (w - 1.0)
+            i = (y * w + x) * 4
+            px[i] = int(9 + 18 * tx + 8 * ty)
+            px[i + 1] = int(16 + 34 * (1.0 - ty) + 22 * tx)
+            px[i + 2] = int(30 + 68 * tx)
+            px[i + 3] = 255
+
+    em = Canvas(168)
+    draw_ic_launcher(em)
+    em_px = em.downsample()
+    ox, oy = 36, 36
+    for y in range(168):
+        for x in range(168):
+            si = (y * 168 + x) * 4
+            sa = em_px[si + 3] / 255.0
             if sa <= 0:
                 continue
-            di = ((oy + ey) * w + (ox + ex)) * 4
-            buf[di] = int(emblem[si] * sa + buf[di] * (1.0 - sa))
-            buf[di + 1] = int(emblem[si + 1] * sa + buf[di + 1] * (1.0 - sa))
-            buf[di + 2] = int(emblem[si + 2] * sa + buf[di + 2] * (1.0 - sa))
-            buf[di + 3] = 255
-    draw_text_block(buf, w, h, 232, 56, "KOBO ARC 7 FREEDOM", 6, (255, 255, 255))
-    draw_text_block(buf, w, h, 232, 122, "ANDROID 4.2 + ROOT + TLS 1.3 + APPS", 3, (88, 206, 250))
-    draw_text_block(buf, w, h, 232, 160, "ZERO-BRICK VERIFIED SUITE V1.7.0", 3, (134, 239, 172))
-    write_rgba_png(os.path.join(ROOT, "docs", "logo-banner.png"), w, h, buf)
+            di = ((oy + y) * w + (ox + x)) * 4
+            for ch in range(3):
+                px[di + ch] = int(em_px[si + ch] * sa + px[di + ch] * (1.0 - sa))
+
+    def stamp_text(text, start_x, start_y, scale, color):
+        cx = start_x
+        for ch in text.upper():
+            glyph = FONT_5X7.get(ch, FONT_5X7[" "])
+            for gy, row in enumerate(glyph):
+                for gx, bit in enumerate(row):
+                    if bit == "1":
+                        for sy in range(scale):
+                            for sx in range(scale):
+                                txp, typ = cx + gx * scale + sx, start_y + gy * scale + sy
+                                if 0 <= txp < w and 0 <= typ < h:
+                                    di = (typ * w + txp) * 4
+                                    px[di], px[di + 1], px[di + 2], px[di + 3] = color
+            cx += 6 * scale
+
+    stamp_text("KOBO ARC 7 FREEDOM", 232, 54, 6, (248, 250, 252, 255))
+    stamp_text("ARC7 OS SKIN + VLC + CHROMEBOOK USB + APPS V2.0", 234, 118, 3, (56, 189, 248, 255))
+    stamp_text("CALENDAR + PHOTOS + CAMERA + ARCHIVE CHIMES + APK INSTALLER", 234, 156, 2, (167, 243, 208, 255))
+
+    write_rgba_png(os.path.join(ROOT, "releases", "logo-banner.png"), w, h, px)
 
 
 def main():
     densities = [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144)]
-    icons = [
-        ("ic_launcher.png", icon_freedom),
-        ("ic_browser.png", icon_browser),
-        ("ic_ereader.png", icon_ereader),
-        ("ic_audio.png", icon_audio),
-        ("ic_clock.png", icon_clock),
-        ("ic_wallpaper.png", icon_wallpaper),
-        ("ic_appmgr.png", icon_appmgr),
-        ("ic_terminal.png", icon_terminal),
-    ]
-    for dpi, sz in densities:
-        for fname, fn in icons:
-            out = os.path.join(ROOT, "app", "src", "main", "res", "drawable-" + dpi, fname)
-            write_rgba_png(out, sz, sz, fn(sz))
-        home_out = os.path.join(ROOT, "launcher-android4", "res", "drawable-" + dpi, "ic_launcher_home.png")
-        write_rgba_png(home_out, sz, sz, icon_home(sz))
-        aurora_out = os.path.join(ROOT, "aurora-store", "res", "drawable-" + dpi, "ic_launcher.png")
-        write_rgba_png(aurora_out, sz, sz, icon_aurora(sz))
+    for folder, size in densities:
+        for fname, fn in ALL_ICONS:
+            c = Canvas(size)
+            fn(c)
+            rgba = c.downsample()
+            write_rgba_png(os.path.join(ROOT, f"app/src/main/res/drawable-{folder}/{fname}"), size, size, rgba)
+            write_rgba_png(os.path.join(ROOT, f"launcher-android4/res/drawable-{folder}/{fname}"), size, size, rgba)
+            if fname == "ic_apk_installer.png":
+                write_rgba_png(os.path.join(ROOT, f"upgrader/src/main/res/drawable-{folder}/ic_launcher.png"), size, size, rgba)
+            if fname == "ic_aurora.png":
+                write_rgba_png(os.path.join(ROOT, f"aurora-store/res/drawable-{folder}/ic_launcher.png"), size, size, rgba)
 
-    # Dedicated header emblem badge inside MainActivity
-    write_rgba_png(
-        os.path.join(ROOT, "app", "src", "main", "res", "drawable-xhdpi", "arc7_logo_header.png"),
-        96,
-        96,
-        icon_freedom(96),
-    )
-    generate_logo_banner()
-    print("Generated project logo banner + 8 multi-DPI Freedom app icons + Android 4 Home icon OK!")
+    hdr = Canvas(96)
+    draw_ic_launcher(hdr)
+    write_rgba_png(os.path.join(ROOT, "app/src/main/res/drawable-xhdpi/arc7_logo_header.png"), 96, 96, hdr.downsample())
+
+    draw_banner()
+    print(f"Generated {len(ALL_ICONS)} custom squircle icons across 4 densities for App, Launcher, Aurora & Upgrader + releases/logo-banner.png")
 
 
 if __name__ == "__main__":

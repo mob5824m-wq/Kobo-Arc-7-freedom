@@ -66,15 +66,15 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                         context.startService(new Intent(context, Arc7WifiDriveService.class));
                     }
 
-                    // Always start the persistent 24/7 Local TLS 1.3 + 4-Tier DNS Gateway (`127.0.0.1:8118`)
-                    // IMMEDIATELY at boot or package update — even before Wi-Fi associates or MainActivity opens —
-                    // so F-Droid Classic & Arc7 Browser work instantly on first tap!
+                    // Keep both Local TLS 1.3 Gateway (:8118) AND Chromebook Wired USB Tunnel (:18880) warm at boot!
                     Arc7TlsGatewayService.ensureStarted(context);
+                    Arc7ChromebookUsbService.ensureStarted(context);
+                    Arc7CalendarStore.scheduleReminders(context, Arc7CalendarStore.loadSavedEvents(context));
                     NetworkCertManager certMgr = new NetworkCertManager(context, shell);
                     certMgr.ensureCaBundleFile();
                     certMgr.startBrowserGateway();
 
-                    // Always ensure Aurora Store, Launcher v49, Python 3, `apt`, & Default Launcher / Kobo Care removal stay applied!
+                    // Always ensure Aurora Store, VLC Media Player, Launcher v50, Python 3, `apt`, & Default Launcher / Kobo Care removal stay applied!
                     TabletOptimizerManager opt = new TabletOptimizerManager(context, shell);
                     if (rooted) {
                         opt.ensureCompanionAppsUpgradedSilently();
@@ -85,8 +85,9 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
                     NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
                     if (active != null && active.isConnected()) {
-                        // Automatically sync BOTH exact local IANA timezone AND atomic time whenever Wi-Fi connects!
+                        // Automatically sync local IANA timezone, atomic time, AND Internet Archive alarm chimes!
                         certMgr.syncTimeAndTimezoneAutomatically(rooted, null);
+                        Arc7ClockStore.autoSyncInternetArchiveChimes(context, null);
                     }
                 } catch (Throwable ignored) {
                 } finally {

@@ -88,11 +88,15 @@ public class VanillaHomeActivity extends Activity {
 
     private int currentPage = 0;
     private LinearLayout desktopView;
+    private LinearLayout topCapsule;
     private LinearLayout widgetsContainer;
     private LinearLayout drawerOverlay;
     private LinearLayout dockBar;
+    private TextView drawerTitleView;
+    private View drawerDividerView;
     private TextView clockView;
     private TextView dateView;
+    private TextView skinChip;
     private EditText searchBox;
     private AppGridAdapter desktopAdapter;
     private AppGridAdapter drawerAdapter;
@@ -103,6 +107,7 @@ public class VanillaHomeActivity extends Activity {
     private final BroadcastReceiver pkgReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            Arc7LauncherSkin.clearCache();
             reloadApps();
         }
     };
@@ -111,6 +116,7 @@ public class VanillaHomeActivity extends Activity {
         @Override
         public void onReceive(Context context, Intent intent) {
             updateDateLabel();
+            applyLauncherSkinChrome();
         }
     };
 
@@ -171,11 +177,11 @@ public class VanillaHomeActivity extends Activity {
             }
         });
 
-        // Clean top bar: Clock + Date on left, subtle Wallpaper button on right (ZERO '+ Widget' button!)
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(4), dp(2), dp(4), dp(6));
+        // Clean Arc7 OS Skinned Top Capsule: 12h/24h Clock + Date on left, Skin Studio + Wallpaper chips on right (ZERO '+ Widget' button!)
+        topCapsule = new LinearLayout(this);
+        topCapsule.setOrientation(LinearLayout.HORIZONTAL);
+        topCapsule.setGravity(Gravity.CENTER_VERTICAL);
+        topCapsule.setPadding(dp(12), dp(6), dp(12), dp(6));
 
         LinearLayout clockCol = new LinearLayout(this);
         clockCol.setOrientation(LinearLayout.HORIZONTAL);
@@ -183,21 +189,45 @@ public class VanillaHomeActivity extends Activity {
 
         clockView = new TextView(this);
         clockView.setTextColor(Color.WHITE);
-        clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 29);
         clockView.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         clockView.setShadowLayer(6f, 0f, 2f, 0xCC000000);
+        clockView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ClockActivity");
+            }
+        });
         clockCol.addView(clockView);
 
         dateView = new TextView(this);
         dateView.setTextColor(0xEEFFFFFF);
-        dateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        dateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
         dateView.setShadowLayer(4f, 0f, 1f, 0xCC000000);
         dateView.setPadding(dp(12), dp(4), 0, 0);
+        dateView.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CalendarActivity");
+            }
+        });
         updateDateLabel();
         clockCol.addView(dateView);
 
-        topBar.addView(clockCol, new LinearLayout.LayoutParams(
+        topCapsule.addView(clockCol, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        skinChip = makeTopChip("Skin", 0x991E293B);
+        LinearLayout.LayoutParams skLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        skLp.rightMargin = dp(8);
+        skinChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showLauncherSkinDialog();
+            }
+        });
+        topCapsule.addView(skinChip, skLp);
 
         TextView wallpaperChip = makeTopChip("Wallpaper", 0x991E293B);
         wallpaperChip.setOnClickListener(new View.OnClickListener() {
@@ -211,9 +241,9 @@ public class VanillaHomeActivity extends Activity {
                 }
             }
         });
-        topBar.addView(wallpaperChip);
+        topCapsule.addView(wallpaperChip);
 
-        desktopView.addView(topBar);
+        desktopView.addView(topCapsule);
 
         // Live Home Screen Widgets area (scrollable if user adds multiple widgets on a page)
         ScrollView widgetScroll = new ScrollView(this);
@@ -293,10 +323,11 @@ public class VanillaHomeActivity extends Activity {
         drawerHeader.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView drawerTitle = new TextView(this);
-        drawerTitle.setText("ALL APPS");
+        drawerTitle.setText("ARC7 OS  •  ALL APPS");
         drawerTitle.setTextColor(0xFF33B5E5);
         drawerTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         drawerTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        drawerTitleView = drawerTitle;
         drawerHeader.addView(drawerTitle, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -336,6 +367,7 @@ public class VanillaHomeActivity extends Activity {
 
         View divider = new View(this);
         divider.setBackgroundColor(0xFF33B5E5);
+        drawerDividerView = divider;
         LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
         divParams.topMargin = dp(6);
@@ -367,8 +399,10 @@ public class VanillaHomeActivity extends Activity {
         clockFilter.addAction(Intent.ACTION_TIME_TICK);
         clockFilter.addAction(Intent.ACTION_TIME_CHANGED);
         clockFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        clockFilter.addAction(Arc7LauncherSkin.ACTION_SKIN_CHANGED);
         registerReceiver(clockTickReceiver, clockFilter);
 
+        applyLauncherSkinChrome();
         reloadApps();
     }
 
@@ -901,7 +935,7 @@ public class VanillaHomeActivity extends Activity {
             e.cls = ri.activityInfo.name;
             CharSequence cs = ri.loadLabel(pm);
             e.label = cs != null ? cs.toString() : pkg;
-            e.icon = ri.loadIcon(pm);
+            e.icon = Arc7LauncherSkin.reskinAppIcon(this, pkg, e.cls, ri.loadIcon(pm));
             allApps.add(e);
         }
 
@@ -912,9 +946,70 @@ public class VanillaHomeActivity extends Activity {
             }
         });
 
+        applyLauncherSkinChrome();
         filterApps(searchBox != null ? searchBox.getText().toString() : "");
         refreshCurrentPageShortcuts();
         rebuildDock();
+    }
+
+    private void applyLauncherSkinChrome() {
+        Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
+        if (topCapsule != null) {
+            GradientDrawable cap = new GradientDrawable();
+            cap.setColor(t.topCapsuleColor);
+            cap.setCornerRadius(dp(16));
+            cap.setStroke(dp(1), t.borderColor);
+            topCapsule.setBackgroundDrawable(cap);
+        }
+        if (dockBar != null) {
+            GradientDrawable dockBg = new GradientDrawable(
+                    GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{t.dockTopColor, t.dockBottomColor});
+            dockBg.setCornerRadius(dp(18));
+            dockBg.setStroke(dp(1), t.borderColor);
+            dockBar.setBackgroundDrawable(dockBg);
+        }
+        if (drawerOverlay != null) {
+            drawerOverlay.setBackgroundColor(t.drawerBgColor);
+        }
+        if (drawerTitleView != null) {
+            drawerTitleView.setTextColor(t.accentColor);
+        }
+        if (drawerDividerView != null) {
+            drawerDividerView.setBackgroundColor(t.accentColor);
+        }
+        for (int i = 0; i < PAGE_COUNT; i++) {
+            if (pageDots[i] != null) {
+                pageDots[i].setTextColor(i == currentPage ? t.accentColor : 0x66FFFFFF);
+            }
+        }
+    }
+
+    private void showLauncherSkinDialog() {
+        final String cur = Arc7LauncherSkin.currentSkinId(this);
+        String[] names = new String[Arc7LauncherSkin.THEMES.length];
+        int checked = 0;
+        for (int i = 0; i < Arc7LauncherSkin.THEMES.length; i++) {
+            names[i] = Arc7LauncherSkin.THEMES[i].title;
+            if (Arc7LauncherSkin.THEMES[i].id.equals(cur)) checked = i;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Arc7 Custom OS Skin")
+                .setSingleChoiceItems(names, checked, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.THEMES[which];
+                        Arc7LauncherSkin.setSkin(VanillaHomeActivity.this, t.id);
+                        sendBroadcast(new Intent(Arc7LauncherSkin.ACTION_SKIN_CHANGED));
+                        applyLauncherSkinChrome();
+                        reloadApps();
+                        Toast.makeText(VanillaHomeActivity.this,
+                                "Applied " + t.title + " across Home, Dock & Apps!", Toast.LENGTH_SHORT).show();
+                        d.dismiss();
+                    }
+                })
+                .setNegativeButton("Close", null)
+                .show();
     }
 
     private void filterApps(String query) {
@@ -932,8 +1027,9 @@ public class VanillaHomeActivity extends Activity {
 
     private void rebuildDock() {
         dockBar.removeAllViews();
+        Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
 
-        addDockButton("Browser", new View.OnClickListener() {
+        addDockIconButton("Browser", R.drawable.ic_browser, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity")
@@ -943,31 +1039,39 @@ public class VanillaHomeActivity extends Activity {
             }
         });
 
-        addDockButton("Reader", new View.OnClickListener() {
+        addDockIconButton("Calendar", R.drawable.ic_calendar, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7EbookReaderActivity")
-                        && !launchByPackagePrefix("org.koreader", "org.coolreader", "com.foobnix", "org.readera")) {
+                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CalendarActivity")) {
                     openDrawer();
                 }
             }
         });
 
-        // Center All-Apps circular button
+        addDockIconButton("Photos", R.drawable.ic_photos, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7PhotosActivity")) {
+                    openDrawer();
+                }
+            }
+        });
+
+        // Center Skinned All-Apps Jewel Button
         TextView allAppsBtn = new TextView(this);
         allAppsBtn.setText(":::");
         allAppsBtn.setTextColor(Color.WHITE);
-        allAppsBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        allAppsBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         allAppsBtn.setTypeface(Typeface.DEFAULT_BOLD);
         allAppsBtn.setGravity(Gravity.CENTER);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(0xCC33B5E5);
+        circle.setColor(t.accentColor);
         circle.setStroke(dp(2), Color.WHITE);
         allAppsBtn.setBackgroundDrawable(circle);
-        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(dp(54), dp(54));
-        centerParams.leftMargin = dp(18);
-        centerParams.rightMargin = dp(18);
+        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(dp(50), dp(50));
+        centerParams.leftMargin = dp(10);
+        centerParams.rightMargin = dp(10);
         allAppsBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -976,16 +1080,25 @@ public class VanillaHomeActivity extends Activity {
         });
         dockBar.addView(allAppsBtn, centerParams);
 
-        addDockButton("Aurora", new View.OnClickListener() {
+        addDockIconButton("Camera", R.drawable.ic_camera, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (!launchByPackagePrefix("com.aurora.store", "eu.bubu1.fdroidclassic.debug", "org.fdroid.fdroid")) {
-                    launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AppManagerActivity");
+                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CameraActivity")) {
+                    openDrawer();
                 }
             }
         });
 
-        addDockButton("Settings", new View.OnClickListener() {
+        addDockIconButton("VLC", R.drawable.ic_vlc, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!launchByPackagePrefix("org.videolan.vlc")) {
+                    launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AudioPlayerActivity");
+                }
+            }
+        });
+
+        addDockIconButton("Settings", R.drawable.ic_sys_settings, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 safeStart(new Intent(Settings.ACTION_SETTINGS));
@@ -993,15 +1106,27 @@ public class VanillaHomeActivity extends Activity {
         });
     }
 
-    private void addDockButton(String title, View.OnClickListener listener) {
+    private void addDockIconButton(String title, int iconResId, View.OnClickListener listener) {
+        LinearLayout slot = new LinearLayout(this);
+        slot.setOrientation(LinearLayout.VERTICAL);
+        slot.setGravity(Gravity.CENTER);
+        slot.setPadding(dp(4), dp(3), dp(4), dp(2));
+
+        ImageView iv = new ImageView(this);
+        iv.setImageResource(iconResId);
+        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        slot.addView(iv, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
         TextView tv = new TextView(this);
         tv.setText(title);
         tv.setTextColor(Color.WHITE);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tv.setGravity(Gravity.CENTER);
-        tv.setPadding(dp(14), dp(10), dp(14), dp(10));
-        tv.setOnClickListener(listener);
-        dockBar.addView(tv, new LinearLayout.LayoutParams(
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        tv.setSingleLine(true);
+        tv.setShadowLayer(3f, 0f, 1f, 0xCC000000);
+        slot.addView(tv);
+
+        slot.setOnClickListener(listener);
+        dockBar.addView(slot, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
     }
 
