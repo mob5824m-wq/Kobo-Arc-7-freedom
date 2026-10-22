@@ -1,4 +1,4 @@
-name: Build, Verify & Deploy Kobo Arc 7 v1.9.1 OTA Portal
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.0.0
 
 on:
   push:
@@ -8,8 +8,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   build-and-verify:
@@ -32,37 +30,32 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography
 
-      - name: Generate vector icons, build all 6 native ARMv7 binaries & sign all v1.9.1 APKs
+      - name: Generate reskinned icons, fetch & verify official VLC ARMv7 APK, compile native binaries & sign all v2.0.0 APKs
         run: |
-          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh tools/serve-over-wifi.sh
+          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
+          rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v1.9.1 end-to-end verification suite
+      - name: Run full v2.0.0 end-to-end verification suite
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v1.9.1 APKs, static OTA web portals & launchers back to branch
+      - name: Commit refreshed signed v2.0.0 APKs, bundled VLC.apk & Chromebook USB launcher back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -f --ignore-unmatch releases/Upgrade-My-Kobo-To-v1.8.1.apk releases/Upgrade-My-Kobo-To-v1.8.2.apk
+          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk
           git add \
-            docs/index.html \
-            docs/.nojekyll \
-            docs/logo-banner.png \
-            docs/Backup-Kobo-To-Laptop-ADB.bat \
-            docs/Backup-Kobo-To-Laptop-ADB.sh \
-            docs/Start-Kobo-WiFi-Server.bat \
-            docs/Start-Kobo-WiFi-Server.sh \
             releases/index.html \
             releases/logo-banner.png \
-            releases/Upgrade-My-Kobo-To-v1.9.1.apk \
-            releases/Upgrade-My-Kobo-To-v1.9.0.apk \
+            releases/Upgrade-My-Kobo-To-v2.0.0.apk \
             releases/KoboArc7Freedom.apk \
+            releases/VLC.apk \
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
+            releases/Start-Chromebook-Wired-Internet.sh \
             releases/Backup-Kobo-To-Laptop-ADB.bat \
             releases/Backup-Kobo-To-Laptop-ADB.sh \
             releases/Start-Kobo-WiFi-Server.bat \
@@ -70,90 +63,79 @@ jobs:
             releases/SHA256SUMS.txt \
             app/src/main/assets/VanillaAndroid4Home.apk \
             app/src/main/assets/starter-apps/AuroraStore.apk \
-            app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
+            app/src/main/assets/starter-apps/FDroidClassicLegacy.apk \
+            app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v1.9.1 APKs & OTA web installer portals [skip ci]"
+            git commit -m "chore: update pre-built signed v2.0.0 APKs, official VLC ARMv7 bundle & tools [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v1.9.1 APKs, Aurora Store v4.8.5, F-Droid v1302, 1-Tap Upgrader & OTA launchers artifact
+      - name: Upload built v2.0.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & USB/Wi-Fi tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-apks
+          name: kobo-arc-7-freedom-v2.0.0-apks
           path: |
-            releases/Upgrade-My-Kobo-To-v1.9.1.apk
+            releases/Upgrade-My-Kobo-To-v2.0.0.apk
             releases/KoboArc7Freedom.apk
+            releases/VLC.apk
             releases/AuroraStore.apk
             releases/FDroidClassicLegacy.apk
             releases/VanillaAndroid4Home.apk
+            releases/Start-Chromebook-Wired-Internet.sh
             releases/Backup-Kobo-To-Laptop-ADB.bat
             releases/Backup-Kobo-To-Laptop-ADB.sh
             releases/Start-Kobo-WiFi-Server.bat
             releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Enable & Configure GitHub Pages Over-The-Air Website
-        id: cfg_pages
-        if: github.event_name != 'pull_request'
-        continue-on-error: true
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Stage complete zero-redirect GitHub Pages OTA site (`_site/`) with direct hosted `.apk` binaries
-        if: github.event_name != 'pull_request' && steps.cfg_pages.outcome == 'success'
-        continue-on-error: true
-        run: |
-          rm -rf _site && mkdir -p _site
-          cp -rf docs/* docs/.nojekyll _site/
-          cp -f \
-            releases/Upgrade-My-Kobo-To-v1.9.1.apk \
-            releases/Upgrade-My-Kobo-To-v1.9.0.apk \
-            releases/KoboArc7Freedom.apk \
-            releases/AuroraStore.apk \
-            releases/FDroidClassicLegacy.apk \
-            releases/VanillaAndroid4Home.apk \
-            releases/SHA256SUMS.txt \
-            _site/
-          ls -lh _site/
-
-      - name: Upload GitHub Pages OTA site artifact
-        id: upload_pages
-        if: github.event_name != 'pull_request' && steps.cfg_pages.outcome == 'success'
-        continue-on-error: true
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
-
-      - name: Publish signed v1.9.1 APKs, Aurora Store v4.8.5, F-Droid v1302, 1-Tap Upgrader & OTA tools to GitHub Releases
+      - name: Publish signed v2.0.0 APKs, VLC Media Player & Chromebook USB tools to GitHub Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v1.9.1 (`ca.arc7freedom.app` v191 + `Upgrade-My-Kobo-To-v1.9.1.apk` + `AuroraStore.apk` v4.8.5 + `FDroidClassicLegacy.apk` v1302)
+          ## Kobo Arc 7 Freedom v2.0.0 (`ca.arc7freedom.app` v200 + `Upgrade-My-Kobo-To-v2.0.0.apk` + Bundled Official `VLC.apk` + Custom Arc7 OS Skin)
 
-          ### Critical Hardware Fixes in `v1.9.1`:
-          1. **Fixed Aurora Store APK `"Parse error: There is a problem parsing the package"` on Android 4.2.2:**
-             - Queries **F-Droid Archive + F-Droid Main `index-v1.jar`** (`maxSdkVersion >= 17 >= minSdkVersion`) and verified ARMv7/universal Android 4.2 releases instead of returning `minSdkVersion >= 21` / `DEX 038/039` / `arm64-only` APKs from IzzyOnDroid.
-             - Inspects every downloaded APK's binary `AndroidManifest.xml` (`minSdkVersion <= 17`), `classes*.dex` (`DEX 035`), and `lib/` ABIs (`armeabi-v7a` / `armeabi`) before install.
-             - Automatically adds a compliant **4-byte `zipalign`ed `SHA1-Digest` + `SHA1withRSA` JAR `v1` signature** whenever a downloaded APK is `v2/v3`-only or `SHA256withRSA`-signed (fixing AOSP Bug `#38321` across Aurora Store, F-Droid Classic, Arc7 Browser, and Wi-Fi File Drive!).
-             - Stages installs via world-readable `/data/local/tmp/` `pm install -r` to avoid Android 4.2 multi-user FUSE mount-namespace parse failures, and unwraps double-proxied `127.0.0.1:8118` URLs with widened `8 KB` URL buffers in `libarc7tls.so`.
-          2. **Fixed F-Droid Classic `"Signing certificate does not match!"` (`f-droid certificates invalid`) Error:**
-             - Fixed `default_repos` in `FDroidClassicLegacy.apk` (`versionCode = 1302`) where `str[462]` (`F-Droid Classic`) collided with `f-droid.org/repo` and overwrote F-Droid's `CN=Ciaran Gultnieks` (`43238D51...`) certificate with `CN=marcus-tux` (`5187CFD9...`) in SQLite on every first launch.
-             - Re-mapped all 7 repository entries cleanly without URL collisions, added genuine **PKCS#7 `SHA256withRSA` `index-v1.jar` verification** on Android 4.2 (`IndexUpdater.getSigningCertFromJar`), preserved `/data/local/arc7_tls_ca/` across app reinstalls so Zygote's trusted CA never drifts, and auto-cleared stale `< 1302` SQLite state on upgrade.
+          ### All 11 Major Upgrades in `v2.0.0`:
+          1. **Two-Way Chromebook <-> Kobo Arc 7 Wired USB Internet (`Arc7WiredInternetActivity` + `Start-Chromebook-Wired-Internet.sh`):**
+             - **Chromebook -> Kobo:** Works natively on Android 4.2 (`adbd` API 17 without `adb reverse`) via an `ARC7USB1` reverse-multiplexed TCP connection pool over `adb forward tcp:18880 tcp:18880` (`127.0.0.1:18881`) plus optional kernel `iptables` transparent NAT!
+             - **Kobo -> Chromebook:** Plug-and-play USB `RNDIS` Ethernet tethering (`rndis,adb`, `rndis0 = 192.168.42.129/24`, DHCP/DNS + `ip_forward` NAT) — zero setup required on ChromeOS!
+             - **USB-OTG Ethernet:** Auto-configures `eth0` via `dhcpcd` when a USB-Ethernet adapter is attached.
+          2. **Full Standalone Calendar App + Home Screen Widget (`Arc7CalendarActivity` + `Arc7CalendarWidgetProvider`):**
+             - Interactive Month Grid + Upcoming Agenda, screen-waking reminder chimes, Canadian/US holidays, color-coded categories, and `.ics` iCalendar import/export.
+          3. **Complete Everyday Productivity Suite (`Arc7CalculatorActivity`, `Arc7NotesActivity`, `Arc7FileManagerActivity`):**
+             - **Arc7 Calculator:** Scientific expression engine (`sin/cos/tan/ln/log/√/^/!`), clickable History Tape, & Live Unit Converter.
+             - **Arc7 Notes & Sketchpad:** Auto-saved Markdown notes, interactive tap-to-check checklists, finger/stylus color canvas, & `.md`/`.png` export.
+             - **Arc7 Files:** Internal + MicroSD + Root `/` explorer with Copy/Move/Rename, `.zip` create/extract, and smart dispatch to APK Installer, VLC, Photos, Audio, & Calendar.
+          4. **20 Alarm Chimes Downloaded from the Internet Archive (`archive.org`):**
+             - Real `.ogg` chimes downloaded & SHA-1 verified directly from `https://archive.org/download/...`, cached on `/sdcard/Arc7Freedom/chimes/`, with live `archive.org` audio search & per-alarm volume (`0%–100%`).
+          5. **Pre-Bundled VLC Media Player (`org.videolan.vlc`):**
+             - Official Android 4.2 ARMv7 `VLC.apk` bundled offline inside `KoboArc7Freedom.apk` & `Upgrade-My-Kobo-To-v2.0.0.apk` and auto-installed cleanly on upgrade.
+          6. **Custom Arc7 OS Skin Engine (`Arc7Skin` + `Arc7LauncherSkin`):**
+             - 5 selectable skins (*Obsidian Cyan*, *Midnight Emerald*, *Solaris Amber*, *Amethyst Dusk*, *E-Ink Frost*) across Launcher, dock, drawers, dialogs, and built-in apps.
+          7. **Reskinned High-DPI Icons Across All Default System & Built-In Apps:**
+             - 28 custom multi-DPI (`mdpi`/`hdpi`/`xhdpi`/`xxhdpi`) sculpted squircle icons replacing every dated 2013 stock Android 4.2 system icon (`Settings`, `Chrome`, `Browser`, `Downloads`, `Music`, `Gallery`, `Camera`, `Calculator`, `Calendar`, `Clock`, `Email`, `Contacts`, `Play Store`, `Kobo Books`, `VLC`, and all `Arc7` apps).
+          8. **Custom `Arc7 APK Installer` (`Arc7PackageInstallerActivity`):**
+             - Intercepts `.apk` installs system-wide (`application/vnd.android.package-archive`), audits `minSdkVersion`/`targetSdkVersion`/`DEX`/ABI & dangerous permissions, automatically repairs `v2/v3`-only APKs with a 4-byte-aligned `SHA1withRSA` JAR `v1` signature, and performs fast `/data/local/tmp/` root installs.
+          9. **Standalone `Arc7 Photos` Gallery & Photo Filter Studio (`Arc7PhotosActivity`):**
+             - Multi-album scanner across Internal Storage & MicroSD, pinch-to-zoom viewer, 7 live color filters, 90° rotate & flip, slideshow, 1-tap Home Wallpaper setter, and VLC video handoff.
+          10. **Hardware-Tuned `Arc7 Camera` App (`Arc7CameraActivity`):**
+              - Explicit `Camera.open(idx)` sensor handling for Kobo Arc 7 HD front camera & Arc 7HD dual sensors, HD Photo + `.mp4` Video recording, **Front Screen Flash**, 3s/10s Self-Timer, 3x3 Grid, & Color FX.
+          11. **Removed GitHub Pages Completely:**
+              - Removed `docs/`, all Pages workflow jobs/permissions, and all hosted Pages links across the entire repository; APKs and tools ship directly via GitHub Releases & `releases/`.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v1.9.1 >/dev/null 2>&1; then
-            gh release edit v1.9.1 --latest --title "Kobo Arc 7 Freedom v1.9.1 — Fixed Aurora Store APK Installs & Fixed F-Droid Certificates!" --notes-file /tmp/release-notes.md
-            gh release upload v1.9.1 \
-              releases/Upgrade-My-Kobo-To-v1.9.1.apk \
-              releases/Upgrade-My-Kobo-To-v1.9.0.apk \
+          if gh release view v2.0.0 >/dev/null 2>&1; then
+            gh release edit v2.0.0 --latest --title "Kobo Arc 7 Freedom v2.0.0 — Custom OS Skin, VLC, Photos, Camera, Calendar, Archive.org Chimes, Chromebook USB Internet & Custom APK Installer" --notes-file /tmp/release-notes.md
+            gh release upload v2.0.0 \
+              releases/Upgrade-My-Kobo-To-v2.0.0.apk \
               releases/KoboArc7Freedom.apk \
+              releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/Start-Chromebook-Wired-Internet.sh \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
               releases/Backup-Kobo-To-Laptop-ADB.sh \
               releases/Start-Kobo-WiFi-Server.bat \
@@ -161,13 +143,14 @@ jobs:
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v1.9.1 \
-              releases/Upgrade-My-Kobo-To-v1.9.1.apk \
-              releases/Upgrade-My-Kobo-To-v1.9.0.apk \
+            gh release create v2.0.0 \
+              releases/Upgrade-My-Kobo-To-v2.0.0.apk \
               releases/KoboArc7Freedom.apk \
+              releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/Start-Chromebook-Wired-Internet.sh \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
               releases/Backup-Kobo-To-Laptop-ADB.sh \
               releases/Start-Kobo-WiFi-Server.bat \
@@ -175,19 +158,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v1.9.1 — Fixed Aurora Store APK Installs & Fixed F-Droid Certificates!" \
+              --title "Kobo Arc 7 Freedom v2.0.0 — Custom OS Skin, VLC, Photos, Camera, Calendar, Archive.org Chimes, Chromebook USB Internet & Custom APK Installer" \
               --notes-file /tmp/release-notes.md
           fi
-
-  deploy-pages:
-    if: github.event_name != 'pull_request' && !contains(github.event.head_commit.message, '[skip ci]')
-    needs: build-and-verify
-    continue-on-error: true
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy Over-The-Air Rooting Website to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4

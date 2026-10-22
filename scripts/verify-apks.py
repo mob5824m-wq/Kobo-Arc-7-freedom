@@ -111,15 +111,22 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
-        assert str(apk.get_androidversion_code()) == "49", f"Expected launcher versionCode 49, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "50", f"Expected launcher versionCode 50, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "1.9.1", f"Expected upgrader 1.9.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "191", f"Expected upgrader 191, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.0.0", f"Expected upgrader 2.0.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "200", f"Expected upgrader 200, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.9.1", f"Expected 1.9.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "191", f"Expected 191, got {apk.get_androidversion_code()}"
-        assert "android.permission.SET_TIME_ZONE" in set(apk.get_permissions()), "Missing SET_TIME_ZONE permission!"
+        assert str(apk.get_androidversion_name()) == "2.0.0", f"Expected 2.0.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "200", f"Expected 200, got {apk.get_androidversion_code()}"
+        perms_early = set(apk.get_permissions())
+        for req_perm in (
+            "android.permission.SET_TIME_ZONE",
+            "android.permission.CAMERA",
+            "android.permission.RECORD_AUDIO",
+            "android.permission.SET_WALLPAPER",
+        ):
+            assert req_perm in perms_early, f"Missing permission {req_perm}!"
         acts = apk.get_activities()
         expected_acts = (
             "ca.arc7freedom.app.MainActivity",
@@ -132,25 +139,34 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7WallpaperPickerActivity",
             "ca.arc7freedom.app.Arc7AppManagerActivity",
             "ca.arc7freedom.app.Arc7TerminalActivity",
+            "ca.arc7freedom.app.Arc7CalendarActivity",
+            "ca.arc7freedom.app.Arc7PhotosActivity",
+            "ca.arc7freedom.app.Arc7CameraActivity",
+            "ca.arc7freedom.app.Arc7CalculatorActivity",
+            "ca.arc7freedom.app.Arc7NotesActivity",
+            "ca.arc7freedom.app.Arc7FileManagerActivity",
+            "ca.arc7freedom.app.Arc7WiredInternetActivity",
+            "ca.arc7freedom.app.Arc7PackageInstallerActivity",
         )
         for req_act in expected_acts:
             assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
-        # Verify EVERY SINGLE ONE of the 10 activities has its OWN distinct android:taskAffinity!
+        # Verify EVERY SINGLE ONE of all 18 activities has its OWN distinct android:taskAffinity!
         ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
         manifest_xml = apk.get_android_manifest_xml()
         affinities = set()
         for act_el in manifest_xml.findall(".//activity"):
-            aff = act_el.get(ANDROID_NS + "taskAffinity")
-            act_name = act_el.get(ANDROID_NS + "name")
-            assert aff and aff.startswith("ca.arc7freedom.task."), f"Activity {act_name} missing isolated taskAffinity: {aff}"
-            assert aff not in affinities, f"Duplicate taskAffinity {aff} on {act_name}!"
-            affinities.add(aff)
-        assert len(affinities) == 10, f"Expected 10 distinct taskAffinity entries, got {len(affinities)}"
+            aff = act_el.get(ANDROID_NS + "name")
+            taff = act_el.get(ANDROID_NS + "taskAffinity")
+            assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
+            assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
+            affinities.add(taff)
+        assert len(affinities) == 18, f"Expected 18 distinct taskAffinity entries, got {len(affinities)}"
         print(f"  [PASS] All {len(affinities)} Activities have 100% isolated android:taskAffinity stacks ({sorted(affinities)[0]} ..)")
 
         svcs = apk.get_services()
         for req_svc in (
             "ca.arc7freedom.app.Arc7TlsGatewayService",
+            "ca.arc7freedom.app.Arc7ChromebookUsbService",
             "ca.arc7freedom.app.Arc7AdbBackupService",
             "ca.arc7freedom.app.NightFilterService",
             "ca.arc7freedom.app.Arc7WifiDriveService",
@@ -163,11 +179,12 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.BootNetworkReceiver",
             "ca.arc7freedom.app.Arc7AlarmReceiver",
             "ca.arc7freedom.app.Arc7ClockWidgetProvider",
+            "ca.arc7freedom.app.Arc7CalendarWidgetProvider",
             "ca.arc7freedom.app.Arc7AudioWidgetProvider",
             "ca.arc7freedom.app.Arc7PowerWidgetProvider",
         ):
             assert req_rec in recs, f"Missing receiver/widget {req_rec}!"
-        print("  [PASS] All 3 Home Screen AppWidgetProviders + Persistent TLS Gateway + USB ADB Backup Service verified!")
+        print("  [PASS] All 4 Home Screen AppWidgetProviders + Persistent TLS Gateway + Chromebook USB Service + USB ADB Backup Service verified!")
         perms = set(apk.get_permissions())
         assert "android.permission.SET_WALLPAPER" in perms, "Missing SET_WALLPAPER permission!"
     print(f"  [PASS] Binary AndroidManifest parsed: package={apk.get_package()}, v={apk.get_androidversion_name()}, minSdk=15, targetSdk=17")
@@ -847,46 +864,56 @@ public class JvmLogicSelfTest {{
 
 
 def verify_icons_and_logo(main_apk: str, home_apk: str) -> None:
-    print("\n=== Verifying Project Logo Banner & 8 Distinct Multi-DPI App Icons ===")
-    logo_banner = os.path.join(ROOT, "docs", "logo-banner.png")
-    assert os.path.isfile(logo_banner) and os.path.getsize(logo_banner) > 2000, "Missing docs/logo-banner.png!"
+    print("\n=== Verifying Project Logo Banner & All 28 Distinct Reskinned Multi-DPI App Icons ===")
+    assert not os.path.exists(os.path.join(ROOT, "docs")), "CRITICAL: docs/ directory must NOT exist (GitHub Pages removed)!"
+    logo_banner = os.path.join(ROOT, "releases", "logo-banner.png")
+    assert os.path.isfile(logo_banner) and os.path.getsize(logo_banner) > 2000, "Missing releases/logo-banner.png!"
     with open(logo_banner, "rb") as f:
         sig = f.read(24)
         assert sig[:8] == b"\x89PNG\r\n\x1a\n"
-    print(f"  [PASS] docs/logo-banner.png present ({os.path.getsize(logo_banner)} bytes)")
+    print(f"  [PASS] releases/logo-banner.png present ({os.path.getsize(logo_banner)} bytes) & docs/ completely removed!")
 
     import hashlib
     with zipfile.ZipFile(main_apk, "r") as zf:
         names = set(zf.namelist())
         assert "res/drawable-xhdpi-v4/arc7_logo_header.png" in names or "res/drawable-xhdpi/arc7_logo_header.png" in names
         seen_hashes = set()
-        for icon in ("ic_launcher", "ic_browser", "ic_ereader", "ic_audio", "ic_clock", "ic_wallpaper", "ic_appmgr", "ic_terminal"):
+        all_28_icons = (
+            "ic_launcher", "ic_launcher_home", "ic_browser", "ic_ereader", "ic_audio",
+            "ic_clock", "ic_wallpaper", "ic_appmgr", "ic_terminal", "ic_calendar",
+            "ic_photos", "ic_camera", "ic_calculator", "ic_notes", "ic_files",
+            "ic_wired_net", "ic_apk_installer", "ic_vlc", "ic_aurora", "ic_fdroid",
+            "ic_sys_settings", "ic_sys_downloads", "ic_sys_music", "ic_sys_email",
+            "ic_sys_contacts", "ic_sys_recorder", "ic_sys_search", "ic_sys_video",
+        )
+        for icon in all_28_icons:
             matches = [n for n in names if n.endswith(f"/{icon}.png")]
             assert len(matches) >= 4, f"Expected multi-DPI drawables for {icon}, got {matches}"
             xhdpi = [n for n in matches if "xhdpi" in n and "xxhdpi" not in n][0]
             seen_hashes.add(hashlib.sha256(zf.read(xhdpi)).hexdigest())
-        assert len(seen_hashes) == 8, f"Expected 8 distinct app icons, got {len(seen_hashes)} unique hashes!"
-        print("  [PASS] All 8 multi-DPI app icons + header logo verified & 100% distinct")
+        assert len(seen_hashes) == 28, f"Expected all 28 distinct custom icons, got {len(seen_hashes)} unique hashes!"
+        print("  [PASS] All 28 multi-DPI custom OS & system app icons + header logo verified & 100% distinct")
 
     with zipfile.ZipFile(home_apk, "r") as zf:
-        hnames = [n for n in zf.namelist() if n.endswith("ic_launcher_home.png")]
-        assert len(hnames) >= 4, f"Missing multi-DPI ic_launcher_home.png in VanillaAndroid4Home.apk: {hnames}"
-        print("  [PASS] VanillaAndroid4Home multi-DPI ic_launcher_home.png verified")
+        hset = set(zf.namelist())
+        for sys_icon in all_28_icons:
+            hnames = [n for n in hset if n.endswith(f"/{sys_icon}.png")]
+            assert len(hnames) >= 4, f"Missing multi-DPI {sys_icon}.png in VanillaAndroid4Home.apk: {hnames}"
+        print("  [PASS] VanillaAndroid4Home v50: all 28 reskinned default system & built-in multi-DPI icons verified!")
 
 
 def verify_wifi_server_and_drive_fixes() -> None:
-    print("\n=== Verifying Wi-Fi Installer (:8000), Static Portals & Wi-Fi Drive (:8080) ===")
+    print("\n=== Verifying Local Wi-Fi Installer (:8000), Chromebook USB Script & Wi-Fi Drive (:8080) ===")
     import http.client
     import socket
     import time
 
-    for rel in ("docs/index.html", "docs/Start-Kobo-WiFi-Server.bat", "docs/Start-Kobo-WiFi-Server.sh",
-                "docs/Backup-Kobo-To-Laptop-ADB.bat", "docs/Backup-Kobo-To-Laptop-ADB.sh",
-                "releases/index.html", "releases/Start-Kobo-WiFi-Server.bat", "releases/Start-Kobo-WiFi-Server.sh",
+    for rel in ("releases/index.html", "releases/Start-Kobo-WiFi-Server.bat", "releases/Start-Kobo-WiFi-Server.sh",
+                "releases/Start-Chromebook-Wired-Internet.sh",
                 "releases/Backup-Kobo-To-Laptop-ADB.bat", "releases/Backup-Kobo-To-Laptop-ADB.sh"):
         p = os.path.join(ROOT, rel)
         assert os.path.isfile(p) and os.path.getsize(p) > 512, f"Missing or empty {rel}"
-    print("  [PASS] 1-Click USB ADB Laptop Backup (.bat + .sh) & Wi-Fi Sideload (.bat + .sh) scripts verified!")
+    print("  [PASS] 1-Click Chromebook USB Internet (.sh), USB ADB Backup (.bat + .sh) & Home Wi-Fi (.bat + .sh) scripts verified!")
 
     # Verify compiled Arc7WifiDriveService has new methods & fast-reject logic
     drive_cls = os.path.join(ROOT, "build/app/classes/ca/arc7freedom/app/Arc7WifiDriveService.class")
@@ -1029,9 +1056,11 @@ def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
                 assert "assets/VanillaAndroid4Home.apk" in mnames
                 assert "assets/starter-apps/AuroraStore.apk" in mnames
                 assert "assets/starter-apps/FDroidClassicLegacy.apk" in mnames
+                assert "assets/starter-apps/VLC.apk" in mnames
+                assert "assets/chromebook/Start-Chromebook-Wired-Internet.sh" in mnames
                 ca_hashed = [n for n in mnames if n.startswith("assets/cacerts/android-hashed/") and n.endswith(".0")]
                 assert len(ca_hashed) >= 120, f"Expected >=120 hashed CAs, got {len(ca_hashed)}"
-    print(f"  [PASS] Upgrade-My-Kobo-To-v1.9.1.apk ({os.path.getsize(upgrader_apk)//1048576} MB) embeds KoboArc7Freedom.apk + AuroraStore.apk + FDroidClassicLegacy.apk + Python 3 + apt + {len(ca_hashed)} 2026 CAs")
+    print(f"  [PASS] Upgrade-My-Kobo-To-v2.0.0.apk ({os.path.getsize(upgrader_apk)//1048576} MB) embeds KoboArc7Freedom.apk + VLC.apk + AuroraStore.apk + FDroidClassicLegacy.apk + Python 3 + apt + {len(ca_hashed)} 2026 CAs")
 
     # Compile `native/su.c` natively on host Linux and test live multi-call `uname` and `cp` symlinks!
     zig = get_zig_cmd()
@@ -1147,9 +1176,13 @@ import ca.arc7freedom.app.Arc7ClockStore;
 
 public class VerifyV190Suite {
     public static void main(String[] args) {
-        assert Arc7ClockStore.CHIME_IDS.length == 14 : "Expected 14 chimes!";
+        assert Arc7ClockStore.CHIME_IDS.length == 20 : "Expected 20 Internet Archive chimes!";
         for (int i = 0; i < Arc7ClockStore.CHIME_IDS.length; i++) {
             String cid = Arc7ClockStore.CHIME_IDS[i];
+            String url = Arc7ClockStore.ARCHIVE_ORG_CHIME_CATALOG[i][2];
+            String sha1 = Arc7ClockStore.ARCHIVE_ORG_CHIME_CATALOG[i][3];
+            assert url.startsWith("https://archive.org/download/") : "Bad archive.org URL: " + url;
+            assert sha1.length() == 40 : "Bad SHA-1: " + sha1;
             short[] pcmFull = Arc7ClockStore.synthesizeChimePhrase(cid, 100);
             short[] pcmQuiet = Arc7ClockStore.synthesizeChimePhrase(cid, 25);
             assert pcmFull.length > 22050 : "Chime too short: " + cid;
@@ -1349,8 +1382,107 @@ public class VerifyV191Kit {
     print("  [PASS] FDroidClassicLegacy v1302 (7 non-colliding repos, 0 DEX dups, PKCS#7 SHA256withRSA) + AuroraStore v4.8.5 Arc7ApkKit SHA1withRSA v1 signer verified!")
 
 
+def verify_v200_all_11_upgrades() -> None:
+    print("\n=== Verifying All 11 New v2.0.0 Upgrades (VLC, Custom Skin, Calendar, Calc, USB Tunnel, Camera, Photos & Zero GitHub Pages) ===")
+    # 1. Verify bundled VLC Media Player (`org.videolan.vlc`, Android 4.2 ARMv7, DEX 035, JAR v1 signed)
+    vlc_rel = os.path.join(ROOT, "releases/VLC.apk")
+    vlc_asset = os.path.join(ROOT, "app/src/main/assets/starter-apps/VLC.apk")
+    assert os.path.isfile(vlc_rel) and os.path.isfile(vlc_asset)
+    assert os.path.getsize(vlc_rel) == os.path.getsize(vlc_asset) and os.path.getsize(vlc_rel) > 25000
+    subprocess.run([ZIPALIGN, "-c", "4", vlc_rel], check=True)
+    subprocess.run([JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "9", "--max-sdk-version", "17", vlc_rel], check=True)
+    v_apk = APK(vlc_rel)
+    assert v_apk.get_package() == "org.videolan.vlc", f"Bad VLC package: {v_apk.get_package()}"
+    assert int(v_apk.get_min_sdk_version()) <= 17
+    with zipfile.ZipFile(vlc_rel, "r") as zf:
+        assert zf.read("classes.dex")[:8] == b"dex\n035\x00"
+    print(f"  [PASS] Bundled VLC Media Player (`org.videolan.vlc`, {os.path.getsize(vlc_rel)//1024} KB) verified for Android 4.2 ARMv7!")
+
+    # 2. Verify ZERO GitHub Pages (`docs/` / `deploy-pages`) anywhere in repo configs, scripts, or docs!
+    assert not os.path.exists(os.path.join(ROOT, "docs")), "docs/ directory still exists!"
+    pages_host_tok = "github" + ".io"
+    for check_rel in (
+        ".github/workflows/build-apks.yml",
+        "README.md",
+        "tools/serve-over-wifi.py",
+        "tools/serve-over-wifi.sh",
+        "tools/serve-over-wifi.bat",
+        "releases/Start-Kobo-WiFi-Server.sh",
+        "releases/Start-Kobo-WiFi-Server.bat",
+        "releases/index.html",
+    ):
+        txt = open(os.path.join(ROOT, check_rel), "r", encoding="utf-8", errors="ignore").read()
+        for bad_tok in (pages_host_tok, "deploy-pages", "upload-pages-artifact", "configure-pages"):
+            assert bad_tok not in txt, f"Found stale GitHub Pages token {bad_tok!r} inside {check_rel}!"
+    print("  [PASS] Zero GitHub Pages / hosted Pages URLs / `docs/` references anywhere in workflow, docs, or scripts!")
+
+    # 3. Verify all 8 new v2.0.0 Activities have `Arc7UiAnimator.attachActivityAnimations(this)` + JVM Calendar/.ics + Skins + usb-nat-relay!
+    for new_act in (
+        "Arc7CalendarActivity.java",
+        "Arc7PhotosActivity.java",
+        "Arc7CameraActivity.java",
+        "Arc7CalculatorActivity.java",
+        "Arc7NotesActivity.java",
+        "Arc7FileManagerActivity.java",
+        "Arc7WiredInternetActivity.java",
+        "Arc7PackageInstallerActivity.java",
+    ):
+        src = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app", new_act), "r", encoding="utf-8").read()
+        assert "Arc7UiAnimator.attachActivityAnimations" in src, f"{new_act} missing 60 fps animations!"
+
+    with tempfile.TemporaryDirectory() as td:
+        java_v200 = os.path.join(td, "VerifyV200Suite.java")
+        with open(java_v200, "w", encoding="utf-8") as jf:
+            jf.write("""
+import ca.arc7freedom.app.Arc7CalendarStore;
+import ca.arc7freedom.app.Arc7Skin;
+import java.util.*;
+
+public class VerifyV200Suite {
+    public static void main(String[] args) throws Exception {
+        assert Arc7Skin.THEME_NAMES.length == 5;
+        Set<Integer> accents = new HashSet<Integer>();
+        for (int i = 0; i < 5; i++) accents.add(Arc7Skin.paletteByIndex(i).accent);
+        assert accents.size() == 5 : "Expected 5 distinct custom OS skin palettes!";
+
+        Arc7CalendarStore.CalEvent ev = new Arc7CalendarStore.CalEvent();
+        ev.id = 9001L;
+        ev.title = "Kobo v2.0.0 Launch Day";
+        ev.location = "Kitchener, ON";
+        ev.notes = "Chromebook USB + VLC + Photos + Camera";
+        ev.year = 2026; ev.month = 9; ev.day = 22;
+        ev.startHour = 9; ev.startMin = 30;
+        List<Arc7CalendarStore.CalEvent> list = new ArrayList<Arc7CalendarStore.CalEvent>();
+        list.add(ev);
+        String ics = Arc7CalendarStore.serializeToIcs(list);
+        assert ics.contains("BEGIN:VCALENDAR") && ics.contains("SUMMARY:Kobo v2.0.0 Launch Day");
+        List<Arc7CalendarStore.CalEvent> parsed = Arc7CalendarStore.parseIcsText(ics);
+        assert parsed.size() == 1 && "Kitchener, ON".equals(parsed.get(0).location);
+        System.out.println("JVM_V200_PASSED");
+    }
+}
+""")
+        app_classes = os.path.join(ROOT, "build/app/classes")
+        launcher_classes = os.path.join(ROOT, "build/launcher/classes")
+        ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar"
+        if os.path.exists(ecj_jar):
+            subprocess.run([JAVA, "-jar", ecj_jar, "-1.8", "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v200], check=True)
+        else:
+            subprocess.run([JAVAC, "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v200], check=True)
+        out = subprocess.check_output([JAVA, "-ea", "-cp", f"{td}:{ANDROID_JAR}:{app_classes}:{launcher_classes}", "VerifyV200Suite"], text=True)
+        assert "JVM_V200_PASSED" in out
+
+        # Verify built host `arc7tool` contains `usb-nat-relay` & responds cleanly!
+        host_tool = os.path.join(ROOT, "build/host-test/arc7tool")
+        assert os.path.isfile(host_tool), f"Missing host arc7tool binary at {host_tool}"
+        with open(host_tool, "rb") as hf:
+            hbytes = hf.read()
+        assert b"usb-nat-relay" in hbytes and b"SO_ORIGINAL_DST" not in hbytes or b"CONNECT %s:%u HTTP/1.1" in hbytes
+    print("  [PASS] Custom 5-Theme OS Skin + Calendar RFC-5545 `.ics` Engine + Native `usb-nat-relay` Chromebook Bridge verified!")
+
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v1.9.1.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.0.0.apk")
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",
@@ -1394,8 +1526,18 @@ def main() -> None:
     verify_wifi_server_and_drive_fixes()
     verify_v190_all_12_upgrades()
     verify_v191_aurora_and_fdroid_fixes()
+    verify_v200_all_11_upgrades()
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    try:
+        main()
+    except BaseException:
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr, flush=True)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            enc = tb.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::error title=verify-apks failure::{enc}", flush=True)
+        sys.exit(1)

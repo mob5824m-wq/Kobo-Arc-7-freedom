@@ -37,6 +37,7 @@ public class TabletOptimizerManager {
     public static final String KEY_BIND_SD_BOOT = "bind_sd_folders_on_boot";
     public static final String FDROID_ASSET = "starter-apps/FDroidClassicLegacy.apk";
     public static final String AURORA_ASSET = "starter-apps/AuroraStore.apk";
+    public static final String VLC_ASSET = "starter-apps/VLC.apk";
 
     private static final String[] HEAVY_MEDIA_DIRS = {
         "Download", "Books", "Movies", "Music", "DCIM"
@@ -342,6 +343,64 @@ public class TabletOptimizerManager {
     }
 
     /**
+     * Installs our pre-bundled offline **VLC Media Player** (`org.videolan.vlc`, Android 4.2 ARMv7)
+     * cleanly via `/data/local/tmp/vlc_arc7.apk` (`pm install -r`), or via `Arc7PackageInstallerActivity`.
+     */
+    public boolean installBundledVlcMediaPlayer(LogSink log) {
+        if (log != null) {
+            log.onLog("=== Installing Bundled VLC Media Player (`org.videolan.vlc` — MKV / MP4 / FLAC / Network Streams) ===");
+        }
+        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
+        if (!outDir.exists()) outDir.mkdirs();
+        File outApk = new File(outDir, "VLC.apk");
+
+        InputStream in = null;
+        FileOutputStream fos = null;
+        try {
+            in = ctx.getAssets().open(VLC_ASSET);
+            fos = new FileOutputStream(outApk);
+            byte[] buf = new byte[65536];
+            int r;
+            long total = 0;
+            while ((r = in.read(buf)) > 0) {
+                fos.write(buf, 0, r);
+                total += r;
+            }
+            fos.flush();
+            if (log != null) {
+                log.onLog("Extracted bundled VLC.apk (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
+            }
+        } catch (Throwable t) {
+            if (log != null) log.onLog("ERROR extracting bundled VLC.apk: " + t.getMessage());
+            return false;
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
+        }
+
+        if (shell.isRootAvailable()) {
+            String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
+            RootShell.ExecResult pm = shell.execRoot(
+                    "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/vlc_arc7.apk" +
+                    " && chmod 0644 /data/local/tmp/vlc_arc7.apk" +
+                    " && (pm install -r /data/local/tmp/vlc_arc7.apk 2>&1" +
+                    " || (pm uninstall org.videolan.vlc 2>/dev/null || true; pm install -r /data/local/tmp/vlc_arc7.apk 2>&1))" +
+                    "; rm -f /data/local/tmp/vlc_arc7.apk 2>/dev/null || true",
+                    null);
+            if (log != null) log.onLog(pm.stdout.trim());
+            if (pm.stdout.contains("Success")) {
+                if (log != null) log.onLog("SUCCESS: VLC Media Player (`org.videolan.vlc`) installed!");
+                return true;
+            }
+        }
+        Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
+        prompt.setData(Uri.fromFile(outApk));
+        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(prompt);
+        return true;
+    }
+
+    /**
      * Installs native ARMv7 `python3`, `python`, `apt`, `apt-get`, `apt-cache`, & `arc7tls`
      * system-wide into `/system/xbin/` + `/data/local/arc7linux/` immediately AND runs a quiet
      * background online `apt update && apt install -y python3 py3-pip curl nano` over Wi-Fi!
@@ -494,7 +553,7 @@ public class TabletOptimizerManager {
                 homeVer = ctx.getPackageManager()
                         .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
             } catch (Throwable ignored) {}
-            if (homeVer < 49) {
+            if (homeVer < 50) {
                 File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
                 InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
                 FileOutputStream fos = new FileOutputStream(tmpHome);
@@ -548,6 +607,16 @@ public class TabletOptimizerManager {
             } catch (Throwable ignored) {}
             if (auroraVer < 485) {
                 installBundledAuroraStore(null);
+            }
+
+            // 2b. Automatically install bundled VLC Media Player (`org.videolan.vlc`) if not yet installed!
+            boolean vlcInstalled = false;
+            try {
+                vlcInstalled = ctx.getPackageManager()
+                        .getPackageInfo("org.videolan.vlc", 0) != null;
+            } catch (Throwable ignored) {}
+            if (!vlcInstalled) {
+                installBundledVlcMediaPlayer(null);
             }
 
             // 3. Automatically install native ARMv7 `python3` + `apt` + kick off background `apt` sync!

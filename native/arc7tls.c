@@ -853,16 +853,73 @@ static int arc7_resolve_ipv4_list(const char *host, uint32_t out_addrs[4], int *
     return -1;
 }
 
+static int arc7_connect_via_chromebook_usb(const char *host, int port_num) {
+    if (!host || !host[0] || strcasecmp(host, "localhost") == 0 || strcmp(host, "127.0.0.1") == 0) {
+        return -1;
+    }
+    int proxy_port = 18881;
+    const char *env_p = getenv("ARC7_USB_PROXY_PORT");
+    if (env_p && atoi(env_p) > 0) proxy_port = atoi(env_p);
+
+    struct in_addr lo;
+    if (inet_pton(AF_INET, "127.0.0.1", &lo) != 1) return -1;
+    int fd = connect_ipv4_raw_ms(lo.s_addr, (uint16_t)proxy_port, 350);
+    if (fd < 0) return -1;
+
+    struct timeval tv = { .tv_sec = 12, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    char req[640];
+    int rlen = snprintf(req, sizeof(req),
+                        "CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n",
+                        host, port_num, host, port_num);
+    if (send(fd, req, (size_t)rlen, MSG_NOSIGNAL) != (ssize_t)rlen) {
+        close(fd);
+        return -1;
+    }
+
+    char hdr[1024];
+    size_t used = 0;
+    while (used + 1 < sizeof(hdr)) {
+        ssize_t n = recv(fd, hdr + used, 1, 0);
+        if (n <= 0) {
+            close(fd);
+            return -1;
+        }
+        used += (size_t)n;
+        hdr[used] = '\0';
+        if (used >= 4 && strcmp(hdr + used - 4, "\r\n\r\n") == 0) {
+            break;
+        }
+    }
+    if (strncmp(hdr, "HTTP/1.1 200", 12) == 0 || strncmp(hdr, "HTTP/1.0 200", 12) == 0) {
+        return fd;
+    }
+    close(fd);
+    return -1;
+}
+
 static int arc7_tcp_connect_host(const char *host, const char *port_str, int timeout_ms,
                                  char *err_buf, size_t err_cap) {
     int port_num = atoi(port_str ? port_str : "443");
     if (port_num <= 0 || port_num > 65535) port_num = 443;
 
+    /* Fast path: if Chromebook Wired USB Internet tunnel is active, tunnel straight over USB! */
+    if (getenv("ARC7_USB_PROXY_PORT") != NULL ||
+        access("/data/local/tmp/arc7_usb_net_active", F_OK) == 0) {
+        int ufd = arc7_connect_via_chromebook_usb(host, port_num);
+        if (ufd >= 0) return ufd;
+    }
+
     uint32_t addrs[4];
     int cnt = 0;
     if (arc7_resolve_ipv4_list(host, addrs, &cnt) != 0 || cnt <= 0) {
+        /* Automatic fallback to Chromebook USB Internet tunnel even if flag file wasn't set */
+        int ufd = arc7_connect_via_chromebook_usb(host, port_num);
+        if (ufd >= 0) return ufd;
         if (err_buf && err_cap > 0) {
-            snprintf(err_buf, err_cap, "DNS lookup could not resolve hostname '%s' (check Wi-Fi internet connection)", host);
+            snprintf(err_buf, err_cap, "DNS lookup could not resolve hostname '%s' (check Wi-Fi or Chromebook USB connection)", host);
         }
         return -1;
     }
@@ -870,6 +927,12 @@ static int arc7_tcp_connect_host(const char *host, const char *port_str, int tim
     for (int i = 0; i < cnt; i++) {
         int fd = connect_ipv4_raw_ms(addrs[i], (uint16_t)port_num, timeout_ms);
         if (fd >= 0) return fd;
+    }
+
+    /* Final automatic fallback via Chromebook USB tunnel if local Wi-Fi has no WAN route */
+    {
+        int ufd = arc7_connect_via_chromebook_usb(host, port_num);
+        if (ufd >= 0) return ufd;
     }
 
     char ip_str[INET_ADDRSTRLEN] = {0};

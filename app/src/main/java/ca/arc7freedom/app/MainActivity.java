@@ -37,17 +37,17 @@ import java.util.Map;
  */
 public class MainActivity extends Activity {
 
-    private static final int BG_PAGE       = 0xFF0E1319;
-    private static final int BG_SURFACE    = 0xFF161E28;
-    private static final int BG_ELEVATED   = 0xFF1F2A38;
-    private static final int BORDER_SUBTLE = 0xFF2B394B;
-    private static final int ACCENT_CYAN   = 0xFF33B5E5;
-    private static final int ACCENT_DARK   = 0xFF0284C7;
+    private int BG_PAGE       = 0xFF0E1319;
+    private int BG_SURFACE    = 0xFF161E28;
+    private int BG_ELEVATED   = 0xFF1F2A38;
+    private int BORDER_SUBTLE = 0xFF2B394B;
+    private int ACCENT_CYAN   = 0xFF33B5E5;
+    private int ACCENT_DARK   = 0xFF0284C7;
     private static final int STATUS_OK     = 0xFF10B981;
     private static final int STATUS_WARN   = 0xFFF59E0B;
     private static final int STATUS_ERR    = 0xFFEF4444;
-    private static final int TEXT_PRIMARY  = 0xFFF1F5F9;
-    private static final int TEXT_MUTED    = 0xFF94A3B8;
+    private int TEXT_PRIMARY  = 0xFFF1F5F9;
+    private int TEXT_MUTED    = 0xFF94A3B8;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private RootShell rootShell;
@@ -107,12 +107,24 @@ public class MainActivity extends Activity {
         android4Installer = new Android4Installer(this, rootShell, backupManager);
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
+        Arc7Skin.Palette skin = Arc7Skin.current(this);
+        BG_PAGE = skin.bgPage;
+        BG_SURFACE = skin.surface;
+        BG_ELEVATED = skin.elevated;
+        BORDER_SUBTLE = skin.border;
+        ACCENT_CYAN = skin.accentLight;
+        ACCENT_DARK = skin.accent;
+        TEXT_PRIMARY = skin.textPrimary;
+        TEXT_MUTED = skin.textMuted;
+
         buildRootLayout();
 
-        // Keep 24/7 Local TLS 1.3 Gateway (:8118 for Chrome + F-Droid Index) AND
-        // Direct USB ADB Laptop Backup Server (:18777, 0 MB tablet space) warm automatically!
+        // Keep 24/7 Local TLS 1.3 Gateway (:8118), Chromebook Wired USB Tunnel (:18880),
+        // AND Direct USB ADB Laptop Backup Server (:18777, 0 MB tablet space) warm automatically!
         Arc7TlsGatewayService.ensureStarted(this);
+        Arc7ChromebookUsbService.ensureStarted(this);
         Arc7AdbBackupService.ensureStarted(this);
+        Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -145,12 +157,13 @@ public class MainActivity extends Activity {
                                 @Override public void onLog(String line) { appendLog(line); }
                             });
                     optimizerManager.ensureCompanionAppsUpgradedSilently();
+                    Arc7ClockStore.autoSyncInternetArchiveChimes(MainActivity.this, null);
                 } catch (Throwable ignored) {}
             }
         }).start();
 
-        appendLog("Kobo Arc 7 Freedom v1.9.1 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", Auto Local Timezone + Atomic Clock + Aurora Store + Python 3 + apt + Long-Press Widgets + 12h/Apple+Android Chimes + Per-Alarm Volume + Smooth UI Animations).");
+        appendLog("Kobo Arc 7 Freedom v2.0.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Custom Arc7 OS Skin + Reskinned Icons + Chromebook Wired USB Internet + Bundled VLC + Calendar + Photos + Camera + Calculator + Notes + Files + Archive.org Chimes + Custom APK Installer).");
         refreshDeviceSnapshotAsync();
     }
 
@@ -202,7 +215,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.9.1");
+        title.setText("Kobo Arc 7 Freedom  v2.0.0");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -224,6 +237,24 @@ public class MainActivity extends Activity {
         rootStatusPill.setPadding(dp(10), dp(5), dp(10), dp(5));
         setBg(rootStatusPill, box(BG_ELEVATED, BORDER_SUBTLE, 1, 12));
         topBar.addView(rootStatusPill);
+
+        Button skinBtn = makePrimaryButton("Arc7 Skin");
+        LinearLayout.LayoutParams sklp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        sklp.leftMargin = dp(8);
+        skinBtn.setPadding(dp(12), 0, dp(12), 0);
+        skinBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7Skin.showThemePickerDialog(MainActivity.this, new Runnable() {
+                    @Override
+                    public void run() {
+                        recreate();
+                    }
+                });
+            }
+        });
+        topBar.addView(skinBtn, sklp);
 
         Button refreshBtn = makeSecondaryButton("Refresh");
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
@@ -966,10 +997,95 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete 7-App Freedom Suite (F-Droid + E-Reader/70k Books/.CBZ + Audio + Desk Clock + App Manager + Terminal)
+        // Card 1: Complete v2.0.0 OS App Suite (VLC + Calendar + Photos + Camera + Calc + Notes + Files + USB Net + Custom APK Installer)
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Complete Android 4.2 App, Reader, Audio & Smart Display Suite",
-                "All built natively into this single APK and available right in your Android App Drawer!");
+        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.0.0 Daily-Driver App & Media Suite",
+                "Every single app has its own isolated task, custom Arc7 OS Skin, and high-DPI icon right in your App Drawer!");
+
+        addToolActionRow(packCard, "Chromebook <-> Kobo Wired USB Internet (Both Directions!)",
+                "Share your Chromebook's internet to Kobo over USB OR plug-and-play USB Ethernet tether Kobo -> Chromebook!",
+                "USB Internet", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7WiredInternetActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open / Install Bundled VLC Media Player (`org.videolan.vlc`)",
+                "Plays MKV, MP4, AVI, WebM, FLAC, OGG, subtitles & LAN/HTTP streams offline on Android 4.2 ARMv7!",
+                "VLC Player", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        Intent launch = getPackageManager().getLaunchIntentForPackage("org.videolan.vlc");
+                        if (launch != null) {
+                            launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            Arc7UiAnimator.startAnimated(MainActivity.this, launch);
+                        } else {
+                            new Thread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    optimizerManager.installBundledVlcMediaPlayer(new TabletOptimizerManager.LogSink() {
+                                        @Override public void onLog(String line) { appendLog(line); }
+                                    });
+                                }
+                            }).start();
+                        }
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Calendar — Month View, Reminders, Holidays & .ics Sync",
+                "Full Calendar with wake-screen chime reminders, color tags, Home Screen Widget, and `.ics` import/export!",
+                "Open Calendar", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7CalendarActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Photos — Pinch-to-Zoom Gallery & Photo Filter Studio",
+                "Fast multi-album thumbnail gallery + 7 Live Filters, Rotate/Flip, Slideshow, Wallpaper & VLC video launch!",
+                "Open Photos", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7PhotosActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Camera — HD Photos, MP4 Video & Front Screen Flash",
+                "Hardware-tuned for Kobo Arc 7 HD sensor with Front Screen Flash, 3s/10s Self-Timer, Grid & Color FX!",
+                "Open Camera", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7CameraActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Calculator — Scientific Engine + Live Unit Converter",
+                "Full scientific calculator (`sin/cos/tan/ln/log/√/^/!`), clickable History Tape, and Unit Converter!",
+                "Calculator", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7CalculatorActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Notes — Markdown Notes, Checklists & Color Sketchpad",
+                "Two-pane tablet notebook with interactive checkboxes, stylus/finger color canvas, and `.md`/`.png` export!",
+                "Open Notes", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7NotesActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Files — Internal, MicroSD & ZIP Explorer",
+                "Full file manager with Copy/Move/Rename, `.zip` create/extract, and 1-tap APK / VLC / Photos launch!",
+                "Open Files", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7FileManagerActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Custom Arc7 APK Installer (Manifest Audit + Auto v1 Signer)",
+                "Inspects package metadata & permissions, auto-re-signs modern v2/v3 APKs with SHA1withRSA, & root-installs!",
+                "APK Installer", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7PackageInstallerActivity.class));
+                    }
+                });
 
         addToolActionRow(packCard, "Open / Install Bundled Aurora Store (`com.aurora.store` — Play Store Client)",
                 "Auto-installed for Android 4.2 + TLS 1.3! Search, download & install Play Store apps directly on Kobo Arc 7.",

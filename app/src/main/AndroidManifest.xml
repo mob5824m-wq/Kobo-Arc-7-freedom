@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="191"
-    android:versionName="1.9.1"
+    android:versionCode="200"
+    android:versionName="2.0.0"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -10,17 +10,25 @@
         android:minSdkVersion="15"
         android:targetSdkVersion="17" />
 
-    <!-- Required for downloading modern CA certs, F-Droid index, Wi-Fi File Server, USB ADB Backup & NTP clock sync -->
+    <!-- Optional hardware declarations so Kobo Arc 7 (front-camera-only) & Arc 7HD install cleanly -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Network, Chromebook Wired USB, Wi-Fi Drive, CA Certs & Atomic NTP Clock Sync -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- Required for full-partition unbrick backup, ROM zip extraction, EPUBs, Music, & SDXC formatting -->
+    <!-- Storage, Camera, HD Video Audio, Wallpapers, Alarms & Boot -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-
-    <!-- Required so Wi-Fi Drive, Audio Player, Alarms, USB Backup & TLS 1.3 Proxy work uninterrupted -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.SET_TIME_ZONE" />
@@ -38,7 +46,7 @@
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
 
-        <!-- 1. Main Kobo Arc 7 Freedom OS / Root / Backup / Wi-Fi Suite (OWN TASK!) -->
+        <!-- 1. Main Kobo Arc 7 Freedom OS / Custom Skin / Root / Backup / Wi-Fi Suite (OWN TASK!) -->
         <activity
             android:name=".MainActivity"
             android:label="Kobo Arc 7 Freedom"
@@ -122,7 +130,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 5. Standalone `Arc7 Clock` (Alarms, World Clock, Timer, Stopwatch — OWN TASK!) -->
+        <!-- 5. Standalone `Arc7 Clock` (Internet Archive Chimes, World Clock, Timer, Stopwatch — OWN TASK!) -->
         <activity
             android:name=".Arc7ClockActivity"
             android:label="Arc7 Clock"
@@ -148,7 +156,7 @@
             android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen"
             android:exported="true" />
 
-        <!-- 7. Full-Screen Wake-Screen Alarm Alert (Dismiss / Snooze — OWN TASK!) -->
+        <!-- 7. Full-Screen Wake-Screen Alarm & Calendar Alert (Dismiss / Snooze — OWN TASK!) -->
         <activity
             android:name=".Arc7AlarmAlertActivity"
             android:label="Arc7 Alarm"
@@ -211,8 +219,154 @@
             </intent-filter>
         </activity>
 
+        <!-- 11. NEW `Arc7 Calendar` App (Month + Agenda + Reminders + .ics Sync — OWN TASK!) -->
+        <activity
+            android:name=".Arc7CalendarActivity"
+            android:label="Arc7 Calendar"
+            android:icon="@drawable/ic_calendar"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.calendar"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/calendar" />
+            </intent-filter>
+        </activity>
+
+        <!-- 12. NEW `Arc7 Photos` Gallery & Photo Filter Studio (OWN TASK!) -->
+        <activity
+            android:name=".Arc7PhotosActivity"
+            android:label="Arc7 Photos"
+            android:icon="@drawable/ic_photos"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.photos"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity>
+
+        <!-- 13. NEW `Arc7 Camera` HD Photo & Video Studio with Front Screen Flash (OWN TASK!) -->
+        <activity
+            android:name=".Arc7CameraActivity"
+            android:label="Arc7 Camera"
+            android:icon="@drawable/ic_camera"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.camera"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.media.action.IMAGE_CAPTURE" />
+                <action android:name="android.media.action.VIDEO_CAPTURE" />
+                <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- 14. NEW `Arc7 Calculator` Scientific Calculator & Unit Converter (OWN TASK!) -->
+        <activity
+            android:name=".Arc7CalculatorActivity"
+            android:label="Arc7 Calculator"
+            android:icon="@drawable/ic_calculator"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.calc"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 15. NEW `Arc7 Notes` Notes, Checklists & Color Sketchpad (OWN TASK!) -->
+        <activity
+            android:name=".Arc7NotesActivity"
+            android:label="Arc7 Notes"
+            android:icon="@drawable/ic_notes"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.notes"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 16. NEW `Arc7 Files` Internal, MicroSD & ZIP Explorer (OWN TASK!) -->
+        <activity
+            android:name=".Arc7FileManagerActivity"
+            android:label="Arc7 Files"
+            android:icon="@drawable/ic_files"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.files"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 17. NEW `Chromebook USB Net` Two-Way Wired Internet Control Center (OWN TASK!) -->
+        <activity
+            android:name=".Arc7WiredInternetActivity"
+            android:label="Chromebook USB Net"
+            android:icon="@drawable/ic_wired_net"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.usbnet"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 18. NEW Custom `Arc7 APK Installer` (Manifest Audit + Auto JAR v1 Signer + Fast Root Install!) -->
+        <activity
+            android:name=".Arc7PackageInstallerActivity"
+            android:label="Arc7 APK Installer"
+            android:icon="@drawable/ic_apk_installer"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.apkinstaller"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.INSTALL_PACKAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+        </activity>
+
         <!-- Persistent Background Services -->
         <service android:name=".Arc7TlsGatewayService" android:exported="true" />
+        <service android:name=".Arc7ChromebookUsbService" android:exported="true" />
         <service android:name=".Arc7AdbBackupService" android:exported="true" />
         <service android:name=".NightFilterService" android:exported="false" />
         <service android:name=".Arc7WifiDriveService" android:exported="false" />
@@ -231,6 +385,19 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_arc7_clock_info" />
+        </receiver>
+
+        <receiver
+            android:name=".Arc7CalendarWidgetProvider"
+            android:label="Arc7 Calendar &amp; Upcoming Agenda"
+            android:icon="@drawable/ic_calendar"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_arc7_calendar_info" />
         </receiver>
 
         <receiver
@@ -269,7 +436,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- Scheduled Alarm Trigger Receiver -->
+        <!-- Scheduled Alarm & Calendar Trigger Receiver -->
         <receiver android:name=".Arc7AlarmReceiver" android:exported="true" />
 
     </application>

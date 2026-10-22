@@ -364,6 +364,55 @@ public class Arc7ClockActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         page.addView(topCard);
 
+        // Internet Archive (`archive.org`) Chime Sync & Custom Search Row!
+        LinearLayout iaRow = new LinearLayout(this);
+        iaRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams ialp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
+        ialp.topMargin = dp(8);
+
+        Button syncIaBtn = makeButton("⬇ Sync All 20 from archive.org ("
+                + Arc7ClockStore.countDownloadedArchiveChimes() + "/20)", 0xFF0277BD);
+        syncIaBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        syncIaBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(final View v) {
+                Toast.makeText(Arc7ClockActivity.this,
+                        "Downloading & verifying chimes from https://archive.org ...", Toast.LENGTH_SHORT).show();
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        final int totalOk = Arc7ClockStore.autoSyncInternetArchiveChimes(
+                                Arc7ClockActivity.this, null);
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                ((Button) v).setText("✓ Synced from archive.org (" + totalOk + "/20)");
+                                Toast.makeText(Arc7ClockActivity.this,
+                                        "Downloaded " + totalOk + "/20 chimes from Internet Archive!",
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    }
+                }, "Arc7ChimeSyncUI").start();
+            }
+        });
+        iaRow.addView(syncIaBtn, new LinearLayout.LayoutParams(0, dp(42), 1f));
+
+        View iagap = new View(this);
+        iaRow.addView(iagap, new LinearLayout.LayoutParams(dp(8), dp(1)));
+
+        Button searchIaBtn = makeButton("Search archive.org", 0xFF6A1B9A);
+        searchIaBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        searchIaBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                promptSearchArchiveOrgDialog();
+            }
+        });
+        iaRow.addView(searchIaBtn, new LinearLayout.LayoutParams(dp(156), dp(42)));
+        topCard.addView(iaRow, ialp);
+
         alarmsListContainer = new LinearLayout(this);
         alarmsListContainer.setOrientation(LinearLayout.VERTICAL);
         page.addView(alarmsListContainer);
@@ -509,23 +558,31 @@ public class Arc7ClockActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, dp(44));
         crlp.topMargin = dp(8);
 
+        final String[] allLabels = Arc7ClockStore.getAllAvailableChimeLabels();
+        final String[] allIds = Arc7ClockStore.getAllAvailableChimeIds();
+        for (int i = 0; i < allIds.length; i++) {
+            if (existing != null && allIds[i].equals(existing.chimeId)) {
+                selectedChimeIdx[0] = i;
+                break;
+            }
+        }
         final Button chimeBtn = makeButton(
-                "Chime: " + Arc7ClockStore.CHIME_LABELS[selectedChimeIdx[0]], 0xFF4A148C);
+                "Chime: " + allLabels[Math.min(selectedChimeIdx[0], allLabels.length - 1)], 0xFF4A148C);
         chimeBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
         chimeBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 new AlertDialog.Builder(Arc7ClockActivity.this, AlertDialog.THEME_HOLO_DARK)
-                        .setTitle("Choose Nostalgic Apple or Android Chime")
-                        .setSingleChoiceItems(Arc7ClockStore.CHIME_LABELS, selectedChimeIdx[0],
+                        .setTitle("Choose Internet Archive Chime (" + allLabels.length + " Available)")
+                        .setSingleChoiceItems(allLabels, selectedChimeIdx[0],
                                 new DialogInterface.OnClickListener() {
                                     @Override
                                     public void onClick(DialogInterface d, int which) {
                                         selectedChimeIdx[0] = which;
-                                        chimeBtn.setText("Chime: " + Arc7ClockStore.CHIME_LABELS[which]);
+                                        chimeBtn.setText("Chime: " + allLabels[which]);
                                         Arc7ClockStore.previewChime(
                                                 Arc7ClockActivity.this,
-                                                Arc7ClockStore.CHIME_IDS[which],
+                                                allIds[which],
                                                 Math.max(15, chosenVolPct[0]));
                                     }
                                 })
@@ -549,7 +606,7 @@ public class Arc7ClockActivity extends Activity {
             public void onClick(View v) {
                 Arc7ClockStore.previewChime(
                         Arc7ClockActivity.this,
-                        Arc7ClockStore.CHIME_IDS[selectedChimeIdx[0]],
+                        allIds[selectedChimeIdx[0]],
                         chosenVolPct[0]);
             }
         });
@@ -614,7 +671,7 @@ public class Arc7ClockActivity extends Activity {
                         String lbl = labelEt.getText().toString().trim();
                         target.label = lbl.isEmpty() ? "Alarm" : lbl;
                         target.repeatMask = repeatOptions[chosenIdx[0]];
-                        target.chimeId = Arc7ClockStore.CHIME_IDS[selectedChimeIdx[0]];
+                        target.chimeId = allIds[selectedChimeIdx[0]];
                         target.volumePercent = chosenVolPct[0];
                         target.enabled = true;
                         Arc7ClockStore.saveAlarms(Arc7ClockActivity.this, list);
@@ -981,6 +1038,92 @@ public class Arc7ClockActivity extends Activity {
         gd.setCornerRadius(dp(7));
         gd.setStroke(dp(1), 0x44FFFFFF);
         b.setBackgroundDrawable(gd);
+    }
+
+    private void promptSearchArchiveOrgDialog() {
+        final EditText queryEt = new EditText(this);
+        queryEt.setHint("e.g. piano chime, temple bell, birdsong, synth alarm");
+        queryEt.setTextColor(Color.WHITE);
+        queryEt.setHintTextColor(0xFF90A4AE);
+        new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
+                .setTitle("Search Internet Archive (archive.org) Audio")
+                .setView(queryEt)
+                .setPositiveButton("Search & Download", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        final String q = queryEt.getText().toString().trim();
+                        if (q.isEmpty()) return;
+                        Toast.makeText(Arc7ClockActivity.this,
+                                "Searching archive.org for '" + q + "'...", Toast.LENGTH_SHORT).show();
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                List<Arc7ClockStore.ArchiveSearchHit> found;
+                                try {
+                                    found = Arc7ClockStore.searchInternetArchiveChimes(
+                                            Arc7ClockActivity.this, q);
+                                } catch (Throwable t) {
+                                    found = new java.util.ArrayList<Arc7ClockStore.ArchiveSearchHit>();
+                                }
+                                final List<Arc7ClockStore.ArchiveSearchHit> hits = found;
+                                ui.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (hits.isEmpty()) {
+                                            Toast.makeText(Arc7ClockActivity.this,
+                                                    "No audio results found on archive.org (check Wi-Fi or Chromebook USB tunnel)",
+                                                    Toast.LENGTH_LONG).show();
+                                            return;
+                                        }
+                                        final String[] titles = new String[hits.size()];
+                                        for (int i = 0; i < hits.size(); i++) {
+                                            titles[i] = hits.get(i).title;
+                                        }
+                                        new AlertDialog.Builder(Arc7ClockActivity.this, AlertDialog.THEME_HOLO_DARK)
+                                                .setTitle("Tap Any Sound to Download to Alarms")
+                                                .setItems(titles, new DialogInterface.OnClickListener() {
+                                                    @Override
+                                                    public void onClick(DialogInterface d2, final int idx) {
+                                                        final Arc7ClockStore.ArchiveSearchHit hit = hits.get(idx);
+                                                        new Thread(new Runnable() {
+                                                            @Override
+                                                            public void run() {
+                                                                String chimeRef = null;
+                                                                try {
+                                                                    chimeRef = Arc7ClockStore.downloadCustomSearchHit(
+                                                                            Arc7ClockActivity.this, hit);
+                                                                } catch (Throwable ignored) {}
+                                                                final String savedId = chimeRef;
+                                                                ui.post(new Runnable() {
+                                                                    @Override
+                                                                    public void run() {
+                                                                        if (savedId != null) {
+                                                                            Arc7ClockStore.previewChime(
+                                                                                    Arc7ClockActivity.this,
+                                                                                    savedId, 80);
+                                                                            Toast.makeText(Arc7ClockActivity.this,
+                                                                                    "Downloaded & cached from archive.org: " + hit.title,
+                                                                                    Toast.LENGTH_LONG).show();
+                                                                        } else {
+                                                                            Toast.makeText(Arc7ClockActivity.this,
+                                                                                    "Download failed for " + hit.title,
+                                                                                    Toast.LENGTH_LONG).show();
+                                                                        }
+                                                                    }
+                                                                });
+                                                            }
+                                                        }, "Arc7IaItemDl").start();
+                                                    }
+                                                })
+                                                .show();
+                                    }
+                                });
+                            }
+                        }, "Arc7IaSearch").start();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private int dp(int v) {
