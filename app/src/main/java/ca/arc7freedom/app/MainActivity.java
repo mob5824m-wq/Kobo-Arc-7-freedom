@@ -108,18 +108,48 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         buildRootLayout();
-        appendLog("Kobo Arc 7 Freedom v1.5.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
-                + ", Anti-Brick Hardened + Custom App Icons + Clock/Alarms/Timers/Stopwatch + 12 HD Wallpapers + 120 2026 CAs + TLS 1.3 + 256GB SDXC).");
+
+        // Keep 24/7 Local TLS 1.3 Gateway (:8118 for Chrome + F-Droid Index) AND
+        // Direct USB ADB Laptop Backup Server (:18777, 0 MB tablet space) warm automatically!
+        Arc7TlsGatewayService.ensureStarted(this);
+        Arc7AdbBackupService.ensureStarted(this);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    certManager.startBrowserGateway();
+                    // Automatically install all 120 modern 2026 Root CAs + clean DNS + NTP clock sync
+                    // on rooted Kobo Arc 7 hardware if not yet populated in /system/etc/security/cacerts!
+                    android.content.SharedPreferences bootPrefs = getSharedPreferences("arc7_boot_init", MODE_PRIVATE);
+                    File sysCaProbe = new File("/system/etc/security/cacerts");
+                    String[] existingCas = sysCaProbe.list();
+                    int caCount = existingCas != null ? existingCas.length : 0;
+                    if (rootShell.isRootAvailable()
+                            && (!bootPrefs.getBoolean("ca_v181_installed", false) || caCount < 140)) {
+                        boolean caOk = certManager.installCertsAndFixNetwork(
+                                Environment.getExternalStorageDirectory(),
+                                new NetworkCertManager.ProgressListener() {
+                                    @Override public void onProgress(int pct, String msg) {}
+                                    @Override public void onLog(String line) { appendLog(line); }
+                                });
+                        if (caOk) {
+                            bootPrefs.edit().putBoolean("ca_v181_installed", true).commit();
+                        }
+                    }
+                    optimizerManager.ensureCompanionAppsUpgradedSilently();
+                } catch (Throwable ignored) {}
+            }
+        }).start();
+
+        appendLog("Kobo Arc 7 Freedom v1.8.1 ready (Android API " + android.os.Build.VERSION.SDK_INT
+                + ", Pure-Toolbox Root Shell + Multi-Call su/uname/cp + 120 2026 CAs + TLS 1.3 + Separate App Tasks + USB ADB Backup + Home Widgets + Patched F-Droid).");
         refreshDeviceSnapshotAsync();
     }
 
     @Override
     protected void onDestroy() {
-        boolean sysProxy = getSharedPreferences(TabletOptimizerManager.PREFS, MODE_PRIVATE)
-                .getBoolean("sys_tls13_proxy", false);
-        if (certManager != null && !sysProxy) {
-            certManager.stopBrowserGateway();
-        }
+        // Keep persistent `127.0.0.1:8118` TLS 1.3 gateway running via `Arc7TlsGatewayService`
+        // so F-Droid Classic, Chrome, and background apps NEVER lose HTTPS connectivity when leaving MainActivity!
         super.onDestroy();
     }
 
@@ -164,7 +194,7 @@ public class MainActivity extends Activity {
         titleCol.setOrientation(LinearLayout.VERTICAL);
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v1.5");
+        title.setText("Kobo Arc 7 Freedom  v1.8.1");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -586,8 +616,63 @@ public class MainActivity extends Activity {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
 
+        // NEW in v1.8.0: Direct Zero-Storage Backup & Restore to Laptop over USB ADB (:18777)
+        LinearLayout usbCard = makeCard();
+        addCardHeader(usbCard, "NEW — Backup Directly to Your Laptop via USB ADB (0 MB Tablet Space Needed!)",
+                "Streams verified bit-for-bit partitions (boot, recovery, NVRAM Wi-Fi MAC calibration, uboot, system OS) "
+                + "plus your Books, Music & Photos directly over a USB cable straight onto your Windows / Mac / Linux laptop — "
+                + "even if your 8 GB Kobo Arc 7 is 99% full!");
+
+        final TextView usbStatusLabel = makeBodyText(
+                "Status: " + Arc7AdbBackupService.getLastStatusLine() + "\n\n"
+                + "Option 1 (1-Click Laptop Script): Plug USB in & run Backup-Kobo-To-Laptop-ADB.bat (Windows) or .sh (Mac/Linux).\n"
+                + "Option 2 (Any Laptop Browser): Plug USB in, run:\n"
+                + "    adb forward tcp:18777 tcp:18777\n"
+                + "and open http://127.0.0.1:18777 in Chrome / Edge / Safari / Firefox to download full SHA-256 verified .zip backups!");
+        usbStatusLabel.setTypeface(Typeface.MONOSPACE);
+        usbStatusLabel.setPadding(0, dp(8), 0, dp(8));
+        usbCard.addView(usbStatusLabel);
+
+        Button startUsbBtn = makePrimaryButton("Start / Refresh USB ADB Laptop Backup Server (:18777)");
+        startUsbBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7AdbBackupService.ensureStarted(MainActivity.this);
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (rootShell.isRootAvailable()) {
+                            rootShell.execRoot(
+                                    "settings put global adb_enabled 1 >/dev/null 2>&1 || true; "
+                                    + "setprop persist.service.adb.enable 1 >/dev/null 2>&1 || true; "
+                                    + "setprop service.adb.root 1 >/dev/null 2>&1 || true; "
+                                    + "start adbd >/dev/null 2>&1 || true",
+                                    null);
+                        }
+                        try { Thread.sleep(350L); } catch (Throwable ignored) {}
+                        uiHandler.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                usbStatusLabel.setText(
+                                        "Status: ACTIVE — " + Arc7AdbBackupService.getLastStatusLine() + "\n"
+                                        + "Total streamed this session: "
+                                        + String.format(Locale.US, "%.2f MB", Arc7AdbBackupService.getTotalBytesStreamed() / 1048576.0)
+                                        + "\n\nOn your laptop run:  adb forward tcp:18777 tcp:18777  -> open http://127.0.0.1:18777\n"
+                                        + "Or double-click Backup-Kobo-To-Laptop-ADB.bat / .sh!");
+                                appendLog("USB ADB Laptop Backup Server ready on 127.0.0.1:18777 (0 MB tablet space used).");
+                                Toast.makeText(MainActivity.this,
+                                        "USB ADB Backup ready on 127.0.0.1:18777!", Toast.LENGTH_SHORT).show();
+                            }
+                        });
+                    }
+                }).start();
+            }
+        });
+        usbCard.addView(startUsbBtn, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)));
+        page.addView(usbCard, cardMargin());
+
         LinearLayout cfgCard = makeCard();
-        addCardHeader(cfgCard, "Step 2 — Backup Complete Kobo Stock OS",
+        addCardHeader(cfgCard, "Option B — Backup Complete Kobo Stock OS to MicroSD / Internal Storage",
                 "Creates compressed, SHA-256 verified partition images so you can restore your exact factory "
                 + "Kobo OS (or unbrick with MediaTek SP Flash Tool via the generated scatter file) at any time.");
 
@@ -1381,14 +1466,32 @@ public class MainActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final RootShell.ExecResult r = rootShell.execRoot("id && uname -a && df /system /data",
+                final String script =
+                        "echo '=== IDENTITY ==='\n"
+                        + "id\n"
+                        + "echo ''\n"
+                        + "echo '=== KERNEL ==='\n"
+                        + "cat /proc/version\n"
+                        + "echo ''\n"
+                        + "echo '=== STORAGE (/system & /data) ==='\n"
+                        + "(df /system 2>/dev/null || df)\n"
+                        + "(df /data 2>/dev/null || true)\n";
+                final RootShell.ExecResult r = rootShell.execRoot(script,
                         new RootShell.LineListener() {
                             @Override public void onLine(String line) { appendLog(line); }
                         });
+                final boolean hasUid0 = r.stdout != null && r.stdout.contains("uid=0");
+                final DeviceInspector.Snapshot refreshed = DeviceInspector.collect(MainActivity.this, rootShell);
                 uiHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        showInfoDialog(r.exitCode == 0 ? "Root Shell Verified!" : "Root Not Active Yet", r.stdout);
+                        snapshot = refreshed;
+                        renderSnapshot();
+                        showInfoDialog(
+                                hasUid0 ? "Root Shell Verified (uid=0)!" : "Root Not Active Yet",
+                                r.stdout != null && r.stdout.trim().length() > 0
+                                        ? r.stdout.trim()
+                                        : ("Exit code: " + r.exitCode));
                     }
                 });
             }
@@ -2523,34 +2626,78 @@ public class MainActivity extends Activity {
     /* ==================== v1.4.0 NEW DIALOGS & CONTROLS ==================== */
 
     private void showWifiDriveDialog() {
-        String ip = Arc7WifiDriveService.detectLanIp(this);
-        String pin = Arc7WifiDriveService.getOrCreatePin(this);
-        String url = "http://" + ip + ":" + Arc7WifiDriveService.PORT;
-        new AlertDialog.Builder(this)
-                .setTitle("Wi-Fi File Drive & Remote APK Installer")
-                .setMessage("Status: " + (Arc7WifiDriveService.isRunning() ? "ACTIVE & LISTENING" : "Stopped") + "\n\n"
-                        + "Browser URL:  " + url + "\n"
-                        + "Security PIN: " + pin + "\n\n"
-                        + "Open that address on any computer, Mac, iPhone, or Android browser on your Wi-Fi network to upload `.epub`/`.cbz`/movies/ROMs, remote-install `.apk` apps, download full OS backups, or grab live tablet screenshots!")
-                .setPositiveButton("Start Wi-Fi Drive", new DialogInterface.OnClickListener() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final boolean listening = Arc7WifiDriveService.ensureStartedAndWait(MainActivity.this, 900L);
+                uiHandler.post(new Runnable() {
                     @Override
-                    public void onClick(DialogInterface d, int w) {
-                        startService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
-                        appendLog("Started Wi-Fi Drive on http://" + Arc7WifiDriveService.detectLanIp(MainActivity.this)
-                                + ":8080 (PIN: " + Arc7WifiDriveService.getOrCreatePin(MainActivity.this) + ")");
+                    public void run() {
                         refreshDeviceSnapshotAsync();
+                        final String ip = Arc7WifiDriveService.detectLanIp(MainActivity.this);
+                        final List<String> allIps = Arc7WifiDriveService.detectAllLanIps(MainActivity.this);
+                        final int port = Arc7WifiDriveService.getActivePort();
+                        final String pin = Arc7WifiDriveService.getOrCreatePin(MainActivity.this);
+                        final boolean pinReq = Arc7WifiDriveService.isPinRequired(MainActivity.this);
+                        final String url = "http://" + ip + ":" + port;
+                        final String directUrl = pinReq ? (url + "/?pin=" + pin) : url;
+
+                        StringBuilder extraIps = new StringBuilder();
+                        if (allIps.size() > 1) {
+                            extraIps.append("\nAlternate LAN IPs: ");
+                            for (int i = 1; i < allIps.size(); i++) {
+                                if (i > 1) extraIps.append(", ");
+                                extraIps.append("http://").append(allIps.get(i)).append(":").append(port);
+                            }
+                        }
+
+                        if (listening) {
+                            appendLog("Wi-Fi Drive LIVE now on " + directUrl);
+                        } else {
+                            appendLog("Wi-Fi Drive bind error: " + Arc7WifiDriveService.getLastBindError());
+                        }
+
+                        String msg = "Status: " + (listening
+                                ? "ACTIVE & LISTENING RIGHT NOW!"
+                                : ("Starting / Check Wi-Fi (" + Arc7WifiDriveService.getLastBindError() + ")")) + "\n\n"
+                                + "Type in Computer/Phone Browser (include http://):\n"
+                                + "  " + url + "\n\n"
+                                + "1-Step Auto-Unlock URL (skips PIN prompt):\n"
+                                + "  " + directUrl + "\n\n"
+                                + "Security PIN: " + (pinReq ? (pin + "  (Required)") : "OFF (Open LAN Access)")
+                                + extraIps.toString() + "\n\n"
+                                + "Note: Make sure your computer/phone is on the SAME Wi-Fi network and starts with plain http:// (not https://).";
+
+                        new AlertDialog.Builder(MainActivity.this)
+                                .setTitle("Wi-Fi File Drive & Remote APK Installer")
+                                .setMessage(msg)
+                                .setPositiveButton("Keep Running", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        refreshDeviceSnapshotAsync();
+                                    }
+                                })
+                                .setNeutralButton(pinReq ? "Disable PIN" : "Require PIN", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        Arc7WifiDriveService.setPinRequired(MainActivity.this, !pinReq);
+                                        startService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
+                                        showWifiDriveDialog();
+                                    }
+                                })
+                                .setNegativeButton("Stop Server", new DialogInterface.OnClickListener() {
+                                    @Override
+                                    public void onClick(DialogInterface d, int w) {
+                                        stopService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
+                                        appendLog("Stopped Wi-Fi Drive HTTP server.");
+                                        refreshDeviceSnapshotAsync();
+                                    }
+                                })
+                                .show();
                     }
-                })
-                .setNeutralButton("Stop Server", new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int w) {
-                        stopService(new Intent(MainActivity.this, Arc7WifiDriveService.class));
-                        appendLog("Stopped Wi-Fi Drive HTTP server.");
-                        refreshDeviceSnapshotAsync();
-                    }
-                })
-                .setNegativeButton("Close", null)
-                .show();
+                });
+            }
+        }).start();
     }
 
     private void showWirelessAdbDialog() {

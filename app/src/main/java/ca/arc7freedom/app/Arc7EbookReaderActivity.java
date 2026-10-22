@@ -208,6 +208,18 @@ public class Arc7EbookReaderActivity extends Activity {
         }
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null && intent.getData() != null && "file".equalsIgnoreCase(intent.getData().getScheme())) {
+            String p = intent.getData().getPath();
+            if (p != null && new File(p).exists()) {
+                loadBookFile(new File(p));
+            }
+        }
+    }
+
     @SuppressWarnings("deprecation")
     private Button navButton(String label, String colorHex, View.OnClickListener listener) {
         Button b = new Button(this);

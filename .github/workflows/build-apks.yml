@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   build-and-verify:
@@ -30,90 +32,124 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru
 
-      - name: Generate vector logo & 8 multi-DPI app icons and build v1.5.0 APKs from source
+      - name: Generate vector logo, icons, static web portals & build v1.8.1 APKs from source
         run: |
+          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh
           python3 scripts/generate-icons.py
           ./scripts/build-all.sh
 
-      - name: Run full APK signature, Anti-Brick Guards, Logo/Icons, Clock/Alarms/Timers, 12 HD Wallpapers & TLS 1.3 verification
+      - name: Run full v1.8.1 Permanent Signing Cert, Pure-Toolbox Root, Upgrader, SSL TLS 1.3, Widgets, F-Droid & USB Backup verification
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed APKs & pre-bundled offline assets back to branch
+      - name: Commit refreshed signed v1.8.1 APKs, static web portals & 1-click USB/Wi-Fi launchers back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
+            docs/index.html \
+            docs/.nojekyll \
             docs/logo-banner.png \
+            docs/Backup-Kobo-To-Laptop-ADB.bat \
+            docs/Backup-Kobo-To-Laptop-ADB.sh \
+            docs/Start-Kobo-WiFi-Server.bat \
+            docs/Start-Kobo-WiFi-Server.sh \
+            releases/index.html \
+            releases/logo-banner.png \
+            releases/Upgrade-My-Kobo-To-v1.8.1.apk \
             releases/KoboArc7Freedom.apk \
             releases/VanillaAndroid4Home.apk \
+            releases/Backup-Kobo-To-Laptop-ADB.bat \
+            releases/Backup-Kobo-To-Laptop-ADB.sh \
+            releases/Start-Kobo-WiFi-Server.bat \
+            releases/Start-Kobo-WiFi-Server.sh \
             releases/SHA256SUMS.txt \
             app/src/main/assets/VanillaAndroid4Home.apk \
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v1.5.0 APKs, logo & custom app icons [skip ci]"
+            git commit -m "chore: update pre-built signed v1.8.1 APKs & web installer portals [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built APKs artifact
+      - name: Upload built v1.8.1 APKs, 1-Tap Upgrader, USB ADB Backup & Wi-Fi launchers artifact
         uses: actions/upload-artifact@v4
         with:
           name: kobo-arc-7-freedom-apks
           path: |
+            releases/Upgrade-My-Kobo-To-v1.8.1.apk
             releases/KoboArc7Freedom.apk
             releases/VanillaAndroid4Home.apk
+            releases/Backup-Kobo-To-Laptop-ADB.bat
+            releases/Backup-Kobo-To-Laptop-ADB.sh
+            releases/Start-Kobo-WiFi-Server.bat
+            releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed APKs to GitHub Releases (v1.5.0 latest + update earlier tags)
+      - name: Upload GitHub Pages web installer artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Publish signed v1.8.1 APKs, 1-Tap Root Upgrader & USB ADB / Wi-Fi tools to GitHub Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v1.5.0 (`ca.arc7freedom.app`)
+          ## Kobo Arc 7 Freedom v1.8.1 (`ca.arc7freedom.app` + `Upgrade-My-Kobo-To-v1.8.1.apk`)
 
-          **The Complete Anti-Brick Verified Android 4.2 Revival, 2026 `TLS 1.3` Internet, 8-App Suite, Full Clock/Alarms/Timers & 12 HD Wallpapers Release for Kobo Arc 7 (`MT8125`) & Arc 7HD (`Tegra 3`)!**
+          **Critical Real-Hardware Root & Upgrade Fix (`v1.8.1`) — Fixes `"sh:<stdin>[1]: uname: not found"` + Fixes APK Upgrade Signature Conflicts Forever:**
 
-          ### New in `v1.5.0`
-          1. **Brand Logo Banner + 9 Custom Multi-DPI App Icons (`mdpi`/`hdpi`/`xhdpi`/`xxhdpi`):**
-             - Custom unlocked cyan hardware-shield emblem + bespoke app icons across every launcher icon: **Kobo Arc 7 Freedom**, **Arc7 Browser (TLS 1.3)**, **Arc7 E-Reader**, **Arc7 Audio**, **Arc7 Clock**, **Arc7 Wallpapers**, **Arc7 App Manager**, **Arc7 Terminal**, and **Android 4 Home**.
-          2. **6 Deep Anti-Brick Hardware Safety Fixes Audited & Hardened:**
-             - **MediaTek `MT8125` `/proc/dumchar_info` `preloader` `mbrStartAddr` Offset Normalization** (`DeviceInspector.java`) + root-privileged `/emmc@*` & `/dev/*` resolution.
-             - **Partition Boundary Overflow Stopper (`max_bytes`) + Live `ANDROID!` Header Verification** (`native/arc7tool.c`, `Android4Installer.java`, `BackupManager.java`).
-             - **Self-Preserving `/system/app` Archiver (`set -e` + `>= 64 MB` free check + `[ -s "$backup" ]` verified non-empty backup before delete + framework/Freedom/SystemUI/Settings/Keyboard protection)**.
-             - **Zero-Brick Streaming Recovery ROM Installer (`#!/sbin/sh` `META-INF/com/google/android/update-binary`)** — streams directly onto `/system` without `delete_recursive("/system")` or `/tmp` RAM exhaustion, and verifies `/system/bin/linker`, `/system/build.prop`, and `/system/app/VanillaAndroid4Home.apk` before unmount!
-             - **Core Android 4.2 System Package & Last-Launcher Freeze Guard** (`Arc7AppManagerActivity.java`).
-             - **Triple Hardware Bus Identity Guard (`SD` vs soldered `MMC` + active mount check)** on `64/128/256 GB` MicroSDXC `FAT32` formatter (`TabletOptimizerManager.java`).
-          3. **Full Standalone `Arc7 Clock` App — Alarms, Countdown Timers, Stopwatch & World Time:**
-             - Scheduled wake-up **Alarms** (Every Day / Weekdays / Weekends / One-Time, custom labels, 5-min Snooze, reboot persistence via `BootNetworkReceiver`, plus dual **System Ringtone + 44.1 kHz Harmonic Chime Synthesizer on `STREAM_ALARM`** so even debloated tablets ALWAYS ring loud!).
-             - Background screen-wake **Countdown Timers** (`+1m`, `+3m`, `+5m`, `+10m`, `+15m`, `+30m`, `+1h`), **Centisecond Lap Stopwatch**, **World Clocks**, and **1-Tap Fullscreen Nightstand Dock**!
-          4. **Expanded HD Wallpaper Studio — 12 Built-In `1280x800` Art Themes + Custom Photo Picker:**
-             - Standalone **`Arc7 Wallpapers`** studio (`ACTION_SET_WALLPAPER` + App Drawer) AND built directly into **`VanillaAndroid4Home.apk`** (`Holo Phase Beam`, `Northern Aurora Borealis`, `Misty Blue Ridge`, `Nexus Jelly Bean Silk Ribbons`, `Pacific Ocean Coral Dusk`, `Outrun Neon Horizon Grid`, `Kobo Zen Sumi-e Ink Wash`, `Deep Cosmos & Spiral Nebula`, `Emerald Forest Sunbeams`, `Sahara Golden Twilight Dunes`, `Low-Poly Sapphire Crystal`, `Battery-Saver Pure Obsidian Glow`, plus any `.jpg`/`.png`/`.webp` from MicroSD!).
+          ### ALREADY HAVE AN EARLIER VERSION (`v1.5.0` – `v1.8.0`) ON YOUR KOBO ARC 7?
+          Download and install **`Upgrade-My-Kobo-To-v1.8.1.apk`** (`ca.arc7freedom.upgrader`) in 1 tap!
+          - Why earlier updates failed to install: previous CI builds generated ephemeral signing certificates, causing Android 4.2 `PackageInstaller` to reject upgrades with `"App not installed"` (`INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES`), keeping your tablet stuck on `v1.5.0`/`v1.6.0` (which ran `id && uname -a` even though stock Kobo Android 4.2 `/system/bin/toolbox` omits `uname` and `cp`!).
+          - **`Upgrade-My-Kobo-To-v1.8.1.apk`** installs cleanly with **zero signature conflict** and uses your tablet's already-working `uid=0(root)` `su` to automatically install in 5 seconds:
+            1. Multi-call **`/sbin/{su,uname,cp}`** + **`/system/xbin/{su,uname,cp}`** native ARMv7 applets
+            2. **`KoboArc7Freedom v1.8.1`** signed with our permanent version-controlled certificate (`keystore/arc7freedom-release.jks`) so every future release updates seamlessly in-place forever!
+            3. **`VanillaAndroid4Home v4.2.8` (`v48`)** with working Home Screen Widgets + isolated app task stacks
+            4. **`FDroidClassicLegacy v1.8.1`** pre-configured for our instant `http://127.0.0.1:8118/__https/...` TLS 1.3 repository bridge
+            5. **All 120 modern 2026 Root CA `.0` certificates** directly into `/system/etc/security/cacerts/` via pure `mksh` + `cat` (zero reliance on `/system/bin/cp` or `grep`!)
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v1.5.0 >/dev/null 2>&1; then
-            gh release upload v1.5.0 \
+          if gh release view v1.8.1 >/dev/null 2>&1; then
+            gh release upload v1.8.1 \
+              releases/Upgrade-My-Kobo-To-v1.8.1.apk \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/Backup-Kobo-To-Laptop-ADB.bat \
+              releases/Backup-Kobo-To-Laptop-ADB.sh \
+              releases/Start-Kobo-WiFi-Server.bat \
+              releases/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v1.5.0 \
+            gh release create v1.8.1 \
+              releases/Upgrade-My-Kobo-To-v1.8.1.apk \
               releases/KoboArc7Freedom.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/Backup-Kobo-To-Laptop-ADB.bat \
+              releases/Backup-Kobo-To-Laptop-ADB.sh \
+              releases/Start-Kobo-WiFi-Server.bat \
+              releases/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v1.5.0 — Custom Icons & Logo, Anti-Brick Audit, Alarms/Timers/Clock & 12 HD Wallpapers" \
+              --title "Kobo Arc 7 Freedom v1.8.1 — 1-Tap Root Upgrader + Fixed 'uname/cp not found' + Permanent Signing Cert + TLS 1.3 + Widgets + F-Droid!" \
               --notes-file /tmp/release-notes.md
           fi
 
-          for TAG in v1.4.0 v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
+          for TAG in v1.8.0 v1.7.0 v1.6.0 v1.5.0 v1.4.0 v1.3.0 v1.2.0 v1.1.0 v1.0.0; do
             if gh release view "$TAG" >/dev/null 2>&1; then
               gh release upload "$TAG" \
+                releases/Upgrade-My-Kobo-To-v1.8.1.apk \
                 releases/KoboArc7Freedom.apk \
                 releases/VanillaAndroid4Home.apk \
+                releases/Backup-Kobo-To-Laptop-ADB.bat \
+                releases/Backup-Kobo-To-Laptop-ADB.sh \
+                releases/Start-Kobo-WiFi-Server.bat \
+                releases/Start-Kobo-WiFi-Server.sh \
                 releases/SHA256SUMS.txt \
                 --clobber
             fi

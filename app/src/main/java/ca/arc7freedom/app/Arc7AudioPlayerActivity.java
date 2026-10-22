@@ -50,6 +50,7 @@ public class Arc7AudioPlayerActivity extends Activity {
         public void onServiceConnected(ComponentName name, IBinder service) {
             svc = ((Arc7AudioService.LocalBinder) service).getService();
             bound = true;
+            handleIncomingFileIntent(getIntent());
             renderQueue();
         }
         @Override
@@ -58,6 +59,25 @@ public class Arc7AudioPlayerActivity extends Activity {
             svc = null;
         }
     };
+
+    private void handleIncomingFileIntent(Intent in) {
+        if (in == null || in.getData() == null || svc == null) return;
+        String p = in.getData().getPath();
+        if (p != null) {
+            File f = new File(p);
+            if (f.isFile()) {
+                svc.loadTrackAndFolderQueue(f);
+            }
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIncomingFileIntent(intent);
+        renderQueue();
+    }
 
     private final Runnable tick = new Runnable() {
         @Override

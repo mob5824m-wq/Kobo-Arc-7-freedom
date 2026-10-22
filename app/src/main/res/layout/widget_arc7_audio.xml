@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_audio_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="#CC0F172A"
+    android:paddingLeft="14dp"
+    android:paddingRight="14dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="8dp">
+
+    <ImageView
+        android:id="@+id/widget_audio_icon"
+        android:layout_width="42dp"
+        android:layout_height="42dp"
+        android:src="@drawable/ic_audio"
+        android:scaleType="fitCenter" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingLeft="12dp"
+        android:paddingRight="10dp">
+
+        <TextView
+            android:id="@+id/widget_audio_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Arc7 Audio &amp; Audiobook Player"
+            android:textColor="#FFFFFFFF"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:singleLine="true"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/widget_audio_sub"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tap Play to resume last track • Screen-Off Ready"
+            android:textColor="#FF94A3B8"
+            android:textSize="11sp"
+            android:singleLine="true"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/widget_audio_rew"
+        android:layout_width="52dp"
+        android:layout_height="38dp"
+        android:text="-30s"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF334155"
+        android:textSize="11sp" />
+
+    <Button
+        android:id="@+id/widget_audio_toggle"
+        android:layout_width="68dp"
+        android:layout_height="38dp"
+        android:layout_marginLeft="6dp"
+        android:layout_marginRight="6dp"
+        android:text="Play"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF2563EB"
+        android:textStyle="bold"
+        android:textSize="12sp" />
+
+    <Button
+        android:id="@+id/widget_audio_fwd"
+        android:layout_width="52dp"
+        android:layout_height="38dp"
+        android:text="+30s"
+        android:textColor="#FFFFFFFF"
+        android:background="#FF334155"
+        android:textSize="11sp" />
+</LinearLayout>

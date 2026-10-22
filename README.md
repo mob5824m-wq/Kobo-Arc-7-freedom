@@ -1,120 +1,107 @@
-# Kobo Arc 7 Freedom (`ca.arc7freedom.app`)
+# Kobo Arc 7 Freedom (`ca.arc7freedom.app` — `v1.8.1`)
 
 ![Kobo Arc 7 Freedom Logo Banner](docs/logo-banner.png)
 
-**Anti-Brick Verified Root, Full OS Partition Backup & Restore, Clean Stock Android 4.2 Jelly Bean Installer, 2026 `TLS 1.3` Internet, Full Alarms/Timers Clock, 12 HD Wallpapers & Complete 8-App Suite for the Kobo Arc 7 (`T647` / `apollojr`, MediaTek MT8125) & Kobo Arc 7HD (`T416`, NVIDIA Tegra 3).**
+**Anti-Brick Verified Root, 1-Tap Signature-Conflict-Free Upgrader, Direct USB ADB Laptop Backup & Restore (`0 MB` Tablet Space), Clean Stock Android 4.2 Home Launcher + Live Widgets, Dual-Engine `TLS 1.0–1.3` Internet Gateway, 120 Offline 2026 Root CAs, Patched F-Droid Classic Store & Complete 10-Activity Suite for the Kobo Arc 7 (`T647` / `apollojr`, MediaTek MT8125) & Kobo Arc 7HD (`T416`, NVIDIA Tegra 3).**
 
 ---
 
-## Ready-to-Install Signed APKs
+## Ready-to-Install Signed Downloads (`v1.8.1` — Latest)
 
-Both pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature v1 (JAR) / v2 / v3** signed APKs are ready right now in:
+All pre-built, `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3** APKs are permanently signed with [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks) (`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`) so all future updates install cleanly in-place:
 
-1. **[GitHub Releases (`v1.5.0` Latest)](../../releases/tag/v1.5.0)** — direct one-click download (`https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk`)
-2. **[`releases/KoboArc7Freedom.apk`](releases/KoboArc7Freedom.apk)** — Complete all-in-one Android 4.2 **8-App + 4-Service + 4-ARMv7-Binary** suite (`~12.3 MB` — custom multi-DPI app icons for every app, 6 deep anti-brick hardware safety guards, **all 120 modern 2026 Root CAs offline**, **Full `Arc7 Clock` (`Alarms` + `Countdown Timers` + `Stopwatch` + `World Time` + `Nightstand Dock`)**, **`Arc7 Wallpapers` (`12 Built-In HD Art Themes` + `Custom MicroSD Photos`)**, **Wi-Fi File Drive + Remote `.APK` Installer + Live Screenshot Server (`:8080`)**, **`2026 Reader Lite` + TLS 1.3 Web Browser**, **System-Wide `TLS 1.3` Upgrade Proxy (`127.0.0.1:8118`)**, **Pre-Bundled Offline `F-Droid Classic` App Store**, **`Arc7 E-Reader` (`.epub`/`.txt`/`.html` + **70,000+ Free Project Gutenberg Storefront** + **Color `.CBZ` Comic/Manga Reader**)**, **`Arc7 Audio` Screen-Off Music & Audiobook Player**, **`Arc7 App Manager` + Wireless `ADB over Wi-Fi (:5555)`**, **Floating Soft-Button Pill**, **`64 GB / 128 GB / 256 GB` MicroSDXC `FAT32` Card Formatter**, ARMv7 root engine, `su`, partition backup/flasher tool, AND `VanillaAndroid4Home.apk`!)
-3. **[`releases/VanillaAndroid4Home.apk`](releases/VanillaAndroid4Home.apk)** — Standalone Clean Stock Android 4.2 Holo Home Launcher (`~40 KB`, includes its own built-in **12 HD Wallpapers** & custom Home icon, automatically installed to `/system/app/` during One-Tap Stock Android 4 conversion)
-4. **[`releases/SHA256SUMS.txt`](releases/SHA256SUMS.txt)** — SHA-256 verification digests
+> ### ⚡ Already Have an Earlier Version (`v1.5.0` – `v1.8.0`) Installed on Your Kobo Arc 7?
+> If tapping `KoboArc7Freedom.apk` showed **`"App not installed"`** (`INSTALL_PARSE_FAILED_INCONSISTENT_CERTIFICATES`) or Root Test showed **`uid=0(root) ... sh:<stdin>[1]: uname: not found`**, your tablet **already has active root (`uid=0`)** — use **`Upgrade-My-Kobo-To-v1.8.1.apk`** once:
+>
+> 1. Download & tap **[`Upgrade-My-Kobo-To-v1.8.1.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Upgrade-My-Kobo-To-v1.8.1.apk)** (`ca.arc7freedom.upgrader`, `~11.5 MB`) -> **Install** -> **Open**.
+> 2. Because `ca.arc7freedom.upgrader` is a fresh package ID never previously installed, Android 4.2 installs it with **zero certificate conflict** and uses your tablet's active `su` (`uid=0(root)`) shell to automatically install in ~5 seconds:
+>    - Multi-call **`/sbin/{su,uname,cp}`** + **`/system/xbin/{su,uname,cp}`** native ARMv7 applets
+>    - **`KoboArc7Freedom v1.8.1`** (`versionCode = 181`, signed with the permanent release key so future updates install directly over top forever)
+>    - **`VanillaAndroid4Home v48`** with full **Home Screen Widgets** (`+ Widget` button & long-press wallpaper) + `appwidget grantbind` permission + isolated app tasks
+>    - **`FDroidClassicLegacy v1.8.1`** pre-wired to the instant local `http://127.0.0.1:8118/__https/...` TLS 1.3 repository index bridge
+>    - **All 120 modern 2026 Root CA `.0` certificates** straight into `/system/etc/security/cacerts/` via pure `mksh` + `cat` (zero `cp`/`grep`/`uname` dependencies!)
+
+| File / Tool | Direct Download (`v1.8.1` Release) | What It Does |
+|---|---|---|
+| **Web Installer Portal** | **[Open Live Installer Portal (`docs/index.html`)](https://mob5824m-wq.github.io/Kobo-Arc-7-freedom/)** | Browser download portal + 1-click USB/Wi-Fi helper launchers |
+| **`Upgrade-My-Kobo-To-v1.8.1.apk`** | **[Download 1-Tap Upgrader APK](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Upgrade-My-Kobo-To-v1.8.1.apk)** | **For existing `v1.5.0`–`v1.8.0` Kobo installs:** bypasses old signing key conflicts via `su` & upgrades all APKs + 120 2026 CAs in 1 tap |
+| **`KoboArc7Freedom.apk`** | **[Download Main Suite APK (`v1.8.1`)](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk)** | **Fresh Kobo Arc 7 install & future updates:** complete 10-Activity + 6-Service + 3-Home-Widget + 4-ARMv7-Binary liberation suite (`~11.5 MB`) |
+| **`VanillaAndroid4Home.apk`** | **[Download Stock Android 4 Home (`v48`)](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/VanillaAndroid4Home.apk)** | Clean Stock Android 4.2 Holo Home Launcher with live **Home Screen Widgets**, isolated app task launching & 12 HD Wallpapers |
+| **`Backup-Kobo-To-Laptop-ADB.bat`** | **[Download Windows USB Backup & Auto-Upgrader](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Backup-Kobo-To-Laptop-ADB.bat)** | Windows 10/11 1-click tool: auto-installs Google `adb`, auto-upgrades older tablet builds to `v1.8.1`, and streams SHA-256-verified backups over USB using **`0 MB` tablet space** |
+| **`Backup-Kobo-To-Laptop-ADB.sh`** | **[Download macOS / Linux USB Backup & Auto-Upgrader](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Backup-Kobo-To-Laptop-ADB.sh)** | macOS / Linux 1-click USB ADB auto-upgrader + direct flash/files streaming backup with SHA-256 verification (`0 MB` tablet space) |
+| **`Start-Kobo-WiFi-Server.bat`** | **[Download Windows Home Wi-Fi Server](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Start-Kobo-WiFi-Server.bat)** | Windows 10/11 zero-Python 1-click home Wi-Fi server — auto-opens Windows Firewall port `8000` and prints your plain `http://192.168.x.x:8000` Kobo URL |
+| **`Start-Kobo-WiFi-Server.sh`** | **[Download macOS / Linux Home Wi-Fi Server](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Start-Kobo-WiFi-Server.sh)** | macOS / Linux 1-click local HTTP sideload server on port `8000` |
+| **`SHA256SUMS.txt`** | **[Download SHA-256 Digests](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/SHA256SUMS.txt)** | Cryptographic SHA-256 checksums for every release artifact |
 
 ---
 
-## Why Kobo Arc 7 Needs Special Handling
+## What's New & Fixed on Real Kobo Arc 7 Hardware (`v1.8.0` -> `v1.8.1`)
 
-Kobo discontinued server support for the Arc tablet line, leaving many **Kobo Arc 7 (`T647` / `apollojr`, Android 4.2.2 Jelly Bean, Linux 3.4 ARMv7)** tablets locked behind dead Kobo account/OTA servers or heavily bloated by Kobo's custom Tapestry launcher.
-
-Worse, generic Android root/debloat scripts often soft-brick Kobo Arc 7 tablets for three hardware-specific reasons — **all three are solved automatically in `KoboArc7Freedom.apk`**:
-
-1. **Missing Provisioning Flags (`Home` Button Breakage):** Deleting `KoboSetupWizard.apk` without writing `Settings.Global.device_provisioned = 1` and `Settings.Secure.user_setup_complete = 1` leaves Android 4.2 convinced initial setup never finished — disabling the **Home** button, lockscreen, and notification shade. Both `KoboArc7Freedom` and `VanillaAndroid4Home`'s boot receiver enforce these flags automatically.
-2. **Board Mismatch Brick Protection (`MT8125` vs `Tegra 3`):** The standard **Kobo Arc 7 (`T647` / `apollojr`)** uses a **MediaTek MT8125** SoC (`/emmc@android` -> `/dev/block/mmcblk0p5`), whereas the **Kobo Arc 7HD (`T416`)** uses an **NVIDIA Tegra 3** SoC (`/dev/block/platform/sdhci-tegra.3/by-name/{LNX,SOS,APP,CAC,UDA}`). `DeviceInspector` automatically detects the exact board and eMMC block layout at startup and blocks wrong-board images before touching flash storage.
-3. **MediaTek Wi-Fi / MAC / Calibration NVRAM Safety:** Wiping or losing `nvram` / `protect_f` (`mmcblk0p2`) / `protect_s` (`mmcblk0p3`) permanently breaks MediaTek `mtk_stp_wmt` Wi-Fi calibration and MAC addresses. **Backup OS** backs up these partitions automatically and **One-Tap Stock Android 4 Conversion** leaves every kernel module, GPU library (`PowerVR SGX544MP`), touchscreen driver, and `/system/etc/firmware` blob intact.
+1. **100% Stock Android 4.2 `toolbox` Compatibility + Multi-Call `su` (`uname` + `cp` Applets):**
+   - Stock Kobo Arc 7 `/system/bin/toolbox` omits `uname`, `cp`, `grep`, `printf`, `head`, and `tail`. Every root & user shell command across all Java managers now uses **100% pure `mksh` built-ins + `cat "src" > "dst"`** (enforced automatically by `scripts/verify-apks.py`), and `native/su.c` now includes built-in POSIX **`uname`** and **`cp`** applets symlinked at `/sbin/{uname,cp}` and `/system/xbin/{uname,cp}`.
+2. **Permanent Release Signing Keystore + 1-Tap Signature-Conflict-Free Root Upgrader (`Upgrade-My-Kobo-To-v1.8.1.apk`):**
+   - All 4 APKs share tracked [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks) across both local builds and GitHub Actions CI, and `Upgrade-My-Kobo-To-v1.8.1.apk` migrates any pre-`v1.8.1` Kobo tablet cleanly in 1 tap without needing a factory reset or PC.
+3. **Dual-Engine `TLS 1.0–1.2` + `TLS 1.3` Persistent Internet Gateway (`native/arc7tls.c` + `Arc7TlsGatewayService`):**
+   - Bridges Android 4.2's legacy `TLS 1.0–1.2` OpenSSL apps locally via **BearSSL** directly to upstream 2026 **Mbed-TLS 3.6 `TLS 1.3`**, automatically installs all **120 modern 2026 Mozilla Root CAs** + clean DNS (`1.1.1.1` / `8.8.8.8`) + NTP/HTTP clock sync on launch, and keeps `Arc7 Browser` fast & clean (**Lite mode permanently removed**).
+4. **10 Isolated Android Task Stacks (`android:taskAffinity="ca.arc7freedom.task.*"`):**
+   - Every app icon on the Home Launcher (`Arc7 Browser`, `Arc7 E-Reader`, `Arc7 Audio`, `Arc7 Clock`, `Arc7 Nightstand`, `Arc7 Wallpapers`, `Arc7 App Manager`, `Arc7 Terminal`, `Arc7 Freedom`) launches into its **own independent Android task stack** so tapping any app opens that app directly instead of re-opening `MainActivity`.
+5. **Working Home Screen Widgets (`VanillaAndroid4Home v48` + 3 Built-In Arc7 Widgets):**
+   - Full `AppWidgetHost` + `AppWidgetManager` support on your Kobo Home Screen (`+ Widget` top button or long-press wallpaper, resize height, long-press to remove, persists across reboots), plus 3 built-in widgets (**Digital Clock & Next Alarm**, **Music & Audiobook Player**, **Quick Dock & Live TLS 1.3 Status**).
+6. **Patched F-Droid Classic Repository Index Bridge (`FDroidClassicLegacy.apk`):**
+   - Compiled `resources.arsc` (`default_repos`) routes seamlessly through `http://127.0.0.1:8118/__https/...` with dead mirrors removed and both **F-Droid Main + F-Droid Archive** enabled out of the box (4,000+ working Android 4.2 apps!).
+7. **Direct USB ADB Laptop Backup & Restore (`Backup-Kobo-To-Laptop-ADB.bat` / `.sh` + `Arc7AdbBackupService` `:18777`):**
+   - Streams bit-for-bit partitions (`boot`, `recovery`, `nvram` Wi-Fi MAC calibration, `uboot`, `/system`), scatter file, `build.prop`, and personal files directly over USB (`adb forward tcp:18777 tcp:18777`) onto Windows / macOS / Linux using **`0 MB` of tablet storage** with live SHA-256 verification.
 
 ---
 
-## Quick Start: Getting `KoboArc7Freedom.apk` onto Your Kobo Arc 7 (3 Easy Ways!)
+## Why Kobo Arc 7 Hardware Requires Anti-Brick Guards
 
-> **Important Tip:** Before `KoboArc7Freedom.apk` is installed, Kobo's stock 2013 Browser cannot open `https://github.com/...` directly because it lacks modern SSL certs & TLS 1.3. Use **any** of the 3 zero-hassle ways below once — after that, your tablet has its own **120 pre-downloaded 2026 CAs** + **`Arc7 Browser (TLS 1.3)`** right on the tablet!
+Kobo discontinued server support for the Arc tablet line, leaving many **Kobo Arc 7 (`T647` / `apollojr`, Android 4.2.2 Jelly Bean, Linux 3.4 ARMv7)** tablets locked behind dead Kobo account/OTA servers or heavily slowed down by Kobo's Tapestry launcher. Generic Android debloat/root scripts can soft-brick Kobo Arc 7 hardware for three hardware-specific reasons — **all three are protected automatically**:
 
-### Method A — Zero-Cable Home Wi-Fi Installer *(Fastest — No USB Cable or MicroSD Card Needed!)*
-1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7 and connect it to the same home Wi-Fi as your computer.
-2. On your PC / Mac / Linux laptop, run:
-   ```bash
-   python3 tools/serve-over-wifi.py
-   ```
-3. Open Kobo's built-in Browser on the tablet and type the plain **`http://192.168.x.x:8000`** address shown in your terminal (plain local HTTP uses zero SSL certs — opens immediately!), then tap **Download KoboArc7Freedom.apk**!
+1. **Missing Provisioning Flags (`Home` Button Breakage):** Deleting `KoboSetupWizard.apk` without setting `Settings.Global.device_provisioned = 1` and `Settings.Secure.user_setup_complete = 1` disables Android 4.2's **Home** button, lockscreen, and notification shade. Both `KoboArc7Freedom` and `VanillaAndroid4Home` enforce these flags automatically.
+2. **Board Mismatch Brick Protection (`MT8125` vs `Tegra 3`):** The **Kobo Arc 7 (`T647` / `apollojr`)** uses a **MediaTek MT8125** SoC (`/emmc@android` -> `/dev/block/mmcblk0p5`), whereas the **Kobo Arc 7HD (`T416`)** uses an **NVIDIA Tegra 3** SoC (`/dev/block/platform/sdhci-tegra.3/by-name/{LNX,SOS,APP,CAC,UDA}`). `DeviceInspector` detects the exact board at startup and blocks wrong-board images before touching flash storage.
+3. **MediaTek Wi-Fi / MAC / Calibration NVRAM Safety:** Losing `nvram` / `protect_f` (`mmcblk0p2`) / `protect_s` (`mmcblk0p3`) breaks MediaTek `mtk_stp_wmt` Wi-Fi calibration and MAC addresses. **Backup OS** & **USB ADB Backup** save these partitions automatically, and **Stock Android 4 Conversion** keeps every kernel module, `PowerVR SGX544MP` GPU library, touchscreen driver, and `/system/etc/firmware` blob untouched.
 
-### Method B — MicroSD Card (`file://` Browser Trick — No Computer Needed After Copying!)
+---
+
+## Quick Start: Installing onto Your Kobo Arc 7 (3 Easy Ways)
+
+> **Tip:** Factory Kobo OS (2013) cannot open `https://github.com/...` in Kobo's stock Browser before `KoboArc7Freedom.apk` is installed because factory OS lacks 2026 SSL roots & TLS 1.3. Use **any** of the 3 ways below once — after that, your Kobo has all **120 modern 2026 Root CAs** + **`Arc7 Browser (TLS 1.3)`** built right in!
+
+### Method A — Zero-Cable Home Wi-Fi Server *(Fastest — Zero USB Cable, Zero MicroSD, Zero Python on Windows)*
+1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7 and join the **same home Wi-Fi network** as your computer.
+2. Start the local home Wi-Fi server on your computer:
+   - **Windows 10 / 11:** Double-click **`Start-Kobo-WiFi-Server.bat`** (opens Windows Firewall port `8000` automatically and displays your real LAN `http://192.168.x.x:8000` URL).
+   - **macOS / Linux:** Run `./releases/Start-Kobo-WiFi-Server.sh` or `python3 tools/serve-over-wifi.py`.
+3. Open Kobo's Browser and type the exact plain **`http://192.168.x.x:8000`** URL (**include `http://`, NOT `https://`**):
+   - Tap **`Upgrade-My-Kobo-To-v1.8.1.apk`** if upgrading from an earlier `v1.5.0–v1.8.0` version, **or**
+   - Tap **`KoboArc7Freedom.apk`** on a brand-new factory Kobo Arc 7!
+
+### Method B — Direct USB Cable Auto-Install / Upgrade + Instant Laptop Backup
+1. Enable **Settings -> Developer options -> USB debugging** and plug your Kobo Arc 7 into your laptop with a data-capable Micro-USB cable.
+2. Run **`Backup-Kobo-To-Laptop-ADB.bat`** (Windows) or **`./releases/Backup-Kobo-To-Laptop-ADB.sh`** (macOS / Linux) — or `./tools/usb-sideload-and-root.sh` if stuck on Kobo's initial Wi-Fi Setup Wizard.
+3. It automatically installs or upgrades `KoboArc7Freedom v1.8.1` on the tablet and saves a SHA-256-verified backup directly onto your laptop Desktop (`0 MB` of tablet space used).
+
+### Method C — MicroSD Card (`file://` Browser Trick — No Computer Needed After Copying)
 1. Enable **Settings -> Security -> Unknown sources** on your Kobo Arc 7.
-2. Copy **`KoboArc7Freedom.apk`** onto the root of a **FAT32 microSD card** and insert it into the Kobo Arc 7's microSD slot.
-3. Open Kobo's built-in Browser and type exact address:
+2. Copy **`Upgrade-My-Kobo-To-v1.8.1.apk`** (or **`KoboArc7Freedom.apk`**) onto a **FAT32 MicroSD card** and insert it into the Kobo Arc 7 slot.
+3. Open Kobo's Browser and enter:
    ```text
-   file:///storage/sdcard1/KoboArc7Freedom.apk
+   file:///storage/sdcard1/Upgrade-My-Kobo-To-v1.8.1.apk
    ```
-   Android's Package Installer opens immediately — tap **Install**!
-
-### Method C — USB Cable (`adb`) / Rescue From Stuck Kobo Wi-Fi Setup Screen
-If your Kobo Arc 7 was factory-reset and is stuck on Kobo's dead Wi-Fi Setup Wizard (with USB Debugging active), connect a micro-USB cable and run:
-
-- **Linux / macOS:**
-  ```bash
-  ./tools/usb-sideload-and-root.sh
-  ```
-- **Windows:**
-  Double-click **`tools\usb-sideload-and-root.bat`**
-
-This installs `KoboArc7Freedom.apk` over USB AND launches `MainActivity` directly on top of Kobo's stuck Setup Wizard so you can immediately bypass Kobo Setup, root the tablet, back up your factory OS, and convert to clean Stock Android 4.2!
+   Tap **Install** -> **Open**!
 
 ---
 
-## Using the App (Step-by-Step)
+## Full Suite Overview (5 Tabs + 10 Standalone Activities + 3 Home Widgets)
 
-### Tab `1. ROOT` — Native On-Device Root & Persistent `su`
-- Displays your live hardware card (**Model**, **SoC (`MT8125` / `Tegra 3`)**, **Kernel version**, **Storage paths**, and **Root status**).
-- Tap **`ROOT TABLET NOW (INSTALL PERSISTENT SU)`**:
-  - Executes `libarc7root.so` across three automatic kernel root stages tailored for Android 4.2.2 ARMv7 Linux 3.4 kernels:
-    1. Existing `su` upgrade/repair check
-    2. **Stage 1 (`CVE-2013-6282`)** — ARMv7 `get_user` / `put_user` missing domain range check (`Linux < 3.5.5`, primary stage for Kobo Arc 7 `3.4.5` kernel) with dynamic kernel `cred` / `task_struct` scanning
-    3. **Stage 2 (`MT8125` Driver Probe)** — MediaTek camera/isp/sysram/disp node elevation fallback
-    4. **Stage 3 (`CVE-2014-3153`)** — `futex_requeue` PI kernel elevation fallback (`Linux 3.4.x < June 2014`)
-  - Remounts `/system` read-write, installs static ARMv7 `su` (`06755` setuid root) to `/system/xbin/su` and `/system/bin/su`, writes `/system/etc/install-recovery.sh` so root daemon persistence survives reboots even on `nosuid` mounts, and verifies `uid=0(root)` execution live in the console.
-- Includes one-tap **Unroot / Remove Persistent `su`** at any time.
-
-### Tab `2. CERTS & NET` — Pre-Downloaded 2026 Network Certificates & TLS 1.3 Downloader
-Stock Android 4.2.2 (`2013`) cannot connect to almost any modern website in 2026 for **four** reasons: missing modern Root CAs (*Let's Encrypt ISRG Root X1/X2, Google GTS R1, DigiCert G2, USERTrust*), expired cross-sign CAs (`DST Root CA X3`, which breaks Android 4.2's OpenSSL 1.0.1 chain validator), dead-battery clocks reset to `2013`, and disabled/missing `TLS 1.2` & `TLS 1.3` ciphers. **All four are solved offline right inside the APK:**
-- **120 Pre-Downloaded 2026 Mozilla Root CA Certificates (`assets/cacerts/`):** Bundled **100% offline** inside `KoboArc7Freedom.apk` in exact Android `<subject_hash_old>.<n>` format — **zero internet connection needed to install them!**
-- **`Install All 120 Pre-Downloaded Certs & Fix Internet Now`:**
-  - Installs all 120 modern 2026 Root CAs into `/system/etc/security/cacerts/` and `/data/misc/keychain/cacerts-added/` (and also supports Android's non-root `KeyChain` Certificate Installer UI if tapped before rooting!).
-  - Automatically backs up stock CAs and quarantines every expired `2013–2023` certificate (`DST Root CA X3`, `AddTrust`, etc.).
-  - Syncs dead-battery `2013` clocks automatically over raw IPv4 UDP **NTP** (`162.159.200.1`, `216.239.35.0`) with plain HTTP port-80 `Date:` header fallback, and sets clean IPv4 DNS (`1.1.1.1`, `8.8.8.8`).
-- **Built-In ARMv7 MbedTLS 3.6 (`TLS 1.3` + `TLS 1.2`) Downloader & Local Browser Gateway (`libarc7tls.so`):**
-  - Paste any `https://...` URL to download Android `.zip` ROMs, `recovery.img`, or `.apk` apps over modern `TLS 1.3` using the bundled 2026 CAs (works even before rooting!), then jump straight to flashing/installing with one tap.
-  - Tap **`Open TLS 1.3 Browser Portal`** (`http://127.0.0.1:8118/`) to browse modern HTTPS websites, run web searches, and click `.zip` / `.apk` downloads directly inside Kobo Arc 7's stock Browser!
-
-### Tab `3. BACKUP OS` — Full Factory OS & Partition Backup / Restore
-- Auto-selects your **External MicroSD card (`/storage/sdcard1`)** when inserted (or internal storage otherwise) and verifies free space before starting.
-- **Full Factory OS Backup (Recommended First Step)** creates a timestamped folder `/storage/sdcard1/KoboArc7Backups/<YYYYMMDD-HHMMSS>/` containing:
-  - Raw streaming SHA-256 verified dumps of critical partitions (`mbr`, `ebr1`, `pro_info`, `nvram`, `protect_f`, `protect_s`, `sec_ro`, `uboot`/`lk`, `logo`, `boot`, `recovery` on MT8125; `LNX`, `SOS` on Tegra 3)
-  - Compressed streaming `system.img.gz` image of the entire factory `/system` partition (`mmcblk0p5` / `APP`) built on-the-fly with static `zlib` (`libarc7tool.so`) so even large `/system` partitions fit comfortably on FAT32 microSD cards (no 4 GB file limit overflow!)
-  - `build.prop`, partition table dumps (`/proc/dumchar_info`, `/proc/emmc`, `/proc/partitions`, `/proc/mounts`), auto-generated **SP Flash Tool `MT8125_Android_scatter.txt`**, `backup-manifest.json`, and `SHA256SUMS.txt`
-- **Verify Backup Integrity** recomputes every SHA-256 digest byte-for-byte against `SHA256SUMS.txt`.
-- **Restore Backup** verifies checksums first and restores `/system` + `boot` + `recovery` (or boot/recovery only) back to factory state.
-
-### Tab `4. ANDROID 4` — Install Normal Stock Android 4 (Both Modes Included!)
-
-#### Mode A — One-Tap Clean Stock Android 4.2 Jelly Bean Conversion *(Recommended — Safest)*
-Converts your Kobo Arc 7 into a fast, pure **Stock Android 4.2.2 Holo Tablet** while keeping 100% of your working hardware drivers (Wi-Fi, Bluetooth, touchscreen, audio, cameras, microSD, and PowerVR GPU acceleration):
-1. Installs **Vanilla Android 4 Home (`VanillaAndroid4Home.apk`)** into `/system/app/VanillaAndroid4Home.apk` FIRST so a working AOSP-style Holo launcher + 6-column searchable App Drawer + clock/search/Quick Settings bar is guaranteed on the tablet before touching Kobo's launcher.
-2. Archives Kobo's lock-in, Tapestry launcher, forced Setup Wizard, and bundled bloatware into `/sdcard/KoboArc7Backups/kobo-bloat-backup/` (nothing is permanently destroyed — **One-Tap Restore Kobo Apps** brings them back anytime!).
-3. Sets `Settings.Global.device_provisioned = 1` & `Settings.Secure.user_setup_complete = 1`, tunes `build.prop` (`dalvik.vm.heapgrowthlimit`, clean lockscreen, disables dead Kobo OTA polling), sets `VanillaAndroid4Home` as the active `HOME` activity, clears Dalvik cache, and offers a one-tap reboot into clean Stock Android 4.2.
-
-#### Mode B — Custom ROM `.zip` & Custom `recovery.img` (TWRP / CWM) Flasher
-For power users installing custom AOSP / CyanogenMod 10.1 / Lineage Android 4 `.zip` packages or custom recoveries:
-- **Custom ROM `.zip` Installer:** Built-in storage browser inspects `META-INF/com/google/android/updater-script` inside the `.zip`, checks for **MT8125 vs Tegra 3 board mismatches**, stages the `.zip` for recovery, writes `/cache/recovery/openrecoveryscript` + `/cache/recovery/command`, and reboots straight into `recovery` to flash automatically (with optional `wipe data` / `wipe cache`).
-- **`recovery.img` / `boot.img` Flasher:** Validates the 2048-byte `ANDROID!` kernel+ramdisk header (`arc7tool inspect-boot`), automatically backs up your existing partition first, flashes + verifies SHA-256 readback, and reboots into recovery.
-
-### Tab `5. TOOLS` — Power Utilities
-- **Bypass Stuck Kobo Setup Wizard Now** (fixes disabled Home button & notification shade instantly)
-- **Mount `/system` Read-Write (`RW`) / Read-Only (`RO`)**
-- **Install Any `.apk` as System or User App** (handy for sideloading Aurora Store / F-Droid Classic / NewPipe Legacy / Firefox / VLC on Android 4.2)
-- **Reboot Manager** (`Normal Reboot`, `Reboot to Recovery`, `Reboot to Bootloader`)
+- **Tab `1. ROOT`:** Multi-stage native ARMv7 kernel root engine (`libarc7root.so`: `CVE-2013-6282` + MT8125 driver probe + `CVE-2014-3153`), persistent setuid/daemon multi-call `/sbin/{su,uname,cp}` + `/system/xbin/{su,uname,cp}`, root shell self-test, and 1-tap unroot.
+- **Tab `2. CERTS & NET`:** 120 offline pre-packaged 2026 Mozilla Root CAs (`<subject_hash_old>.0`), expired `DST Root CA X3` quarantine, raw UDP NTP + HTTP clock sync, `1.1.1.1`/`8.8.8.8` DNS setup, persistent Dual-Engine BearSSL + MbedTLS `TLS 1.3` proxy (`127.0.0.1:8118`), and built-in HTTPS downloader.
+- **Tab `3. BACKUP OS`:** Direct **USB ADB Laptop Streaming Backup (`:18777`, `0 MB` tablet space)** + on-device streaming gzip/SHA-256 partition backup (`mbr`, `ebr1`, `nvram`, `protect_f`, `protect_s`, `uboot`, `boot`, `recovery`, `system.img.gz`, `MT8125_Android_scatter.txt`), integrity verifier, and partition restorer.
+- **Tab `4. ANDROID 4`:** Safe **One-Tap Stock Android 4.2 Holo Conversion** (`VanillaAndroid4Home v48` with Home Widgets, reversible Kobo bloat archive, `device_provisioned=1`, `build.prop` tuning) + **Custom ROM `.zip` & `recovery.img` / `boot.img` Flasher** with board-mismatch & header brick guards.
+- **Tab `5. APPS, SD & POWER`:**
+  - **Standalone Apps (Each in Its Own Isolated Task Stack):** `Arc7 Browser (TLS 1.3)`, `Arc7 E-Reader` (`.epub` / `.pdf` / `.txt` + 70,000 Project Gutenberg Store + `.cbz` Comic Reader), `Arc7 Audio` (music & audiobooks + sleep timer + home widget), `Arc7 Clock` (Alarms, World Clock, Timer, Stopwatch), `Arc7 Nightstand Desk Clock`, `Arc7 12 HD Wallpapers`, `Arc7 App Manager`, `Arc7 Root Terminal`, and **Patched `FDroidClassicLegacy`** (4,000+ apps).
+  - **Storage, Display & Battery Tools:** **64 GB / 128 GB / 256 GB MicroSDXC `FAT32` Formatter** (with soldered-eMMC triple hardware guard), Heavy-Folder MicroSD Bind Mount, Persistent **Wi-Fi Drive Server (`:8080`)**, Wireless ADB (`:5555`), Warm Night Reading Filter, Floating Soft-Keys, System `/etc/hosts` Ad-Blocker, and CPU Power Profiles.
 
 ---
 
@@ -128,50 +115,51 @@ For power users installing custom AOSP / CyanogenMod 10.1 / Lineage Android 4 `.
 | Cache (`/cache`) | `/emmc@cache` (`/dev/block/mmcblk0p6`, 512 MB `ext4`) | `/dev/block/platform/sdhci-tegra.3/by-name/CAC` |
 | Userdata (`/data`) | `/emmc@usrdata` (`/dev/block/mmcblk0p7`, ~6 GB `ext4`) | `/dev/block/platform/sdhci-tegra.3/by-name/UDA` |
 | Wi-Fi / NVRAM Calibration | `/dev/nvram`, `/emmc@protect_f` (`mmcblk0p2`), `/emmc@protect_s` (`mmcblk0p3`) | Factory calibration partition |
-| External MicroSD | `/storage/sdcard1` (`/dev/block/vold/179:97`, `vfat`) | — |
+| External MicroSD | `/storage/sdcard1` (`/dev/block/mmcblk1p1`, `vfat` up to 256 GB) | `/storage/sdcard1` |
 
 ---
 
-## Building from Source & Running Verification Tests
+## Building from Source & Running Verification Gates
 
 ### Project Layout
 ```text
 Kobo-Arc-7-freedom/
-├── app/src/main/                  # Main Android app (ca.arc7freedom.app, API 15-17)
+├── keystore/
+│   └── arc7freedom-release.jks           # Permanent version-controlled release keystore (v1+v2+v3)
+├── app/src/main/                         # Main suite APK (ca.arc7freedom.app, v1.8.1, API 15-17)
+│   ├── AndroidManifest.xml               # 10 isolated taskAffinity activities + 6 services + 3 widgets
+│   ├── assets/                           # Bundled 120 2026 CAs, VanillaAndroid4Home.apk & FDroidClassicLegacy.apk
+│   └── java/ca/arc7freedom/app/          # UI, Root, Certs, USB/SD Backup, Browser, Reader, Audio, Clock, Widgets
+├── upgrader/src/main/                    # 1-Tap Signature-Conflict-Free Root Upgrader (ca.arc7freedom.upgrader)
 │   ├── AndroidManifest.xml
-│   ├── assets/VanillaAndroid4Home.apk
-│   └── java/ca/arc7freedom/app/
-│       ├── MainActivity.java      # Responsive 4-tab Android 4.2 Holo UI + Live Console
-│       ├── DeviceInspector.java   # MT8125 vs Tegra 3 detector, volume probe & scatter builder
-│       ├── RootShell.java         # Persistent root shell, CVE runner & su installer
-│       ├── BackupManager.java     # Streaming SHA-256 + gzip OS backup, verifier & restorer
-│       ├── Android4Installer.java # One-tap Stock Android 4 converter + ROM zip/img flasher
-│       └── FilePickerDialog.java  # MicroSD / internal storage file & folder picker
-├── launcher-android4/             # Clean Stock Android 4.2 Holo Home Launcher (VanillaAndroid4Home)
-├── native/                        # Static ARMv7 EABI5 C binaries (compiled via zig cc -static)
-│   ├── arc7_common.h              # Shared logging, mount remounting & property helpers
-│   ├── su.c                       # Setuid + daemon fallback root shell binary (libarc7su.so)
-│   ├── arc7root.c                 # Multi-stage Android 4.2 ARMv7 kernel root engine (libarc7root.so)
-│   └── arc7tool.c                 # Streaming zlib + FIPS-180-4 SHA-256 partition tool (libarc7tool.so)
+│   └── java/ca/arc7freedom/upgrader/UpgraderActivity.java
+├── launcher-android4/                    # Stock Android 4.2 Holo Home Launcher v48 w/ AppWidgetHost (ca.arc7freedom.launcher)
+├── native/                               # Static ARMv7 EABI5 C binaries (compiled via zig cc -static)
+│   ├── arc7_common.h                     # Shared logging, mount remounting & multi-call applet symlinks
+│   ├── su.c                              # Multi-call setuid/daemon `su` + built-in POSIX `uname` & `cp` applets
+│   ├── arc7root.c                        # Multi-stage Android 4.2 Linux 3.4 ARMv7 kernel root engine
+│   ├── arc7tool.c                        # Streaming zlib + FIPS-180-4 SHA-256 partition & 256GB FAT32 tool
+│   └── arc7tls.c                         # Dual-engine BearSSL (TLS 1.0-1.2) + MbedTLS 3.6 (TLS 1.3) gateway
 ├── scripts/
-│   ├── generate-icons.py          # Multi-density launcher icon generator (mdpi..xxhdpi)
-│   ├── build-all.sh               # Full reproducible C + Java + DEX 035 + v1/v2/v3 APK builder
-│   ├── verify-apks.py             # Automated zipalign, apksigner, AXML, DEX 035, ELF32 & JVM tests
-│   └── bootstrap-toolchain.sh     # Self-contained Linux build toolchain bootstrapper
+│   ├── build-all.sh                      # Reproducible full build for all 4 APKs + static portals + SHA256SUMS
+│   ├── patch-fdroid-apk.py               # Binary resources.arsc patcher for F-Droid TLS 1.3 index bridge
+│   ├── generate-cacerts.py               # Offline 120-cert Mozilla 2026 CA packager (<subject_hash_old>.0)
+│   ├── generate-icons.py                 # Vector shield logo banner & 8 multi-DPI app icon renderer
+│   └── verify-apks.py                    # End-to-end cert, DEX 035, ELF32, pure-toolbox, TLS 1.3 & HTTP verification
 ├── tools/
-│   ├── usb-sideload-and-root.sh   # Linux/macOS USB ADB installer & stuck-Setup rescue helper
-│   └── usb-sideload-and-root.bat  # Windows USB ADB installer & stuck-Setup rescue helper
-└── releases/
-    ├── KoboArc7Freedom.apk        # Signed ready-to-install main APK
-    ├── VanillaAndroid4Home.apk    # Signed standalone Stock Android 4.2 Launcher APK
-    └── SHA256SUMS.txt             # SHA-256 digests
+│   ├── serve-over-wifi.py                # Local HTTP/1.1 + Range + fast TLS-reject Wi-Fi installer & portal generator
+│   ├── usb-sideload-and-root.sh          # Linux/macOS USB ADB installer & stuck Setup Wizard rescue script
+│   └── usb-sideload-and-root.bat         # Windows USB ADB installer & stuck Setup Wizard rescue script
+├── docs/                                 # GitHub Pages live web installer portal
+└── releases/                             # Signed ready-to-install v1.8.1 APKs, USB/Wi-Fi launchers & SHA256SUMS.txt
 ```
 
-### Build & Test Commands
+### Reproducible Build & Verification Commands
 ```bash
-# Build both signed APKs + ARMv7 native binaries from scratch:
-make apks     # or ./scripts/build-all.sh
+# Build all signed APKs (Main v1.8.1, 1-Tap Upgrader, Home Launcher v48, Patched F-Droid) + ARMv7 binaries:
+./scripts/build-all.sh
 
-# Run the complete binary, signature, DEX 035, ELF32 ARMv7 & JVM test suite:
-make verify   # or python3 scripts/verify-apks.py
+# Run every automated verification gate (permanent cert SHA-256, zipalign, v1/v2/v3 signatures,
+# Dalvik DEX 035, ELF32 ARMv7, multi-call su/uname/cp, zero non-toolbox shell calls & live TLS 1.3):
+python3 scripts/verify-apks.py
 ```

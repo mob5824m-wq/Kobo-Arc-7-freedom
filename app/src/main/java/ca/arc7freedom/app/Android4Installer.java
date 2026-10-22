@@ -107,7 +107,7 @@ public class Android4Installer {
             String sysMountDev = resolveSystemMountDevice(snap);
             String step1 = "set -e\n"
                     + "mount -o rw,remount " + RootShell.shellQuote(sysMountDev) + " /system 2>/dev/null || mount -o rw,remount /system\n"
-                    + "cp " + RootShell.shellQuote(launcherApk.getAbsolutePath()) + " /system/app/VanillaAndroid4Home.apk\n"
+                    + "cat " + RootShell.shellQuote(launcherApk.getAbsolutePath()) + " > /system/app/VanillaAndroid4Home.apk\n"
                     + "chown 0:0 /system/app/VanillaAndroid4Home.apk || true\n"
                     + "chmod 0644 /system/app/VanillaAndroid4Home.apk\n"
                     + "pm install -r " + RootShell.shellQuote(launcherApk.getAbsolutePath()) + " || true\n"
@@ -150,8 +150,8 @@ public class Android4Installer {
                     if (!shouldArchiveKoboApk(name, opts.keepKoboReaderApp)) continue;
 
                     File backedApk = new File(archiveDir, name);
-                    moveScript.append("cp -f ").append(RootShell.shellQuote(f.getAbsolutePath()))
-                              .append(" ").append(RootShell.shellQuote(backedApk.getAbsolutePath())).append("\n");
+                    moveScript.append("cat ").append(RootShell.shellQuote(f.getAbsolutePath()))
+                              .append(" > ").append(RootShell.shellQuote(backedApk.getAbsolutePath())).append("\n");
                     moveScript.append("[ -s ").append(RootShell.shellQuote(backedApk.getAbsolutePath())).append(" ]\n");
                     moveScript.append("rm -f ").append(RootShell.shellQuote(f.getAbsolutePath())).append("\n");
                     archiveManifest.append(f.getAbsolutePath()).append("\t").append(name).append("\n");
@@ -161,8 +161,8 @@ public class Android4Installer {
                     if (odexFile.exists()) {
                         String odexName = odexFile.getName();
                         File backedOdex = new File(archiveDir, odexName);
-                        moveScript.append("cp -f ").append(RootShell.shellQuote(odexPath))
-                                  .append(" ").append(RootShell.shellQuote(backedOdex.getAbsolutePath())).append("\n");
+                        moveScript.append("cat ").append(RootShell.shellQuote(odexPath))
+                                  .append(" > ").append(RootShell.shellQuote(backedOdex.getAbsolutePath())).append("\n");
                         moveScript.append("[ -s ").append(RootShell.shellQuote(backedOdex.getAbsolutePath())).append(" ]\n");
                         moveScript.append("rm -f ").append(RootShell.shellQuote(odexPath)).append("\n");
                         archiveManifest.append(odexPath).append("\t").append(odexName).append("\n");
@@ -258,8 +258,8 @@ public class Android4Installer {
             String origDest = parts[0];
             File saved = new File(archiveDir, parts[1]);
             if (saved.exists()) {
-                script.append("cp -f ").append(RootShell.shellQuote(saved.getAbsolutePath()))
-                      .append(" ").append(RootShell.shellQuote(origDest)).append("\n");
+                script.append("cat ").append(RootShell.shellQuote(saved.getAbsolutePath()))
+                      .append(" > ").append(RootShell.shellQuote(origDest)).append("\n");
                 script.append("chown 0:0 ").append(RootShell.shellQuote(origDest)).append(" || true\n");
                 script.append("chmod 0644 ").append(RootShell.shellQuote(origDest)).append("\n");
             }
@@ -314,10 +314,15 @@ public class Android4Installer {
 
         if (recPart.offsetBytes > 0L && "/dev/block/mmcblk0".equals(recPart.sourcePath)) {
             long skipBlocks = recPart.offsetBytes / 512L;
-            RootShell.ExecResult slotHdr = shell.execRoot(
-                    "dd if=/dev/block/mmcblk0 bs=512 skip=" + skipBlocks + " count=2 2>/dev/null | grep -a 'ANDROID!' | head -n 1",
-                    null);
-            if (!slotHdr.stdout.contains("ANDROID!")) {
+            File hdrProbe = new File(safetyBackupVolume, "Arc7Freedom/slot_hdr_probe.bin");
+            if (hdrProbe.getParentFile() != null) hdrProbe.getParentFile().mkdirs();
+            shell.execRoot("dd if=/dev/block/mmcblk0 of=" + RootShell.shellQuote(hdrProbe.getAbsolutePath())
+                    + " bs=512 skip=" + skipBlocks + " count=2 2>/dev/null && chmod 0644 "
+                    + RootShell.shellQuote(hdrProbe.getAbsolutePath()), null);
+            RootShell.ExecResult slotHdr = shell.execCommandArray(
+                    new String[]{tool.getAbsolutePath(), "inspect-boot", hdrProbe.getAbsolutePath()}, null);
+            hdrProbe.delete();
+            if (!slotHdr.stdout.contains("VALID_BOOT_IMG=YES")) {
                 throw new IllegalStateException("Brick-Guard: Raw offset 0x" + Long.toHexString(recPart.offsetBytes)
                         + " on /dev/block/mmcblk0 does NOT contain an existing ANDROID! recovery header! Aborting cleanly.");
             }

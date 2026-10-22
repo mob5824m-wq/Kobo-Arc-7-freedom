@@ -1,9 +1,112 @@
 #include "arc7_common.h"
+#include <dirent.h>
 #include <grp.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/utsname.h>
 #include <sys/wait.h>
+
+/* Built-in POSIX `uname` applet (stock Android 4.2 toolbox omits `/system/bin/uname`!) */
+static int applet_uname(int argc, char **argv) {
+    struct utsname u;
+    memset(&u, 0, sizeof(u));
+    if (uname(&u) != 0) {
+        strcpy(u.sysname, "Linux");
+        strcpy(u.nodename, "localhost");
+        strcpy(u.release, "3.4.5");
+        strcpy(u.version, "#1 SMP PREEMPT");
+        strcpy(u.machine, "armv7l");
+    }
+    int f_s = 0, f_n = 0, f_r = 0, f_v = 0, f_m = 0, f_o = 0;
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] != '-') continue;
+        for (const char *p = argv[i] + 1; *p; p++) {
+            if (*p == 'a') { f_s = f_n = f_r = f_v = f_m = f_o = 1; }
+            else if (*p == 's') f_s = 1;
+            else if (*p == 'n') f_n = 1;
+            else if (*p == 'r') f_r = 1;
+            else if (*p == 'v') f_v = 1;
+            else if (*p == 'm' || *p == 'p' || *p == 'i') f_m = 1;
+            else if (*p == 'o') f_o = 1;
+        }
+    }
+    if (!f_s && !f_n && !f_r && !f_v && !f_m && !f_o) f_s = 1;
+    int first = 1;
+    #define EMIT_PART(str) do { if (!first) putchar(' '); fputs((str), stdout); first = 0; } while (0)
+    if (f_s) EMIT_PART(u.sysname);
+    if (f_n) EMIT_PART(u.nodename);
+    if (f_r) EMIT_PART(u.release);
+    if (f_v) EMIT_PART(u.version);
+    if (f_m) EMIT_PART(u.machine);
+    if (f_o) EMIT_PART("GNU/Linux");
+    #undef EMIT_PART
+    putchar('\n');
+    return 0;
+}
+
+/* Built-in POSIX `cp` applet (stock Android 4.2 toolbox omits `/system/bin/cp`!) */
+static int copy_single_entry(const char *src, const char *dst, int no_clobber) {
+    struct stat st_src, st_dst;
+    if (stat(src, &st_src) != 0 || !S_ISREG(st_src.st_mode)) return -1;
+    if (no_clobber && stat(dst, &st_dst) == 0) return 0;
+
+    int in_fd = open(src, O_RDONLY);
+    if (in_fd < 0) return -1;
+    int out_fd = open(dst, O_WRONLY | O_CREAT | O_TRUNC, st_src.st_mode & 07777);
+    if (out_fd < 0) {
+        close(in_fd);
+        return -1;
+    }
+    unsigned char buf[32768];
+    ssize_t n;
+    while ((n = read(in_fd, buf, sizeof(buf))) > 0) {
+        ssize_t off = 0;
+        while (off < n) {
+            ssize_t w = write(out_fd, buf + off, (size_t)(n - off));
+            if (w <= 0) { close(in_fd); close(out_fd); return -1; }
+            off += w;
+        }
+    }
+    close(in_fd);
+    close(out_fd);
+    return 0;
+}
+
+static int applet_cp(int argc, char **argv) {
+    int no_clobber = 0;
+    int first_arg = argc;
+    for (int i = 1; i < argc; i++) {
+        if (argv[i][0] == '-' && argv[i][1] != '\0') {
+            if (strcmp(argv[i], "--") == 0) { first_arg = i + 1; break; }
+            for (const char *p = argv[i] + 1; *p; p++) {
+                if (*p == 'n') no_clobber = 1;
+            }
+        } else {
+            first_arg = i;
+            break;
+        }
+    }
+    int npos = argc - first_arg;
+    if (npos < 2) return 1;
+    const char *dst = argv[argc - 1];
+    struct stat st_dst;
+    int dst_is_dir = (stat(dst, &st_dst) == 0 && S_ISDIR(st_dst.st_mode));
+    int rc = 0;
+    for (int i = first_arg; i < argc - 1; i++) {
+        const char *src = argv[i];
+        char target[1024];
+        if (dst_is_dir || dst[strlen(dst) - 1] == '/') {
+            const char *slash = strrchr(src, '/');
+            const char *base = slash ? slash + 1 : src;
+            snprintf(target, sizeof(target), "%s/%s", dst, base);
+            if (copy_single_entry(src, target, no_clobber) != 0) rc = 1;
+        } else {
+            if (copy_single_entry(src, dst, no_clobber) != 0) rc = 1;
+        }
+    }
+    return rc;
+}
 
 static void setup_root_credentials(void) {
     gid_t groups[] = {0, 1000, 1003, 1004, 1007, 1011, 1015, 1023, 1028, 3001, 3002, 3003};
@@ -16,10 +119,24 @@ static void setup_root_credentials(void) {
     setenv("HOME", "/data", 1);
 }
 
+static void detach_daemon_stdio(void) {
+    alarm(0);
+    setsid();
+    arc7_move_to_root_cgroup();
+    int devnull = open("/dev/null", O_RDWR);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        if (devnull > 2) close(devnull);
+    }
+    for (int fd = 3; fd < 256; fd++) close(fd);
+}
+
 static void handle_daemon_client(int client_fd) {
     /* Protocol: reads null-terminated or EOF command string, runs via /system/bin/sh -c,
        streams stdout+stderr, writes trailing marker \n__ARC7_EXIT_<code>__\n */
-    char cmd[16384];
+    char cmd[32768];
     size_t total = 0;
     while (total + 1 < sizeof(cmd)) {
         ssize_t n = read(client_fd, cmd + total, sizeof(cmd) - 1 - total);
@@ -88,12 +205,10 @@ static int run_daemon(void) {
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    /* Abstract Linux UNIX domain socket: sun_path[0] == '\0' */
     strncpy(addr.sun_path + 1, ARC7_SU_SOCKET_NAME, sizeof(addr.sun_path) - 2);
     socklen_t socklen = (socklen_t)(offsetof(struct sockaddr_un, sun_path) + 1 + strlen(ARC7_SU_SOCKET_NAME));
 
     if (bind(sfd, (struct sockaddr *)&addr, socklen) != 0) {
-        /* Daemon already running */
         close(sfd);
         return 0;
     }
@@ -153,7 +268,6 @@ static int exec_via_daemon(const char *cmd) {
             tail_len += (size_t)n;
             acc[tail_len] = '\0';
         } else {
-            /* Flush older half */
             size_t flush_n = tail_len - 128;
             if (write(STDOUT_FILENO, acc, flush_n) < 0) { /* ignore */ }
             memmove(acc, acc + flush_n, tail_len - flush_n);
@@ -177,11 +291,48 @@ static int exec_via_daemon(const char *cmd) {
     return exit_code;
 }
 
+static void append_quoted_arg(char *buf, size_t cap, const char *arg) {
+    size_t cur = strlen(buf);
+    if (cur > 0 && cur + 1 < cap) buf[cur++] = ' ';
+    if (cur + 2 >= cap) return;
+    /* Quote only if arg contains shell whitespace/metacharacters and isn't already single-cmd */
+    int needs_quote = 0;
+    for (const char *p = arg; *p; p++) {
+        if (*p == ' ' || *p == '\t' || *p == '\'' || *p == '"' || *p == '$' || *p == ';') {
+            needs_quote = 1;
+            break;
+        }
+    }
+    if (!needs_quote) {
+        snprintf(buf + cur, cap - cur, "%s", arg);
+        return;
+    }
+    buf[cur++] = '\'';
+    for (const char *p = arg; *p && cur + 6 < cap; p++) {
+        if (*p == '\'') {
+            memcpy(buf + cur, "'\"'\"'", 5);
+            cur += 5;
+        } else {
+            buf[cur++] = *p;
+        }
+    }
+    buf[cur++] = '\'';
+    buf[cur] = '\0';
+}
+
 int main(int argc, char **argv) {
+    if (argc > 0 && argv[0] != NULL) {
+        const char *slash = strrchr(argv[0], '/');
+        const char *prog = slash ? slash + 1 : argv[0];
+        if (strcmp(prog, "uname") == 0) return applet_uname(argc, argv);
+        if (strcmp(prog, "cp") == 0) return applet_cp(argc, argv);
+    }
+
     const char *shell = "/system/bin/sh";
-    char cmd_buf[16384];
+    char cmd_buf[32768];
     cmd_buf[0] = '\0';
     int has_cmd = 0;
+    int exec_argv_idx = -1;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
@@ -198,7 +349,7 @@ int main(int argc, char **argv) {
                 return 1;
             }
             if (fork() > 0) return 0;
-            setsid();
+            detach_daemon_stdio();
             return run_daemon();
         }
         if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--shell") == 0) {
@@ -219,20 +370,38 @@ int main(int argc, char **argv) {
             }
             break;
         }
-        /* Ignore target user specification like "root" or "0" */
         if (strcmp(argv[i], "root") == 0 || strcmp(argv[i], "0") == 0) {
             continue;
         }
+        /* Support AOSP Android 4.2 `su 0 /system/bin/sh script.sh` style invocations too! */
+        exec_argv_idx = i;
+        has_cmd = 1;
+        for (int j = i; j < argc; j++) {
+            append_quoted_arg(cmd_buf, sizeof(cmd_buf), argv[j]);
+        }
+        break;
     }
 
     if (geteuid() == 0 || getuid() == 0) {
         setup_root_credentials();
+        /* Ensure background daemon stays alive automatically for any non-setuid callers */
+        if (arc7_daemon_ping() != 0) {
+            pid_t dp = fork();
+            if (dp == 0) {
+                detach_daemon_stdio();
+                _exit(run_daemon());
+            }
+        }
+        if (exec_argv_idx > 0) {
+            execvp(argv[exec_argv_idx], &argv[exec_argv_idx]);
+            perror("execvp");
+            return 127;
+        }
         if (has_cmd) {
             execl(shell, "sh", "-c", cmd_buf, (char *)NULL);
             perror("execl");
             return 127;
         }
-        /* Interactive shell or stdin pipe (`su` with script fed on stdin!) */
         execl(shell, "sh", (char *)NULL);
         perror("execl");
         return 127;
@@ -240,7 +409,6 @@ int main(int argc, char **argv) {
 
     /* Fallback: if binary wasn't setuid or filesystem had nosuid, talk to root daemon! */
     if (!has_cmd && !isatty(STDIN_FILENO)) {
-        /* Read piped stdin commands (`Runtime.getRuntime().exec("su")` writing to OutputStream!) */
         size_t total = 0;
         ssize_t n;
         while (total + 1 < sizeof(cmd_buf) &&

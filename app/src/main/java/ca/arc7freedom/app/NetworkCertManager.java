@@ -14,6 +14,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.Socket;
 import java.net.URL;
 import java.security.KeyStore;
@@ -353,18 +354,25 @@ public class NetworkCertManager {
 
                 String cmd =
                         "set -e; " +
-                        // One-time untouched backup of factory /system/etc/security/cacerts
+                        // One-time untouched backup of factory /system/etc/security/cacerts (using pure mksh + cat — NO /system/bin/cp dependency!)
                         "if [ ! -f '" + sysCaBackup.getAbsolutePath() + "/.backed_up' ]; then " +
-                        "  cp -a /system/etc/security/cacerts/* '" + sysCaBackup.getAbsolutePath() + "/' 2>/dev/null || true; " +
+                        "  for _sc in /system/etc/security/cacerts/*; do " +
+                        "    [ -f \"$_sc\" ] && cat \"$_sc\" > '" + sysCaBackup.getAbsolutePath() + "/'\"${_sc##*/}\" 2>/dev/null || true; " +
+                        "  done; " +
                         "  echo ok > '" + sysCaBackup.getAbsolutePath() + "/.backed_up'; " +
                         "fi; " +
                         "mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true; " +
                         quarantineCmd.toString() +
-                        "cp -f '" + stageDir.getAbsolutePath() + "'/* /system/etc/security/cacerts/; " +
+                        "mkdir -p /data/misc/keychain/cacerts-added; " +
+                        "for _cf in '" + stageDir.getAbsolutePath() + "'/*; do " +
+                        "  if [ -f \"$_cf\" ]; then " +
+                        "    _bn=\"${_cf##*/}\"; " +
+                        "    cat \"$_cf\" > \"/system/etc/security/cacerts/$_bn\"; " +
+                        "    cat \"$_cf\" > \"/data/misc/keychain/cacerts-added/$_bn\"; " +
+                        "  fi; " +
+                        "done; " +
                         "chmod 0644 /system/etc/security/cacerts/*; " +
                         "chown 0:0 /system/etc/security/cacerts/* 2>/dev/null || true; " +
-                        "mkdir -p /data/misc/keychain/cacerts-added; " +
-                        "cp -f '" + stageDir.getAbsolutePath() + "'/* /data/misc/keychain/cacerts-added/; " +
                         "chmod 0644 /data/misc/keychain/cacerts-added/*; " +
                         "sync; " +
                         "mount -o remount,ro /system 2>/dev/null || true";
@@ -392,9 +400,14 @@ public class NetworkCertManager {
             // Refresh Java TLS 1.2 + 2026 CA trust store
             installProcessTls12TrustStore();
 
-            // Step 5: Start local TLS 1.3 Browser Gateway AND test live HTTPS!
-            listener.onProgress(82, "Starting Local TLS 1.3 Browser Gateway (http://127.0.0.1:8118/)...");
-            startBrowserGateway();
+            // Step 5: Install per-device Local TLS 1.0->1.3 Upgrade CA & start persistent 24/7 Gateway (:8118)
+            listener.onProgress(80, "Activating System-Wide TLS 1.3 Upgrade Proxy & Persistent Gateway (127.0.0.1:8118)...");
+            if (hasRoot) {
+                setSystemWideTls13ProxyEnabled(true, listener);
+            } else {
+                startBrowserGateway();
+            }
+            Arc7TlsGatewayService.ensureStarted(appContext);
 
             listener.onProgress(90, "Testing live modern HTTPS (TLS 1.3 + 2026 CAs) over Wi-Fi...");
             File tlsBin = shell.getTlsEngineBinary();
@@ -427,13 +440,14 @@ public class NetworkCertManager {
             RootShell.ExecResult ntpRes = hasRoot
                     ? shell.execRoot("'" + tlsBin.getAbsolutePath() + "' ntp --set", null)
                     : shell.execCommandArray(new String[]{tlsBin.getAbsolutePath(), "ntp"}, null);
-            if (ntpRes.exitCode == 0 && ntpRes.stdout.contains("ANDROID_DATE=")) {
+            if (ntpRes.exitCode == 0 && (ntpRes.stdout.contains("NTP_UTC=") || ntpRes.stdout.contains("ANDROID_DATE="))) {
                 String androidDate = extractKey(ntpRes.stdout, "ANDROID_DATE=");
-                String isoUtc = extractKey(ntpRes.stdout, "ISO_UTC=");
+                String isoUtc = extractKey(ntpRes.stdout, "NTP_UTC=");
+                if (isoUtc == null) isoUtc = extractKey(ntpRes.stdout, "ISO_UTC=");
                 if (hasRoot && androidDate != null) {
-                    shell.execRoot("date -u -s " + androidDate + " >/dev/null 2>&1 || date -s " + androidDate + " >/dev/null 2>&1 || true", null);
+                    shell.execRoot("date -s " + androidDate + " >/dev/null 2>&1 || true", null);
                 }
-                listener.onLog("Synced atomic UTC time via NTP: " + isoUtc);
+                listener.onLog("Synced atomic UTC time via NTP/HTTP: " + isoUtc);
                 return;
             }
         }
@@ -447,7 +461,7 @@ public class NetworkCertManager {
         for (String u : httpUrls) {
             HttpURLConnection conn = null;
             try {
-                conn = (HttpURLConnection) new URL(u).openConnection();
+                conn = (HttpURLConnection) new URL(u).openConnection(Proxy.NO_PROXY);
                 conn.setInstanceFollowRedirects(false);
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(5000);
@@ -457,7 +471,7 @@ public class NetworkCertManager {
                     fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
                     String dateArg = fmt.format(new Date(serverDateMs));
                     if (hasRoot) {
-                        shell.execRoot("date -u -s " + dateArg + " >/dev/null 2>&1 || date -s " + dateArg + " >/dev/null 2>&1 || true", null);
+                        shell.execRoot("date -s " + dateArg + " >/dev/null 2>&1 || true", null);
                         listener.onLog("Synced tablet clock via HTTP Date header (" + u + ") -> " + dateArg + " UTC");
                     } else {
                         listener.onLog("Network UTC time is " + dateArg + " (root tablet in Tab 1 to set system clock automatically).");
@@ -519,7 +533,9 @@ public class NetworkCertManager {
         RootShell.ExecResult r = shell.execRoot(
                 "mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true; " +
                 "rm -f /system/etc/security/cacerts/*; " +
-                "cp -f '" + sysCaBackup.getAbsolutePath() + "'/*.0 /system/etc/security/cacerts/ 2>/dev/null || true; " +
+                "for _sc in '" + sysCaBackup.getAbsolutePath() + "'/*.0; do " +
+                "  [ -f \"$_sc\" ] && cat \"$_sc\" > \"/system/etc/security/cacerts/${_sc##*/}\" 2>/dev/null || true; " +
+                "done; " +
                 "chmod 0644 /system/etc/security/cacerts/*; " +
                 "sync; mount -o remount,ro /system 2>/dev/null || true",
                 new RootShell.LineListener() {
@@ -719,11 +735,13 @@ public class NetworkCertManager {
 
         boolean hasRoot = shell.isRootAvailable();
         if (hasRoot) {
-            File[] files = caDir.listFiles();
+            String hashedName = null;
             String hashedPath = null;
+            File[] files = caDir.listFiles();
             if (files != null) {
                 for (File f : files) {
                     if (f.getName().endsWith(".0")) {
+                        hashedName = f.getName();
                         hashedPath = f.getAbsolutePath();
                         break;
                     }
@@ -732,8 +750,8 @@ public class NetworkCertManager {
             String cmd =
                     RootShell.remountSystemRwCmd() + " && " +
                     (hashedPath != null
-                            ? "cp -f '" + hashedPath + "' /system/etc/security/cacerts/ && chmod 0644 /system/etc/security/cacerts/*.0 && " +
-                              "mkdir -p /data/misc/keychain/cacerts-added && cp -f '" + hashedPath + "' /data/misc/keychain/cacerts-added/ && chmod 0644 /data/misc/keychain/cacerts-added/* && "
+                            ? "cat '" + hashedPath + "' > '/system/etc/security/cacerts/" + hashedName + "' && chmod 0644 /system/etc/security/cacerts/*.0 && " +
+                              "mkdir -p /data/misc/keychain/cacerts-added && cat '" + hashedPath + "' > '/data/misc/keychain/cacerts-added/" + hashedName + "' && chmod 0644 /data/misc/keychain/cacerts-added/* && "
                             : "") +
                     RootShell.remountSystemRoCmd() + " && " +
                     "settings put global http_proxy 127.0.0.1:" + DEFAULT_PROXY_PORT + " && " +
@@ -747,6 +765,7 @@ public class NetworkCertManager {
         }
 
         boolean up = startBrowserGateway();
+        Arc7TlsGatewayService.ensureStarted(appContext);
         appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE)
                 .edit().putBoolean("sys_tls13_proxy", up).commit();
         if (listener != null && up) {

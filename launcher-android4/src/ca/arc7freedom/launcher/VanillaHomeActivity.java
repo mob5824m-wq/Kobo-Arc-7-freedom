@@ -2,18 +2,19 @@ package ca.arc7freedom.launcher;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.appwidget.AppWidgetHost;
+import android.appwidget.AppWidgetHostView;
+import android.appwidget.AppWidgetManager;
+import android.appwidget.AppWidgetProviderInfo;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.content.res.Configuration;
-import android.graphics.Canvas;
+import android.content.pm.ResolveInfo;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
@@ -23,147 +24,995 @@ import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.util.DisplayMetrics;
 import android.util.TypedValue;
+import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.AdapterView;
 import android.widget.BaseAdapter;
+import android.widget.DigitalClock;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * Pure Stock Android 4.2 Jelly Bean (Holo) Home Launcher tailored for Kobo Arc 7 (1024x600)
- * and Kobo Arc 7HD (1920x1200) in both portrait and landscape orientations.
+ * Clean Vanilla Android 4.2.2 Jelly Bean Home Screen Launcher — upgraded in v1.8.0 with:
+ *   - Full live Android Home Screen AppWidget Host (`AppWidgetHost` ID `1024` +
+ *     `AppWidgetManager` bind, configure, multi-page persistence, resize height, & remove)!
+ *   - Isolated task launching (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_RESET_TASK_IF_NEEDED`)
+ *     so every app opens in its own independent task stack!
+ *   - 3 Swipeable Home Pages, All-Apps Drawer, Instant Search, & 5-Icon Favorites Dock.
  */
 public class VanillaHomeActivity extends Activity {
 
-    private static final int HOLO_BLUE = 0xFF33B5E5;
+    private static final int PAGE_COUNT = 3;
+    private static final int APPWIDGET_HOST_ID = 1024;
+    private static final int REQ_BIND_APPWIDGET = 4101;
+    private static final int REQ_CONFIGURE_APPWIDGET = 4102;
 
-    private FrameLayout rootFrame;
-    private LinearLayout desktopRoot;
-    private LinearLayout drawerRoot;
+    private static class AppEntry {
+        String label;
+        String pkg;
+        String cls;
+        Drawable icon;
+    }
 
-    private TextView clockTimeText;
-    private TextView clockDateText;
-    private View clockCard;
-    private GridView workspaceGrid;
-    private View[] pageBars = new View[PinnedShortcutsStore.PAGE_COUNT];
-    private LinearLayout dockContainer;
+    private final List<AppEntry> allApps = new ArrayList<AppEntry>();
+    private final List<AppEntry> filteredApps = new ArrayList<AppEntry>();
+    private final List<AppEntry> currentPageShortcuts = new ArrayList<AppEntry>();
+    private final TextView[] pageDots = new TextView[PAGE_COUNT];
 
-    private GridView drawerGrid;
-    private EditText drawerFilterInput;
-    private TextView tabAllApps;
-    private TextView tabUserApps;
-    private boolean userAppsOnly = false;
+    private AppWidgetManager appWidgetManager;
+    private AppWidgetHost appWidgetHost;
+    private int pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+    private AppWidgetProviderInfo pendingWidgetInfo = null;
 
-    private int currentPage = PinnedShortcutsStore.DEFAULT_PAGE;
-    private List<PinnedShortcutsStore.AppEntry> allApps = new ArrayList<PinnedShortcutsStore.AppEntry>();
-    private List<PinnedShortcutsStore.AppEntry> filteredApps = new ArrayList<PinnedShortcutsStore.AppEntry>();
-    private WorkspaceAdapter workspaceAdapter;
-    private DrawerAdapter drawerAdapter;
-
-    private float touchDownX = 0f;
-    private float touchDownY = 0f;
-
-    private final BroadcastReceiver timeReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            updateClock();
-        }
-    };
+    private int currentPage = 0;
+    private LinearLayout desktopView;
+    private LinearLayout widgetsContainer;
+    private LinearLayout drawerOverlay;
+    private LinearLayout dockBar;
+    private TextView dateView;
+    private TextView desktopHintView;
+    private EditText searchBox;
+    private AppGridAdapter desktopAdapter;
+    private AppGridAdapter drawerAdapter;
+    private GestureDetector swipeDetector;
+    private boolean drawerOpen = false;
 
     private final BroadcastReceiver pkgReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
-            reloadAppsAndRefresh();
+            reloadApps();
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        BootProvisionReceiver.ensureProvisioned(this);
 
-        buildUi();
-        reloadAppsAndRefresh();
-        updateClock();
+        appWidgetManager = AppWidgetManager.getInstance(getApplicationContext());
+        appWidgetHost = new AppWidgetHost(getApplicationContext(), APPWIDGET_HOST_ID);
 
-        IntentFilter pkgFilter = new IntentFilter();
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_ADDED);
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_REMOVED);
-        pkgFilter.addAction(Intent.ACTION_PACKAGE_CHANGED);
-        pkgFilter.addDataScheme("package");
-        registerReceiver(pkgReceiver, pkgFilter);
+        swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
+                if (e1 == null || e2 == null || drawerOpen) return false;
+                float dx = e2.getX() - e1.getX();
+                float dy = e2.getY() - e1.getY();
+                if (Math.abs(dx) > dp(75) && Math.abs(dx) > Math.abs(dy) * 1.3f) {
+                    if (dx < 0 && currentPage < PAGE_COUNT - 1) {
+                        switchToPage(currentPage + 1);
+                        return true;
+                    } else if (dx > 0 && currentPage > 0) {
+                        switchToPage(currentPage - 1);
+                        return true;
+                    }
+                }
+                return false;
+            }
+        });
+
+        FrameLayout root = new FrameLayout(this);
+        root.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 1. Desktop workspace (top bar + live Home Screen Widgets + shortcuts grid + page dots + dock)
+        desktopView = new LinearLayout(this);
+        desktopView.setOrientation(LinearLayout.VERTICAL);
+        desktopView.setPadding(dp(16), dp(8), dp(16), dp(8));
+
+        // Top bar: Left = Date | Center = Clock | Right = [+ Widget] [Apps] [Wallpaper]
+        LinearLayout topBar = new LinearLayout(this);
+        topBar.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.setGravity(Gravity.CENTER_VERTICAL);
+        topBar.setPadding(dp(4), dp(2), dp(4), dp(6));
+
+        LinearLayout clockCol = new LinearLayout(this);
+        clockCol.setOrientation(LinearLayout.HORIZONTAL);
+        clockCol.setGravity(Gravity.CENTER_VERTICAL);
+
+        DigitalClock clock = new DigitalClock(this);
+        clock.setTextColor(Color.WHITE);
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        clock.setShadowLayer(6f, 0f, 2f, 0xCC000000);
+        clockCol.addView(clock);
+
+        dateView = new TextView(this);
+        dateView.setTextColor(0xEEFFFFFF);
+        dateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        dateView.setShadowLayer(4f, 0f, 1f, 0xCC000000);
+        dateView.setPadding(dp(12), dp(4), 0, 0);
+        updateDateLabel();
+        clockCol.addView(dateView);
+
+        topBar.addView(clockCol, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        // Prominent [+ Widget] pill in top bar!
+        TextView addWidgetChip = makeTopChip("+ Widget", 0xDD2563EB);
+        addWidgetChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showWidgetPickerDialog();
+            }
+        });
+        topBar.addView(addWidgetChip);
+
+        TextView wallpaperChip = makeTopChip("Wallpaper", 0x991E293B);
+        LinearLayout.LayoutParams wpLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wpLp.leftMargin = dp(8);
+        wallpaperChip.setLayoutParams(wpLp);
+        wallpaperChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7WallpaperPickerActivity")) {
+                    Intent pick = new Intent(Intent.ACTION_SET_WALLPAPER);
+                    try {
+                        startActivity(Intent.createChooser(pick, "Choose Wallpaper"));
+                    } catch (Throwable ignored) {}
+                }
+            }
+        });
+        topBar.addView(wallpaperChip);
+
+        desktopView.addView(topBar);
+
+        // Live Home Screen Widgets area (scrollable if user adds multiple widgets on a page)
+        ScrollView widgetScroll = new ScrollView(this);
+        widgetScroll.setVerticalScrollBarEnabled(false);
+        widgetsContainer = new LinearLayout(this);
+        widgetsContainer.setOrientation(LinearLayout.VERTICAL);
+        widgetScroll.addView(widgetsContainer, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        desktopView.addView(widgetScroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        desktopHintView = new TextView(this);
+        desktopHintView.setTextColor(0xCCFFFFFF);
+        desktopHintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        desktopHintView.setGravity(Gravity.CENTER_HORIZONTAL);
+        desktopHintView.setShadowLayer(4f, 0f, 1f, 0xCC000000);
+        desktopHintView.setPadding(0, dp(2), 0, dp(4));
+        desktopView.addView(desktopHintView);
+
+        // Pinned Home Shortcuts Grid (middle workspace)
+        GridView desktopGrid = new GridView(this);
+        desktopGrid.setNumColumns(5);
+        desktopGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        desktopGrid.setVerticalSpacing(dp(10));
+        desktopGrid.setHorizontalSpacing(dp(8));
+        desktopGrid.setGravity(Gravity.CENTER);
+        desktopAdapter = new AppGridAdapter(currentPageShortcuts, true);
+        desktopGrid.setAdapter(desktopAdapter);
+        desktopView.addView(desktopGrid, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // 3-Page Dot Indicator Row (also clickable!)
+        LinearLayout dotsRow = new LinearLayout(this);
+        dotsRow.setOrientation(LinearLayout.HORIZONTAL);
+        dotsRow.setGravity(Gravity.CENTER);
+        dotsRow.setPadding(0, dp(3), 0, dp(5));
+        for (int i = 0; i < PAGE_COUNT; i++) {
+            final int targetPage = i;
+            TextView dot = new TextView(this);
+            dot.setText("\u25CF");
+            dot.setPadding(dp(10), dp(2), dp(10), dp(2));
+            dot.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    switchToPage(targetPage);
+                }
+            });
+            pageDots[i] = dot;
+            dotsRow.addView(dot);
+        }
+        desktopView.addView(dotsRow);
+
+        // Bottom 5-icon Favorites + All-Apps Dock
+        dockBar = new LinearLayout(this);
+        dockBar.setOrientation(LinearLayout.HORIZONTAL);
+        dockBar.setGravity(Gravity.CENTER);
+        dockBar.setPadding(dp(8), dp(6), dp(8), dp(6));
+        GradientDrawable dockBg = new GradientDrawable();
+        dockBg.setColor(0x66000000);
+        dockBg.setCornerRadius(dp(14));
+        dockBar.setBackgroundDrawable(dockBg);
+        desktopView.addView(dockBar, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        root.addView(desktopView);
+
+        // 2. Full-screen All-Apps Drawer Overlay (Holo Dark)
+        drawerOverlay = new LinearLayout(this);
+        drawerOverlay.setOrientation(LinearLayout.VERTICAL);
+        drawerOverlay.setBackgroundColor(0xEA11161D);
+        drawerOverlay.setPadding(dp(18), dp(14), dp(18), dp(12));
+        drawerOverlay.setVisibility(View.GONE);
+
+        LinearLayout drawerHeader = new LinearLayout(this);
+        drawerHeader.setOrientation(LinearLayout.HORIZONTAL);
+        drawerHeader.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView drawerTitle = new TextView(this);
+        drawerTitle.setText("ALL APPS");
+        drawerTitle.setTextColor(0xFF33B5E5);
+        drawerTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        drawerTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        drawerHeader.addView(drawerTitle, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        searchBox = new EditText(this);
+        searchBox.setHint("Search apps (long-press any app to pin to Home)...");
+        searchBox.setSingleLine(true);
+        searchBox.setTextColor(Color.WHITE);
+        searchBox.setHintTextColor(0x88FFFFFF);
+        searchBox.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        LinearLayout.LayoutParams sParams = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        sParams.leftMargin = dp(12);
+        sParams.rightMargin = dp(12);
+        searchBox.setLayoutParams(sParams);
+        searchBox.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
+            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {
+                filterApps(s.toString());
+            }
+            @Override public void afterTextChanged(Editable s) {}
+        });
+        drawerHeader.addView(searchBox);
+
+        TextView addWidgetBtn2 = makeTopChip("+ Widget", 0xDD2563EB);
+        addWidgetBtn2.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeDrawer();
+                showWidgetPickerDialog();
+            }
+        });
+        drawerHeader.addView(addWidgetBtn2);
+
+        TextView closeBtn = new TextView(this);
+        closeBtn.setText("\u2715  HOME");
+        closeBtn.setTextColor(Color.WHITE);
+        closeBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        closeBtn.setPadding(dp(12), dp(8), dp(12), dp(8));
+        closeBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeDrawer();
+            }
+        });
+        drawerHeader.addView(closeBtn);
+        drawerOverlay.addView(drawerHeader);
+
+        View divider = new View(this);
+        divider.setBackgroundColor(0xFF33B5E5);
+        LinearLayout.LayoutParams divParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
+        divParams.topMargin = dp(6);
+        divParams.bottomMargin = dp(12);
+        drawerOverlay.addView(divider, divParams);
+
+        GridView grid = new GridView(this);
+        grid.setNumColumns(5);
+        grid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
+        grid.setVerticalSpacing(dp(14));
+        grid.setHorizontalSpacing(dp(10));
+        grid.setGravity(Gravity.CENTER);
+        drawerAdapter = new AppGridAdapter(filteredApps, false);
+        grid.setAdapter(drawerAdapter);
+        drawerOverlay.addView(grid, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        root.addView(drawerOverlay);
+        setContentView(root);
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_PACKAGE_ADDED);
+        filter.addAction(Intent.ACTION_PACKAGE_REMOVED);
+        filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
+        filter.addDataScheme("package");
+        registerReceiver(pkgReceiver, filter);
+
+        reloadApps();
+    }
+
+    private TextView makeTopChip(String text, int bgArgb) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        tv.setTypeface(Typeface.DEFAULT_BOLD);
+        tv.setPadding(dp(12), dp(6), dp(12), dp(6));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(bgArgb);
+        bg.setCornerRadius(dp(14));
+        bg.setStroke(dp(1), 0x55FFFFFF);
+        tv.setBackgroundDrawable(bg);
+        return tv;
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (appWidgetHost != null) {
+            try {
+                appWidgetHost.startListening();
+            } catch (Throwable ignored) {}
+        }
+        renderWidgetsForCurrentPage();
+    }
+
+    @Override
+    protected void onStop() {
+        if (appWidgetHost != null) {
+            try {
+                appWidgetHost.stopListening();
+            } catch (Throwable ignored) {}
+        }
+        super.onStop();
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (swipeDetector != null) swipeDetector.onTouchEvent(ev);
+        return super.dispatchTouchEvent(ev);
+    }
+
+    private void switchToPage(int index) {
+        currentPage = Math.max(0, Math.min(PAGE_COUNT - 1, index));
+        refreshCurrentPageShortcuts();
+        renderWidgetsForCurrentPage();
+    }
+
+    /* -------------------- Home Screen AppWidget Host Engine -------------------- */
+
+    private int estimateWidgetHeightDp(AppWidgetProviderInfo info) {
+        if (info == null) return 125;
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int rawPx = Math.max(info.minHeight, info.minResizeHeight);
+        if (rawPx <= 0) return 125;
+        int dpVal = Math.round(rawPx / dm.density);
+        return Math.max(92, Math.min(240, dpVal + 18));
+    }
+
+    private void renderWidgetsForCurrentPage() {
+        if (widgetsContainer == null) return;
+        widgetsContainer.removeAllViews();
+        List<PinnedShortcutsStore.WidgetRecord> records =
+                PinnedShortcutsStore.loadWidgets(this, currentPage);
+
+        for (int i = 0; i < records.size(); i++) {
+            final PinnedShortcutsStore.WidgetRecord rec = records.get(i);
+            AppWidgetProviderInfo info = null;
+            try {
+                info = appWidgetManager.getAppWidgetInfo(rec.appWidgetId);
+            } catch (Throwable ignored) {}
+
+            if (info == null) {
+                PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, PAGE_COUNT);
+                continue;
+            }
+
+            try {
+                FrameLayout frame = new FrameLayout(this);
+                LinearLayout.LayoutParams frameLp = new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(rec.heightDp));
+                frameLp.bottomMargin = dp(8);
+                frame.setLayoutParams(frameLp);
+
+                AppWidgetHostView hv = appWidgetHost.createView(
+                        getApplicationContext(), rec.appWidgetId, info);
+                hv.setAppWidget(rec.appWidgetId, info);
+                hv.setPadding(dp(2), dp(2), dp(2), dp(2));
+
+                final String widgetLabel = info.label != null ? info.label : "Widget";
+                hv.setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        showWidgetManageDialog(rec, widgetLabel);
+                        return true;
+                    }
+                });
+                frame.addView(hv, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+                // Subtle corner gear chip so touchscreen tap also lets users resize/remove any widget easily!
+                TextView gear = new TextView(this);
+                gear.setText("\u22EF");
+                gear.setTextColor(0xCCFFFFFF);
+                gear.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                gear.setPadding(dp(7), dp(1), dp(7), dp(2));
+                GradientDrawable gbg = new GradientDrawable();
+                gbg.setColor(0x66000000);
+                gbg.setCornerRadius(dp(9));
+                gear.setBackgroundDrawable(gbg);
+                FrameLayout.LayoutParams glp = new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                        Gravity.TOP | Gravity.RIGHT);
+                glp.topMargin = dp(3);
+                glp.rightMargin = dp(4);
+                gear.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        showWidgetManageDialog(rec, widgetLabel);
+                    }
+                });
+                frame.addView(gear, glp);
+                widgetsContainer.addView(frame);
+            } catch (Throwable t) {
+                PinnedShortcutsStore.removeWidgetEverywhere(this, rec.appWidgetId, PAGE_COUNT);
+            }
+        }
+    }
+
+    private void showWidgetPickerDialog() {
+        List<AppWidgetProviderInfo> providers;
+        try {
+            providers = appWidgetManager.getInstalledProviders();
+        } catch (Throwable t) {
+            Toast.makeText(this, "Widget manager error: " + t.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (providers == null || providers.isEmpty()) {
+            Toast.makeText(this, "No widgets installed yet.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final List<AppWidgetProviderInfo> sorted = new ArrayList<AppWidgetProviderInfo>(providers);
+        Collections.sort(sorted, new Comparator<AppWidgetProviderInfo>() {
+            @Override
+            public int compare(AppWidgetProviderInfo a, AppWidgetProviderInfo b) {
+                boolean aArc = a.provider != null && "ca.arc7freedom.app".equals(a.provider.getPackageName());
+                boolean bArc = b.provider != null && "ca.arc7freedom.app".equals(b.provider.getPackageName());
+                if (aArc != bArc) return aArc ? -1 : 1;
+                String la = a.label != null ? a.label : "";
+                String lb = b.label != null ? b.label : "";
+                return la.compareToIgnoreCase(lb);
+            }
+        });
+
+        PackageManager pm = getPackageManager();
+        ScrollView sv = new ScrollView(this);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(dp(12), dp(8), dp(12), dp(8));
+        sv.addView(list);
+
+        final AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Add Widget to Page " + (currentPage + 1))
+                .setView(sv)
+                .setNegativeButton("Cancel", null)
+                .create();
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        for (int i = 0; i < sorted.size(); i++) {
+            final AppWidgetProviderInfo info = sorted.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(10), dp(10), dp(10), dp(10));
+            GradientDrawable rbg = new GradientDrawable();
+            rbg.setColor(0xFF1E293B);
+            rbg.setCornerRadius(dp(8));
+            row.setBackgroundDrawable(rbg);
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            rlp.bottomMargin = dp(8);
+            row.setLayoutParams(rlp);
+
+            ImageView iv = new ImageView(this);
+            Drawable d = null;
+            try {
+                if (info.icon != 0) d = pm.getDrawable(info.provider.getPackageName(), info.icon, null);
+                if (d == null) d = pm.getApplicationIcon(info.provider.getPackageName());
+            } catch (Throwable ignored) {}
+            if (d != null) iv.setImageDrawable(d);
+            row.addView(iv, new LinearLayout.LayoutParams(dp(42), dp(42)));
+
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(dp(12), 0, 0, 0);
+
+            TextView title = new TextView(this);
+            title.setText(info.label != null ? info.label : info.provider.getShortClassName());
+            title.setTextColor(Color.WHITE);
+            title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            title.setTypeface(Typeface.DEFAULT_BOLD);
+            col.addView(title);
+
+            int wDp = Math.round(info.minWidth / dm.density);
+            int hDp = Math.round(info.minHeight / dm.density);
+            TextView sub = new TextView(this);
+            sub.setText(info.provider.getPackageName() + "  •  " + wDp + "×" + hDp + " dp");
+            sub.setTextColor(0xFF94A3B8);
+            sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            col.addView(sub);
+
+            row.addView(col, new LinearLayout.LayoutParams(
+                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            row.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    dlg.dismiss();
+                    beginAddWidget(info);
+                }
+            });
+            list.addView(row);
+        }
+
+        dlg.show();
+    }
+
+    private void tryGrantBindAppWidgetViaSu() {
+        final String[] candidates = { "/sbin/su", "/system/xbin/su", "/system/bin/su" };
+        for (int i = 0; i < candidates.length; i++) {
+            try {
+                java.io.File f = new java.io.File(candidates[i]);
+                if (!f.exists()) continue;
+                Process p = new ProcessBuilder(
+                        candidates[i], "-c",
+                        "appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null || true"
+                ).start();
+                p.waitFor();
+                return;
+            } catch (Throwable ignored) {}
+        }
+    }
+
+    private void beginAddWidget(AppWidgetProviderInfo info) {
+        if (info == null || info.provider == null) return;
+        int appWidgetId = appWidgetHost.allocateAppWidgetId();
+        pendingWidgetId = appWidgetId;
+        pendingWidgetInfo = info;
+
+        boolean bound = false;
+        try {
+            bound = appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, info.provider);
+        } catch (Throwable ignored) {}
+
+        if (!bound) {
+            tryGrantBindAppWidgetViaSu();
+            try {
+                bound = appWidgetManager.bindAppWidgetIdIfAllowed(appWidgetId, info.provider);
+            } catch (Throwable ignored) {}
+        }
+
+        if (bound) {
+            completeConfigureOrFinishWidget(appWidgetId, info);
+            return;
+        }
+
+        try {
+            Intent bindIntent = new Intent(AppWidgetManager.ACTION_APPWIDGET_BIND);
+            bindIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
+            bindIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider);
+            startActivityForResult(bindIntent, REQ_BIND_APPWIDGET);
+        } catch (Throwable t) {
+            try { appWidgetHost.deleteAppWidgetId(appWidgetId); } catch (Throwable ignored) {}
+            pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+            pendingWidgetInfo = null;
+            Toast.makeText(this, "Could not bind widget: " + t.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void completeConfigureOrFinishWidget(int appWidgetId, AppWidgetProviderInfo info) {
+        if (info != null && info.configure != null) {
+            try {
+                Intent cfg = new Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE);
+                cfg.setComponent(info.configure);
+                cfg.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId);
+                startActivityForResult(cfg, REQ_CONFIGURE_APPWIDGET);
+                return;
+            } catch (Throwable ignored) {}
+        }
+        finalizeAddWidget(appWidgetId, info);
+    }
+
+    private void finalizeAddWidget(int appWidgetId, AppWidgetProviderInfo info) {
+        int hDp = estimateWidgetHeightDp(info);
+        PinnedShortcutsStore.addWidget(this, currentPage, appWidgetId, hDp);
+        pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+        pendingWidgetInfo = null;
+        refreshCurrentPageShortcuts();
+        renderWidgetsForCurrentPage();
+        Toast.makeText(this, "Widget added to Page " + (currentPage + 1), Toast.LENGTH_SHORT).show();
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_BIND_APPWIDGET) {
+            int id = pendingWidgetId;
+            AppWidgetProviderInfo info = pendingWidgetInfo;
+            if (resultCode == RESULT_OK && id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                if (info == null) info = appWidgetManager.getAppWidgetInfo(id);
+                completeConfigureOrFinishWidget(id, info);
+            } else {
+                if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    try { appWidgetHost.deleteAppWidgetId(id); } catch (Throwable ignored) {}
+                }
+                pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+                pendingWidgetInfo = null;
+            }
+        } else if (requestCode == REQ_CONFIGURE_APPWIDGET) {
+            int id = pendingWidgetId;
+            AppWidgetProviderInfo info = pendingWidgetInfo;
+            if (resultCode == RESULT_OK && id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                finalizeAddWidget(id, info);
+            } else {
+                if (id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    try { appWidgetHost.deleteAppWidgetId(id); } catch (Throwable ignored) {}
+                }
+                pendingWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID;
+                pendingWidgetInfo = null;
+            }
+        }
+    }
+
+    private void showWidgetManageDialog(final PinnedShortcutsStore.WidgetRecord rec, String title) {
+        final String[] items = {
+                "Compact Height (96 dp)",
+                "Standard Height (132 dp)",
+                "Tall Height (185 dp)",
+                "Extra-Tall Height (250 dp)",
+                "Remove Widget from Home Screen"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) {
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 96);
+                        } else if (which == 1) {
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 132);
+                        } else if (which == 2) {
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 185);
+                        } else if (which == 3) {
+                            PinnedShortcutsStore.resizeWidget(VanillaHomeActivity.this, currentPage, rec.appWidgetId, 250);
+                        } else {
+                            PinnedShortcutsStore.removeWidgetEverywhere(VanillaHomeActivity.this, rec.appWidgetId, PAGE_COUNT);
+                            try { appWidgetHost.deleteAppWidgetId(rec.appWidgetId); } catch (Throwable ignored) {}
+                        }
+                        refreshCurrentPageShortcuts();
+                        renderWidgetsForCurrentPage();
+                    }
+                })
+                .show();
+    }
+
+    private void refreshCurrentPageShortcuts() {
+        currentPageShortcuts.clear();
+        List<String> saved = PinnedShortcutsStore.loadPage(this, currentPage);
+
+        // Auto-seed Page 1 with Arc7 apps on very first boot!
+        if (currentPage == 0 && saved.isEmpty() && !allApps.isEmpty()) {
+            for (int i = 0; i < allApps.size() && saved.size() < 8; i++) {
+                AppEntry e = allApps.get(i);
+                if (e.pkg.equals("ca.arc7freedom.app")
+                        || e.pkg.equals("eu.bubu1.fdroidclassic.debug")
+                        || e.pkg.contains("fdroid")) {
+                    PinnedShortcutsStore.addShortcut(this, 0, e.pkg, e.cls);
+                    saved.add(e.pkg + "/" + e.cls);
+                }
+            }
+        }
+
+        for (int i = 0; i < saved.size(); i++) {
+            String key = saved.get(i);
+            for (int j = 0; j < allApps.size(); j++) {
+                AppEntry e = allApps.get(j);
+                if ((e.pkg + "/" + e.cls).equals(key)) {
+                    currentPageShortcuts.add(e);
+                    break;
+                }
+            }
+        }
+
+        List<PinnedShortcutsStore.WidgetRecord> wList = PinnedShortcutsStore.loadWidgets(this, currentPage);
+        if (desktopHintView != null) {
+            desktopHintView.setText("Page " + (currentPage + 1) + " of " + PAGE_COUNT + "  •  " +
+                    (wList.isEmpty()
+                            ? "Tap '+ Widget' above to add clocks, audio controls & Android widgets, or long-press any app in All Apps to pin"
+                            : (wList.size() + " live widget(s) active • Tap \u22EF or long-press a widget to resize/remove")));
+        }
+        for (int i = 0; i < PAGE_COUNT; i++) {
+            if (pageDots[i] != null) {
+                pageDots[i].setTextColor(i == currentPage ? 0xFF38BDF8 : 0x66FFFFFF);
+                pageDots[i].setTextSize(TypedValue.COMPLEX_UNIT_SP, i == currentPage ? 16 : 12);
+            }
+        }
+        if (desktopAdapter != null) desktopAdapter.notifyDataSetChanged();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        IntentFilter tf = new IntentFilter();
-        tf.addAction(Intent.ACTION_TIME_TICK);
-        tf.addAction(Intent.ACTION_TIME_CHANGED);
-        tf.addAction(Intent.ACTION_TIMEZONE_CHANGED);
-        registerReceiver(timeReceiver, tf);
-        updateClock();
-        reloadAppsAndRefresh();
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        try {
-            unregisterReceiver(timeReceiver);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        try {
-            unregisterReceiver(pkgReceiver);
-        } catch (Throwable ignored) {
-        }
+        updateDateLabel();
+        reloadApps();
+        renderWidgetsForCurrentPage();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Pressing Home key from Drawer returns to Desktop; pressing Home on Desktop centers Page 1
-        if (drawerRoot != null && drawerRoot.getVisibility() == View.VISIBLE) {
-            setDrawerVisible(false);
-        } else if (currentPage != PinnedShortcutsStore.DEFAULT_PAGE) {
-            setPage(PinnedShortcutsStore.DEFAULT_PAGE);
-        }
+        closeDrawer();
     }
 
     @Override
-    public void onBackPressed() {
-        if (drawerRoot != null && drawerRoot.getVisibility() == View.VISIBLE) {
-            setDrawerVisible(false);
-        }
-        // Standard Android Home Launcher ignores Back on root workspace
+    protected void onDestroy() {
+        try {
+            unregisterReceiver(pkgReceiver);
+        } catch (Throwable ignored) {}
+        super.onDestroy();
     }
 
     @Override
-    public void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        applyResponsiveColumns();
+    public boolean onKeyDown(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (drawerOpen) {
+                closeDrawer();
+            }
+            return true;
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
+    private void updateDateLabel() {
+        SimpleDateFormat fmt = new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US);
+        dateView.setText(fmt.format(new Date()).toUpperCase(Locale.US));
+    }
+
+    private void openDrawer() {
+        drawerOpen = true;
+        searchBox.setText("");
+        filterApps("");
+        drawerOverlay.setVisibility(View.VISIBLE);
+    }
+
+    private void closeDrawer() {
+        drawerOpen = false;
+        drawerOverlay.setVisibility(View.GONE);
+    }
+
+    private void reloadApps() {
+        PackageManager pm = getPackageManager();
+        Intent main = new Intent(Intent.ACTION_MAIN, null);
+        main.addCategory(Intent.CATEGORY_LAUNCHER);
+        List<ResolveInfo> raw = pm.queryIntentActivities(main, 0);
+
+        allApps.clear();
+        String myPkg = getPackageName();
+        for (int i = 0; i < raw.size(); i++) {
+            ResolveInfo ri = raw.get(i);
+            String pkg = ri.activityInfo.packageName;
+            if (pkg.equals(myPkg)) continue;
+            if (pkg.startsWith("com.kobo.") || pkg.startsWith("com.kobobooks.")) continue;
+
+            AppEntry e = new AppEntry();
+            e.pkg = pkg;
+            e.cls = ri.activityInfo.name;
+            CharSequence cs = ri.loadLabel(pm);
+            e.label = cs != null ? cs.toString() : pkg;
+            e.icon = ri.loadIcon(pm);
+            allApps.add(e);
+        }
+
+        Collections.sort(allApps, new Comparator<AppEntry>() {
+            @Override
+            public int compare(AppEntry a, AppEntry b) {
+                return a.label.compareToIgnoreCase(b.label);
+            }
+        });
+
+        filterApps(searchBox != null ? searchBox.getText().toString() : "");
+        refreshCurrentPageShortcuts();
+        rebuildDock();
+    }
+
+    private void filterApps(String query) {
+        filteredApps.clear();
+        String q = query == null ? "" : query.trim().toLowerCase(Locale.US);
+        for (int i = 0; i < allApps.size(); i++) {
+            AppEntry e = allApps.get(i);
+            if (q.isEmpty() || e.label.toLowerCase(Locale.US).contains(q)
+                    || e.pkg.toLowerCase(Locale.US).contains(q)) {
+                filteredApps.add(e);
+            }
+        }
+        if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
+    }
+
+    private void rebuildDock() {
+        dockBar.removeAllViews();
+
+        addDockButton("Browser", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity")
+                        && !launchByPackagePrefix("org.mozilla", "com.opera", "acr.browser", "com.android.browser", "com.android.chrome")) {
+                    safeStart(new Intent(Intent.ACTION_VIEW, Uri.parse("https://html.duckduckgo.com/html/")));
+                }
+            }
+        });
+
+        addDockButton("Reader", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7EbookReaderActivity")
+                        && !launchByPackagePrefix("org.koreader", "org.coolreader", "com.foobnix", "org.readera")) {
+                    openDrawer();
+                }
+            }
+        });
+
+        // Center All-Apps circular button
+        TextView allAppsBtn = new TextView(this);
+        allAppsBtn.setText(":::");
+        allAppsBtn.setTextColor(Color.WHITE);
+        allAppsBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        allAppsBtn.setTypeface(Typeface.DEFAULT_BOLD);
+        allAppsBtn.setGravity(Gravity.CENTER);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(0xCC33B5E5);
+        circle.setStroke(dp(2), Color.WHITE);
+        allAppsBtn.setBackgroundDrawable(circle);
+        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(dp(54), dp(54));
+        centerParams.leftMargin = dp(18);
+        centerParams.rightMargin = dp(18);
+        allAppsBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openDrawer();
+            }
+        });
+        dockBar.addView(allAppsBtn, centerParams);
+
+        addDockButton("F-Droid", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!launchByPackagePrefix("eu.bubu1.fdroidclassic.debug", "org.fdroid.fdroid", "eu.bubu1.fdroidclassic")) {
+                    launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AppManagerActivity");
+                }
+            }
+        });
+
+        addDockButton("Settings", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                safeStart(new Intent(Settings.ACTION_SETTINGS));
+            }
+        });
+    }
+
+    private void addDockButton(String title, View.OnClickListener listener) {
+        TextView tv = new TextView(this);
+        tv.setText(title);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding(dp(14), dp(10), dp(14), dp(10));
+        tv.setOnClickListener(listener);
+        dockBar.addView(tv, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+    }
+
+    private boolean launchExplicitOrPackage(String pkg, String cls) {
+        try {
+            Intent i = new Intent(Intent.ACTION_MAIN);
+            i.addCategory(Intent.CATEGORY_LAUNCHER);
+            i.setComponent(new ComponentName(pkg, cls));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+            startActivity(i);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private boolean launchByPackagePrefix(String... prefixes) {
+        for (int p = 0; p < prefixes.length; p++) {
+            for (int i = 0; i < allApps.size(); i++) {
+                AppEntry e = allApps.get(i);
+                if (e.pkg.startsWith(prefixes[p])) {
+                    launchEntry(e);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void launchEntry(AppEntry e) {
+        Intent i = new Intent(Intent.ACTION_MAIN);
+        i.addCategory(Intent.CATEGORY_LAUNCHER);
+        i.setComponent(new ComponentName(e.pkg, e.cls));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+        safeStart(i);
+        closeDrawer();
+    }
+
+    private void showAppOptions(final AppEntry e, final boolean onDesktop) {
+        final String[] items = onDesktop
+                ? new String[] { "Open " + e.label, "Unpin from Page " + (currentPage + 1), "App Info" }
+                : new String[] { "Open " + e.label, "Pin to Home Page " + (currentPage + 1), "App Info" };
+        new AlertDialog.Builder(this)
+                .setTitle(e.label)
+                .setItems(items, new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) {
+                            launchEntry(e);
+                        } else if (which == 1) {
+                            if (onDesktop) {
+                                PinnedShortcutsStore.removeShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
+                                refreshCurrentPageShortcuts();
+                            } else {
+                                PinnedShortcutsStore.addShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
+                                refreshCurrentPageShortcuts();
+                                closeDrawer();
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        "Pinned " + e.label + " to Page " + (currentPage + 1), Toast.LENGTH_SHORT).show();
+                            }
+                        } else {
+                            Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.parse("package:" + e.pkg));
+                            info.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                            safeStart(info);
+                        }
+                    }
+                })
+                .show();
+    }
+
+    private void safeStart(Intent i) {
+        try {
+            startActivity(i);
+        } catch (Throwable t) {
+            Toast.makeText(this, "Cannot launch: " + t.getMessage(), Toast.LENGTH_SHORT).show();
+        }
     }
 
     private int dp(int v) {
@@ -171,832 +1020,68 @@ public class VanillaHomeActivity extends Activity {
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));
     }
 
-    private GradientDrawable roundRect(int fillColor, int strokeColor, int strokeDp, int radiusDp) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(fillColor);
-        gd.setCornerRadius(dp(radiusDp));
-        if (strokeDp > 0) {
-            gd.setStroke(dp(strokeDp), strokeColor);
-        }
-        return gd;
-    }
-
-    @SuppressWarnings("deprecation")
-    private void buildUi() {
-        rootFrame = new FrameLayout(this);
-        // Subtle dark translucent vignette over the user's Android wallpaper for crisp legibility
-        rootFrame.setBackgroundColor(0x38000000);
-
-        desktopRoot = new LinearLayout(this);
-        desktopRoot.setOrientation(LinearLayout.VERTICAL);
-        desktopRoot.setPadding(dp(14), dp(10), dp(14), dp(8));
-
-        // 1. Top Jelly Bean Search & Quick-Action Bar
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundDrawable(roundRect(0x8811161D, 0x44FFFFFF, 1, 6));
-        topBar.setPadding(dp(12), dp(6), dp(8), dp(6));
-
-        TextView gBadge = new TextView(this);
-        gBadge.setText("Google");
-        gBadge.setTextColor(0xFFE2E8F0);
-        gBadge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        gBadge.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
-        gBadge.setPadding(dp(2), 0, dp(10), 0);
-        topBar.addView(gBadge, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        View vSep = new View(this);
-        vSep.setBackgroundColor(0x33FFFFFF);
-        topBar.addView(vSep, new LinearLayout.LayoutParams(dp(1), dp(22)));
-
-        final EditText searchInput = new EditText(this);
-        searchInput.setHint("Search or enter URL...");
-        searchInput.setHintTextColor(0xAA94A3B8);
-        searchInput.setTextColor(Color.WHITE);
-        searchInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        searchInput.setSingleLine(true);
-        searchInput.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        searchInput.setBackgroundColor(Color.TRANSPARENT);
-        searchInput.setPadding(dp(10), dp(4), dp(10), dp(4));
-        searchInput.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                String q = searchInput.getText().toString().trim();
-                if (!q.isEmpty()) {
-                    launchWebOrQuery(q);
-                    searchInput.setText("");
-                }
-                return true;
-            }
-        });
-        topBar.addView(searchInput, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView wallpaperBtn = makePillButton("Wallpaper");
-        wallpaperBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showLauncherWallpaperMenu();
-            }
-        });
-        topBar.addView(wallpaperBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        View spacer = new View(this);
-        topBar.addView(spacer, new LinearLayout.LayoutParams(dp(6), dp(1)));
-
-        TextView settingsBtn = makePillButton("Settings");
-        settingsBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                launchSystemSettings();
-            }
-        });
-        topBar.addView(settingsBtn, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        desktopRoot.addView(topBar, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // 2. Jelly Bean Digital Clock Widget (visible on center Home page)
-        LinearLayout clockBox = new LinearLayout(this);
-        clockBox.setOrientation(LinearLayout.VERTICAL);
-        clockBox.setGravity(Gravity.CENTER);
-        clockBox.setPadding(0, dp(14), 0, dp(8));
-        clockBox.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openClockOrDateSettings();
-            }
-        });
-
-        clockTimeText = new TextView(this);
-        clockTimeText.setTextColor(Color.WHITE);
-        clockTimeText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 48);
-        clockTimeText.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        clockTimeText.setShadowLayer(6f, 0f, 2f, 0xAA000000);
-        clockTimeText.setGravity(Gravity.CENTER);
-        clockBox.addView(clockTimeText);
-
-        clockDateText = new TextView(this);
-        clockDateText.setTextColor(0xFFE2E8F0);
-        clockDateText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        clockDateText.setAllCaps(true);
-        clockDateText.setShadowLayer(4f, 0f, 1f, 0xAA000000);
-        clockDateText.setGravity(Gravity.CENTER);
-        clockBox.addView(clockDateText);
-
-        clockCard = clockBox;
-        desktopRoot.addView(clockBox, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // 3. Pinned Workspace Grid (supports horizontal swipe to change pages!)
-        workspaceGrid = new GridView(this) {
-            @Override
-            public boolean onInterceptTouchEvent(MotionEvent ev) {
-                handleWorkspaceSwipeGesture(ev);
-                return super.onInterceptTouchEvent(ev);
-            }
-
-            @Override
-            public boolean onTouchEvent(MotionEvent ev) {
-                if (handleWorkspaceSwipeGesture(ev)) return true;
-                return super.onTouchEvent(ev);
-            }
-        };
-        workspaceGrid.setVerticalSpacing(dp(12));
-        workspaceGrid.setHorizontalSpacing(dp(8));
-        workspaceGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
-        workspaceGrid.setGravity(Gravity.CENTER);
-        workspaceGrid.setSelector(android.R.color.transparent);
-        workspaceAdapter = new WorkspaceAdapter();
-        workspaceGrid.setAdapter(workspaceAdapter);
-        workspaceGrid.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                ComponentName cn = workspaceAdapter.getItem(position);
-                launchComponent(cn);
-            }
-        });
-        workspaceGrid.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
-            @Override
-            public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
-                final ComponentName cn = workspaceAdapter.getItem(position);
-                showWorkspaceShortcutMenu(cn);
-                return true;
-            }
-        });
-
-        LinearLayout.LayoutParams wsParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f);
-        wsParams.topMargin = dp(6);
-        desktopRoot.addView(workspaceGrid, wsParams);
-
-        // 4. Classic Jelly Bean 3-Segment Holo Blue Page Indicator Bar
-        LinearLayout indicatorRow = new LinearLayout(this);
-        indicatorRow.setOrientation(LinearLayout.HORIZONTAL);
-        indicatorRow.setPadding(0, dp(6), 0, dp(6));
-        for (int i = 0; i < PinnedShortcutsStore.PAGE_COUNT; i++) {
-            final int pageIdx = i;
-            View seg = new View(this);
-            seg.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    setPage(pageIdx);
-                }
-            });
-            pageBars[i] = seg;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(3), 1f);
-            lp.leftMargin = dp(2);
-            lp.rightMargin = dp(2);
-            indicatorRow.addView(seg, lp);
-        }
-        desktopRoot.addView(indicatorRow, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        // 5. Classic 5-Icon Hotseat Dock
-        dockContainer = new LinearLayout(this);
-        dockContainer.setOrientation(LinearLayout.HORIZONTAL);
-        dockContainer.setGravity(Gravity.CENTER_VERTICAL);
-        dockContainer.setPadding(dp(4), dp(4), dp(4), dp(2));
-        desktopRoot.addView(dockContainer, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(66)));
-
-        rootFrame.addView(desktopRoot, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        // 6. All Apps Drawer Overlay (Authentic Android 4.2 Holo Dark App Drawer)
-        buildDrawerOverlay();
-        rootFrame.addView(drawerRoot, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-
-        setContentView(rootFrame);
-        applyResponsiveColumns();
-        updatePageIndicator();
-    }
-
-    @SuppressWarnings("deprecation")
-    private void buildDrawerOverlay() {
-        drawerRoot = new LinearLayout(this);
-        drawerRoot.setOrientation(LinearLayout.VERTICAL);
-        drawerRoot.setBackgroundColor(0xF20D1117);
-        drawerRoot.setVisibility(View.GONE);
-        drawerRoot.setPadding(dp(14), dp(10), dp(14), dp(10));
-
-        // Drawer Header Tabs + Filter + Close
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-
-        tabAllApps = makeDrawerTab("APPS", true);
-        tabAllApps.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                userAppsOnly = false;
-                refreshTabStyles();
-                applyDrawerFilter();
-            }
-        });
-        header.addView(tabAllApps);
-
-        tabUserApps = makeDrawerTab("DOWNLOADED", false);
-        tabUserApps.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                userAppsOnly = true;
-                refreshTabStyles();
-                applyDrawerFilter();
-            }
-        });
-        header.addView(tabUserApps);
-
-        drawerFilterInput = new EditText(this);
-        drawerFilterInput.setHint("Filter apps...");
-        drawerFilterInput.setHintTextColor(0x8894A3B8);
-        drawerFilterInput.setTextColor(Color.WHITE);
-        drawerFilterInput.setSingleLine(true);
-        drawerFilterInput.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        drawerFilterInput.setBackgroundDrawable(roundRect(0xFF1A222D, 0xFF2D3A4B, 1, 4));
-        drawerFilterInput.setPadding(dp(10), dp(6), dp(10), dp(6));
-        drawerFilterInput.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {
-                applyDrawerFilter();
-            }
-            @Override public void afterTextChanged(Editable s) {}
-        });
-        LinearLayout.LayoutParams filterLp = new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        filterLp.leftMargin = dp(12);
-        filterLp.rightMargin = dp(10);
-        header.addView(drawerFilterInput, filterLp);
-
-        TextView homeBtn = makePillButton("Home");
-        homeBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setDrawerVisible(false);
-            }
-        });
-        header.addView(homeBtn);
-
-        drawerRoot.addView(header, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-
-        View holoLine = new View(this);
-        holoLine.setBackgroundColor(HOLO_BLUE);
-        LinearLayout.LayoutParams lineLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, dp(2));
-        lineLp.topMargin = dp(8);
-        lineLp.bottomMargin = dp(10);
-        drawerRoot.addView(holoLine, lineLp);
-
-        drawerGrid = new GridView(this);
-        drawerGrid.setVerticalSpacing(dp(14));
-        drawerGrid.setHorizontalSpacing(dp(8));
-        drawerGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
-        drawerGrid.setSelector(android.R.color.transparent);
-        drawerAdapter = new DrawerAdapter();
-        drawerGrid.setAdapter(drawerAdapter);
-        drawerGrid.setOnItemClickListener(new AdapterView.OnItemClickListener() {
-            @Override
-            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
-                PinnedShortcutsStore.AppEntry entry = filteredApps.get(position);
-                setDrawerVisible(false);
-                launchComponent(new ComponentName(entry.packageName, entry.className));
-            }
-        });
-        drawerGrid.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
-            @Override
-            public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
-                final PinnedShortcutsStore.AppEntry entry = filteredApps.get(position);
-                showAppOptionsDialog(entry);
-                return true;
-            }
-        });
-        drawerRoot.addView(drawerGrid, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-    }
-
-    @SuppressWarnings("deprecation")
-    private TextView makePillButton(String text) {
-        TextView tv = new TextView(this);
-        tv.setText(text);
-        tv.setTextColor(0xFFE2E8F0);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tv.setPadding(dp(10), dp(6), dp(10), dp(6));
-        tv.setBackgroundDrawable(roundRect(0x55243040, 0x5564748B, 1, 4));
-        return tv;
-    }
-
-    private TextView makeDrawerTab(String label, boolean active) {
-        TextView tv = new TextView(this);
-        tv.setText(label);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tv.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
-        tv.setPadding(dp(12), dp(8), dp(12), dp(8));
-        tv.setTextColor(active ? HOLO_BLUE : 0xFF94A3B8);
-        return tv;
-    }
-
-    private void refreshTabStyles() {
-        tabAllApps.setTextColor(!userAppsOnly ? HOLO_BLUE : 0xFF94A3B8);
-        tabUserApps.setTextColor(userAppsOnly ? HOLO_BLUE : 0xFF94A3B8);
-    }
-
-    private boolean handleWorkspaceSwipeGesture(MotionEvent ev) {
-        switch (ev.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                touchDownX = ev.getRawX();
-                touchDownY = ev.getRawY();
-                break;
-            case MotionEvent.ACTION_UP:
-                float dx = ev.getRawX() - touchDownX;
-                float dy = ev.getRawY() - touchDownY;
-                if (Math.abs(dx) > dp(64) && Math.abs(dx) > Math.abs(dy) * 1.5f) {
-                    if (dx < 0 && currentPage < PinnedShortcutsStore.PAGE_COUNT - 1) {
-                        setPage(currentPage + 1);
-                        return true;
-                    } else if (dx > 0 && currentPage > 0) {
-                        setPage(currentPage - 1);
-                        return true;
-                    }
-                }
-                break;
-        }
-        return false;
-    }
-
-    private void setPage(int page) {
-        currentPage = Math.max(0, Math.min(PinnedShortcutsStore.PAGE_COUNT - 1, page));
-        clockCard.setVisibility(currentPage == PinnedShortcutsStore.DEFAULT_PAGE ? View.VISIBLE : View.GONE);
-        updatePageIndicator();
-        workspaceAdapter.reload();
-    }
-
-    private void updatePageIndicator() {
-        for (int i = 0; i < pageBars.length; i++) {
-            pageBars[i].setBackgroundColor(i == currentPage ? HOLO_BLUE : 0x33FFFFFF);
-        }
-    }
-
-    private void applyResponsiveColumns() {
-        boolean land = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
-        if (workspaceGrid != null) workspaceGrid.setNumColumns(land ? 6 : 4);
-        if (drawerGrid != null) drawerGrid.setNumColumns(land ? 6 : 5);
-    }
-
-    private void setDrawerVisible(boolean show) {
-        drawerRoot.setVisibility(show ? View.VISIBLE : View.GONE);
-        desktopRoot.setVisibility(show ? View.INVISIBLE : View.VISIBLE);
-        if (!show && drawerFilterInput != null) {
-            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-            if (imm != null) imm.hideSoftInputFromWindow(drawerFilterInput.getWindowToken(), 0);
-        }
-    }
-
-    private void updateClock() {
-        Date now = new Date();
-        SimpleDateFormat tf = new SimpleDateFormat("h:mm", Locale.getDefault());
-        SimpleDateFormat df = new SimpleDateFormat("EEEE, MMMM d", Locale.getDefault());
-        if (clockTimeText != null) clockTimeText.setText(tf.format(now));
-        if (clockDateText != null) clockDateText.setText(df.format(now));
-    }
-
-    private void reloadAppsAndRefresh() {
-        allApps = PinnedShortcutsStore.loadAllLaunchableApps(this);
-        PinnedShortcutsStore.ensureInitialized(this, allApps);
-        applyDrawerFilter();
-        workspaceAdapter.reload();
-        rebuildHotseatDock();
-    }
-
-    private void applyDrawerFilter() {
-        String q = drawerFilterInput != null ? drawerFilterInput.getText().toString().trim().toLowerCase(Locale.US) : "";
-        filteredApps.clear();
-        for (PinnedShortcutsStore.AppEntry e : allApps) {
-            if (userAppsOnly && e.isSystemApp) continue;
-            if (!q.isEmpty()
-                    && !e.label.toLowerCase(Locale.US).contains(q)
-                    && !e.packageName.toLowerCase(Locale.US).contains(q)) {
-                continue;
-            }
-            filteredApps.add(e);
-        }
-        if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
-    }
-
-    private void rebuildHotseatDock() {
-        dockContainer.removeAllViews();
-        PinnedShortcutsStore.AppEntry browser = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity");
-        if (browser == null) browser = findApp("com.android.browser", "com.android.chrome", "org.mozilla.firefox");
-
-        PinnedShortcutsStore.AppEntry readerOrStore = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7EbookReaderActivity");
-        if (readerOrStore == null) readerOrStore = findApp("org.fdroid.fdroid", "com.android.vending");
-
-        PinnedShortcutsStore.AppEntry clockOrGallery = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ClockActivity");
-        if (clockOrGallery == null) clockOrGallery = findApp("com.android.gallery3d", "com.android.providers.downloads.ui");
-
-        PinnedShortcutsStore.AppEntry freedom = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.MainActivity");
-        if (freedom == null) freedom = findApp("ca.arc7freedom.app", "com.android.settings");
-
-        addDockAppSlot(browser, "Browser", Intent.ACTION_WEB_SEARCH);
-        addDockAppSlot(readerOrStore, "E-Reader", null);
-
-        // Center Jelly Bean All-Apps 6-dot Circle Icon
-        View allAppsBtn = new AllAppsCircleView(this);
-        allAppsBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                setDrawerVisible(true);
-            }
-        });
-        dockContainer.addView(allAppsBtn, new LinearLayout.LayoutParams(0, dp(56), 1f));
-
-        addDockAppSlot(clockOrGallery, "Clock", null);
-        if (freedom != null) {
-            addDockAppSlot(freedom, "Freedom", null);
-        } else {
-            addDockSettingsSlot();
-        }
-    }
-
-    private void addDockAppSlot(final PinnedShortcutsStore.AppEntry app, final String fallbackTitle, final String fallbackAction) {
-        ImageView iv = new ImageView(this);
-        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        iv.setPadding(dp(6), dp(6), dp(6), dp(6));
-        if (app != null) {
-            try {
-                iv.setImageDrawable(getPackageManager().getActivityIcon(
-                        new ComponentName(app.packageName, app.className)));
-            } catch (Throwable t) {
-                iv.setImageResource(android.R.drawable.sym_def_app_icon);
-            }
-            iv.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    launchComponent(new ComponentName(app.packageName, app.className));
-                }
-            });
-        } else {
-            iv.setImageResource(android.R.drawable.ic_menu_search);
-            iv.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    if (fallbackAction != null) {
-                        launchWebOrQuery("https://www.google.com");
-                    } else {
-                        setDrawerVisible(true);
-                    }
-                }
-            });
-        }
-        dockContainer.addView(iv, new LinearLayout.LayoutParams(0, dp(54), 1f));
-    }
-
-    private void addDockSettingsSlot() {
-        ImageView iv = new ImageView(this);
-        iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        iv.setPadding(dp(8), dp(8), dp(8), dp(8));
-        iv.setImageResource(android.R.drawable.ic_menu_preferences);
-        iv.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                launchSystemSettings();
-            }
-        });
-        dockContainer.addView(iv, new LinearLayout.LayoutParams(0, dp(54), 1f));
-    }
-
-    private PinnedShortcutsStore.AppEntry findExactComponent(String pkg, String cls) {
-        for (PinnedShortcutsStore.AppEntry e : allApps) {
-            if (pkg.equals(e.packageName) && cls.equals(e.className)) return e;
-        }
-        return null;
-    }
-
-    private void showLauncherWallpaperMenu() {
-        final String[] options = new String[LauncherWallpapers.TITLES.length + 2];
-        options[0] = "★ Open Visual HD Wallpaper Studio & Custom Photos...";
-        for (int i = 0; i < LauncherWallpapers.TITLES.length; i++) {
-            options[i + 1] = LauncherWallpapers.TITLES[i];
-        }
-        options[options.length - 1] = "System Wallpaper Chooser...";
-        new AlertDialog.Builder(this)
-                .setTitle("Choose Home Wallpaper (12 Built-In HD Themes)")
-                .setItems(options, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        if (which == 0) {
-                            PinnedShortcutsStore.AppEntry wp = findExactComponent(
-                                    "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7WallpaperPickerActivity");
-                            if (wp != null) {
-                                launchComponent(new ComponentName(wp.packageName, wp.className));
-                            } else {
-                                try {
-                                    startActivity(Intent.createChooser(
-                                            new Intent(Intent.ACTION_SET_WALLPAPER), "Set Wallpaper"));
-                                } catch (Throwable ignored) {}
-                            }
-                        } else if (which <= LauncherWallpapers.TITLES.length) {
-                            try {
-                                LauncherWallpapers.applyTheme(VanillaHomeActivity.this, which - 1);
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        "Applied " + LauncherWallpapers.TITLES[which - 1],
-                                        Toast.LENGTH_SHORT).show();
-                            } catch (Throwable t) {
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        "Wallpaper error: " + t.getMessage(), Toast.LENGTH_SHORT).show();
-                            }
-                        } else {
-                            try {
-                                startActivity(Intent.createChooser(
-                                        new Intent(Intent.ACTION_SET_WALLPAPER), "Set Wallpaper"));
-                            } catch (Throwable ignored) {}
-                        }
-                    }
-                })
-                .show();
-    }
-    private PinnedShortcutsStore.AppEntry findApp(String... pkgs) {
-        for (String p : pkgs) {
-            for (PinnedShortcutsStore.AppEntry e : allApps) {
-                if (p.equals(e.packageName)) return e;
-            }
-        }
-        return null;
-    }
-
-    private void launchWebOrQuery(String input) {
-        try {
-            String url = input.startsWith("http://") || input.startsWith("https://")
-                    ? input
-                    : (input.contains(".") && !input.contains(" ")
-                        ? "https://" + input
-                        : "https://www.google.com/search?q=" + Uri.encode(input));
-            Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-        } catch (Throwable t) {
-            Toast.makeText(this, "No browser installed", Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void launchSystemSettings() {
-        try {
-            Intent i = new Intent(Settings.ACTION_SETTINGS);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void openClockOrDateSettings() {
-        PinnedShortcutsStore.AppEntry arcClk = findExactComponent("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ClockActivity");
-        if (arcClk != null) {
-            launchComponent(new ComponentName(arcClk.packageName, arcClk.className));
-            return;
-        }
-        PinnedShortcutsStore.AppEntry clk = findApp("com.android.deskclock", "com.google.android.deskclock");
-        if (clk != null) {
-            launchComponent(new ComponentName(clk.packageName, clk.className));
-            return;
-        }
-        try {
-            startActivity(new Intent(Settings.ACTION_DATE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void launchComponent(ComponentName cn) {
-        if (cn == null) return;
-        try {
-            Intent i = new Intent(Intent.ACTION_MAIN);
-            i.addCategory(Intent.CATEGORY_LAUNCHER);
-            i.setComponent(cn);
-            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-            startActivity(i);
-        } catch (Throwable t) {
-            try {
-                Intent fallback = getPackageManager().getLaunchIntentForPackage(cn.getPackageName());
-                if (fallback != null) startActivity(fallback);
-            } catch (Throwable t2) {
-                Toast.makeText(this, "Unable to launch app", Toast.LENGTH_SHORT).show();
-            }
-        }
-    }
-
-    private void showAppOptionsDialog(final PinnedShortcutsStore.AppEntry entry) {
-        String[] items = new String[]{
-                "Pin to Home Screen (Center Page)",
-                "Pin to Left Page",
-                "Pin to Right Page",
-                "App Info",
-                "Uninstall App"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle(entry.label)
-                .setItems(items, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        if (which <= 2) {
-                            int targetPage = (which == 0) ? 1 : (which == 1 ? 0 : 2);
-                            PinnedShortcutsStore.addShortcut(VanillaHomeActivity.this, targetPage, entry.flatten());
-                            setPage(targetPage);
-                            setDrawerVisible(false);
-                            Toast.makeText(VanillaHomeActivity.this,
-                                    "Pinned " + entry.label + " to Home", Toast.LENGTH_SHORT).show();
-                        } else if (which == 3) {
-                            openAppInfo(entry.packageName);
-                        } else if (which == 4) {
-                            uninstallPackage(entry.packageName);
-                        }
-                    }
-                })
-                .show();
-    }
-
-    private void showWorkspaceShortcutMenu(final ComponentName cn) {
-        String[] items = new String[]{
-                "Remove from Home Screen",
-                "App Info",
-                "Uninstall App"
-        };
-        new AlertDialog.Builder(this)
-                .setTitle(cn.getPackageName())
-                .setItems(items, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        if (which == 0) {
-                            PinnedShortcutsStore.removeShortcut(
-                                    VanillaHomeActivity.this, currentPage, cn.flattenToString());
-                            workspaceAdapter.reload();
-                        } else if (which == 1) {
-                            openAppInfo(cn.getPackageName());
-                        } else if (which == 2) {
-                            uninstallPackage(cn.getPackageName());
-                        }
-                    }
-                })
-                .show();
-    }
-
-    private void openAppInfo(String pkg) {
-        try {
-            Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private void uninstallPackage(String pkg) {
-        try {
-            Intent i = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg));
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            startActivity(i);
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private View buildAppTile(View convertView, Drawable icon, String title) {
-        LinearLayout box;
-        ImageView iv;
-        TextView tv;
-        if (convertView instanceof LinearLayout) {
-            box = (LinearLayout) convertView;
-            iv = (ImageView) box.getChildAt(0);
-            tv = (TextView) box.getChildAt(1);
-        } else {
-            box = new LinearLayout(this);
-            box.setOrientation(LinearLayout.VERTICAL);
-            box.setGravity(Gravity.CENTER_HORIZONTAL);
-            box.setPadding(dp(4), dp(6), dp(4), dp(6));
-
-            iv = new ImageView(this);
-            iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-            box.addView(iv, new LinearLayout.LayoutParams(dp(48), dp(48)));
-
-            tv = new TextView(this);
-            tv.setTextColor(Color.WHITE);
-            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            tv.setMaxLines(1);
-            tv.setEllipsize(TextUtils.TruncateAt.END);
-            tv.setGravity(Gravity.CENTER);
-            tv.setShadowLayer(4f, 0f, 1f, 0xDD000000);
-            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            tlp.topMargin = dp(4);
-            box.addView(tv, tlp);
-        }
-        iv.setImageDrawable(icon);
-        tv.setText(title);
-        return box;
-    }
-
-    private class WorkspaceAdapter extends BaseAdapter {
-        private List<ComponentName> items = new ArrayList<ComponentName>();
-
-        public void reload() {
-            PackageManager pm = getPackageManager();
-            List<ComponentName> raw = PinnedShortcutsStore.getPageShortcuts(VanillaHomeActivity.this, currentPage);
-            items.clear();
-            for (ComponentName cn : raw) {
-                try {
-                    ActivityInfo ai = pm.getActivityInfo(cn, 0);
-                    if (ai != null && ai.enabled && ai.applicationInfo.enabled) {
-                        items.add(cn);
-                    }
-                } catch (Throwable ignored) {
-                }
-            }
-            notifyDataSetChanged();
+    private class AppGridAdapter extends BaseAdapter {
+        private final List<AppEntry> source;
+        private final boolean onDesktop;
+
+        AppGridAdapter(List<AppEntry> source, boolean onDesktop) {
+            this.source = source;
+            this.onDesktop = onDesktop;
         }
 
-        @Override public int getCount() { return items.size(); }
-        @Override public ComponentName getItem(int position) { return items.get(position); }
+        @Override public int getCount() { return source.size(); }
+        @Override public Object getItem(int position) { return source.get(position); }
         @Override public long getItemId(int position) { return position; }
 
         @Override
         public View getView(int position, View convertView, ViewGroup parent) {
-            ComponentName cn = items.get(position);
-            PackageManager pm = getPackageManager();
-            Drawable icon;
-            String label = cn.getPackageName();
-            try {
-                ActivityInfo ai = pm.getActivityInfo(cn, 0);
-                icon = ai.loadIcon(pm);
-                CharSequence cs = ai.loadLabel(pm);
-                if (cs != null) label = cs.toString();
-            } catch (Throwable t) {
-                icon = getResources().getDrawable(android.R.drawable.sym_def_app_icon);
+            final AppEntry entry = source.get(position);
+            LinearLayout cell = (LinearLayout) convertView;
+            ImageView iconView;
+            TextView labelView;
+            if (cell == null) {
+                cell = new LinearLayout(VanillaHomeActivity.this);
+                cell.setOrientation(LinearLayout.VERTICAL);
+                cell.setGravity(Gravity.CENTER_HORIZONTAL);
+                cell.setPadding(dp(6), dp(8), dp(6), dp(8));
+
+                iconView = new ImageView(VanillaHomeActivity.this);
+                iconView.setId(1001);
+                iconView.setScaleType(ImageView.ScaleType.FIT_CENTER);
+                cell.addView(iconView, new LinearLayout.LayoutParams(dp(50), dp(50)));
+
+                labelView = new TextView(VanillaHomeActivity.this);
+                labelView.setId(1002);
+                labelView.setTextColor(Color.WHITE);
+                labelView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+                labelView.setGravity(Gravity.CENTER_HORIZONTAL);
+                labelView.setMaxLines(2);
+                labelView.setEllipsize(TextUtils.TruncateAt.END);
+                labelView.setShadowLayer(4f, 0f, 1f, 0xCC000000);
+                labelView.setPadding(0, dp(5), 0, 0);
+                cell.addView(labelView, new LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            } else {
+                iconView = (ImageView) cell.findViewById(1001);
+                labelView = (TextView) cell.findViewById(1002);
             }
-            return buildAppTile(convertView, icon, label);
-        }
-    }
 
-    private class DrawerAdapter extends BaseAdapter {
-        @Override public int getCount() { return filteredApps.size(); }
-        @Override public PinnedShortcutsStore.AppEntry getItem(int position) { return filteredApps.get(position); }
-        @Override public long getItemId(int position) { return position; }
-
-        @Override
-        public View getView(int position, View convertView, ViewGroup parent) {
-            PinnedShortcutsStore.AppEntry e = filteredApps.get(position);
-            Drawable icon;
-            try {
-                icon = getPackageManager().getActivityIcon(new ComponentName(e.packageName, e.className));
-            } catch (Throwable t) {
-                icon = getResources().getDrawable(android.R.drawable.sym_def_app_icon);
-            }
-            return buildAppTile(convertView, icon, e.label);
-        }
-    }
-
-    /** Crisp vector-drawn Android 4.2 Jelly Bean All-Apps Circle Icon */
-    private static class AllAppsCircleView extends View {
-        private final Paint ringPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint fillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private final Paint dotPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-
-        public AllAppsCircleView(Context context) {
-            super(context);
-            ringPaint.setStyle(Paint.Style.STROKE);
-            ringPaint.setColor(0xDDFFFFFF);
-            ringPaint.setStrokeWidth(context.getResources().getDisplayMetrics().density * 2.0f);
-
-            fillPaint.setStyle(Paint.Style.FILL);
-            fillPaint.setColor(0x33FFFFFF);
-
-            dotPaint.setStyle(Paint.Style.FILL);
-            dotPaint.setColor(Color.WHITE);
-        }
-
-        @Override
-        protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            float cx = getWidth() * 0.5f;
-            float cy = getHeight() * 0.5f;
-            float r = Math.min(getWidth(), getHeight()) * 0.42f;
-            canvas.drawCircle(cx, cy, r, fillPaint);
-            canvas.drawCircle(cx, cy, r, ringPaint);
-
-            float step = r * 0.40f;
-            float sq = r * 0.12f;
-            for (int row = -1; row <= 1; row++) {
-                for (int col = -1; col <= 1; col++) {
-                    if (row == 1 && (col == -1 || col == 1)) {
-                        // Classic 6-dot / 3x2+ grid motif of Android 4.2 All-Apps icon
-                        canvas.drawRect(cx + col * step - sq, cy + row * step - sq,
-                                cx + col * step + sq, cy + row * step + sq, dotPaint);
-                    } else {
-                        canvas.drawRect(cx + col * step - sq, cy + row * step - sq,
-                                cx + col * step + sq, cy + row * step + sq, dotPaint);
-                    }
+            iconView.setImageDrawable(entry.icon);
+            labelView.setText(entry.label);
+            cell.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    launchEntry(entry);
                 }
-            }
+            });
+            cell.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    showAppOptions(entry, onDesktop);
+                    return true;
+                }
+            });
+            return cell;
         }
     }
 }

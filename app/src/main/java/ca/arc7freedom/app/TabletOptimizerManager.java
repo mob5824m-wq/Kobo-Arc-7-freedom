@@ -112,7 +112,10 @@ public class TabletOptimizerManager {
         String adbPort = shell.execSh("getprop service.adb.tcp.port 2>/dev/null", null).stdout.trim();
         sb.append("CPU Governor: ").append(cpuGov)
           .append(" • Wireless ADB: ").append("5555".equals(adbPort) ? ("ACTIVE (" + Arc7WifiDriveService.detectLanIp(ctx) + ":5555)") : "USB mode")
-          .append(" • Wi-Fi Drive: ").append(Arc7WifiDriveService.isRunning() ? ("http://" + Arc7WifiDriveService.detectLanIp(ctx) + ":8080") : "OFF")
+          .append(" • Wi-Fi Drive: ").append(Arc7WifiDriveService.isRunning()
+                  ? ("http://" + Arc7WifiDriveService.detectLanIp(ctx) + ":" + Arc7WifiDriveService.getActivePort()
+                     + (Arc7WifiDriveService.isPinRequired(ctx) ? " (PIN " + Arc7WifiDriveService.getOrCreatePin(ctx) + ")" : " (Open)"))
+                  : "OFF")
           .append("\n");
 
         sb.append("Night / Warm Reading Filter: ").append(NightFilterService.modeLabel(NightFilterService.currentMode(ctx)))
@@ -180,7 +183,13 @@ public class TabletOptimizerManager {
      * ======================================================================== */
 
     public boolean installBundledFDroidClassic(LogSink log) {
-        log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (Android 4.2 + TLS 1.3) ===");
+        log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (Android 4.2 + Verified TLS 1.3 Bridge) ===");
+        // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway is live BEFORE F-Droid ever runs!
+        Arc7TlsGatewayService.ensureStarted(ctx);
+        try {
+            new NetworkCertManager(ctx, shell).startBrowserGateway();
+        } catch (Throwable ignored) {}
+
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
         if (!outDir.exists()) outDir.mkdirs();
         File outApk = new File(outDir, "FDroidClassic-Android4.2-TLS1.3.apk");
@@ -198,7 +207,7 @@ public class TabletOptimizerManager {
                 total += r;
             }
             fos.flush();
-            log.onLog("Extracted offline store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
+            log.onLog("Extracted patched TLS-1.3 F-Droid store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
         } catch (Throwable t) {
             log.onLog("ERROR extracting bundled F-Droid Classic APK: " + t.getMessage());
             return false;
@@ -208,22 +217,103 @@ public class TabletOptimizerManager {
         }
 
         if (shell.isRootAvailable()) {
+            // If an earlier unpatched debug build of F-Droid Classic is installed (which cached
+            // defunct `bubu1.eu` / TLS-1.3-only `ftp.fau.de` URLs in SQLite and had a different signing key),
+            // cleanly uninstall it first so our patched TLS-1.3 bridge APK installs with clean repo URLs!
+            boolean needCleanUninstall = false;
+            try {
+                int sigCmp = ctx.getPackageManager().checkSignatures(
+                        ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
+                if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
+                    needCleanUninstall = true;
+                }
+            } catch (Throwable ignored) {}
+            if (needCleanUninstall) {
+                log.onLog("Upgrading old F-Droid Classic installation & clearing dead repository URLs...");
+                shell.execRoot("pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true", null);
+            }
             log.onLog("Root detected — running silent `pm install -r` so Unknown Sources toggle isn't even needed...");
             RootShell.ExecResult pm = shell.execRoot(
                     "pm install -r " + RootShell.shellQuote(outApk.getAbsolutePath()), null);
             log.onLog(pm.stdout.trim());
             if (pm.stdout.contains("Success")) {
-                log.onLog("SUCCESS: F-Droid Classic (Android 4.2 + built-in modern TLS 1.3) is now installed in your App Drawer!");
+                log.onLog("SUCCESS: F-Droid Classic (`v1.8.0` Patched TLS 1.3 Index Bridge) is installed & ready — pull to refresh in F-Droid for 4,000+ working apps!");
                 return true;
             }
         }
 
-        log.onLog("Opening Android 4.2 Package Installer prompt (enable Settings -> Security -> Unknown Sources if prompted)...");
+        log.onLog("Opening Android 4.2 Package Installer prompt (if an older F-Droid Classic is installed, uninstall it once first so fresh repo URLs load)...");
         Intent prompt = new Intent(Intent.ACTION_VIEW);
         prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         ctx.startActivity(prompt);
         return true;
+    }
+
+    /**
+     * Silently upgrades companion APKs (`VanillaAndroid4Home.apk` -> `versionCode >= 48` with
+     * full Home Screen Widgets + isolated app tasks, AND migrates legacy `v1.7.0` F-Droid Classic
+     * installs to our `v1.8.0` TLS 1.3 Index Bridge build) right when `v1.8.0` starts!
+     */
+    public void ensureCompanionAppsUpgradedSilently() {
+        if (!shell.isRootAvailable()) return;
+        try {
+            int homeVer = 0;
+            try {
+                homeVer = ctx.getPackageManager()
+                        .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
+            } catch (Throwable ignored) {}
+            if (homeVer > 0 && homeVer < 48) {
+                File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
+                InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
+                FileOutputStream fos = new FileOutputStream(tmpHome);
+                byte[] buf = new byte[32768];
+                int n;
+                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+                fos.close();
+                in.close();
+                tmpHome.setReadable(true, false);
+                String qHome = RootShell.shellQuote(tmpHome.getAbsolutePath());
+                shell.execRoot(
+                        "_out=$(pm install -r " + qHome + " 2>&1 || true)\n" +
+                        "case \"$_out\" in\n" +
+                        "  *Success*) ;;\n" +
+                        "  *)\n" +
+                        "    (mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
+                        "    if [ -f /system/app/VanillaAndroid4Home.apk ]; then\n" +
+                        "      cat /system/app/VanillaAndroid4Home.apk > /data/local/tmp/VanillaHome.bak.apk\n" +
+                        "    fi\n" +
+                        "    cat " + qHome + " > /system/app/VanillaAndroid4Home.apk\n" +
+                        "    chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
+                        "    pm uninstall ca.arc7freedom.launcher 2>/dev/null || true\n" +
+                        "    pm install -r " + qHome + " 2>/dev/null || {\n" +
+                        "      if [ -f /data/local/tmp/VanillaHome.bak.apk ]; then\n" +
+                        "        cat /data/local/tmp/VanillaHome.bak.apk > /system/app/VanillaAndroid4Home.apk\n" +
+                        "        chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
+                        "        pm install -r /data/local/tmp/VanillaHome.bak.apk 2>/dev/null || true\n" +
+                        "      fi\n" +
+                        "    }\n" +
+                        "    sync\n" +
+                        "    mount -o remount,ro /system 2>/dev/null || true\n" +
+                        "    ;;\n" +
+                        "esac\n" +
+                        "appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null" +
+                        " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true",
+                        null);
+                tmpHome.delete();
+            }
+
+            try {
+                ctx.getPackageManager().getPackageInfo("eu.bubu1.fdroidclassic.debug", 0);
+                int sigCmp = ctx.getPackageManager().checkSignatures(
+                        ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
+                if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
+                    installBundledFDroidClassic(new LogSink() {
+                        @Override public void onLog(String line) {}
+                    });
+                }
+            } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {}
     }
 
     /* ========================================================================
@@ -267,9 +357,13 @@ public class TabletOptimizerManager {
                 script.append("  SRC='").append(internalBase).append("/").append(folder).append("'\n");
                 script.append("  mkdir -p \"$SRC\"\n");
                 if (copyExistingFirst) {
-                    script.append("  cp -rn \"$SRC/\"* \"$SD_BASE/").append(folder).append("/\" 2>/dev/null || true\n");
+                    script.append("  for _mf in \"$SRC\"/*; do\n")
+                          .append("    [ -f \"$_mf\" ] && [ ! -e \"$SD_BASE/").append(folder).append("/${_mf##*/}\" ] && cat \"$_mf\" > \"$SD_BASE/")
+                          .append(folder).append("/${_mf##*/}\" 2>/dev/null || true\n")
+                          .append("  done\n");
                 }
-                script.append("  grep -qs \" $SRC \" /proc/mounts || mount -o bind \"$SD_BASE/")
+                script.append("  _mounted=0; while IFS= read -r _ml; do case \"$_ml\" in *\" $SRC \"*) _mounted=1; break ;; esac; done < /proc/mounts\n")
+                      .append("  [ \"$_mounted\" = \"1\" ] || mount -o bind \"$SD_BASE/")
                       .append(folder).append("\" \"$SRC\" 2>/dev/null || true\n");
                 script.append("fi\n");
             }
@@ -394,7 +488,7 @@ public class TabletOptimizerManager {
         }
         if (!enable) {
             String cmd = RootShell.remountSystemRwCmd()
-                    + " && if [ -f /system/etc/hosts.arc7.bak ]; then cp -f /system/etc/hosts.arc7.bak /system/etc/hosts; else printf '127.0.0.1 localhost\\n' > /system/etc/hosts; fi"
+                    + " && if [ -f /system/etc/hosts.arc7.bak ]; then cat /system/etc/hosts.arc7.bak > /system/etc/hosts; else echo '127.0.0.1 localhost' > /system/etc/hosts; fi"
                     + " && rm -f /system/etc/hosts.arc7.bak && chmod 0644 /system/etc/hosts && sync"
                     + " && " + RootShell.remountSystemRoCmd() + " && echo RESTORED_OK";
             RootShell.ExecResult r = shell.execRoot(cmd, null);
@@ -420,8 +514,8 @@ public class TabletOptimizerManager {
         }
 
         String cmd = RootShell.remountSystemRwCmd()
-                + " && [ -f /system/etc/hosts.arc7.bak ] || cp -a /system/etc/hosts /system/etc/hosts.arc7.bak"
-                + " && cp -f '" + stage.getAbsolutePath() + "' /system/etc/hosts"
+                + " && { [ -f /system/etc/hosts.arc7.bak ] || cat /system/etc/hosts > /system/etc/hosts.arc7.bak; }"
+                + " && cat '" + stage.getAbsolutePath() + "' > /system/etc/hosts"
                 + " && chmod 0644 /system/etc/hosts && sync"
                 + " && " + RootShell.remountSystemRoCmd()
                 + " && echo ADBLOCK_HOSTS_OK";
@@ -488,8 +582,9 @@ public class TabletOptimizerManager {
         String desc;
         if (mode == 0) {
             desc = "E-Book Ultra Battery Saver (2 active Cortex-A7 cores + powersave/ondemand)";
-            cmd = "for g in powersave conservative ondemand hotplug; do " +
-                  "  grep -qw \"$g\" /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null && { echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; break; }; " +
+            cmd = "_avail=\" $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null) \"; " +
+                  "for g in powersave conservative ondemand hotplug; do " +
+                  "  case \"$_avail\" in *\" $g \"*) echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null; break ;; esac; " +
                   "done; " +
                   "echo 0 > /sys/devices/system/cpu/cpu2/online 2>/dev/null || true; " +
                   "echo 0 > /sys/devices/system/cpu/cpu3/online 2>/dev/null || true; " +
@@ -503,8 +598,9 @@ public class TabletOptimizerManager {
         } else {
             desc = "Balanced Adaptive Daily Mode (hotplug / interactive dynamic scaling)";
             cmd = "for c in 0 1 2 3; do echo 1 > /sys/devices/system/cpu/cpu$c/online 2>/dev/null || true; done; " +
+                  "_avail=\" $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null) \"; " +
                   "for g in hotplug interactive ondemand; do " +
-                  "  grep -qw \"$g\" /sys/devices/system/cpu/cpu0/cpufreq/scaling_available_governors 2>/dev/null && { echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor; break; }; " +
+                  "  case \"$_avail\" in *\" $g \"*) echo \"$g\" > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null; break ;; esac; " +
                   "done; echo CPU_PROFILE_OK";
         }
         RootShell.ExecResult r = shell.execRoot(cmd, null);
@@ -574,7 +670,12 @@ public class TabletOptimizerManager {
             String devShort = cand.substring("/dev/block/".length());
             String safeProbe =
                 "[ -b '" + cand + "' ] || exit 1; " +
-                "if grep -E '^" + cand + "(p[0-9]+)? (/|/system|/data|/cache|/protect_f|/protect_s|/boot|/recovery) ' /proc/mounts >/dev/null 2>&1; then echo INTERNAL_OS_DISK; exit 2; fi; " +
+                "while IFS= read -r _ml; do " +
+                "  case \"$_ml\" in " +
+                "    '" + cand + "'*' / '*|'" + cand + "'*' /system '*|'" + cand + "'*' /data '*|'" + cand + "'*' /cache '*|'" + cand + "'*' /protect_'*|'" + cand + "'*' /boot '*|'" + cand + "'*' /recovery '*) " +
+                "      echo INTERNAL_OS_DISK; exit 2 ;; " +
+                "  esac; " +
+                "done < /proc/mounts; " +
                 "DEV_TYPE=$(cat /sys/block/" + devShort + "/device/type 2>/dev/null || echo UNKNOWN); " +
                 "if [ \"$DEV_TYPE\" = \"MMC\" ]; then echo SOLDERED_EMMC; exit 3; fi; " +
                 "echo SAFE_REMOVABLE_SD";
