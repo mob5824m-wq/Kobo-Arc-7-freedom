@@ -37,9 +37,12 @@ import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.BaseAdapter;
+import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridView;
+import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -55,12 +58,16 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Clean Vanilla Android 4.2.2 Jelly Bean Home Screen Launcher — upgraded in v1.9.0 with:
- *   - Long-press anywhere on Home workspace to add widgets (zero `+ Widget` button clutter,
- *     zero `"Tap + Widget"` text or placeholders anywhere on screen!)
- *   - Automatic 12-hour (`AM/PM`) and 24-hour time formatting across clock & status header
- *   - Smooth 60 fps page swipe slides, zoom-in All-Apps drawer, and spring icon physics
- *   - Full live Android Home Screen AppWidget Host (`AppWidgetHost` ID `1024`)
+ * Skinned Android 4.2.2 Jelly Bean Home Screen Launcher (`v5.1.0-arc7-skin`, `versionCode=51`):
+ *   - Fully Customizable Multi-Edge Home App Bar (`AppBarConfigStore`):
+ *       * Add, remove, reorder, or replace ANY installed or built-in app slot (up to 12 slots w/ smooth scroll)
+ *       * Move App Bar to Bottom, Top, Left Side Rail, Right Side Rail, or Hidden (Swipe-Up opens All Apps)
+ *       * Choose Floating Glass Pill, Full-Width Edge Bar, Minimal Transparent, Solid Slate, or Neon Rim
+ *       * Customize All-Apps button placement, Icon Size (34–58 dp), App Labels, Glass Opacity, & Accent Swatch
+ *       * Customize Home Top Bar style & individual chips (Clock/Date, Search, App Bar, Skin, Wallpaper)
+ *       * Syncs In-App Top App Bar density, alignment, style & Quick App Switcher across all Arc7 apps
+ *   - Long-press anywhere on empty Home workspace to place live Android AppWidgets (`AppWidgetHost` 1024)
+ *   - Automatic 12-hour (`AM/PM`) and 24-hour time formatting + 60 fps spring & page animations
  */
 public class VanillaHomeActivity extends Activity {
 
@@ -76,6 +83,13 @@ public class VanillaHomeActivity extends Activity {
         Drawable icon;
     }
 
+    private static class ResolvedBarSlot {
+        String token;
+        String label;
+        Drawable icon;
+        View.OnClickListener action;
+    }
+
     private final List<AppEntry> allApps = new ArrayList<AppEntry>();
     private final List<AppEntry> filteredApps = new ArrayList<AppEntry>();
     private final List<AppEntry> currentPageShortcuts = new ArrayList<AppEntry>();
@@ -87,8 +101,14 @@ public class VanillaHomeActivity extends Activity {
     private AppWidgetProviderInfo pendingWidgetInfo = null;
 
     private int currentPage = 0;
+    private LinearLayout outerShell;
+    private FrameLayout leftRailSlot;
+    private FrameLayout rightRailSlot;
+    private FrameLayout topBarSlot;
+    private FrameLayout bottomBarSlot;
     private LinearLayout desktopView;
     private LinearLayout topCapsule;
+    private LinearLayout clockCol;
     private LinearLayout widgetsContainer;
     private LinearLayout drawerOverlay;
     private LinearLayout dockBar;
@@ -96,7 +116,10 @@ public class VanillaHomeActivity extends Activity {
     private View drawerDividerView;
     private TextView clockView;
     private TextView dateView;
+    private TextView searchChip;
+    private TextView appBarChip;
     private TextView skinChip;
+    private TextView wallpaperChip;
     private EditText searchBox;
     private AppGridAdapter desktopAdapter;
     private AppGridAdapter drawerAdapter;
@@ -117,6 +140,7 @@ public class VanillaHomeActivity extends Activity {
         public void onReceive(Context context, Intent intent) {
             updateDateLabel();
             applyLauncherSkinChrome();
+            rebuildDock();
         }
     };
 
@@ -132,9 +156,13 @@ public class VanillaHomeActivity extends Activity {
             public void onLongPress(MotionEvent e) {
                 if (drawerOpen) return;
                 long now = System.currentTimeMillis();
-                // Skip if a child icon, dock item, or placed widget already handled this long-press
                 if (now - lastChildLongPressMs < 650L) return;
-                if (dockBar != null && e != null && e.getRawY() >= dockBar.getTop() - dp(8)) return;
+                if (dockBar != null && dockBar.isShown() && e != null && isPointInsideView(dockBar, e.getRawX(), e.getRawY())) {
+                    lastChildLongPressMs = now;
+                    dockBar.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    showAppBarCustomizerDialog();
+                    return;
+                }
                 if (desktopView != null) {
                     desktopView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                 }
@@ -154,6 +182,10 @@ public class VanillaHomeActivity extends Activity {
                         switchToPage(currentPage - 1);
                         return true;
                     }
+                } else if (dy < -dp(85) && Math.abs(dy) > Math.abs(dx) * 1.4f && velocityY < -280f) {
+                    // Smooth upward swipe opens All-Apps Drawer (essential when App Bar / Drawer jewel is hidden!)
+                    openDrawer();
+                    return true;
                 }
                 return false;
             }
@@ -163,10 +195,21 @@ public class VanillaHomeActivity extends Activity {
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // 1. Desktop workspace (clean top clock/date bar + live Home Screen Widgets + shortcuts grid + page dots + dock)
+        // Multi-edge shell supporting Left Rail + Center Desktop (Top Bar / Bottom Dock) + Right Rail
+        outerShell = new LinearLayout(this);
+        outerShell.setOrientation(LinearLayout.HORIZONTAL);
+        outerShell.setLayoutParams(new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        leftRailSlot = new FrameLayout(this);
+        leftRailSlot.setVisibility(View.GONE);
+        outerShell.addView(leftRailSlot, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // 1. Center Desktop Workspace
         desktopView = new LinearLayout(this);
         desktopView.setOrientation(LinearLayout.VERTICAL);
-        desktopView.setPadding(dp(16), dp(8), dp(16), dp(8));
+        desktopView.setPadding(dp(14), dp(8), dp(14), dp(8));
         desktopView.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
@@ -177,19 +220,33 @@ public class VanillaHomeActivity extends Activity {
             }
         });
 
-        // Clean Arc7 OS Skinned Top Capsule: 12h/24h Clock + Date on left, Skin Studio + Wallpaper chips on right (ZERO '+ Widget' button!)
+        topBarSlot = new FrameLayout(this);
+        topBarSlot.setVisibility(View.GONE);
+        desktopView.addView(topBarSlot, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // Skinned Customizable Top Status / Action Capsule
         topCapsule = new LinearLayout(this);
         topCapsule.setOrientation(LinearLayout.HORIZONTAL);
         topCapsule.setGravity(Gravity.CENTER_VERTICAL);
         topCapsule.setPadding(dp(12), dp(6), dp(12), dp(6));
+        topCapsule.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showAppBarCustomizerDialog();
+                return true;
+            }
+        });
 
-        LinearLayout clockCol = new LinearLayout(this);
+        clockCol = new LinearLayout(this);
         clockCol.setOrientation(LinearLayout.HORIZONTAL);
         clockCol.setGravity(Gravity.CENTER_VERTICAL);
 
         clockView = new TextView(this);
         clockView.setTextColor(Color.WHITE);
-        clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 29);
+        clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 28);
         clockView.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
         clockView.setShadowLayer(6f, 0f, 2f, 0xCC000000);
         clockView.setOnClickListener(new View.OnClickListener() {
@@ -202,9 +259,9 @@ public class VanillaHomeActivity extends Activity {
 
         dateView = new TextView(this);
         dateView.setTextColor(0xEEFFFFFF);
-        dateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        dateView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         dateView.setShadowLayer(4f, 0f, 1f, 0xCC000000);
-        dateView.setPadding(dp(12), dp(4), 0, 0);
+        dateView.setPadding(dp(10), dp(4), 0, 0);
         dateView.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -217,10 +274,38 @@ public class VanillaHomeActivity extends Activity {
         topCapsule.addView(clockCol, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
+        View spacerFlex = new View(this);
+        topCapsule.addView(spacerFlex, new LinearLayout.LayoutParams(dp(4), 1));
+
+        searchChip = makeTopChip("Search", 0x991E293B);
+        LinearLayout.LayoutParams srLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        srLp.rightMargin = dp(6);
+        searchChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openDrawer();
+                if (searchBox != null) searchBox.requestFocus();
+            }
+        });
+        topCapsule.addView(searchChip, srLp);
+
+        appBarChip = makeTopChip("App Bar", 0xB30F2942);
+        LinearLayout.LayoutParams abLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        abLp.rightMargin = dp(6);
+        appBarChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showAppBarCustomizerDialog();
+            }
+        });
+        topCapsule.addView(appBarChip, abLp);
+
         skinChip = makeTopChip("Skin", 0x991E293B);
         LinearLayout.LayoutParams skLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        skLp.rightMargin = dp(8);
+        skLp.rightMargin = dp(6);
         skinChip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -229,7 +314,7 @@ public class VanillaHomeActivity extends Activity {
         });
         topCapsule.addView(skinChip, skLp);
 
-        TextView wallpaperChip = makeTopChip("Wallpaper", 0x991E293B);
+        wallpaperChip = makeTopChip("Wallpaper", 0x991E293B);
         wallpaperChip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -245,7 +330,7 @@ public class VanillaHomeActivity extends Activity {
 
         desktopView.addView(topCapsule);
 
-        // Live Home Screen Widgets area (scrollable if user adds multiple widgets on a page)
+        // Live Home Screen Widgets area
         ScrollView widgetScroll = new ScrollView(this);
         widgetScroll.setVerticalScrollBarEnabled(false);
         widgetsContainer = new LinearLayout(this);
@@ -255,7 +340,7 @@ public class VanillaHomeActivity extends Activity {
         desktopView.addView(widgetScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // Pinned Home Shortcuts Grid (middle workspace — NO placeholder text!)
+        // Pinned Home Shortcuts Grid
         GridView desktopGrid = new GridView(this);
         desktopGrid.setNumColumns(5);
         desktopGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
@@ -276,7 +361,7 @@ public class VanillaHomeActivity extends Activity {
         desktopView.addView(desktopGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // 3-Page Dot Indicator Row (also clickable!)
+        // 3-Page Dot Indicator Row
         LinearLayout dotsRow = new LinearLayout(this);
         dotsRow.setOrientation(LinearLayout.HORIZONTAL);
         dotsRow.setGravity(Gravity.CENTER);
@@ -297,21 +382,34 @@ public class VanillaHomeActivity extends Activity {
         }
         desktopView.addView(dotsRow);
 
-        // Bottom 5-icon Favorites + All-Apps Dock
-        dockBar = new LinearLayout(this);
-        dockBar.setOrientation(LinearLayout.HORIZONTAL);
-        dockBar.setGravity(Gravity.CENTER);
-        dockBar.setPadding(dp(8), dp(6), dp(8), dp(6));
-        GradientDrawable dockBg = new GradientDrawable();
-        dockBg.setColor(0x66000000);
-        dockBg.setCornerRadius(dp(14));
-        dockBar.setBackgroundDrawable(dockBg);
-        desktopView.addView(dockBar, new LinearLayout.LayoutParams(
+        // Customizable App Bar Container + Inner Items Strip
+        bottomBarSlot = new FrameLayout(this);
+        desktopView.addView(bottomBarSlot, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        root.addView(desktopView);
+        dockBar = new LinearLayout(this);
+        dockBar.setGravity(Gravity.CENTER);
+        dockBar.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showAppBarCustomizerDialog();
+                return true;
+            }
+        });
 
-        // 2. Full-screen All-Apps Drawer Overlay (Holo Dark)
+        outerShell.addView(desktopView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.MATCH_PARENT, 1f));
+
+        rightRailSlot = new FrameLayout(this);
+        rightRailSlot.setVisibility(View.GONE);
+        outerShell.addView(rightRailSlot, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        root.addView(outerShell);
+
+        // 2. Full-screen All-Apps Drawer Overlay (always carries a direct `App Bar` customizer button too!)
         drawerOverlay = new LinearLayout(this);
         drawerOverlay.setOrientation(LinearLayout.VERTICAL);
         drawerOverlay.setBackgroundColor(0xEA11161D);
@@ -323,7 +421,7 @@ public class VanillaHomeActivity extends Activity {
         drawerHeader.setGravity(Gravity.CENTER_VERTICAL);
 
         TextView drawerTitle = new TextView(this);
-        drawerTitle.setText("ARC7 OS  •  ALL APPS");
+        drawerTitle.setText("ARC7 OS  \u2022  ALL APPS");
         drawerTitle.setTextColor(0xFF33B5E5);
         drawerTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         drawerTitle.setTypeface(Typeface.DEFAULT_BOLD);
@@ -332,7 +430,7 @@ public class VanillaHomeActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         searchBox = new EditText(this);
-        searchBox.setHint("Search apps (long-press any app to pin to Home)...");
+        searchBox.setHint("Search apps (long-press any app to pin to Home or App Bar)...");
         searchBox.setSingleLine(true);
         searchBox.setTextColor(Color.WHITE);
         searchBox.setHintTextColor(0x88FFFFFF);
@@ -340,7 +438,7 @@ public class VanillaHomeActivity extends Activity {
         LinearLayout.LayoutParams sParams = new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         sParams.leftMargin = dp(12);
-        sParams.rightMargin = dp(12);
+        sParams.rightMargin = dp(10);
         searchBox.setLayoutParams(sParams);
         searchBox.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
@@ -350,6 +448,18 @@ public class VanillaHomeActivity extends Activity {
             @Override public void afterTextChanged(Editable s) {}
         });
         drawerHeader.addView(searchBox);
+
+        TextView drawerCustomizeBtn = makeTopChip("\u2699 App Bar", 0xCC0F2942);
+        LinearLayout.LayoutParams dcbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dcbLp.rightMargin = dp(8);
+        drawerCustomizeBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showAppBarCustomizerDialog();
+            }
+        });
+        drawerHeader.addView(drawerCustomizeBtn, dcbLp);
 
         TextView closeBtn = new TextView(this);
         closeBtn.setText("\u2715  HOME");
@@ -400,19 +510,27 @@ public class VanillaHomeActivity extends Activity {
         clockFilter.addAction(Intent.ACTION_TIME_CHANGED);
         clockFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         clockFilter.addAction(Arc7LauncherSkin.ACTION_SKIN_CHANGED);
+        clockFilter.addAction(AppBarConfigStore.ACTION_APP_BAR_CHANGED);
         registerReceiver(clockTickReceiver, clockFilter);
 
         applyLauncherSkinChrome();
         reloadApps();
     }
 
+    private boolean isPointInsideView(View v, float rawX, float rawY) {
+        int[] loc = new int[2];
+        v.getLocationOnScreen(loc);
+        return rawX >= loc[0] && rawX <= loc[0] + v.getWidth()
+                && rawY >= loc[1] && rawY <= loc[1] + v.getHeight();
+    }
+
     private TextView makeTopChip(String text, int bgArgb) {
         TextView tv = new TextView(this);
         tv.setText(text);
         tv.setTextColor(Color.WHITE);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
-        tv.setPadding(dp(12), dp(6), dp(12), dp(6));
+        tv.setPadding(dp(11), dp(6), dp(11), dp(6));
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(bgArgb);
         bg.setCornerRadius(dp(14));
@@ -520,7 +638,6 @@ public class VanillaHomeActivity extends Activity {
                 frame.addView(hv, new FrameLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-                // Subtle corner gear chip so touchscreen tap also lets users resize/remove any widget easily!
                 TextView gear = new TextView(this);
                 gear.setText("\u22EF");
                 gear.setTextColor(0xCCFFFFFF);
@@ -585,6 +702,12 @@ public class VanillaHomeActivity extends Activity {
         final AlertDialog dlg = new AlertDialog.Builder(this)
                 .setTitle("Add Widget to Page " + (currentPage + 1))
                 .setView(sv)
+                .setNeutralButton("Customize App Bar", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        showAppBarCustomizerDialog();
+                    }
+                })
                 .setNegativeButton("Cancel", null)
                 .create();
 
@@ -627,7 +750,7 @@ public class VanillaHomeActivity extends Activity {
             int wDp = Math.round(info.minWidth / dm.density);
             int hDp = Math.round(info.minHeight / dm.density);
             TextView sub = new TextView(this);
-            sub.setText(info.provider.getPackageName() + "  •  " + wDp + "×" + hDp + " dp");
+            sub.setText(info.provider.getPackageName() + "  \u2022  " + wDp + "\u00D7" + hDp + " dp");
             sub.setTextColor(0xFF94A3B8);
             sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
             col.addView(sub);
@@ -790,7 +913,6 @@ public class VanillaHomeActivity extends Activity {
         currentPageShortcuts.clear();
         List<String> saved = PinnedShortcutsStore.loadPage(this, currentPage);
 
-        // Auto-seed Page 1 with Arc7 apps + Aurora Store + F-Droid on very first boot!
         if (currentPage == 0 && saved.isEmpty() && !allApps.isEmpty()) {
             for (int i = 0; i < allApps.size() && saved.size() < 10; i++) {
                 AppEntry e = allApps.get(i);
@@ -815,10 +937,13 @@ public class VanillaHomeActivity extends Activity {
             }
         }
 
+        Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
+        AppBarConfigStore.Config cfg = AppBarConfigStore.load(this);
+        int activeDot = cfg.accentOverride != 0 ? cfg.accentOverride : t.accentColor;
         for (int i = 0; i < PAGE_COUNT; i++) {
             if (pageDots[i] != null) {
                 boolean active = (i == currentPage);
-                pageDots[i].setTextColor(active ? 0xFF38BDF8 : 0x66FFFFFF);
+                pageDots[i].setTextColor(active ? activeDot : 0x66FFFFFF);
                 pageDots[i].setTextSize(TypedValue.COMPLEX_UNIT_SP, active ? 16 : 12);
                 if (active) {
                     pageDots[i].animate().scaleX(1.22f).scaleY(1.22f).setDuration(160)
@@ -954,33 +1079,56 @@ public class VanillaHomeActivity extends Activity {
 
     private void applyLauncherSkinChrome() {
         Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
+        AppBarConfigStore.Config cfg = AppBarConfigStore.load(this);
+        int accent = cfg.accentOverride != 0 ? cfg.accentOverride : t.accentColor;
+
         if (topCapsule != null) {
-            GradientDrawable cap = new GradientDrawable();
-            cap.setColor(t.topCapsuleColor);
-            cap.setCornerRadius(dp(16));
-            cap.setStroke(dp(1), t.borderColor);
-            topCapsule.setBackgroundDrawable(cap);
-        }
-        if (dockBar != null) {
-            GradientDrawable dockBg = new GradientDrawable(
-                    GradientDrawable.Orientation.TOP_BOTTOM,
-                    new int[]{t.dockTopColor, t.dockBottomColor});
-            dockBg.setCornerRadius(dp(18));
-            dockBg.setStroke(dp(1), t.borderColor);
-            dockBar.setBackgroundDrawable(dockBg);
+            if (cfg.topBarMode == AppBarConfigStore.TOP_HIDDEN) {
+                topCapsule.setVisibility(View.GONE);
+            } else {
+                topCapsule.setVisibility(View.VISIBLE);
+                if (cfg.topBarMode == AppBarConfigStore.TOP_MINIMAL_CLEAR) {
+                    topCapsule.setBackgroundDrawable(null);
+                    topCapsule.setPadding(dp(4), dp(2), dp(4), dp(4));
+                } else {
+                    GradientDrawable cap = new GradientDrawable();
+                    cap.setColor(t.topCapsuleColor);
+                    cap.setCornerRadius(dp(cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 12 : 16));
+                    cap.setStroke(dp(1), t.borderColor);
+                    topCapsule.setBackgroundDrawable(cap);
+                    int vPad = dp(cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 3 : 6);
+                    topCapsule.setPadding(dp(12), vPad, dp(12), vPad);
+                }
+                if (clockView != null) {
+                    clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP,
+                            cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 21 : 28);
+                }
+                if (clockCol != null) clockCol.setVisibility(cfg.topShowClock ? View.VISIBLE : View.INVISIBLE);
+                if (searchChip != null) searchChip.setVisibility(cfg.topShowSearch ? View.VISIBLE : View.GONE);
+                if (appBarChip != null) {
+                    appBarChip.setVisibility(cfg.topShowAppBarBtn ? View.VISIBLE : View.GONE);
+                    GradientDrawable abg = new GradientDrawable();
+                    abg.setColor(0xBB10243A);
+                    abg.setCornerRadius(dp(14));
+                    abg.setStroke(dp(1), accent);
+                    appBarChip.setBackgroundDrawable(abg);
+                }
+                if (skinChip != null) skinChip.setVisibility(cfg.topShowSkinBtn ? View.VISIBLE : View.GONE);
+                if (wallpaperChip != null) wallpaperChip.setVisibility(cfg.topShowWallpaperBtn ? View.VISIBLE : View.GONE);
+            }
         }
         if (drawerOverlay != null) {
             drawerOverlay.setBackgroundColor(t.drawerBgColor);
         }
         if (drawerTitleView != null) {
-            drawerTitleView.setTextColor(t.accentColor);
+            drawerTitleView.setTextColor(accent);
         }
         if (drawerDividerView != null) {
-            drawerDividerView.setBackgroundColor(t.accentColor);
+            drawerDividerView.setBackgroundColor(accent);
         }
         for (int i = 0; i < PAGE_COUNT; i++) {
             if (pageDots[i] != null) {
-                pageDots[i].setTextColor(i == currentPage ? t.accentColor : 0x66FFFFFF);
+                pageDots[i].setTextColor(i == currentPage ? accent : 0x66FFFFFF);
             }
         }
     }
@@ -1004,8 +1152,14 @@ public class VanillaHomeActivity extends Activity {
                         applyLauncherSkinChrome();
                         reloadApps();
                         Toast.makeText(VanillaHomeActivity.this,
-                                "Applied " + t.title + " across Home, Dock & Apps!", Toast.LENGTH_SHORT).show();
+                                "Applied " + t.title + " across Home, App Bar & Apps!", Toast.LENGTH_SHORT).show();
                         d.dismiss();
+                    }
+                })
+                .setNeutralButton("Customize App Bar", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        showAppBarCustomizerDialog();
                     }
                 })
                 .setNegativeButton("Close", null)
@@ -1025,109 +1179,987 @@ public class VanillaHomeActivity extends Activity {
         if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
     }
 
+    /* ==================== Customizable Multi-Edge App Bar Engine ==================== */
+
+    private ResolvedBarSlot resolveBarToken(final String token) {
+        if (token == null) return null;
+        if ("@browser".equals(token)) {
+            return makeBuiltinSlot(token, "Browser", R.drawable.ic_browser, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity")
+                            && !launchByPackagePrefix("org.mozilla", "com.opera", "acr.browser", "com.android.browser", "com.android.chrome")) {
+                        safeStart(new Intent(Intent.ACTION_VIEW, Uri.parse("https://html.duckduckgo.com/html/")));
+                    }
+                }
+            });
+        }
+        if ("@calendar".equals(token)) {
+            return makeBuiltinSlot(token, "Calendar", R.drawable.ic_calendar, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CalendarActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@photos".equals(token)) {
+            return makeBuiltinSlot(token, "Photos", R.drawable.ic_photos, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7PhotosActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@camera".equals(token)) {
+            return makeBuiltinSlot(token, "Camera", R.drawable.ic_camera, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CameraActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@vlc".equals(token)) {
+            return makeBuiltinSlot(token, "VLC", R.drawable.ic_vlc, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchByPackagePrefix("org.videolan.vlc")) {
+                        launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AudioPlayerActivity");
+                    }
+                }
+            });
+        }
+        if ("@settings".equals(token)) {
+            return makeBuiltinSlot(token, "Settings", R.drawable.ic_sys_settings, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    safeStart(new Intent(Settings.ACTION_SETTINGS));
+                }
+            });
+        }
+        if ("@files".equals(token)) {
+            return makeBuiltinSlot(token, "Files", R.drawable.ic_files, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7FileManagerActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@notes".equals(token)) {
+            return makeBuiltinSlot(token, "Notes", R.drawable.ic_notes, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7NotesActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@calculator".equals(token)) {
+            return makeBuiltinSlot(token, "Calc", R.drawable.ic_calculator, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CalculatorActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@clock".equals(token)) {
+            return makeBuiltinSlot(token, "Clock", R.drawable.ic_clock, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7ClockActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@ereader".equals(token)) {
+            return makeBuiltinSlot(token, "E-Reader", R.drawable.ic_ereader, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7EbookReaderActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@audio".equals(token)) {
+            return makeBuiltinSlot(token, "Music", R.drawable.ic_audio, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AudioPlayerActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@terminal".equals(token)) {
+            return makeBuiltinSlot(token, "Terminal", R.drawable.ic_terminal, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7TerminalActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@wired".equals(token)) {
+            return makeBuiltinSlot(token, "USB Net", R.drawable.ic_wired_net, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7WiredInternetActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@freedom".equals(token)) {
+            return makeBuiltinSlot(token, "Freedom", R.drawable.ic_launcher, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.MainActivity");
+                }
+            });
+        }
+
+        // Arbitrary installed app component (`pkg/cls`)
+        int slash = token.indexOf('/');
+        if (slash > 0) {
+            final String pkg = token.substring(0, slash);
+            final String cls = token.substring(slash + 1);
+            for (int i = 0; i < allApps.size(); i++) {
+                final AppEntry e = allApps.get(i);
+                if (pkg.equals(e.pkg) && cls.equals(e.cls)) {
+                    ResolvedBarSlot s = new ResolvedBarSlot();
+                    s.token = token;
+                    s.label = e.label;
+                    s.icon = e.icon;
+                    s.action = new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            launchEntry(e);
+                        }
+                    };
+                    return s;
+                }
+            }
+            // Fallback resolve straight from PackageManager even before `allApps` scan finishes
+            try {
+                PackageManager pm = getPackageManager();
+                ComponentName cn = new ComponentName(pkg, cls);
+                android.content.pm.ActivityInfo ai = pm.getActivityInfo(cn, 0);
+                ResolvedBarSlot s = new ResolvedBarSlot();
+                s.token = token;
+                CharSequence cs = ai.loadLabel(pm);
+                s.label = cs != null ? cs.toString() : pkg;
+                s.icon = Arc7LauncherSkin.reskinAppIcon(this, pkg, cls, ai.loadIcon(pm));
+                s.action = new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        launchExplicitOrPackage(pkg, cls);
+                    }
+                };
+                return s;
+            } catch (Throwable ignored) {}
+        }
+        return null;
+    }
+
+    private ResolvedBarSlot makeBuiltinSlot(String token, String label, int resId, View.OnClickListener listener) {
+        ResolvedBarSlot s = new ResolvedBarSlot();
+        s.token = token;
+        s.label = label;
+        s.icon = getResources().getDrawable(resId);
+        s.action = listener;
+        return s;
+    }
+
+    private GradientDrawable buildAppBarBackground(Arc7LauncherSkin.ThemeSpec t, AppBarConfigStore.Config cfg) {
+        int accent = cfg.accentOverride != 0 ? cfg.accentOverride : t.accentColor;
+        int topCol = AppBarConfigStore.applyOpacityOverride(t.dockTopColor, cfg.opacityPct);
+        int botCol = AppBarConfigStore.applyOpacityOverride(t.dockBottomColor, cfg.opacityPct);
+
+        if (cfg.style == AppBarConfigStore.STYLE_MINIMAL_CLEAR) {
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(0x00000000);
+            return g;
+        }
+        if (cfg.style == AppBarConfigStore.STYLE_SOLID_CHASSIS) {
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(AppBarConfigStore.applyOpacityOverride(t.dockBottomColor | 0xFF000000,
+                    cfg.opacityPct < 0 ? 96 : cfg.opacityPct));
+            g.setCornerRadius(cfg.style == AppBarConfigStore.STYLE_FULL_BLEED ? 0 : dp(16));
+            g.setStroke(dp(1), t.borderColor | 0xAA000000);
+            return g;
+        }
+        if (cfg.style == AppBarConfigStore.STYLE_NEON_ACCENT) {
+            int tintedTop = ((accent & 0x00FFFFFF) | 0x44000000);
+            GradientDrawable g = new GradientDrawable(
+                    cfg.isVertical() ? GradientDrawable.Orientation.LEFT_RIGHT : GradientDrawable.Orientation.TOP_BOTTOM,
+                    new int[]{AppBarConfigStore.applyOpacityOverride(tintedTop, cfg.opacityPct), botCol});
+            g.setCornerRadius(dp(18));
+            g.setStroke(dp(2), accent);
+            return g;
+        }
+        GradientDrawable g = new GradientDrawable(
+                cfg.isVertical() ? GradientDrawable.Orientation.LEFT_RIGHT : GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{topCol, botCol});
+        g.setCornerRadius(cfg.style == AppBarConfigStore.STYLE_FULL_BLEED ? 0 : dp(18));
+        g.setStroke(dp(1), cfg.accentOverride != 0 ? ((accent & 0x00FFFFFF) | 0x99000000) : t.borderColor);
+        return g;
+    }
+
     private void rebuildDock() {
+        if (dockBar == null) return;
+        leftRailSlot.removeAllViews();
+        rightRailSlot.removeAllViews();
+        topBarSlot.removeAllViews();
+        bottomBarSlot.removeAllViews();
+        leftRailSlot.setVisibility(View.GONE);
+        rightRailSlot.setVisibility(View.GONE);
+        topBarSlot.setVisibility(View.GONE);
+        bottomBarSlot.setVisibility(View.GONE);
+
+        if (dockBar.getParent() instanceof ViewGroup) {
+            ((ViewGroup) dockBar.getParent()).removeView(dockBar);
+        }
         dockBar.removeAllViews();
-        Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
 
-        addDockIconButton("Browser", R.drawable.ic_browser, new View.OnClickListener() {
+        final Arc7LauncherSkin.ThemeSpec t = Arc7LauncherSkin.current(this);
+        final AppBarConfigStore.Config cfg = AppBarConfigStore.load(this);
+
+        if (cfg.position == AppBarConfigStore.POS_HIDDEN) {
+            return;
+        }
+
+        final boolean vertical = cfg.isVertical();
+        dockBar.setOrientation(vertical ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        dockBar.setGravity(Gravity.CENTER);
+        dockBar.setBackgroundDrawable(null);
+
+        List<ResolvedBarSlot> slots = new ArrayList<ResolvedBarSlot>();
+        List<Integer> configIndices = new ArrayList<Integer>();
+        for (int i = 0; i < cfg.items.size(); i++) {
+            ResolvedBarSlot rs = resolveBarToken(cfg.items.get(i));
+            if (rs != null) {
+                slots.add(rs);
+                configIndices.add(Integer.valueOf(i));
+            }
+        }
+
+        boolean needsScroll = vertical ? (slots.size() > 5) : (slots.size() > 6);
+        int iconDp = cfg.iconSizeDp();
+        int accent = cfg.accentOverride != 0 ? cfg.accentOverride : t.accentColor;
+
+        int drawerInsertIdx = -1;
+        if (cfg.drawerBtnPos == AppBarConfigStore.DRAWER_START) {
+            drawerInsertIdx = 0;
+        } else if (cfg.drawerBtnPos == AppBarConfigStore.DRAWER_END) {
+            drawerInsertIdx = slots.size();
+        } else if (cfg.drawerBtnPos == AppBarConfigStore.DRAWER_CENTER) {
+            drawerInsertIdx = slots.size() / 2;
+        }
+
+        for (int i = 0; i <= slots.size(); i++) {
+            if (i == drawerInsertIdx) {
+                addAllAppsJewel(accent, iconDp, vertical, needsScroll);
+            }
+            if (i < slots.size()) {
+                final ResolvedBarSlot s = slots.get(i);
+                final int slotConfigIdx = configIndices.get(i).intValue();
+                addCustomizableBarSlot(s, slotConfigIdx, cfg.items.size(), iconDp, cfg.showLabels, vertical, needsScroll);
+            }
+        }
+
+        // Outer chrome wrapper so scrollable bars keep their rounded pill frame cleanly
+        FrameLayout chromeShell = new FrameLayout(this);
+        chromeShell.setBackgroundDrawable(buildAppBarBackground(t, cfg));
+        int hPad = dp(cfg.style == AppBarConfigStore.STYLE_FULL_BLEED ? 10 : 8);
+        int vPad = dp(vertical ? 10 : 6);
+        chromeShell.setPadding(vertical ? dp(6) : hPad, vPad, vertical ? dp(6) : hPad, vPad);
+        chromeShell.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
-            public void onClick(View v) {
-                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity")
-                        && !launchByPackagePrefix("org.mozilla", "com.opera", "acr.browser", "com.android.browser", "com.android.chrome")) {
-                    safeStart(new Intent(Intent.ACTION_VIEW, Uri.parse("https://html.duckduckgo.com/html/")));
-                }
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showAppBarCustomizerDialog();
+                return true;
             }
         });
 
-        addDockIconButton("Calendar", R.drawable.ic_calendar, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CalendarActivity")) {
-                    openDrawer();
-                }
+        if (needsScroll) {
+            if (vertical) {
+                ScrollView sv = new ScrollView(this);
+                sv.setVerticalScrollBarEnabled(false);
+                sv.addView(dockBar, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                chromeShell.addView(sv, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            } else {
+                HorizontalScrollView hsv = new HorizontalScrollView(this);
+                hsv.setHorizontalScrollBarEnabled(false);
+                hsv.addView(dockBar, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+                chromeShell.addView(hsv, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
             }
-        });
+        } else {
+            chromeShell.addView(dockBar, new FrameLayout.LayoutParams(
+                    vertical ? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT,
+                    vertical ? ViewGroup.LayoutParams.MATCH_PARENT : ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
 
-        addDockIconButton("Photos", R.drawable.ic_photos, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7PhotosActivity")) {
-                    openDrawer();
-                }
+        boolean fullBleed = (cfg.style == AppBarConfigStore.STYLE_FULL_BLEED);
+        desktopView.setPadding(
+                fullBleed ? dp(8) : dp(14),
+                dp(8),
+                fullBleed ? dp(8) : dp(14),
+                fullBleed && cfg.position == AppBarConfigStore.POS_BOTTOM ? 0 : dp(8));
+
+        FrameLayout.LayoutParams hostLp;
+        if (cfg.position == AppBarConfigStore.POS_LEFT) {
+            leftRailSlot.setVisibility(View.VISIBLE);
+            hostLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            if (!fullBleed) {
+                hostLp.setMargins(dp(8), dp(8), 0, dp(8));
             }
-        });
+            leftRailSlot.addView(chromeShell, hostLp);
+        } else if (cfg.position == AppBarConfigStore.POS_RIGHT) {
+            rightRailSlot.setVisibility(View.VISIBLE);
+            hostLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            if (!fullBleed) {
+                hostLp.setMargins(0, dp(8), dp(8), dp(8));
+            }
+            rightRailSlot.addView(chromeShell, hostLp);
+        } else if (cfg.position == AppBarConfigStore.POS_TOP) {
+            topBarSlot.setVisibility(View.VISIBLE);
+            hostLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            hostLp.bottomMargin = dp(8);
+            topBarSlot.addView(chromeShell, hostLp);
+        } else {
+            bottomBarSlot.setVisibility(View.VISIBLE);
+            hostLp = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bottomBarSlot.addView(chromeShell, hostLp);
+        }
+    }
 
-        // Center Skinned All-Apps Jewel Button
+    private void addAllAppsJewel(int accentColor, int iconDp, boolean vertical, boolean scrollable) {
         TextView allAppsBtn = new TextView(this);
         allAppsBtn.setText(":::");
         allAppsBtn.setTextColor(Color.WHITE);
-        allAppsBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        allAppsBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, iconDp <= 36 ? 15 : 19);
         allAppsBtn.setTypeface(Typeface.DEFAULT_BOLD);
         allAppsBtn.setGravity(Gravity.CENTER);
         GradientDrawable circle = new GradientDrawable();
         circle.setShape(GradientDrawable.OVAL);
-        circle.setColor(t.accentColor);
+        circle.setColor(accentColor);
         circle.setStroke(dp(2), Color.WHITE);
         allAppsBtn.setBackgroundDrawable(circle);
-        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(dp(50), dp(50));
-        centerParams.leftMargin = dp(10);
-        centerParams.rightMargin = dp(10);
+        int jewelPx = dp(Math.max(40, iconDp + 6));
+        LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(jewelPx, jewelPx);
+        if (vertical) {
+            centerParams.topMargin = dp(8);
+            centerParams.bottomMargin = dp(8);
+        } else {
+            centerParams.leftMargin = dp(8);
+            centerParams.rightMargin = dp(8);
+        }
         allAppsBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 openDrawer();
             }
         });
+        allAppsBtn.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showAppBarCustomizerDialog();
+                return true;
+            }
+        });
         dockBar.addView(allAppsBtn, centerParams);
-
-        addDockIconButton("Camera", R.drawable.ic_camera, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CameraActivity")) {
-                    openDrawer();
-                }
-            }
-        });
-
-        addDockIconButton("VLC", R.drawable.ic_vlc, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (!launchByPackagePrefix("org.videolan.vlc")) {
-                    launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AudioPlayerActivity");
-                }
-            }
-        });
-
-        addDockIconButton("Settings", R.drawable.ic_sys_settings, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                safeStart(new Intent(Settings.ACTION_SETTINGS));
-            }
-        });
     }
 
-    private void addDockIconButton(String title, int iconResId, View.OnClickListener listener) {
+    private void addCustomizableBarSlot(final ResolvedBarSlot s, final int slotConfigIdx, final int totalSlots,
+                                        int iconDp, boolean showLabels, boolean vertical, boolean scrollable) {
         LinearLayout slot = new LinearLayout(this);
         slot.setOrientation(LinearLayout.VERTICAL);
         slot.setGravity(Gravity.CENTER);
-        slot.setPadding(dp(4), dp(3), dp(4), dp(2));
+        int cellPad = dp(vertical ? 6 : 4);
+        slot.setPadding(cellPad, dp(3), cellPad, dp(3));
 
         ImageView iv = new ImageView(this);
-        iv.setImageResource(iconResId);
+        iv.setImageDrawable(s.icon);
         iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        slot.addView(iv, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        slot.addView(iv, new LinearLayout.LayoutParams(dp(iconDp), dp(iconDp)));
 
-        TextView tv = new TextView(this);
-        tv.setText(title);
-        tv.setTextColor(Color.WHITE);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        tv.setSingleLine(true);
-        tv.setShadowLayer(3f, 0f, 1f, 0xCC000000);
-        slot.addView(tv);
+        if (showLabels) {
+            TextView tv = new TextView(this);
+            tv.setText(s.label);
+            tv.setTextColor(Color.WHITE);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, iconDp <= 36 ? 10f : 11f);
+            tv.setSingleLine(true);
+            tv.setEllipsize(TextUtils.TruncateAt.END);
+            tv.setMaxWidth(dp(Math.max(62, iconDp + 24)));
+            tv.setGravity(Gravity.CENTER);
+            tv.setShadowLayer(3f, 0f, 1f, 0xCC000000);
+            slot.addView(tv);
+        }
 
-        slot.setOnClickListener(listener);
-        dockBar.addView(slot, new LinearLayout.LayoutParams(
-                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        slot.setOnTouchListener(new View.OnTouchListener() {
+            @Override
+            public boolean onTouch(View v, MotionEvent ev) {
+                int a = ev.getActionMasked();
+                if (a == MotionEvent.ACTION_DOWN) {
+                    v.animate().scaleX(0.90f).scaleY(0.90f).setDuration(75).start();
+                } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(140)
+                            .setInterpolator(new OvershootInterpolator(1.7f)).start();
+                }
+                return false;
+            }
+        });
+        slot.setOnClickListener(s.action);
+        slot.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showBarSlotContextMenu(s, slotConfigIdx, totalSlots);
+                return true;
+            }
+        });
+
+        LinearLayout.LayoutParams lp;
+        if (scrollable) {
+            lp = new LinearLayout.LayoutParams(
+                    vertical ? ViewGroup.LayoutParams.WRAP_CONTENT : dp(Math.max(68, iconDp + 28)),
+                    vertical ? dp(Math.max(64, iconDp + (showLabels ? 26 : 14))) : ViewGroup.LayoutParams.WRAP_CONTENT);
+        } else if (vertical) {
+            lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, 0, 1f);
+        } else {
+            lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        }
+        dockBar.addView(slot, lp);
+    }
+
+    private void showBarSlotContextMenu(final ResolvedBarSlot s, final int slotIdx, final int totalSlots) {
+        final List<String> actions = new ArrayList<String>();
+        actions.add("Open " + s.label);
+        if (slotIdx > 0) actions.add("\u25C0 Move Earlier in App Bar");
+        if (slotIdx < totalSlots - 1) actions.add("Move Later in App Bar \u25B6");
+        actions.add("\u21C4 Replace This Slot with Another App...");
+        if (totalSlots < AppBarConfigStore.MAX_SLOTS) actions.add("\uFF0B Add Another App to App Bar...");
+        actions.add("\u2715 Remove " + s.label + " from App Bar");
+        actions.add("\u2699 Open Full App Bar Studio...");
+
+        new AlertDialog.Builder(this)
+                .setTitle("App Bar Slot #" + (slotIdx + 1) + "  \u2022  " + s.label)
+                .setItems(actions.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        String pick = actions.get(which);
+                        if (pick.startsWith("Open ")) {
+                            s.action.onClick(dockBar);
+                        } else if (pick.startsWith("\u25C0")) {
+                            AppBarConfigStore.moveSlot(VanillaHomeActivity.this, slotIdx, -1);
+                            rebuildDock();
+                        } else if (pick.endsWith("\u25B6")) {
+                            AppBarConfigStore.moveSlot(VanillaHomeActivity.this, slotIdx, 1);
+                            rebuildDock();
+                        } else if (pick.startsWith("\u21C4")) {
+                            showAppPickerForBar(slotIdx, null);
+                        } else if (pick.startsWith("\uFF0B")) {
+                            showAppPickerForBar(-1, null);
+                        } else if (pick.startsWith("\u2715")) {
+                            AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
+                            if (slotIdx >= 0 && slotIdx < cfg.items.size()) {
+                                cfg.items.remove(slotIdx);
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                            }
+                        } else {
+                            showAppBarCustomizerDialog();
+                        }
+                    }
+                })
+                .show();
+    }
+
+    private void showAppPickerForBar(final int replaceSlotIdx, final Runnable afterPick) {
+        final List<String> labels = new ArrayList<String>();
+        final List<String> tokens = new ArrayList<String>();
+
+        String[][] smartBuiltins = new String[][]{
+                { "@browser", "Arc7 Browser (Modern TLS 1.3 Web)" },
+                { "@calendar", "Arc7 Calendar & Agenda" },
+                { "@photos", "Arc7 Photos & Filter Studio" },
+                { "@camera", "Arc7 HD Camera & Screen Flash" },
+                { "@vlc", "VLC Media Player" },
+                { "@files", "Arc7 Files & ZIP Explorer" },
+                { "@notes", "Arc7 Notes, Checklists & Sketchpad" },
+                { "@calculator", "Arc7 Scientific Calculator & Converter" },
+                { "@clock", "Arc7 Clock, Alarms & Chimes" },
+                { "@ereader", "Arc7 E-Book Reader (EPUB / PDF / Gutenberg)" },
+                { "@audio", "Arc7 Music & Audio Player" },
+                { "@wired", "Chromebook Wired USB Internet" },
+                { "@terminal", "Root Shell Terminal (Python 3 + apt)" },
+                { "@freedom", "Kobo Arc 7 Freedom Control Center" },
+                { "@settings", "Android System Settings" }
+        };
+        for (int i = 0; i < smartBuiltins.length; i++) {
+            tokens.add(smartBuiltins[i][0]);
+            labels.add("\u2605 " + smartBuiltins[i][1]);
+        }
+        for (int i = 0; i < allApps.size(); i++) {
+            AppEntry e = allApps.get(i);
+            tokens.add(e.pkg + "/" + e.cls);
+            labels.add(e.label + "  (" + e.pkg + ")");
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(replaceSlotIdx >= 0
+                        ? "Replace App Bar Slot #" + (replaceSlotIdx + 1)
+                        : "Add App to App Bar")
+                .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
+                        String chosen = tokens.get(which);
+                        if (replaceSlotIdx >= 0 && replaceSlotIdx < cfg.items.size()) {
+                            cfg.items.set(replaceSlotIdx, chosen);
+                        } else if (!cfg.items.contains(chosen) && cfg.items.size() < AppBarConfigStore.MAX_SLOTS) {
+                            cfg.items.add(chosen);
+                        } else if (cfg.items.size() >= AppBarConfigStore.MAX_SLOTS) {
+                            Toast.makeText(VanillaHomeActivity.this,
+                                    "Maximum " + AppBarConfigStore.MAX_SLOTS + " App Bar slots reached.",
+                                    Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                        rebuildDock();
+                        if (afterPick != null) afterPick.run();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /* ==================== Full Visual App Bar Studio Dialog ==================== */
+
+    public void showAppBarCustomizerDialog() {
+        final Arc7LauncherSkin.ThemeSpec skin = Arc7LauncherSkin.current(this);
+        ScrollView sv = new ScrollView(this);
+        final LinearLayout rootBox = new LinearLayout(this);
+        rootBox.setOrientation(LinearLayout.VERTICAL);
+        rootBox.setBackgroundColor(0xFF0E1520);
+        rootBox.setPadding(dp(14), dp(12), dp(14), dp(14));
+        sv.addView(rootBox);
+
+        final AlertDialog dlg = new AlertDialog.Builder(this)
+                .setTitle("Customize App Bar (Home & In-App)")
+                .setView(sv)
+                .setPositiveButton("Done", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        applyLauncherSkinChrome();
+                        rebuildDock();
+                    }
+                })
+                .setNeutralButton("Reset Defaults", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        AppBarConfigStore.resetDefaults(VanillaHomeActivity.this);
+                        applyLauncherSkinChrome();
+                        rebuildDock();
+                        Toast.makeText(VanillaHomeActivity.this,
+                                "Restored default App Bar layout & appearance.", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .create();
+
+        final Runnable[] renderRef = new Runnable[1];
+        renderRef[0] = new Runnable() {
+            @Override
+            public void run() {
+                rootBox.removeAllViews();
+                final AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
+                final int accent = cfg.accentOverride != 0 ? cfg.accentOverride : skin.accentColor;
+
+                // Section 1: Pinned App Bar Slots (live reorder / replace / remove / add)
+                addStudioHeader(rootBox, "1. PINNED APP BAR SLOTS (" + cfg.items.size() + " / " + AppBarConfigStore.MAX_SLOTS + ")", accent);
+
+                for (int i = 0; i < cfg.items.size(); i++) {
+                    final int idx = i;
+                    ResolvedBarSlot slot = resolveBarToken(cfg.items.get(i));
+                    final String title = slot != null ? slot.label : cfg.items.get(i);
+
+                    LinearLayout row = new LinearLayout(VanillaHomeActivity.this);
+                    row.setOrientation(LinearLayout.HORIZONTAL);
+                    row.setGravity(Gravity.CENTER_VERTICAL);
+                    row.setPadding(dp(8), dp(6), dp(8), dp(6));
+                    GradientDrawable rbg = new GradientDrawable();
+                    rbg.setColor(0xFF172233);
+                    rbg.setCornerRadius(dp(9));
+                    rbg.setStroke(dp(1), 0xFF283A52);
+                    row.setBackgroundDrawable(rbg);
+                    LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    rlp.bottomMargin = dp(6);
+                    row.setLayoutParams(rlp);
+
+                    if (slot != null && slot.icon != null) {
+                        ImageView iv = new ImageView(VanillaHomeActivity.this);
+                        iv.setImageDrawable(slot.icon);
+                        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(30), dp(30));
+                        ilp.rightMargin = dp(9);
+                        row.addView(iv, ilp);
+                    }
+
+                    TextView tv = new TextView(VanillaHomeActivity.this);
+                    tv.setText((idx + 1) + ".  " + title);
+                    tv.setTextColor(Color.WHITE);
+                    tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+                    tv.setTypeface(Typeface.DEFAULT_BOLD);
+                    row.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+                    row.addView(makeMiniStudioBtn("\u25B2", idx > 0 ? 0xFF243449 : 0x44243449, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            if (idx > 0) {
+                                AppBarConfigStore.moveSlot(VanillaHomeActivity.this, idx, -1);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        }
+                    }));
+                    row.addView(makeMiniStudioBtn("\u25BC", idx < cfg.items.size() - 1 ? 0xFF243449 : 0x44243449, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            if (idx < cfg.items.size() - 1) {
+                                AppBarConfigStore.moveSlot(VanillaHomeActivity.this, idx, 1);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        }
+                    }));
+                    row.addView(makeMiniStudioBtn("\u21C4", 0xFF1D4ED8, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            showAppPickerForBar(idx, renderRef[0]);
+                        }
+                    }));
+                    row.addView(makeMiniStudioBtn("\u2715", 0xFFB91C1C, new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            cfg.items.remove(idx);
+                            AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                            rebuildDock();
+                            renderRef[0].run();
+                        }
+                    }));
+                    rootBox.addView(row);
+                }
+
+                if (cfg.items.size() < AppBarConfigStore.MAX_SLOTS) {
+                    TextView addAppBtn = makeTopChip("\uFF0B  Add Installed or Built-In App to App Bar", 0xFF0284C7);
+                    addAppBtn.setGravity(Gravity.CENTER);
+                    addAppBtn.setPadding(dp(12), dp(9), dp(12), dp(9));
+                    LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                    alp.topMargin = dp(2);
+                    alp.bottomMargin = dp(10);
+                    addAppBtn.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            showAppPickerForBar(-1, renderRef[0]);
+                        }
+                    });
+                    rootBox.addView(addAppBtn, alp);
+                }
+
+                // Section 2: Home App Bar Position, Style & Sizing
+                addStudioHeader(rootBox, "2. HOME APP BAR POSITION, STYLE & SIZING", accent);
+
+                addSelectorRow(rootBox, "Screen Position", AppBarConfigStore.POSITION_NAMES[cfg.position],
+                        AppBarConfigStore.POSITION_NAMES, cfg.position, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.position = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        });
+
+                addSelectorRow(rootBox, "App Bar Style", AppBarConfigStore.STYLE_NAMES[cfg.style],
+                        AppBarConfigStore.STYLE_NAMES, cfg.style, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.style = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        });
+
+                addSelectorRow(rootBox, "All-Apps (:::) Button", AppBarConfigStore.DRAWER_BTN_NAMES[cfg.drawerBtnPos],
+                        AppBarConfigStore.DRAWER_BTN_NAMES, cfg.drawerBtnPos, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.drawerBtnPos = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        });
+
+                addSelectorRow(rootBox, "Icon Size", AppBarConfigStore.ICON_SIZE_NAMES[cfg.iconSizeMode],
+                        AppBarConfigStore.ICON_SIZE_NAMES, cfg.iconSizeMode, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.iconSizeMode = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        });
+
+                int opIdx = 0;
+                for (int i = 0; i < AppBarConfigStore.OPACITY_PRESETS.length; i++) {
+                    if (AppBarConfigStore.OPACITY_PRESETS[i] == cfg.opacityPct) opIdx = i;
+                }
+                addSelectorRow(rootBox, "Glass Opacity", AppBarConfigStore.OPACITY_NAMES[opIdx],
+                        AppBarConfigStore.OPACITY_NAMES, opIdx, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.opacityPct = AppBarConfigStore.OPACITY_PRESETS[which];
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        });
+
+                int accIdx = 0;
+                for (int i = 0; i < AppBarConfigStore.ACCENT_SWATCHES.length; i++) {
+                    if (AppBarConfigStore.ACCENT_SWATCHES[i] == cfg.accentOverride) accIdx = i;
+                }
+                addSelectorRow(rootBox, "Accent Highlight", AppBarConfigStore.ACCENT_SWATCH_NAMES[accIdx],
+                        AppBarConfigStore.ACCENT_SWATCH_NAMES, accIdx, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.accentOverride = AppBarConfigStore.ACCENT_SWATCHES[which];
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                                rebuildDock();
+                                renderRef[0].run();
+                            }
+                        });
+
+                addToggleRow(rootBox, "Show App Text Labels in App Bar", cfg.showLabels,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.showLabels = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                rebuildDock();
+                            }
+                        });
+
+                // Section 3: Home Top Status / Action Bar
+                addStudioHeader(rootBox, "3. HOME TOP STATUS & ACTION BAR", accent);
+
+                addSelectorRow(rootBox, "Top Bar Mode", AppBarConfigStore.TOP_BAR_NAMES[cfg.topBarMode],
+                        AppBarConfigStore.TOP_BAR_NAMES, cfg.topBarMode, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.topBarMode = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                                renderRef[0].run();
+                            }
+                        });
+
+                addToggleRow(rootBox, "Show Clock & Date on Top Bar", cfg.topShowClock,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.topShowClock = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                            }
+                        });
+                addToggleRow(rootBox, "Show Quick Search Button on Top Bar", cfg.topShowSearch,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.topShowSearch = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                            }
+                        });
+                addToggleRow(rootBox, "Show 'App Bar' Button on Top Bar", cfg.topShowAppBarBtn,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.topShowAppBarBtn = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                            }
+                        });
+                addToggleRow(rootBox, "Show 'Skin' Button on Top Bar", cfg.topShowSkinBtn,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.topShowSkinBtn = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                            }
+                        });
+                addToggleRow(rootBox, "Show 'Wallpaper' Button on Top Bar", cfg.topShowWallpaperBtn,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.topShowWallpaperBtn = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                applyLauncherSkinChrome();
+                            }
+                        });
+
+                // Section 4: System-Wide In-App Top App Bar (synced across all built-in Arc7 apps!)
+                addStudioHeader(rootBox, "4. IN-APP TOP APP BAR (ALL ARC7 APPS)", accent);
+
+                addSelectorRow(rootBox, "In-App Bar Height", AppBarConfigStore.IN_APP_DENSITY_NAMES[cfg.inAppDensity],
+                        AppBarConfigStore.IN_APP_DENSITY_NAMES, cfg.inAppDensity, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.inAppDensity = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                renderRef[0].run();
+                            }
+                        });
+
+                addSelectorRow(rootBox, "In-App Header Style", AppBarConfigStore.IN_APP_STYLE_NAMES[cfg.inAppStyle],
+                        AppBarConfigStore.IN_APP_STYLE_NAMES, cfg.inAppStyle, new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                cfg.inAppStyle = which;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                                renderRef[0].run();
+                            }
+                        });
+
+                addToggleRow(rootBox, "Center App Title in Built-In Apps", cfg.inAppCenterTitle,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.inAppCenterTitle = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                            }
+                        });
+
+                addToggleRow(rootBox, "Show Quick 'Apps' Switcher Pill Inside Apps", cfg.inAppShowQuickSwitch,
+                        new CompoundButton.OnCheckedChangeListener() {
+                            @Override
+                            public void onCheckedChanged(CompoundButton b, boolean checked) {
+                                cfg.inAppShowQuickSwitch = checked;
+                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                            }
+                        });
+            }
+        };
+
+        renderRef[0].run();
+        dlg.show();
+    }
+
+    private interface IntChoiceCallback {
+        void onSelected(int which);
+    }
+
+    private void addStudioHeader(LinearLayout parent, String title, int accentColor) {
+        TextView h = new TextView(this);
+        h.setText(title);
+        h.setTextColor(accentColor);
+        h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        h.setTypeface(Typeface.DEFAULT_BOLD);
+        h.setPadding(0, dp(10), 0, dp(6));
+        parent.addView(h);
+    }
+
+    private TextView makeMiniStudioBtn(String label, int color, View.OnClickListener click) {
+        TextView b = new TextView(this);
+        b.setText(label);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(9), dp(5), dp(9), dp(5));
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(7));
+        b.setBackgroundDrawable(g);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(5);
+        b.setLayoutParams(lp);
+        b.setOnClickListener(click);
+        return b;
+    }
+
+    private void addSelectorRow(LinearLayout parent, final String label, String currentValue,
+                                final String[] options, final int currentIdx, final IntChoiceCallback cb) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(10), dp(9), dp(10), dp(9));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFF162030);
+        bg.setCornerRadius(dp(8));
+        bg.setStroke(dp(1), 0xFF25354B);
+        row.setBackgroundDrawable(bg);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(6);
+        row.setLayoutParams(lp);
+
+        TextView left = new TextView(this);
+        left.setText(label);
+        left.setTextColor(0xFFE2E8F0);
+        left.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        left.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(left, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView val = new TextView(this);
+        val.setText(currentValue + "  \u25BE");
+        val.setTextColor(0xFF38BDF8);
+        val.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        val.setTypeface(Typeface.DEFAULT_BOLD);
+        row.addView(val);
+
+        row.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                new AlertDialog.Builder(VanillaHomeActivity.this)
+                        .setTitle(label)
+                        .setSingleChoiceItems(options, currentIdx, new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int which) {
+                                d.dismiss();
+                                cb.onSelected(which);
+                            }
+                        })
+                        .setNegativeButton("Cancel", null)
+                        .show();
+            }
+        });
+        parent.addView(row);
+    }
+
+    private void addToggleRow(LinearLayout parent, String label, boolean checked,
+                              CompoundButton.OnCheckedChangeListener listener) {
+        CheckBox cb = new CheckBox(this);
+        cb.setText("  " + label);
+        cb.setChecked(checked);
+        cb.setTextColor(0xFFE2E8F0);
+        cb.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        cb.setPadding(dp(6), dp(6), dp(6), dp(6));
+        cb.setOnCheckedChangeListener(listener);
+        parent.addView(cb, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
     private boolean launchExplicitOrPackage(String pkg, String cls) {
@@ -1166,9 +2198,19 @@ public class VanillaHomeActivity extends Activity {
     }
 
     private void showAppOptions(final AppEntry e, final boolean onDesktop) {
-        final String[] items = onDesktop
-                ? new String[] { "Open " + e.label, "Unpin from Page " + (currentPage + 1), "App Info" }
-                : new String[] { "Open " + e.label, "Pin to Home Page " + (currentPage + 1), "App Info" };
+        final AppBarConfigStore.Config barCfg = AppBarConfigStore.load(this);
+        final boolean inBar = AppBarConfigStore.containsComponent(barCfg, e.pkg, e.cls);
+        final String barAction = inBar ? "Unpin from App Bar" : "Pin to App Bar";
+        final String pageAction = onDesktop
+                ? "Unpin from Page " + (currentPage + 1)
+                : "Pin to Home Page " + (currentPage + 1);
+        final String[] items = new String[]{
+                "Open " + e.label,
+                barAction,
+                pageAction,
+                "Customize App Bar...",
+                "App Info"
+        };
         new AlertDialog.Builder(this)
                 .setTitle(e.label)
                 .setItems(items, new DialogInterface.OnClickListener() {
@@ -1177,6 +2219,22 @@ public class VanillaHomeActivity extends Activity {
                         if (which == 0) {
                             launchEntry(e);
                         } else if (which == 1) {
+                            if (inBar) {
+                                AppBarConfigStore.removeComponent(VanillaHomeActivity.this, e.pkg, e.cls);
+                                rebuildDock();
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        "Removed " + e.label + " from App Bar", Toast.LENGTH_SHORT).show();
+                            } else if (AppBarConfigStore.addOrPinComponent(VanillaHomeActivity.this, e.pkg, e.cls)) {
+                                rebuildDock();
+                                closeDrawer();
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        "Pinned " + e.label + " to App Bar!", Toast.LENGTH_SHORT).show();
+                            } else {
+                                Toast.makeText(VanillaHomeActivity.this,
+                                        "App Bar is full (" + AppBarConfigStore.MAX_SLOTS + " slots max).",
+                                        Toast.LENGTH_SHORT).show();
+                            }
+                        } else if (which == 2) {
                             if (onDesktop) {
                                 PinnedShortcutsStore.removeShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
                                 refreshCurrentPageShortcuts();
@@ -1187,6 +2245,8 @@ public class VanillaHomeActivity extends Activity {
                                 Toast.makeText(VanillaHomeActivity.this,
                                         "Pinned " + e.label + " to Page " + (currentPage + 1), Toast.LENGTH_SHORT).show();
                             }
+                        } else if (which == 3) {
+                            showAppBarCustomizerDialog();
                         } else {
                             Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                                     Uri.parse("package:" + e.pkg));

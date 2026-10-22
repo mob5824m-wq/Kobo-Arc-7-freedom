@@ -111,14 +111,14 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
-        assert str(apk.get_androidversion_code()) == "50", f"Expected launcher versionCode 50, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "51", f"Expected launcher versionCode 51, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.0.0", f"Expected upgrader 2.0.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "200", f"Expected upgrader 200, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.1.0", f"Expected upgrader 2.1.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "210", f"Expected upgrader 210, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.0.0", f"Expected 2.0.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "200", f"Expected 200, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.1.0", f"Expected 2.1.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "210", f"Expected 210, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1481,8 +1481,123 @@ public class VerifyV200Suite {
     print("  [PASS] Custom 5-Theme OS Skin + Calendar RFC-5545 `.ics` Engine + Native `usb-nat-relay` Chromebook Bridge verified!")
 
 
+def verify_v210_customizable_app_bar(main_apk: str, home_apk: str) -> None:
+    print("\n=== Verifying v2.1.0 Full System-Wide Customizable App Bar (Home Dock, Side Rails, Top Bar & In-App Bars) ===")
+    # 1. Inspect compiled DEX bytecode in BOTH VanillaAndroid4Home.apk & KoboArc7Freedom.apk
+    with zipfile.ZipFile(home_apk, "r") as zf:
+        hdex = zf.read("classes.dex")
+    for sym in (
+        b"AppBarConfigStore",
+        b"showAppBarCustomizerDialog",
+        b"showBarSlotContextMenu",
+        b"Replace App Bar Slot #",
+        b"Add App to App Bar",
+        b"leftRailSlot",
+        b"rightRailSlot",
+        b"Pin to App Bar",
+        b"Unpin from App Bar",
+        b"HorizontalScrollView",
+    ):
+        assert sym in hdex, f"Missing expected App Bar symbol {sym!r} in VanillaAndroid4Home.apk DEX!"
+    assert b"+ Widget" not in hdex, "VanillaAndroid4Home.apk must never contain '+ Widget'!"
+
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        mdex = zf.read("classes.dex")
+    for sym in (
+        b"showAppBarCustomizerDialog",
+        b"showQuickAppBarSwitcher",
+        b"customAppBarDrawable",
+        b"ca.arc7freedom.action.APP_BAR_CHANGED",
+    ):
+        assert sym in mdex, f"Missing expected App Bar symbol {sym!r} in KoboArc7Freedom.apk DEX!"
+
+    # 2. Live JVM cross-process roundtrip test across `AppBarConfigStore` <-> `Arc7Skin.AppBarPrefs`!
+    with tempfile.TemporaryDirectory() as td:
+        prop_file = os.path.join(td, "appbar.properties")
+        java_v210 = os.path.join(td, "VerifyV210AppBar.java")
+        with open(java_v210, "w", encoding="utf-8") as jf:
+            jf.write("""
+import ca.arc7freedom.launcher.AppBarConfigStore;
+import ca.arc7freedom.app.Arc7Skin;
+import java.util.*;
+
+public class VerifyV210AppBar {
+    public static void main(String[] args) throws Exception {
+        // Default 6 slots check
+        AppBarConfigStore.Config c0 = AppBarConfigStore.load(null);
+        assert c0.items.size() == 6 : "Expected 6 default App Bar slots, got " + c0.items.size();
+        assert "@browser".equals(c0.items.get(0)) && "@vlc".equals(c0.items.get(4));
+        assert c0.position == AppBarConfigStore.POS_BOTTOM;
+        assert c0.iconSizeDp() == 42;
+
+        // Pin custom installed apps + built-ins, reorder, remove, customize layout & style on Home side
+        assert AppBarConfigStore.addOrPinComponent(null, "com.example.retro", "com.example.retro.MainActivity");
+        assert AppBarConfigStore.addOrPinComponent(null, "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7NotesActivity");
+        assert AppBarConfigStore.containsComponent(AppBarConfigStore.load(null), "com.example.retro", "com.example.retro.MainActivity");
+        assert AppBarConfigStore.containsComponent(AppBarConfigStore.load(null), "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CameraActivity");
+        AppBarConfigStore.moveSlot(null, 6, -6); // move custom app all the way to slot #1!
+        assert AppBarConfigStore.removeComponent(null, "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7CameraActivity");
+
+        AppBarConfigStore.Config c1 = AppBarConfigStore.load(null);
+        assert "com.example.retro/com.example.retro.MainActivity".equals(c1.items.get(0));
+        assert !c1.items.contains("@camera") && c1.items.contains("ca.arc7freedom.app/ca.arc7freedom.app.Arc7NotesActivity");
+        c1.position = AppBarConfigStore.POS_LEFT;
+        c1.drawerBtnPos = AppBarConfigStore.DRAWER_END;
+        c1.style = AppBarConfigStore.STYLE_NEON_ACCENT;
+        c1.iconSizeMode = 2; // 50 dp
+        c1.showLabels = false;
+        c1.opacityPct = 62;
+        c1.accentOverride = 0xFF10B981;
+        c1.topBarMode = 1;
+        c1.topShowSearch = false;
+        AppBarConfigStore.save(null, c1);
+
+        // Cross-process read from `KoboArc7Freedom.apk` (`Arc7Skin`)
+        Arc7Skin.AppBarPrefs p1 = Arc7Skin.loadAppBarPrefs(null);
+        assert p1.items.equals(c1.items) : "Cross-process items mismatch!";
+        assert p1.position == AppBarConfigStore.POS_LEFT;
+        assert p1.drawerBtnPos == AppBarConfigStore.DRAWER_END;
+        assert p1.style == AppBarConfigStore.STYLE_NEON_ACCENT;
+        assert p1.iconSizeMode == 2 && !p1.showLabels && p1.opacityPct == 62;
+        assert p1.accentOverride == 0xFF10B981 && p1.topBarMode == 1 && !p1.topShowSearch;
+
+        // Modify In-App & Home settings inside `KoboArc7Freedom.apk` (`Arc7Skin`) and read back in Launcher!
+        p1.inAppDensity = 0;
+        p1.inAppStyle = 3;
+        p1.inAppCenterTitle = true;
+        p1.inAppShowQuickSwitch = false;
+        p1.position = AppBarConfigStore.POS_TOP;
+        Arc7Skin.saveAppBarPrefs(null, p1);
+
+        AppBarConfigStore.Config c2 = AppBarConfigStore.load(null);
+        assert c2.position == AppBarConfigStore.POS_TOP;
+        assert c2.inAppDensity == 0 && c2.inAppStyle == 3 && c2.inAppCenterTitle && !c2.inAppShowQuickSwitch;
+
+        // Reset defaults check
+        Arc7Skin.resetAppBarDefaults(null);
+        AppBarConfigStore.Config cReset = AppBarConfigStore.load(null);
+        assert cReset.items.size() == 6 && cReset.position == AppBarConfigStore.POS_BOTTOM && cReset.showLabels;
+        System.out.println("JVM_V210_APPBAR_ROUNDTRIP_OK");
+    }
+}
+""")
+        app_classes = os.path.join(ROOT, "build/app/classes")
+        launcher_classes = os.path.join(ROOT, "build/launcher/classes")
+        ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar"
+        if os.path.exists(ecj_jar):
+            subprocess.run([JAVA, "-jar", ecj_jar, "-1.8", "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v210], check=True)
+        else:
+            subprocess.run([JAVAC, "-cp", f"{ANDROID_JAR}:{app_classes}:{launcher_classes}", "-d", td, java_v210], check=True)
+        out = subprocess.check_output(
+            [JAVA, "-ea", f"-Darc7.test.appbar.file={prop_file}", "-cp", f"{td}:{ANDROID_JAR}:{app_classes}:{launcher_classes}", "VerifyV210AppBar"],
+            text=True,
+        )
+        assert "JVM_V210_APPBAR_ROUNDTRIP_OK" in out
+    print("  [PASS] Home & In-App Customizable App Bar DEX + Cross-Process `appbar.properties` JVM Roundtrip verified 100%!")
+
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.0.0.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.1.0.apk")
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",
@@ -1527,6 +1642,7 @@ def main() -> None:
     verify_v190_all_12_upgrades()
     verify_v191_aurora_and_fdroid_fixes()
     verify_v200_all_11_upgrades()
+    verify_v210_customizable_app_bar(main_apk, home_apk)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

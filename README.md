@@ -1,23 +1,23 @@
-# Kobo Arc 7 Freedom (`ca.arc7freedom.app` — `v2.0.0`)
+# Kobo Arc 7 Freedom (`ca.arc7freedom.app` — `v2.1.0`)
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
-**Custom Skinned Android 4.2 OS Suite (`v2.0.0`), Reskinned High-DPI System & App Icons, Two-Way Chromebook <-> Kobo Wired USB Internet, Pre-Bundled Official VLC Media Player (`org.videolan.vlc`), Full Calendar + Home Widget, Photos & Photo Filter Studio, Hardware-Tuned HD Camera with Front Screen Flash, Scientific Calculator & Unit Converter, Notes & Color Sketchpad, File & ZIP Explorer, Custom Android 4.2 APK Installer, 20 Internet Archive (`archive.org`) Alarm Chimes, Aurora Store (`v4.8.5`), Verified F-Droid (`v1302`), TLS 1.3 Gateway, `python3` + `apt`, & Anti-Brick Root Suite for Kobo Arc 7 (`T647` / `apollojr`, MT8125) & Kobo Arc 7HD (`T416`, Tegra 3).**
+**Full System-Wide Customizable App Bar (`v2.1.0`), Custom Skinned Android 4.2 OS Suite, Reskinned High-DPI System & App Icons, Two-Way Chromebook <-> Kobo Wired USB Internet, Pre-Bundled Official VLC Media Player (`org.videolan.vlc`), Full Calendar + Home Widget, Photos & Photo Filter Studio, Hardware-Tuned HD Camera with Front Screen Flash, Scientific Calculator & Unit Converter, Notes & Color Sketchpad, File & ZIP Explorer, Custom Android 4.2 APK Installer, 20 Internet Archive (`archive.org`) Alarm Chimes, Aurora Store (`v4.8.5`), Verified F-Droid (`v1302`), TLS 1.3 Gateway, `python3` + `apt`, & Anti-Brick Root Suite for Kobo Arc 7 (`T647` / `apollojr`, MT8125) & Kobo Arc 7HD (`T416`, Tegra 3).**
 
 ---
 
-## Direct Zero-Redirect `v2.0.0` Downloads (GitHub Releases + Raw CDN — Zero GitHub Pages)
+## Direct Zero-Redirect `v2.1.0` Downloads (GitHub Releases + Raw CDN — Zero GitHub Pages)
 
 All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3** signed with permanent release certificate [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks) (`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
 
-- **Latest GitHub Release (`v2.0.0`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
+- **Latest GitHub Release (`v2.1.0`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
 - **Direct APK & Tool Streams:**
-  - **[`Upgrade-My-Kobo-To-v2.0.0.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.0.0.apk)** — 1-Tap OTA Root & Full `v2.0.0` Upgrader (`versionCode=200`, installs Freedom `v2.0.0`, Launcher `v50`, VLC, Aurora Store, F-Droid `v1302`, `python3`, `apt`, & 120 2026 CAs)
-  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting, Custom Skin, Complete App Suite & Bundled Companion APKs (`v2.0.0`, `versionCode=200`)
+  - **[`Upgrade-My-Kobo-To-v2.1.0.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.1.0.apk)** — 1-Tap OTA Root & Full `v2.1.0` Upgrader (`versionCode=210`, installs Freedom `v2.1.0`, Customizable App Bar Launcher `v51`, VLC, Aurora Store, F-Droid `v1302`, `python3`, `apt`, & 120 2026 CAs)
+  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting, Customizable App Bar Studio, Custom Skin, Complete App Suite & Bundled Companion APKs (`v2.1.0`, `versionCode=210`)
   - **[`VLC.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VLC.apk)** — Standalone Android 4.2 ARMv7 **VLC Media Player** (`org.videolan.vlc`, also pre-bundled inside `KoboArc7Freedom.apk`)
   - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS Store Client with Binary APK Validator & Auto `SHA1withRSA` JAR `v1` Signer (`v4.8.5-arc7`)
   - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic with Verified Non-Colliding Certificates & TLS 1.3 Bridge (`v1302`)
-  - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)** — Custom-Skinned Home Launcher (`v50`) with 5 Selectable Skins, Reskinned System Icons, & Long-Press Widgets
+  - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)** — Custom-Skinned Home Launcher (`v51`) with Fully Customizable Multi-Edge App Bar (`Bottom`/`Top`/`Left`/`Right`/`Hidden`), Custom Top Bar, 5 Skins, Reskinned System Icons, & Long-Press Widgets
 - **USB & Home Wi-Fi Companion Scripts:**
   - **Chromebook / Linux Wired USB Internet Bridge:** **[`Start-Chromebook-Wired-Internet.sh`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-Chromebook-Wired-Internet.sh)**
   - **Windows 10 / 11 Home Wi-Fi Rooting Server:** **[`Start-Kobo-WiFi-Server.bat`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-Kobo-WiFi-Server.bat)**
@@ -25,7 +25,12 @@ All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Sche
 
 ---
 
-## What's New in `v2.0.0`
+## What's New in `v2.1.0` & `v2.0.0`
+
+0. **Full System-Wide Customizable App Bar (`VanillaHomeActivity` + `AppBarConfigStore` + `Arc7Skin`, `v2.1.0`):**
+   - **Pin, Reorder, Replace or Remove Any App (0 to 12 Slots):** Long-press any icon on the Home App Bar, long-press any app in the All-Apps Drawer (`Pin to App Bar`), or tap **`App Bar`** on the Home top bar / inside `Kobo Arc 7 Freedom` to add built-in or third-party apps in any order (with smooth horizontal/vertical scroll overflow and 1-tap `Reset Defaults`).
+   - **5 Home App Bar Positions & 5 Chrome Styles:** Move the App Bar live between **Bottom Dock**, **Top App Bar**, **Left Side Rail** (ideal for landscape!), **Right Side Rail**, or **Hidden** (swipe up anywhere on Home to open All Apps), with *Floating Glass Pill*, *Full-Width Edge-to-Edge*, *Minimal Transparent*, *Solid Matte Slate*, or *Glowing Neon Accent Rim*, `34/42/50/58 dp` icon sizes, `0%–96%` opacity, label toggle, `:::` placement, and custom Home Top Bar toggles.
+   - **Customizable In-App Top App Bars Across Every Built-In App:** Customize header height (`Compact` / `Standard` / `Tall`), chrome style (`OS Gradient` / `Flat Solid` / `Tinted Accent` / `Minimal + Accent Underline`), `Centered` vs `Left` titles, and a built-in **`Apps ▾` Quick App Bar Switcher** right inside every app (or long-press any app header to customize live!).
 
 1. **Two-Way Wired USB Internet with a Chromebook (`Arc7WiredInternetActivity` + `Arc7ChromebookUsbService` + `Start-Chromebook-Wired-Internet.sh`):**
    - **Share Chromebook Internet -> Kobo over USB:** Solves Android `4.2.2` lacking `adb reverse` via a high-speed `ARC7USB1` reverse-multiplexed socket pool over `adb forward tcp:18880 tcp:18880` (`127.0.0.1:18881`), seamlessly powering `Arc7 Browser`, `Aurora Store`, `F-Droid`, `archive.org` chime downloads, `apt`, `python3`, and kernel `iptables` NAT!

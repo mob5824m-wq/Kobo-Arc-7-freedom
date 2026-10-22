@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.0.0
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.1.0
 
 on:
   push:
@@ -30,26 +30,26 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography
 
-      - name: Generate reskinned icons, fetch & verify official VLC ARMv7 APK, compile native binaries & sign all v2.0.0 APKs
+      - name: Generate reskinned icons, fetch & verify official VLC ARMv7 APK, compile native binaries & sign all v2.1.0 APKs
         run: |
           chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.0.0 end-to-end verification suite
+      - name: Run full v2.1.0 end-to-end verification suite
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.0.0 APKs, bundled VLC.apk & Chromebook USB launcher back to branch
+      - name: Commit refreshed signed v2.1.0 APKs, bundled VLC.apk & Chromebook USB launcher back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk
+          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk
           git add \
             releases/index.html \
             releases/logo-banner.png \
-            releases/Upgrade-My-Kobo-To-v2.0.0.apk \
+            releases/Upgrade-My-Kobo-To-v2.1.0.apk \
             releases/KoboArc7Freedom.apk \
             releases/VLC.apk \
             releases/AuroraStore.apk \
@@ -66,16 +66,16 @@ jobs:
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk \
             app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.0.0 APKs, official VLC ARMv7 bundle & tools [skip ci]"
+            git commit -m "chore: update pre-built signed v2.1.0 APKs, Customizable App Bar Launcher v51 & tools [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v2.0.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & USB/Wi-Fi tools artifact
+      - name: Upload built v2.1.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & USB/Wi-Fi tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.0.0-apks
+          name: kobo-arc-7-freedom-v2.1.0-apks
           path: |
-            releases/Upgrade-My-Kobo-To-v2.0.0.apk
+            releases/Upgrade-My-Kobo-To-v2.1.0.apk
             releases/KoboArc7Freedom.apk
             releases/VLC.apk
             releases/AuroraStore.apk
@@ -88,48 +88,36 @@ jobs:
             releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.0.0 APKs, VLC Media Player & Chromebook USB tools to GitHub Releases
+      - name: Publish signed v2.1.0 APKs, VLC Media Player & Chromebook USB tools to GitHub Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.0.0 (`ca.arc7freedom.app` v200 + `Upgrade-My-Kobo-To-v2.0.0.apk` + Bundled Official `VLC.apk` + Custom Arc7 OS Skin)
+          ## Kobo Arc 7 Freedom v2.1.0 (`ca.arc7freedom.app` v210 + Launcher `v51` + `Upgrade-My-Kobo-To-v2.1.0.apk`)
 
-          ### All 11 Major Upgrades in `v2.0.0`:
-          1. **Two-Way Chromebook <-> Kobo Arc 7 Wired USB Internet (`Arc7WiredInternetActivity` + `Start-Chromebook-Wired-Internet.sh`):**
-             - **Chromebook -> Kobo:** Works natively on Android 4.2 (`adbd` API 17 without `adb reverse`) via an `ARC7USB1` reverse-multiplexed TCP connection pool over `adb forward tcp:18880 tcp:18880` (`127.0.0.1:18881`) plus optional kernel `iptables` transparent NAT!
-             - **Kobo -> Chromebook:** Plug-and-play USB `RNDIS` Ethernet tethering (`rndis,adb`, `rndis0 = 192.168.42.129/24`, DHCP/DNS + `ip_forward` NAT) — zero setup required on ChromeOS!
-             - **USB-OTG Ethernet:** Auto-configures `eth0` via `dhcpcd` when a USB-Ethernet adapter is attached.
-          2. **Full Standalone Calendar App + Home Screen Widget (`Arc7CalendarActivity` + `Arc7CalendarWidgetProvider`):**
-             - Interactive Month Grid + Upcoming Agenda, screen-waking reminder chimes, Canadian/US holidays, color-coded categories, and `.ics` iCalendar import/export.
-          3. **Complete Everyday Productivity Suite (`Arc7CalculatorActivity`, `Arc7NotesActivity`, `Arc7FileManagerActivity`):**
-             - **Arc7 Calculator:** Scientific expression engine (`sin/cos/tan/ln/log/√/^/!`), clickable History Tape, & Live Unit Converter.
-             - **Arc7 Notes & Sketchpad:** Auto-saved Markdown notes, interactive tap-to-check checklists, finger/stylus color canvas, & `.md`/`.png` export.
-             - **Arc7 Files:** Internal + MicroSD + Root `/` explorer with Copy/Move/Rename, `.zip` create/extract, and smart dispatch to APK Installer, VLC, Photos, Audio, & Calendar.
-          4. **20 Alarm Chimes Downloaded from the Internet Archive (`archive.org`):**
-             - Real `.ogg` chimes downloaded & SHA-1 verified directly from `https://archive.org/download/...`, cached on `/sdcard/Arc7Freedom/chimes/`, with live `archive.org` audio search & per-alarm volume (`0%–100%`).
-          5. **Pre-Bundled VLC Media Player (`org.videolan.vlc`):**
-             - Official Android 4.2 ARMv7 `VLC.apk` bundled offline inside `KoboArc7Freedom.apk` & `Upgrade-My-Kobo-To-v2.0.0.apk` and auto-installed cleanly on upgrade.
-          6. **Custom Arc7 OS Skin Engine (`Arc7Skin` + `Arc7LauncherSkin`):**
-             - 5 selectable skins (*Obsidian Cyan*, *Midnight Emerald*, *Solaris Amber*, *Amethyst Dusk*, *E-Ink Frost*) across Launcher, dock, drawers, dialogs, and built-in apps.
-          7. **Reskinned High-DPI Icons Across All Default System & Built-In Apps:**
-             - 28 custom multi-DPI (`mdpi`/`hdpi`/`xhdpi`/`xxhdpi`) sculpted squircle icons replacing every dated 2013 stock Android 4.2 system icon (`Settings`, `Chrome`, `Browser`, `Downloads`, `Music`, `Gallery`, `Camera`, `Calculator`, `Calendar`, `Clock`, `Email`, `Contacts`, `Play Store`, `Kobo Books`, `VLC`, and all `Arc7` apps).
-          8. **Custom `Arc7 APK Installer` (`Arc7PackageInstallerActivity`):**
-             - Intercepts `.apk` installs system-wide (`application/vnd.android.package-archive`), audits `minSdkVersion`/`targetSdkVersion`/`DEX`/ABI & dangerous permissions, automatically repairs `v2/v3`-only APKs with a 4-byte-aligned `SHA1withRSA` JAR `v1` signature, and performs fast `/data/local/tmp/` root installs.
-          9. **Standalone `Arc7 Photos` Gallery & Photo Filter Studio (`Arc7PhotosActivity`):**
-             - Multi-album scanner across Internal Storage & MicroSD, pinch-to-zoom viewer, 7 live color filters, 90° rotate & flip, slideshow, 1-tap Home Wallpaper setter, and VLC video handoff.
-          10. **Hardware-Tuned `Arc7 Camera` App (`Arc7CameraActivity`):**
-              - Explicit `Camera.open(idx)` sensor handling for Kobo Arc 7 HD front camera & Arc 7HD dual sensors, HD Photo + `.mp4` Video recording, **Front Screen Flash**, 3s/10s Self-Timer, 3x3 Grid, & Color FX.
-          11. **Removed GitHub Pages Completely:**
-              - Removed `docs/`, all Pages workflow jobs/permissions, and all hosted Pages links across the entire repository; APKs and tools ship directly via GitHub Releases & `releases/`.
+          ### New in `v2.1.0` — Full System-Wide Customizable App Bar (`Home Dock, Side Rails, Top Bar & In-App Bars`):
+          - **Customizable Home App Bar Slots (0 to 12 Apps with Smooth Overflow Scrolling):**
+            - Freely **pin any built-in or installed Android app** (or remove, replace, or reorder with 1 tap) via:
+              - Tapping **`App Bar`** on the Home top bar or inside **`Kobo Arc 7 Freedom`**,
+              - **Long-pressing any icon** on the Home App Bar (`Move Earlier`, `Move Later`, `Replace Slot`, `Add Another App`, `Remove from App Bar`, `Open Full App Bar Studio`),
+              - **Long-pressing any app in the All-Apps Drawer (`:::`)** -> **`Pin to App Bar` / `Unpin from App Bar`**, or
+              - **Long-pressing the App Bar bar background or any In-App header**.
+          - **5 Home App Bar Positions (`Bottom`, `Top`, `Left Side Rail`, `Right Side Rail`, `Hidden`):**
+            - Switch dynamically between classic **Bottom Dock**, **Top App Bar**, **Left Side Rail** (ideal for landscape 1280x800!), **Right Side Rail**, or **Hidden** (with full-desktop swipe-up gesture to open All Apps + `⚙ App Bar` button right inside the All-Apps header!).
+          - **Full Visual Chrome, Sizing, Labels & Opacity Controls:**
+            - Choose from **5 App Bar Styles** (*Floating Glass Pill*, *Full-Width Edge-to-Edge Bar*, *Minimal Transparent Icons*, *Solid Matte Slate Bar*, *Glowing Neon Accent Rim*), **4 Icon Sizes** (`34 dp` Compact, `42 dp` Standard, `50 dp` Large, `58 dp` Extra-Large), **4 All-Apps (`:::`) Button Placements** (*Center*, *Start*, *End*, *Hidden*), **Show/Hide App Labels**, **6 Glass Opacity Levels** (`0%`–`96%`), **7 Custom Accent Highlight Swatches**, and granular **Home Top Bar element toggles** (`Clock`, `Search`, `App Bar`, `Skin`, `Wallpaper`, or `Hidden`).
+          - **Customizable In-App Top App Bars Across Every Built-In `Arc7` App:**
+            - Configure **Compact / Standard / Tall App Bar height**, **OS Gradient / Flat Solid / Tinted Accent / Minimal Neon-Underline header chrome**, **Centered vs Left-Aligned app titles**, and a built-in **`Apps ▾` Quick App Bar Switcher** pill inside every app!
+          - **Includes 100% of `v2.0.0` Features Intact:**
+            - Two-way **Chromebook <-> Kobo Wired USB Internet**, pre-bundled official ARMv7 **`VLC.apk`**, **`Arc7 Calendar` + Home Widget**, **`Arc7 Photos` + Filter Studio**, **`Arc7 Camera` + Screen Flash**, **`Arc7 Calculator`**, **`Arc7 Notes & Sketchpad`**, **`Arc7 Files`**, **20 `archive.org` Alarm Chimes**, **Custom `Arc7 APK Installer`**, **5 OS Skins + 28 Reskinned High-DPI Icons**, **`Aurora Store v4.8.5`**, **`F-Droid v1302`**, **`python3` + `apt`**, and **TLS 1.3**.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.0.0 >/dev/null 2>&1; then
-            gh release edit v2.0.0 --latest --title "Kobo Arc 7 Freedom v2.0.0 — Custom OS Skin, VLC, Photos, Camera, Calendar, Archive.org Chimes, Chromebook USB Internet & Custom APK Installer" --notes-file /tmp/release-notes.md
-            gh release upload v2.0.0 \
-              releases/Upgrade-My-Kobo-To-v2.0.0.apk \
+          if gh release view v2.1.0 >/dev/null 2>&1; then
+            gh release edit v2.1.0 --latest --title "Kobo Arc 7 Freedom v2.1.0 — Customizable App Bar + Custom OS Skin, VLC, Photos, Camera, Calendar & Chromebook USB Internet" --notes-file /tmp/release-notes.md
+            gh release upload v2.1.0 \
+              releases/Upgrade-My-Kobo-To-v2.1.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
@@ -143,8 +131,8 @@ jobs:
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v2.0.0 \
-              releases/Upgrade-My-Kobo-To-v2.0.0.apk \
+            gh release create v2.1.0 \
+              releases/Upgrade-My-Kobo-To-v2.1.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
@@ -158,6 +146,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.0.0 — Custom OS Skin, VLC, Photos, Camera, Calendar, Archive.org Chimes, Chromebook USB Internet & Custom APK Installer" \
+              --title "Kobo Arc 7 Freedom v2.1.0 — Customizable App Bar + Custom OS Skin, VLC, Photos, Camera, Calendar & Chromebook USB Internet" \
               --notes-file /tmp/release-notes.md
           fi

@@ -108,12 +108,13 @@ public class MainActivity extends Activity {
         optimizerManager = new TabletOptimizerManager(this, rootShell);
 
         Arc7Skin.Palette skin = Arc7Skin.current(this);
+        Arc7Skin.AppBarPrefs barPrefs = Arc7Skin.loadAppBarPrefs(this);
         BG_PAGE = skin.bgPage;
         BG_SURFACE = skin.surface;
         BG_ELEVATED = skin.elevated;
         BORDER_SUBTLE = skin.border;
-        ACCENT_CYAN = skin.accentLight;
-        ACCENT_DARK = skin.accent;
+        ACCENT_CYAN = barPrefs.accentOverride != 0 ? barPrefs.accentOverride : skin.accentLight;
+        ACCENT_DARK = barPrefs.accentOverride != 0 ? barPrefs.accentOverride : skin.accent;
         TEXT_PRIMARY = skin.textPrimary;
         TEXT_MUTED = skin.textMuted;
 
@@ -197,34 +198,54 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG_PAGE);
 
-        // 1. Top App Header Bar (with crisp vector-rendered Freedom shield logo badge)
+        // 1. Top App Header Bar (customizable height, alignment, header style, App Bar Studio & Quick Switcher!)
+        Arc7Skin.Palette hdrPal = Arc7Skin.current(this);
+        Arc7Skin.AppBarPrefs hdrPrefs = Arc7Skin.loadAppBarPrefs(this);
+        int hdrVPad = hdrPrefs.inAppDensity == 0 ? 5 : (hdrPrefs.inAppDensity == 2 ? 15 : 10);
+        int hdrLogoDp = hdrPrefs.inAppDensity == 0 ? 32 : (hdrPrefs.inAppDensity == 2 ? 44 : 40);
+
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundColor(BG_SURFACE);
-        topBar.setPadding(dp(14), dp(10), dp(16), dp(10));
+        topBar.setBackgroundDrawable(Arc7Skin.customAppBarDrawable(this, hdrPal, hdrPrefs));
+        topBar.setPadding(dp(14), dp(hdrVPad), dp(16), dp(hdrVPad));
+        topBar.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                Arc7Skin.showAppBarCustomizerDialog(MainActivity.this, new Runnable() {
+                    @Override public void run() { recreate(); }
+                });
+                return true;
+            }
+        });
 
         android.widget.ImageView logoImg = new android.widget.ImageView(this);
         logoImg.setImageResource(R.drawable.arc7_logo_header);
         logoImg.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
-        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        LinearLayout.LayoutParams logoLp = new LinearLayout.LayoutParams(dp(hdrLogoDp), dp(hdrLogoDp));
         logoLp.rightMargin = dp(10);
         topBar.addView(logoImg, logoLp);
 
         LinearLayout titleCol = new LinearLayout(this);
         titleCol.setOrientation(LinearLayout.VERTICAL);
+        if (hdrPrefs.inAppCenterTitle) {
+            titleCol.setGravity(Gravity.CENTER_HORIZONTAL);
+        }
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v2.0.0");
+        title.setText("Kobo Arc 7 Freedom  v2.1.0");
         title.setTextColor(TEXT_PRIMARY);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
+        if (hdrPrefs.inAppCenterTitle) title.setGravity(Gravity.CENTER_HORIZONTAL);
         titleCol.addView(title);
 
         headerDeviceSubtitle = new TextView(this);
         headerDeviceSubtitle.setText("Inspecting hardware, partitions & root state...");
         headerDeviceSubtitle.setTextColor(TEXT_MUTED);
         headerDeviceSubtitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        if (hdrPrefs.inAppCenterTitle) headerDeviceSubtitle.setGravity(Gravity.CENTER_HORIZONTAL);
+        if (hdrPrefs.inAppDensity == 0) headerDeviceSubtitle.setVisibility(View.GONE);
         titleCol.addView(headerDeviceSubtitle);
 
         topBar.addView(titleCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
@@ -238,7 +259,40 @@ public class MainActivity extends Activity {
         setBg(rootStatusPill, box(BG_ELEVATED, BORDER_SUBTLE, 1, 12));
         topBar.addView(rootStatusPill);
 
-        Button skinBtn = makePrimaryButton("Arc7 Skin");
+        if (hdrPrefs.inAppShowQuickSwitch) {
+            Button appsBtn = makeSecondaryButton("Apps \u25BE");
+            LinearLayout.LayoutParams qalp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+            qalp.leftMargin = dp(8);
+            appsBtn.setPadding(dp(10), 0, dp(10), 0);
+            appsBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    Arc7Skin.showQuickAppBarSwitcher(MainActivity.this);
+                }
+            });
+            topBar.addView(appsBtn, qalp);
+        }
+
+        Button appBarBtn = makePrimaryButton("App Bar");
+        LinearLayout.LayoutParams ablp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
+        ablp.leftMargin = dp(8);
+        appBarBtn.setPadding(dp(11), 0, dp(11), 0);
+        appBarBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7Skin.showAppBarCustomizerDialog(MainActivity.this, new Runnable() {
+                    @Override
+                    public void run() {
+                        recreate();
+                    }
+                });
+            }
+        });
+        topBar.addView(appBarBtn, ablp);
+
+        Button skinBtn = makeSecondaryButton("Arc7 Skin");
         LinearLayout.LayoutParams sklp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
         sklp.leftMargin = dp(8);
@@ -997,10 +1051,20 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.0.0 OS App Suite (VLC + Calendar + Photos + Camera + Calc + Notes + Files + USB Net + Custom APK Installer)
+        // Card 1: Complete v2.1.0 OS App Suite + Customizable App Bar Studio
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.0.0 Daily-Driver App & Media Suite",
-                "Every single app has its own isolated task, custom Arc7 OS Skin, and high-DPI icon right in your App Drawer!");
+        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.1.0 Daily-Driver App & Media Suite",
+                "Every app runs in its own isolated task with customizable App Bars, Arc7 OS Skins, and high-DPI icons!");
+
+        addToolActionRow(packCard, "Customize App Bar (Home Dock, Side Rails, Top Bar & In-App Headers)",
+                "Pin/remove/reorder up to 12 apps, move bar to Bottom/Top/Left/Right/Hidden, resize icons, hide labels, or tweak In-App headers!",
+                "Customize Bar", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        Arc7Skin.showAppBarCustomizerDialog(MainActivity.this, new Runnable() {
+                            @Override public void run() { recreate(); }
+                        });
+                    }
+                });
 
         addToolActionRow(packCard, "Chromebook <-> Kobo Wired USB Internet (Both Directions!)",
                 "Share your Chromebook's internet to Kobo over USB OR plug-and-play USB Ethernet tether Kobo -> Chromebook!",
