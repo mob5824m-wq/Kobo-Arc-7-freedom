@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="210"
-    android:versionName="2.1.0"
+    android:versionCode="220"
+    android:versionName="2.2.0"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -104,6 +104,9 @@
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.epub" />
+                <data android:pathPattern=".*\\.fb2" />
+                <data android:pathPattern=".*\\.zip" />
+                <data android:pathPattern=".*\\.pdf" />
                 <data android:pathPattern=".*\\.cbz" />
                 <data android:pathPattern=".*\\.txt" />
             </intent-filter>
@@ -364,6 +367,168 @@
             </intent-filter>
         </activity>
 
+        <!-- 19. NEW `Arc7 PDF & Scanner` Native Offline PDF Reader + Camera Document Scanner (OWN TASK!) -->
+        <activity
+            android:name=".Arc7PdfViewerActivity"
+            android:label="Arc7 PDF &amp; Scanner"
+            android:icon="@drawable/ic_pdf"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.pdf"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity>
+
+        <!-- 20. NEW `Arc7 Weather` Live Open-Meteo Forecast (OWN TASK!) -->
+        <activity
+            android:name=".Arc7WeatherActivity"
+            android:label="Arc7 Weather"
+            android:icon="@drawable/ic_weather"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.weather"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 21. NEW `Arc7 Radio & Feeds` 30k World Radio, Podcasts & Offline RSS (OWN TASK!) -->
+        <activity
+            android:name=".Arc7RadioRssActivity"
+            android:label="Arc7 Radio &amp; Feeds"
+            android:icon="@drawable/ic_radio"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.radio"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 22. NEW `Arc7 Recorder` 44.1 kHz Studio Voice Recorder & Lossless WAV Trimmer (OWN TASK!) -->
+        <activity
+            android:name=".Arc7RecorderActivity"
+            android:label="Arc7 Recorder"
+            android:icon="@drawable/ic_recorder"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.recorder"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 23. NEW `Arc7 Arcade` Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire (OWN TASK!) -->
+        <activity
+            android:name=".Arc7ArcadeActivity"
+            android:label="Arc7 Arcade"
+            android:icon="@drawable/ic_arcade"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.arcade"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 24. NEW `Arc7 Shield` System-Wide Hosts AdBlocker & Root Firewall (OWN TASK!) -->
+        <activity
+            android:name=".Arc7ShieldActivity"
+            android:label="Arc7 Shield"
+            android:icon="@drawable/ic_shield"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.shield"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 25. NEW `Arc7 Boost` +384 MB zRAM/Swap, CPU Governor & Battery Doctor (OWN TASK!) -->
+        <activity
+            android:name=".Arc7BoostActivity"
+            android:label="Arc7 Boost"
+            android:icon="@drawable/ic_boost"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.boost"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 26. NEW `Arc7 Second Screen` Chromebook / PC Extended Monitor & Macro Deck (OWN TASK!) -->
+        <activity
+            android:name=".Arc7SecondScreenActivity"
+            android:label="Arc7 Second Screen"
+            android:icon="@drawable/ic_display"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.secondscreen"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 27. NEW `Arc7 Split View` Landscape Dual-Pane Multitasking (OWN TASK!) -->
+        <activity
+            android:name=".Arc7SplitViewActivity"
+            android:label="Arc7 Split View"
+            android:icon="@drawable/ic_splitview"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.splitview"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 28. NEW `Arc7 Dictionary & Wiki` Offline Lexicon + Clean Wikipedia Reader (OWN TASK!) -->
+        <activity
+            android:name=".Arc7DictionaryWikiActivity"
+            android:label="Arc7 Dict &amp; Wiki"
+            android:icon="@drawable/ic_wiki"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.wiki"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
         <!-- Persistent Background Services -->
         <service android:name=".Arc7TlsGatewayService" android:exported="true" />
         <service android:name=".Arc7ChromebookUsbService" android:exported="true" />
@@ -426,13 +591,27 @@
                 android:resource="@xml/widget_arc7_power_info" />
         </receiver>
 
-        <!-- Boot / Wi-Fi / Self-Upgrade Receiver -->
+        <receiver
+            android:name=".Arc7WeatherWidgetProvider"
+            android:label="Arc7 Live Open-Meteo Weather"
+            android:icon="@drawable/ic_weather"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_arc7_weather_info" />
+        </receiver>
+
+        <!-- Boot / Wi-Fi / Self-Upgrade / Smart Charging Dock Receiver -->
         <receiver android:name=".BootNetworkReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
                 <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
             </intent-filter>
         </receiver>
 

@@ -111,14 +111,14 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
-        assert str(apk.get_androidversion_code()) == "51", f"Expected launcher versionCode 51, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "52", f"Expected launcher versionCode 52, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.1.0", f"Expected upgrader 2.1.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "210", f"Expected upgrader 210, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.2.0", f"Expected upgrader 2.2.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "220", f"Expected upgrader 220, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.1.0", f"Expected 2.1.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "210", f"Expected 210, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.2.0", f"Expected 2.2.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "220", f"Expected 220, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -147,10 +147,20 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7FileManagerActivity",
             "ca.arc7freedom.app.Arc7WiredInternetActivity",
             "ca.arc7freedom.app.Arc7PackageInstallerActivity",
+            "ca.arc7freedom.app.Arc7PdfViewerActivity",
+            "ca.arc7freedom.app.Arc7WeatherActivity",
+            "ca.arc7freedom.app.Arc7RadioRssActivity",
+            "ca.arc7freedom.app.Arc7RecorderActivity",
+            "ca.arc7freedom.app.Arc7ArcadeActivity",
+            "ca.arc7freedom.app.Arc7ShieldActivity",
+            "ca.arc7freedom.app.Arc7BoostActivity",
+            "ca.arc7freedom.app.Arc7SecondScreenActivity",
+            "ca.arc7freedom.app.Arc7SplitViewActivity",
+            "ca.arc7freedom.app.Arc7DictionaryWikiActivity",
         )
         for req_act in expected_acts:
             assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
-        # Verify EVERY SINGLE ONE of all 18 activities has its OWN distinct android:taskAffinity!
+        # Verify EVERY SINGLE ONE of all 28 activities has its OWN distinct android:taskAffinity!
         ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
         manifest_xml = apk.get_android_manifest_xml()
         affinities = set()
@@ -160,7 +170,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
             assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
             affinities.add(taff)
-        assert len(affinities) == 18, f"Expected 18 distinct taskAffinity entries, got {len(affinities)}"
+        assert len(affinities) == 28, f"Expected 28 distinct taskAffinity entries, got {len(affinities)}"
         print(f"  [PASS] All {len(affinities)} Activities have 100% isolated android:taskAffinity stacks ({sorted(affinities)[0]} ..)")
 
         svcs = apk.get_services()
@@ -1596,8 +1606,347 @@ public class VerifyV210AppBar {
     print("  [PASS] Home & In-App Customizable App Bar DEX + Cross-Process `appbar.properties` JVM Roundtrip verified 100%!")
 
 
+def verify_v220_all_14_upgrades_plus_vk(main_apk: str, home_apk: str) -> None:
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.2.0 All 14 Major Upgrades + VK.com Book Storefront + Launcher v52 ===")
+    a_main = APK(main_apk)
+    acts = set(a_main.get_activities())
+    required_v220_activities = [
+        "ca.arc7freedom.app.Arc7PdfViewerActivity",
+        "ca.arc7freedom.app.Arc7WeatherActivity",
+        "ca.arc7freedom.app.Arc7RadioRssActivity",
+        "ca.arc7freedom.app.Arc7RecorderActivity",
+        "ca.arc7freedom.app.Arc7ArcadeActivity",
+        "ca.arc7freedom.app.Arc7ShieldActivity",
+        "ca.arc7freedom.app.Arc7BoostActivity",
+        "ca.arc7freedom.app.Arc7SecondScreenActivity",
+        "ca.arc7freedom.app.Arc7SplitViewActivity",
+        "ca.arc7freedom.app.Arc7DictionaryWikiActivity",
+    ]
+    for req in required_v220_activities:
+        assert req in acts, f"Missing v2.2.0 Activity in AndroidManifest.xml: {req}"
+    assert "ca.arc7freedom.app.Arc7WeatherWidgetProvider" in set(a_main.get_receivers()), "Missing Arc7WeatherWidgetProvider!"
+
+    main_dex = DEX(a_main.get_dex())
+    method_count = len(list(main_dex.get_methods()))
+    print(f"  [OK] Dalvik single-DEX method count check: {method_count} / 65,535 methods")
+    assert method_count < 60000, f"Single-DEX method count dangerously close to 65k limit: {method_count}"
+
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        names = set(zf.namelist())
+        assert "assets/chromebook/Start-Kobo-Second-Screen.py" in names, "Missing bundled Start-Kobo-Second-Screen.py!"
+        for ic in ("ic_pdf", "ic_weather", "ic_radio", "ic_recorder", "ic_arcade",
+                   "ic_shield", "ic_boost", "ic_display", "ic_splitview", "ic_wiki"):
+            assert f"res/drawable-xhdpi-v4/{ic}.png" in names or f"res/drawable-xhdpi/{ic}.png" in names, f"Missing {ic} drawable!"
+
+    # End-to-end JVM functional test across ALL v2.2.0 engines + VK.com Book Source + Launcher v52
+    with tempfile.TemporaryDirectory() as td:
+        # Provide real non-stub `org.xmlpull.v1` + minimal `org.json` implementations ahead of `android.jar`
+        # so real production `Arc7BookSources`, `Arc7RadioRssActivity`, `Arc7WeatherStore` execute live on Desktop JVM!
+        os.makedirs(os.path.join(td, "org/xmlpull/v1"), exist_ok=True)
+        os.makedirs(os.path.join(td, "org/json"), exist_ok=True)
+        with open(os.path.join(td, "org/xmlpull/v1/XmlPullParserFactory.java"), "w", encoding="utf-8") as xf:
+            xf.write("""package org.xmlpull.v1;
+import javax.xml.stream.*;
+import java.io.*;
+import java.util.*;
+
+public class XmlPullParserFactory {
+    public static XmlPullParserFactory newInstance() { return new XmlPullParserFactory(); }
+    public void setNamespaceAware(boolean awareness) {}
+    public XmlPullParser newPullParser() { return new StaxPullBridge(); }
+
+    private static class StaxPullBridge implements XmlPullParser {
+        private XMLStreamReader r;
+        private int ev = START_DOCUMENT;
+        public void setInput(InputStream is, String enc) throws XmlPullParserException {
+            try { r = XMLInputFactory.newInstance().createXMLStreamReader(is, enc == null ? "UTF-8" : enc); }
+            catch (Exception e) { throw new XmlPullParserException(e.getMessage()); }
+        }
+        public void setInput(Reader rd) throws XmlPullParserException {
+            try { r = XMLInputFactory.newInstance().createXMLStreamReader(rd); }
+            catch (Exception e) { throw new XmlPullParserException(e.getMessage()); }
+        }
+        public int getEventType() { return ev; }
+        public int next() throws XmlPullParserException, IOException {
+            try {
+                while (r.hasNext()) {
+                    int n = r.next();
+                    if (n == XMLStreamConstants.START_ELEMENT) return (ev = START_TAG);
+                    if (n == XMLStreamConstants.END_ELEMENT) return (ev = END_TAG);
+                    if (n == XMLStreamConstants.CHARACTERS || n == XMLStreamConstants.CDATA) return (ev = TEXT);
+                    if (n == XMLStreamConstants.END_DOCUMENT) return (ev = END_DOCUMENT);
+                }
+                return (ev = END_DOCUMENT);
+            } catch (Exception e) { throw new XmlPullParserException(e.getMessage()); }
+        }
+        public String getName() { return r.getLocalName(); }
+        public String getText() { return r.getText(); }
+        public String getAttributeValue(String ns, String name) {
+            for (int i = 0; i < r.getAttributeCount(); i++)
+                if (name.equalsIgnoreCase(r.getAttributeLocalName(i))) return r.getAttributeValue(i);
+            return null;
+        }
+        public void setFeature(String n, boolean s) {}
+        public boolean getFeature(String n) { return false; }
+        public void setProperty(String n, Object v) {}
+        public Object getProperty(String n) { return null; }
+        public String getInputEncoding() { return "UTF-8"; }
+        public void defineEntityReplacementText(String e, String r2) {}
+        public int getNamespaceCount(int d) { return 0; }
+        public String getNamespacePrefix(int p) { return null; }
+        public String getNamespaceUri(int p) { return null; }
+        public String getNamespace(String p) { return ""; }
+        public int getDepth() { return 1; }
+        public String getPositionDescription() { return ""; }
+        public int getLineNumber() { return 1; }
+        public int getColumnNumber() { return 1; }
+        public boolean isWhitespace() { return false; }
+        public char[] getTextCharacters(int[] h) { return new char[0]; }
+        public String getNamespace() { return ""; }
+        public String getPrefix() { return null; }
+        public boolean isEmptyElementTag() { return false; }
+        public int getAttributeCount() { return r.getAttributeCount(); }
+        public String getAttributeNamespace(int i) { return ""; }
+        public String getAttributeName(int i) { return r.getAttributeLocalName(i); }
+        public String getAttributePrefix(int i) { return null; }
+        public String getAttributeType(int i) { return "CDATA"; }
+        public boolean isAttributeDefault(int i) { return false; }
+        public String getAttributeValue(int i) { return r.getAttributeValue(i); }
+        public int nextToken() throws XmlPullParserException, IOException { return next(); }
+        public void require(int t, String ns, String n) {}
+        public String nextText() throws XmlPullParserException, IOException {
+            StringBuilder sb = new StringBuilder();
+            while (next() != END_TAG) { if (ev == TEXT) sb.append(getText()); }
+            return sb.toString();
+        }
+        public int nextTag() throws XmlPullParserException, IOException { return next(); }
+    }
+}
+""")
+        with open(os.path.join(td, "org/json/JSONObject.java"), "w", encoding="utf-8") as jf0:
+            jf0.write("""package org.json;
+import javax.script.*;
+import java.util.*;
+
+public class JSONObject {
+    final Map<String, Object> m = new LinkedHashMap<String, Object>();
+    public JSONObject() {}
+    public JSONObject(Map<?,?> src) {
+        for (Map.Entry<?,?> e : src.entrySet()) m.put(String.valueOf(e.getKey()), wrap(e.getValue()));
+    }
+    public JSONObject(String s) {
+        Map<String, Object> parsed = MiniJson.parseObj(new int[]{0}, s.trim());
+        m.putAll(parsed);
+    }
+    static Object wrap(Object v) {
+        if (v instanceof Map) return new JSONObject((Map<?,?>) v);
+        if (v instanceof List) return new JSONArray((List<?>) v);
+        return v;
+    }
+    public JSONObject put(String k, Object v) { m.put(k, v); return this; }
+    public Object opt(String k) { return m.get(k); }
+    public String optString(String k) { return optString(k, ""); }
+    public String optString(String k, String d) { Object v = m.get(k); return v == null ? d : String.valueOf(v); }
+    public int optInt(String k, int d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).intValue() : d; }
+    public long optLong(String k, long d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).longValue() : d; }
+    public double optDouble(String k, double d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).doubleValue() : d; }
+    public JSONObject optJSONObject(String k) { Object v = m.get(k); return v instanceof JSONObject ? (JSONObject) v : null; }
+    public JSONArray optJSONArray(String k) { Object v = m.get(k); return v instanceof JSONArray ? (JSONArray) v : null; }
+    public Iterator<String> keys() { return m.keySet().iterator(); }
+}
+""")
+        with open(os.path.join(td, "org/json/JSONArray.java"), "w", encoding="utf-8") as jf1:
+            jf1.write("""package org.json;
+import java.util.*;
+
+public class JSONArray {
+    final List<Object> list = new ArrayList<Object>();
+    public JSONArray() {}
+    public JSONArray(List<?> src) { for (Object o : src) list.add(JSONObject.wrap(o)); }
+    public JSONArray(String s) { list.addAll(MiniJson.parseArr(new int[]{0}, s.trim())); }
+    public int length() { return list.size(); }
+    public JSONArray put(Object v) { list.add(v); return this; }
+    public Object get(int i) { return list.get(i); }
+    public String getString(int i) { return String.valueOf(list.get(i)); }
+    public String optString(int i) { return i < list.size() ? String.valueOf(list.get(i)) : ""; }
+    public double optDouble(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).doubleValue() : 0.0; }
+    public int optInt(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).intValue() : 0; }
+    public JSONObject getJSONObject(int i) { return (JSONObject) list.get(i); }
+    public JSONObject optJSONObject(int i) { return (JSONObject) list.get(i); }
+    public JSONArray getJSONArray(int i) { return (JSONArray) list.get(i); }
+}
+""")
+        with open(os.path.join(td, "org/json/MiniJson.java"), "w", encoding="utf-8") as jf2:
+            jf2.write("""package org.json;
+import java.util.*;
+
+class MiniJson {
+    static void ws(int[] p, String s) { while (p[0] < s.length() && s.charAt(p[0]) <= ' ') p[0]++; }
+    static Object val(int[] p, String s) {
+        ws(p, s);
+        char c = s.charAt(p[0]);
+        if (c == '{') return new JSONObject(parseObj(p, s));
+        if (c == '[') return new JSONArray(parseArr(p, s));
+        if (c == '"') return str(p, s);
+        int st = p[0];
+        while (p[0] < s.length() && ",]}".indexOf(s.charAt(p[0])) < 0) p[0]++;
+        String tok = s.substring(st, p[0]).trim();
+        if ("true".equals(tok) || "false".equals(tok)) return Boolean.valueOf(tok);
+        if ("null".equals(tok)) return null;
+        return tok.contains(".") ? (Object) Double.valueOf(tok) : (Object) Long.valueOf(tok);
+    }
+    static String str(int[] p, String s) {
+        p[0]++;
+        StringBuilder sb = new StringBuilder();
+        while (p[0] < s.length()) {
+            char c = s.charAt(p[0]++);
+            if (c == '"') break;
+            if (c == '\\\\' && p[0] < s.length()) c = s.charAt(p[0]++);
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+    static Map<String, Object> parseObj(int[] p, String s) {
+        Map<String, Object> m = new LinkedHashMap<String, Object>();
+        ws(p, s); p[0]++; ws(p, s);
+        if (s.charAt(p[0]) == '}') { p[0]++; return m; }
+        while (p[0] < s.length()) {
+            ws(p, s); String k = str(p, s); ws(p, s); p[0]++;
+            m.put(k, val(p, s)); ws(p, s);
+            if (s.charAt(p[0]) == '}') { p[0]++; break; }
+            p[0]++;
+        }
+        return m;
+    }
+    static List<Object> parseArr(int[] p, String s) {
+        List<Object> a = new ArrayList<Object>();
+        ws(p, s); p[0]++; ws(p, s);
+        if (s.charAt(p[0]) == ']') { p[0]++; return a; }
+        while (p[0] < s.length()) {
+            a.add(val(p, s)); ws(p, s);
+            if (s.charAt(p[0]) == ']') { p[0]++; break; }
+            p[0]++;
+        }
+        return a;
+    }
+}
+""")
+        java_v220 = os.path.join(td, "VerifyV220Suite.java")
+        with open(java_v220, "w", encoding="utf-8") as f:
+            f.write("""
+import ca.arc7freedom.app.*;
+import ca.arc7freedom.launcher.*;
+import java.io.*;
+import java.util.*;
+
+public class VerifyV220Suite {
+    public static void main(String[] args) throws Exception {
+        File dir = new File(args[0]);
+
+        // 1. VK.com + FB2 Parser
+        assert Arc7BookSources.buildVkOAuthAuthorizeUrl().contains("oauth.vk.com/authorize");
+        assert "tok_xyz_99".equals(Arc7BookSources.extractAccessTokenIfUrl("https://oauth.vk.com/blank.html#access_token=tok_xyz_99&expires_in=0"));
+
+        String vkJson = "{\\"response\\":{\\"count\\":2,\\"items\\":[{\\"title\\":\\"Dune — Frank Herbert.fb2.zip\\",\\"ext\\":\\"zip\\",\\"size\\":920000,\\"url\\":\\"https://vk.com/doc123_456\\"}]}}";
+        List<Arc7BookSources.BookHit> vkRes = Arc7BookSources.parseVkDocsSearchJson(vkJson, 0);
+        assert vkRes.size() == 1 && "fb2.zip".equals(vkRes.get(0).format) && vkRes.get(0).sourceBadge.toLowerCase().contains("vk.com");
+
+        List<Arc7BookSources.BookHit> vkPub = Arc7BookSources.parsePublicVkSearchHtml(
+                "<a class=\\"result__a\\" href=\\"https://vk.com/doc999_888\\">Asimov Foundation.epub</a>");
+        assert !vkPub.isEmpty() && vkPub.get(0).downloadUrl.contains("vk.com/doc999_888");
+
+        File fb2File = new File(dir, "sample.fb2");
+        FileOutputStream fb2Out = new FileOutputStream(fb2File);
+        fb2Out.write(("<?xml version='1.0' encoding='utf-8'?><FictionBook><description><title-info>"
+                + "<author><first-name>Leo</first-name><last-name>Tolstoy</last-name></author>"
+                + "<book-title>War and Peace</book-title></title-info></description>"
+                + "<body><section><title><p>Chapter I</p></title><p>Well, Prince, so Genoa and Lucca...</p></section></body></FictionBook>").getBytes("UTF-8"));
+        fb2Out.close();
+        Arc7BookSources.Fb2ParsedBook fb2 = Arc7BookSources.parseFb2File(fb2File);
+        assert "War and Peace".equals(fb2.title) && fb2.author.contains("Tolstoy") && !fb2.chapterHtmls.isEmpty();
+
+        // 2. Native PDF Engine roundtrip
+        File samplePdf = new File(dir, "test.pdf");
+        FileOutputStream pdfOut = new FileOutputStream(samplePdf);
+        pdfOut.write(("%PDF-1.4\\n1 0 obj << /Type /Stream >> stream\\nBT (Hello Kobo Arc 7 Native PDF!) Tj ET\\nendstream\\nendobj\\n%%EOF").getBytes("UTF-8"));
+        pdfOut.close();
+        Arc7PdfEngine.ParsedPdf pdfParsed = Arc7PdfEngine.parsePdfFile(samplePdf);
+        assert !pdfParsed.pages.isEmpty() && pdfParsed.pages.get(0).text.contains("Hello Kobo Arc 7 Native PDF!");
+
+        // 3. Weather WMO + Units
+        assert Arc7WeatherStore.wmoDescription(0).toLowerCase().contains("clear");
+        assert Arc7WeatherStore.formatTemp(20.0, true).contains("68");
+
+        // 4. Podcast + RSS/Atom Parser
+        List<Arc7RadioRssActivity.RssItem> rss = Arc7RadioRssActivity.parseRssOrAtomXml(
+                "<rss><channel><title>Tech</title><item><title>Kobo v2.2 Released</title><link>https://example.org/1</link><description>Full suite</description></item></channel></rss>",
+                false);
+        assert rss.size() == 1 && rss.get(0).title.contains("Kobo v2.2");
+
+        // 5. Studio WAV Header + Lossless WAV Trimmer
+        File wavIn = new File(dir, "in.wav");
+        RandomAccessFile raf = new RandomAccessFile(wavIn, "rw");
+        byte[] pcm = new byte[44100 * 2 * 4]; // 4 seconds mono 16-bit 44.1 kHz
+        Arc7RecorderActivity.writeWavHeader(raf, pcm.length, 44100, 1, 16);
+        raf.write(pcm);
+        raf.close();
+        File wavTrim = Arc7RecorderActivity.trimWavFileLossless(wavIn, 0.25, 0.75);
+        assert wavTrim.length() > 44 && wavTrim.length() < wavIn.length();
+
+        // 6. Arcade Chess Legality + Split View Math + Shield Hosts + WebDAV XML + Lexicon
+        char[][] board = new char[8][8];
+        for (int r = 0; r < 8; r++) Arrays.fill(board[r], '.');
+        board[6][4] = 'P';
+        assert Arc7ArcadeActivity.isPseudoLegalChessMove(board, 6, 4, 4, 4, true);
+        assert !Arc7ArcadeActivity.isPseudoLegalChessMove(board, 6, 4, 3, 4, true);
+
+        assert Math.abs(Arc7SplitViewActivity.evalSimpleMath("(1280 * 800) / 1000") - 1024.0) < 0.001;
+
+        File hostsOut = new File(dir, "hosts");
+        Set<String> doms = new LinkedHashSet<String>(Arrays.asList("doubleclick.net", "google-analytics.com"));
+        FileOutputStream hfos = new FileOutputStream(hostsOut);
+        hfos.write(Arc7ShieldActivity.buildCleanHostsContent(doms).getBytes("UTF-8"));
+        hfos.close();
+        assert Arc7ShieldActivity.countBlockedDomainsInHostsFile(hostsOut) == 2;
+
+        String davXml = Arc7NetworkSharesManager.buildWebDavPropfindXml(dir, dir, true);
+        assert davXml.contains("multistatus") && davXml.contains("sample.fb2");
+
+        // 7. Launcher v52 Folder Token Builder & Parser
+        String ftok = PinnedShortcutsStore.buildFolderToken("Reading", Arrays.asList("ca.arc7freedom.app/A", "ca.arc7freedom.app/B"));
+        assert PinnedShortcutsStore.isFolderToken(ftok) && "Reading".equals(PinnedShortcutsStore.parseFolderName(ftok));
+        assert PinnedShortcutsStore.parseFolderMembers(ftok).size() == 2;
+
+        System.out.println("JVM_V220_FULL_SUITE_OK");
+    }
+}
+""")
+        app_classes = os.path.join(ROOT, "build/app/classes")
+        launcher_classes = os.path.join(ROOT, "build/launcher/classes")
+        ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar"
+        cp_jars = f"{ANDROID_JAR}:{app_classes}:{launcher_classes}"
+        shim_srcs = [
+            os.path.join(td, "org/xmlpull/v1/XmlPullParserFactory.java"),
+            os.path.join(td, "org/json/JSONObject.java"),
+            os.path.join(td, "org/json/JSONArray.java"),
+            os.path.join(td, "org/json/MiniJson.java"),
+            java_v220,
+        ]
+        if os.path.exists(ecj_jar):
+            subprocess.run([JAVA, "-jar", ecj_jar, "-1.8", "-cp", cp_jars, "-d", td] + shim_srcs, check=True)
+        else:
+            subprocess.run([JAVAC, "-cp", cp_jars, "-d", td] + shim_srcs, check=True)
+        out = subprocess.check_output(
+            [JAVA, "-ea", "-cp", f"{td}:{cp_jars}", "VerifyV220Suite", td],
+            text=True,
+        )
+        assert "JVM_V220_FULL_SUITE_OK" in out
+    print("  [PASS] All 14 v2.2.0 Upgrades + VK.com Book Storefront + Launcher v52 verified 100%!")
+
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.1.0.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.2.0.apk")
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",
@@ -1643,6 +1992,7 @@ def main() -> None:
     verify_v191_aurora_and_fdroid_fixes()
     verify_v200_all_11_upgrades()
     verify_v210_customizable_app_bar(main_apk, home_apk)
+    verify_v220_all_14_upgrades_plus_vk(main_apk, home_apk)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

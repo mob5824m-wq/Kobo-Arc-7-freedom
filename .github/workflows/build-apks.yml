@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.1.0
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.2.0
 
 on:
   push:
@@ -30,32 +30,33 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography
 
-      - name: Generate reskinned icons, fetch & verify official VLC ARMv7 APK, compile native binaries & sign all v2.1.0 APKs
+      - name: Generate 37 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native binaries & sign all v2.2.0 APKs
         run: |
-          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh tools/serve-over-wifi.sh
+          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.1.0 end-to-end verification suite
+      - name: Run full v2.2.0 end-to-end verification suite
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.1.0 APKs, bundled VLC.apk & Chromebook USB launcher back to branch
+      - name: Commit refreshed signed v2.2.0 APKs, bundled VLC.apk & host tools back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk
+          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk
           git add \
             releases/index.html \
             releases/logo-banner.png \
-            releases/Upgrade-My-Kobo-To-v2.1.0.apk \
+            releases/Upgrade-My-Kobo-To-v2.2.0.apk \
             releases/KoboArc7Freedom.apk \
             releases/VLC.apk \
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
             releases/Start-Chromebook-Wired-Internet.sh \
+            releases/Start-Kobo-Second-Screen.py \
             releases/Backup-Kobo-To-Laptop-ADB.bat \
             releases/Backup-Kobo-To-Laptop-ADB.sh \
             releases/Start-Kobo-WiFi-Server.bat \
@@ -64,66 +65,76 @@ jobs:
             app/src/main/assets/VanillaAndroid4Home.apk \
             app/src/main/assets/starter-apps/AuroraStore.apk \
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk \
-            app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
+            app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh \
+            app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.1.0 APKs, Customizable App Bar Launcher v51 & tools [skip ci]"
+            git commit -m "chore: update pre-built signed v2.2.0 APKs, Launcher v52 & Second Screen tools [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v2.1.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & USB/Wi-Fi tools artifact
+      - name: Upload built v2.2.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & USB/Wi-Fi tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.1.0-apks
+          name: kobo-arc-7-freedom-v2.2.0-apks
           path: |
-            releases/Upgrade-My-Kobo-To-v2.1.0.apk
+            releases/Upgrade-My-Kobo-To-v2.2.0.apk
             releases/KoboArc7Freedom.apk
             releases/VLC.apk
             releases/AuroraStore.apk
             releases/FDroidClassicLegacy.apk
             releases/VanillaAndroid4Home.apk
             releases/Start-Chromebook-Wired-Internet.sh
+            releases/Start-Kobo-Second-Screen.py
             releases/Backup-Kobo-To-Laptop-ADB.bat
             releases/Backup-Kobo-To-Laptop-ADB.sh
             releases/Start-Kobo-WiFi-Server.bat
             releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.1.0 APKs, VLC Media Player & Chromebook USB tools to GitHub Releases
+      - name: Publish signed v2.2.0 APKs, VLC Media Player & Host Tools to GitHub Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.1.0 (`ca.arc7freedom.app` v210 + Launcher `v51` + `Upgrade-My-Kobo-To-v2.1.0.apk`)
+          ## Kobo Arc 7 Freedom v2.2.0 (`ca.arc7freedom.app` v220 + Launcher `v52` + `Upgrade-My-Kobo-To-v2.2.0.apk`)
 
-          ### New in `v2.1.0` — Full System-Wide Customizable App Bar (`Home Dock, Side Rails, Top Bar & In-App Bars`):
-          - **Customizable Home App Bar Slots (0 to 12 Apps with Smooth Overflow Scrolling):**
-            - Freely **pin any built-in or installed Android app** (or remove, replace, or reorder with 1 tap) via:
-              - Tapping **`App Bar`** on the Home top bar or inside **`Kobo Arc 7 Freedom`**,
-              - **Long-pressing any icon** on the Home App Bar (`Move Earlier`, `Move Later`, `Replace Slot`, `Add Another App`, `Remove from App Bar`, `Open Full App Bar Studio`),
-              - **Long-pressing any app in the All-Apps Drawer (`:::`)** -> **`Pin to App Bar` / `Unpin from App Bar`**, or
-              - **Long-pressing the App Bar bar background or any In-App header**.
-          - **5 Home App Bar Positions (`Bottom`, `Top`, `Left Side Rail`, `Right Side Rail`, `Hidden`):**
-            - Switch dynamically between classic **Bottom Dock**, **Top App Bar**, **Left Side Rail** (ideal for landscape 1280x800!), **Right Side Rail**, or **Hidden** (with full-desktop swipe-up gesture to open All Apps + `⚙ App Bar` button right inside the All-Apps header!).
-          - **Full Visual Chrome, Sizing, Labels & Opacity Controls:**
-            - Choose from **5 App Bar Styles** (*Floating Glass Pill*, *Full-Width Edge-to-Edge Bar*, *Minimal Transparent Icons*, *Solid Matte Slate Bar*, *Glowing Neon Accent Rim*), **4 Icon Sizes** (`34 dp` Compact, `42 dp` Standard, `50 dp` Large, `58 dp` Extra-Large), **4 All-Apps (`:::`) Button Placements** (*Center*, *Start*, *End*, *Hidden*), **Show/Hide App Labels**, **6 Glass Opacity Levels** (`0%`–`96%`), **7 Custom Accent Highlight Swatches**, and granular **Home Top Bar element toggles** (`Clock`, `Search`, `App Bar`, `Skin`, `Wallpaper`, or `Hidden`).
-          - **Customizable In-App Top App Bars Across Every Built-In `Arc7` App:**
-            - Configure **Compact / Standard / Tall App Bar height**, **OS Gradient / Flat Solid / Tinted Accent / Minimal Neon-Underline header chrome**, **Centered vs Left-Aligned app titles**, and a built-in **`Apps ▾` Quick App Bar Switcher** pill inside every app!
-          - **Includes 100% of `v2.0.0` Features Intact:**
-            - Two-way **Chromebook <-> Kobo Wired USB Internet**, pre-bundled official ARMv7 **`VLC.apk`**, **`Arc7 Calendar` + Home Widget**, **`Arc7 Photos` + Filter Studio**, **`Arc7 Camera` + Screen Flash**, **`Arc7 Calculator`**, **`Arc7 Notes & Sketchpad`**, **`Arc7 Files`**, **20 `archive.org` Alarm Chimes**, **Custom `Arc7 APK Installer`**, **5 OS Skins + 28 Reskinned High-DPI Icons**, **`Aurora Store v4.8.5`**, **`F-Droid v1302`**, **`python3` + `apt`**, and **TLS 1.3**.
+          ### New in `v2.2.0` — All 14 Major OS & App Suite Upgrades + Live `vk.com` Book Storefront:
+          1. **4-Source Free E-Book Storefront + `.FB2` / `.FB2.ZIP` / `.PDF` / `.EPUB` / `.CBZ` Reader (`Arc7 E-Reader`):**
+             - Built-in **`VK Books` (`vk.com`)** search & 1-tap download (`api.vk.com/method/docs.search` + OAuth login/token + zero-login public `vk.com` book finder + embedded `m.vk.com` TLS 1.3 WebView book download interceptor), **`Project Gutenberg` (`70,000+` books)**, **`Open Library`**, and **`Standard Ebooks`**, plus native **`.fb2` / `.fb2.zip`** XML + cover/image parser, bookmarks, reading progress `%`, and 4 reading themes (*Sepia*, *Daylight*, *AMOLED Dark*, *Forest Sage*)!
+          2. **Native Offline PDF Reader & Multi-Page Camera Document Scanner (`Arc7 PDF & Scanner`):**
+             - Offline PDF page extractor, chapter search & bookmarking + live Camera/Photo multi-page document scanner exporting crisp `%PDF-1.4` files to `/sdcard/Documents/Scans/`!
+          3. **Live `Open-Meteo` Weather App + Home Screen Weather Widget (`Arc7 Weather`):**
+             - Zero-API-key TLS 1.3 city search, current temperature, 24-hour strip, 7-day forecast, °C/°F toggle, offline cache, and live Home Screen AppWidget!
+          4. **30,000+ Live World Internet Radio, Podcast `.mp3` Downloader & Offline RSS Reader (`Arc7 Radio & Feeds`):**
+             - Screen-off TLS-relayed radio streaming, iTunes Podcast search + offline `.mp3` downloads, and RSS 2.0 / Atom offline feed reader!
+          5. **Studio 44.1 kHz Waveform Voice Recorder & Lossless WAV Trimmer (`Arc7 Recorder`):**
+             - 16-bit PCM `.wav` recording with true Android 4.2 Pause/Resume, live 60 fps waveform, and lossless `.wav` trimming!
+          6. **Zero-Ad 60 fps Offline Classic Games Pack (`Arc7 Arcade`):**
+             - **Chess vs 2-Ply AI**, **2048**, **Sudoku**, **Minesweeper**, and **Klondike Solitaire**!
+          7. **System-Wide `/etc/hosts` Ad/Tracker Blocker & Per-App Root Firewall (`Arc7 Shield`):**
+             - Pure `mksh`/`toolbox` hosts adblocker + live `StevenBlack/hosts` sync over TLS 1.3 + per-app UID `iptables` internet firewall!
+          8. **`+384 MB` Kernel `zRAM` / Swap Expander, Quad-Core CPU Profiles & Battery Doctor (`Arc7 Boost`).**
+          9. **Chromebook / PC / Mac Extended `1280×800` USB/Wi-Fi Second Screen + 12-Key Macro Deck (`Arc7 Second Screen` + `Start-Kobo-Second-Screen.py`).**
+          10. **Landscape Dual-Pane Split-Screen Multitasking (`Arc7 Split View` — Web, Books/PDF, Notes, Dict/Wiki & Calculator side-by-side).**
+          11. **Upgraded `VanillaAndroid4Home v52` (`3–5` Multi-Page Desktops, `4–7` Column Grid Density, Desktop & App Bar `@folder:` App Folders, 4-Digit App PIN Lock, and JSON Layout Backup/Restore).**
+          12. **Chromebook / LAN Wireless WebDAV + HTML5 Network Drive (`:8085`) & Remote LAN Share Browser with Direct `VLC` Streaming (`Arc7 Files`).**
+          13. **Offline English Lexicon + `Wiktionary` & Clean Reader `Wikipedia` with Offline Saved Articles (`Arc7 Dict & Wiki`).**
+          14. **Automatic Sunset-to-Sunrise Night Light (`20:00–07:00`), Auto-Charging Smart Bedside Dock & Smooth 30s Fade-Out Audio Sleep Timer.**
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.1.0 >/dev/null 2>&1; then
-            gh release edit v2.1.0 --latest --title "Kobo Arc 7 Freedom v2.1.0 — Customizable App Bar + Custom OS Skin, VLC, Photos, Camera, Calendar & Chromebook USB Internet" --notes-file /tmp/release-notes.md
-            gh release upload v2.1.0 \
-              releases/Upgrade-My-Kobo-To-v2.1.0.apk \
+          if gh release view v2.2.0 >/dev/null 2>&1; then
+            gh release edit v2.2.0 --latest --title "Kobo Arc 7 Freedom v2.2.0 — VK + 4-Store E-Reader, PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost, Second Screen, Split View & Launcher v52" --notes-file /tmp/release-notes.md
+            gh release upload v2.2.0 \
+              releases/Upgrade-My-Kobo-To-v2.2.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/Start-Chromebook-Wired-Internet.sh \
+              releases/Start-Kobo-Second-Screen.py \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
               releases/Backup-Kobo-To-Laptop-ADB.sh \
               releases/Start-Kobo-WiFi-Server.bat \
@@ -131,14 +142,15 @@ jobs:
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v2.1.0 \
-              releases/Upgrade-My-Kobo-To-v2.1.0.apk \
+            gh release create v2.2.0 \
+              releases/Upgrade-My-Kobo-To-v2.2.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/Start-Chromebook-Wired-Internet.sh \
+              releases/Start-Kobo-Second-Screen.py \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
               releases/Backup-Kobo-To-Laptop-ADB.sh \
               releases/Start-Kobo-WiFi-Server.bat \
@@ -146,6 +158,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.1.0 — Customizable App Bar + Custom OS Skin, VLC, Photos, Camera, Calendar & Chromebook USB Internet" \
+              --title "Kobo Arc 7 Freedom v2.2.0 — VK + 4-Store E-Reader, PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost, Second Screen, Split View & Launcher v52" \
               --notes-file /tmp/release-notes.md
           fi

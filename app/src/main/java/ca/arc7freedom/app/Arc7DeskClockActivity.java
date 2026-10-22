@@ -186,6 +186,26 @@ public class Arc7DeskClockActivity extends Activity {
                 applyVisualMode();
             }
         }));
+        topControls.addView(miniBtn("Auto-Dock Charge", "#D97706", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+                boolean next = !sp.getBoolean("auto_dock_on_charge", false);
+                sp.edit().putBoolean("auto_dock_on_charge", next).commit();
+                android.widget.Toast.makeText(Arc7DeskClockActivity.this,
+                        "Auto-Launch Bedside Dock on USB Power: " + (next ? "ON" : "OFF"),
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        }));
+        topControls.addView(miniBtn("Sleep Fade 30m", "#0D9488", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7AudioService.startSleepTimer(Arc7DeskClockActivity.this, 30);
+                android.widget.Toast.makeText(Arc7DeskClockActivity.this,
+                        "Audio Sleep Timer armed: 30 min + smooth 30s fade-out!",
+                        android.widget.Toast.LENGTH_SHORT).show();
+            }
+        }));
         topControls.addView(miniBtn("Reload Photos", "#334155", new View.OnClickListener() {
             @Override public void onClick(View v) { scanPhotosAsync(); }
         }));

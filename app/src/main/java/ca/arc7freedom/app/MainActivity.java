@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v2.1.0");
+        title.setText("Kobo Arc 7 Freedom  v2.2.0");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -1051,10 +1051,107 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.1.0 OS App Suite + Customizable App Bar Studio
+        // Card 1: Complete v2.2.0 OS App Suite + Customizable App Bar Studio
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.1.0 Daily-Driver App & Media Suite",
-                "Every app runs in its own isolated task with customizable App Bars, Arc7 OS Skins, and high-DPI icons!");
+        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.2.0 Daily-Driver App & Media Suite",
+                "All 28 standalone isolated-task apps + VK / Gutenberg / Open Library / Standard Ebooks Storefront, PDF & Scanner, Weather, Radio & RSS, Recorder, Arcade, Shield, Boost, Second Screen & Split View!");
+
+        addToolActionRow(packCard, "Open Arc7 E-Reader — VK Books + Gutenberg + Open Library + Standard Ebooks (.FB2/.PDF/.EPUB/.CBZ)",
+                "4-source free e-book storefront (`vk.com` OAuth + zero-login `vk.com` search/m.vk.com interceptor + Gutenberg + Open Library + Standard Ebooks) + `.fb2`/`.fb2.zip`/`.pdf`/`.epub`/`.cbz`!",
+                "VK & Books", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 PDF & Scanner — Native Offline PDF Reader + Camera Document Scanner",
+                "Read `.pdf` documents offline with chapter search OR scan paper pages via Kobo camera straight to `.pdf`!",
+                "PDF & Scan", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7PdfViewerActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Weather — Live Open-Meteo Forecast + Home Screen Widget",
+                "Zero-API-key TLS 1.3 hourly & 7-day weather forecasts with °C/°F toggle and offline Home Widget cache!",
+                "Open Weather", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7WeatherActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Radio, Podcasts & Offline RSS Reader",
+                "Stream 30,000+ live world radio stations with screen OFF + download offline `.mp3` podcasts + RSS/Atom feeds!",
+                "Radio & RSS", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7RadioRssActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Recorder — 44.1 kHz Studio WAV Voice Recorder & Lossless Trimmer",
+                "Record crystal-clear 16-bit PCM `.wav` lectures & memos with live 60 fps waveform, Pause/Resume & lossless trim!",
+                "Voice Recorder", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7RecorderActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Offline Arcade — Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire",
+                "5 instant zero-ad 60 fps classic tablet games built straight into Kobo Arc 7 Freedom!",
+                "Play Arcade", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7ArcadeActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Dictionary & Wikipedia — Offline Lexicon + Clean Reader Mode",
+                "Instant offline English lexicon + Wiktionary definitions + distraction-free Wikipedia reader with saved articles!",
+                "Dict & Wiki", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7DictionaryWikiActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Split View — True Landscape Dual-Pane Multitasking",
+                "Run Web Browser, E-Reader/PDF, Research Notes, Dictionary/Wiki & Calculator side-by-side (`35/50/65%` + `⇄ Swap`)!",
+                "Split View", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7SplitViewActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Second Screen — Chromebook / PC Extended Monitor & 12-Key Macro Deck",
+                "Use Kobo Arc 7 as a `1280x800` USB/Wi-Fi second display (`:18900`) with reverse touch input + 12-key Macro Deck!",
+                "2nd Screen", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7SecondScreenActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Shield — System-Wide Hosts AdBlocker & Per-App Root Firewall",
+                "Block ad/tracker domains in `/system/etc/hosts` (+ live 80k StevenBlack list) & control per-app `iptables` internet access!",
+                "Arc7 Shield", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7ShieldActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Boost — +384 MB Kernel zRAM/Swap Expander, CPU Governor & Battery Doctor",
+                "Add `+384 MB` swap headroom alongside 1 GB RAM, switch quad-core CPU profiles, and reclaim cached RAM!",
+                "Arc7 Boost", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7BoostActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Enable Automatic Sunset-to-Sunrise Night Light (20:00–07:00 Warm Amber)",
+                "Automatically tints blue light warm amber after sunset while restoring crisp daylight colors in the morning!",
+                "Auto Sunset", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        NightFilterService.applyMode(MainActivity.this, NightFilterService.MODE_AUTO_SUNSET);
+                        Toast.makeText(MainActivity.this, "Enabled Automatic Sunset-to-Sunrise Night Light!", Toast.LENGTH_SHORT).show();
+                    }
+                });
 
         addToolActionRow(packCard, "Customize App Bar (Home Dock, Side Rails, Top Bar & In-App Headers)",
                 "Pin/remove/reorder up to 12 apps, move bar to Bottom/Top/Left/Right/Hidden, resize icons, hide labels, or tweak In-App headers!",

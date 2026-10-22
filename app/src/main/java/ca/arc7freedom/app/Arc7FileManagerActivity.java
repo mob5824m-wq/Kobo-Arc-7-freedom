@@ -101,6 +101,27 @@ public class Arc7FileManagerActivity extends Activity {
         });
         addBtn(topActions, newFolderBtn);
 
+        Button driveBtn = Arc7Skin.actionButton(this, "📡 WebDAV Drive", 0xFF0284C7);
+        driveBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String url = Arc7NetworkSharesManager.toggleWebDavDriveServer(Arc7FileManagerActivity.this);
+                Toast.makeText(Arc7FileManagerActivity.this,
+                        url != null ? ("Wireless WebDAV + Browser Drive ON: " + url) : "Wireless Drive stopped.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+        addBtn(topActions, driveBtn);
+
+        Button lanBtn = Arc7Skin.actionButton(this, "🌐 LAN Share", 0xFF7C3AED);
+        lanBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Arc7NetworkSharesManager.showLanShareDialog(Arc7FileManagerActivity.this);
+            }
+        });
+        addBtn(topActions, lanBtn);
+
         pasteBtn = Arc7Skin.actionButton(this, "Paste", 0xFF0284C7);
         pasteBtn.setVisibility(View.GONE);
         pasteBtn.setOnClickListener(new View.OnClickListener() {

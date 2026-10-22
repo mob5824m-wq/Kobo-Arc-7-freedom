@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/weather_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:background="#E6101B2B"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="82dp"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#FF0284C7"
+        android:padding="8dp">
+
+        <TextView
+            android:id="@+id/weather_widget_temp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="14°"
+            android:textColor="#FFFFFFFF"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/weather_widget_unit"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="FEELS 12°C"
+            android:textColor="#FFE0F2FE"
+            android:textSize="9.5sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingLeft="12dp">
+
+        <TextView
+            android:id="@+id/weather_widget_city"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="KITCHENER, ON"
+            android:textColor="#FF38BDF8"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/weather_widget_summary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="4dp"
+            android:text="Tap to refresh live Open-Meteo 7-day forecast"
+            android:textColor="#FFF8FAFC"
+            android:textSize="12sp"
+            android:maxLines="3" />
+    </LinearLayout>
+</LinearLayout>

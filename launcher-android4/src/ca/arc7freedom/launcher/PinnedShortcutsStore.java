@@ -2,17 +2,29 @@ package ca.arc7freedom.launcher;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Environment;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * Persists user-pinned app shortcuts AND live Android Home Screen AppWidgets across
- * 3 swipeable home desktop pages inside {@code SharedPreferences("vanilla_home_pages")}.
+ * Persists multi-page Home Desktops (`3..5` pages), App Folders (`@folder:Name|pkg/cls;...`),
+ * Desktop Grid Column Density (`4..7`), 4-Digit App PIN Lock, JSON Layout Backup & Restore,
+ * AND live Android Home Screen AppWidgets inside {@code SharedPreferences("vanilla_home_pages")}.
  */
 public final class PinnedShortcutsStore {
 
     private static final String PREFS = "vanilla_home_pages";
+    public static final String FOLDER_PREFIX = "@folder:";
 
     public static final class WidgetRecord {
         public final int appWidgetId;
@@ -26,6 +38,63 @@ public final class PinnedShortcutsStore {
 
     private PinnedShortcutsStore() {}
 
+    /* -------------------- Multi-Page Count & Grid Density (`v52`) -------------------- */
+
+    public static int getPageCount(Context ctx) {
+        int n = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("page_count", 3);
+        return Math.max(3, Math.min(5, n));
+    }
+
+    public static void setPageCount(Context ctx, int pages) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt("page_count", Math.max(3, Math.min(5, pages))).commit();
+    }
+
+    public static int getDesktopColumns(Context ctx) {
+        int c = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("desktop_columns", 5);
+        return Math.max(4, Math.min(7, c));
+    }
+
+    public static void setDesktopColumns(Context ctx, int cols) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt("desktop_columns", Math.max(4, Math.min(7, cols))).commit();
+    }
+
+    /* -------------------- Desktop Shortcuts & App Folders -------------------- */
+
+    public static boolean isFolderToken(String token) {
+        return token != null && token.startsWith(FOLDER_PREFIX) && token.indexOf('|') > FOLDER_PREFIX.length();
+    }
+
+    public static String parseFolderName(String token) {
+        if (!isFolderToken(token)) return "Folder";
+        return token.substring(FOLDER_PREFIX.length(), token.indexOf('|'));
+    }
+
+    public static List<String> parseFolderMembers(String token) {
+        List<String> out = new ArrayList<String>();
+        if (!isFolderToken(token)) return out;
+        String body = token.substring(token.indexOf('|') + 1);
+        String[] parts = body.split(";");
+        for (int i = 0; i < parts.length; i++) {
+            String p = parts[i].trim();
+            if (!p.isEmpty() && p.contains("/")) out.add(p);
+        }
+        return out;
+    }
+
+    public static String buildFolderToken(String folderName, List<String> members) {
+        String safeName = (folderName == null || folderName.trim().isEmpty())
+                ? "Folder" : folderName.trim().replace("|", "-").replace("\n", " ");
+        StringBuilder sb = new StringBuilder();
+        sb.append(FOLDER_PREFIX).append(safeName).append('|');
+        for (int i = 0; i < members.size(); i++) {
+            if (i > 0) sb.append(';');
+            sb.append(members.get(i));
+        }
+        return sb.toString();
+    }
+
     public static List<String> loadPage(Context ctx, int pageIndex) {
         SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String raw = sp.getString("page_" + pageIndex, "");
@@ -34,7 +103,7 @@ public final class PinnedShortcutsStore {
         String[] parts = raw.split("\\n");
         for (int i = 0; i < parts.length; i++) {
             String p = parts[i].trim();
-            if (!p.isEmpty() && p.contains("/") && !list.contains(p)) {
+            if (!p.isEmpty() && (p.contains("/") || isFolderToken(p)) && !list.contains(p)) {
                 list.add(p);
             }
         }
@@ -42,8 +111,11 @@ public final class PinnedShortcutsStore {
     }
 
     public static void addShortcut(Context ctx, int pageIndex, String pkg, String cls) {
+        addRawEntry(ctx, pageIndex, pkg + "/" + cls);
+    }
+
+    public static void addRawEntry(Context ctx, int pageIndex, String entry) {
         List<String> list = loadPage(ctx, pageIndex);
-        String entry = pkg + "/" + cls;
         if (!list.contains(entry)) {
             list.add(entry);
             savePage(ctx, pageIndex, list);
@@ -51,14 +123,17 @@ public final class PinnedShortcutsStore {
     }
 
     public static void removeShortcut(Context ctx, int pageIndex, String pkg, String cls) {
+        removeRawEntry(ctx, pageIndex, pkg + "/" + cls);
+    }
+
+    public static void removeRawEntry(Context ctx, int pageIndex, String entry) {
         List<String> list = loadPage(ctx, pageIndex);
-        String entry = pkg + "/" + cls;
         if (list.remove(entry)) {
             savePage(ctx, pageIndex, list);
         }
     }
 
-    private static void savePage(Context ctx, int pageIndex, List<String> entries) {
+    public static void savePage(Context ctx, int pageIndex, List<String> entries) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < entries.size(); i++) {
             if (i > 0) sb.append('\n');
@@ -68,6 +143,108 @@ public final class PinnedShortcutsStore {
                 .edit()
                 .putString("page_" + pageIndex, sb.toString())
                 .commit();
+    }
+
+    /* -------------------- 4-Digit App PIN Lock -------------------- */
+
+    public static String getPinCode(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("app_lock_pin", "");
+    }
+
+    public static void setPinCode(Context ctx, String pin) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putString("app_lock_pin", pin == null ? "" : pin.trim()).commit();
+    }
+
+    public static boolean isAppLocked(Context ctx, String pkg) {
+        if (pkg == null) return false;
+        String raw = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("locked_pkgs", "");
+        if (raw.isEmpty() || getPinCode(ctx).isEmpty()) return false;
+        String[] arr = raw.split(",");
+        for (int i = 0; i < arr.length; i++) if (pkg.equals(arr[i])) return true;
+        return false;
+    }
+
+    public static void setAppLocked(Context ctx, String pkg, boolean locked) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        Set<String> set = new LinkedHashSet<String>();
+        String raw = sp.getString("locked_pkgs", "");
+        if (!raw.isEmpty()) {
+            String[] arr = raw.split(",");
+            for (int i = 0; i < arr.length; i++) if (!arr[i].isEmpty()) set.add(arr[i]);
+        }
+        if (locked) set.add(pkg); else set.remove(pkg);
+        StringBuilder sb = new StringBuilder();
+        for (String s : set) { if (sb.length() > 0) sb.append(','); sb.append(s); }
+        sp.edit().putString("locked_pkgs", sb.toString()).commit();
+    }
+
+    /* -------------------- JSON Backup & Restore -------------------- */
+
+    public static File backupFile() {
+        File prop = System.getProperty("arc7.test.home.backup") != null
+                ? new File(System.getProperty("arc7.test.home.backup")) : null;
+        if (prop != null) return prop;
+        File dir = new File(Environment.getExternalStorageDirectory(), "Backups");
+        if (!dir.exists()) dir.mkdirs();
+        return new File(dir, "Arc7-Home-Layout.json");
+    }
+
+    public static File exportLayoutBackupJson(Context ctx) throws Exception {
+        JSONObject root = new JSONObject();
+        root.put("version", 52);
+        root.put("pageCount", getPageCount(ctx));
+        root.put("desktopColumns", getDesktopColumns(ctx));
+        JSONArray pages = new JSONArray();
+        for (int p = 0; p < 5; p++) {
+            JSONArray arr = new JSONArray();
+            List<String> items = loadPage(ctx, p);
+            for (int i = 0; i < items.size(); i++) arr.put(items.get(i));
+            pages.put(arr);
+        }
+        root.put("pages", pages);
+        JSONArray barItems = new JSONArray();
+        AppBarConfigStore.Config bar = AppBarConfigStore.load(ctx);
+        for (int i = 0; i < bar.items.size(); i++) barItems.put(bar.items.get(i));
+        root.put("appBarItems", barItems);
+
+        File out = backupFile();
+        FileOutputStream fos = new FileOutputStream(out);
+        try { fos.write(root.toString(2).getBytes("UTF-8")); }
+        finally { fos.close(); }
+        return out;
+    }
+
+    public static void importLayoutBackupJson(Context ctx) throws Exception {
+        File f = backupFile();
+        FileInputStream fis = new FileInputStream(f);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try {
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = fis.read(buf)) > 0) baos.write(buf, 0, n);
+        } finally {
+            fis.close();
+        }
+        JSONObject root = new JSONObject(baos.toString("UTF-8"));
+        setPageCount(ctx, root.optInt("pageCount", 3));
+        setDesktopColumns(ctx, root.optInt("desktopColumns", 5));
+        JSONArray pages = root.optJSONArray("pages");
+        if (pages != null) {
+            for (int p = 0; p < Math.min(5, pages.length()); p++) {
+                JSONArray arr = pages.getJSONArray(p);
+                List<String> list = new ArrayList<String>();
+                for (int i = 0; i < arr.length(); i++) list.add(arr.getString(i));
+                savePage(ctx, p, list);
+            }
+        }
+        JSONArray barItems = root.optJSONArray("appBarItems");
+        if (barItems != null) {
+            AppBarConfigStore.Config bar = AppBarConfigStore.load(ctx);
+            bar.items.clear();
+            for (int i = 0; i < barItems.length(); i++) bar.items.add(barItems.getString(i));
+            AppBarConfigStore.save(ctx, bar);
+        }
     }
 
     /* -------------------- Home Screen AppWidgets Per Page -------------------- */
@@ -116,7 +293,7 @@ public final class PinnedShortcutsStore {
     }
 
     public static void removeWidgetEverywhere(Context ctx, int appWidgetId, int pageCount) {
-        for (int p = 0; p < pageCount; p++) {
+        for (int p = 0; p < Math.max(5, pageCount); p++) {
             List<WidgetRecord> list = loadWidgets(ctx, p);
             boolean changed = false;
             for (int i = list.size() - 1; i >= 0; i--) {

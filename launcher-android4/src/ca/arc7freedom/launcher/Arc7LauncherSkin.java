@@ -132,6 +132,16 @@ public final class Arc7LauncherSkin {
         String c = cls == null ? "" : cls.toLowerCase(Locale.US);
 
         if ("ca.arc7freedom.app".equals(p)) {
+            if (c.contains("pdf")) return R.drawable.ic_pdf;
+            if (c.contains("weather")) return R.drawable.ic_weather;
+            if (c.contains("radio") || c.contains("rss")) return R.drawable.ic_radio;
+            if (c.contains("recorder")) return R.drawable.ic_recorder;
+            if (c.contains("arcade")) return R.drawable.ic_arcade;
+            if (c.contains("shield")) return R.drawable.ic_shield;
+            if (c.contains("boost")) return R.drawable.ic_boost;
+            if (c.contains("secondscreen")) return R.drawable.ic_display;
+            if (c.contains("splitview")) return R.drawable.ic_splitview;
+            if (c.contains("dictionary") || c.contains("wiki")) return R.drawable.ic_wiki;
             if (c.contains("browser")) return R.drawable.ic_browser;
             if (c.contains("ebook")) return R.drawable.ic_ereader;
             if (c.contains("audio")) return R.drawable.ic_audio;

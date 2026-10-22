@@ -228,6 +228,17 @@ public class Arc7CameraActivity extends Activity implements SurfaceHolder.Callba
         });
         addSpacedTopBtn(topBar, effectBtn);
 
+        Button scanPdfBtn = Arc7Skin.actionButton(this, "Scan -> PDF", 0xFF059669);
+        scanPdfBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent scan = new Intent(Arc7CameraActivity.this, Arc7PdfViewerActivity.class);
+                scan.putExtra(Arc7PdfViewerActivity.EXTRA_AUTO_SCAN, true);
+                startActivity(scan);
+            }
+        });
+        addSpacedTopBtn(topBar, scanPdfBtn);
+
         if (numCameras > 1) {
             Button switchCamBtn = Arc7Skin.actionButton(this, "Switch Cam", 0xFF2563EB);
             switchCamBtn.setOnClickListener(new View.OnClickListener() {

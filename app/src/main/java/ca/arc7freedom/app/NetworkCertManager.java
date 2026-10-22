@@ -57,6 +57,7 @@ import javax.net.ssl.TrustManagerFactory;
 public class NetworkCertManager {
 
     public static final int DEFAULT_PROXY_PORT = 8118;
+    public static final int BROWSER_GATEWAY_PORT = DEFAULT_PROXY_PORT;
     // Build floor timestamp (2026-10-21 00:00:00 UTC = 1792540800000L) used solely to detect
     // expired pre-2026 system certificates even before clock sync finishes.
     private static final long BUILD_FLOOR_EPOCH_MS = 1792540800000L;

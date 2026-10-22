@@ -499,7 +499,8 @@ public final class Arc7Skin {
                     Arc7ClockWidgetProvider.class,
                     Arc7AudioWidgetProvider.class,
                     Arc7PowerWidgetProvider.class,
-                    Arc7CalendarWidgetProvider.class
+                    Arc7CalendarWidgetProvider.class,
+                    Arc7WeatherWidgetProvider.class
             };
             for (int i = 0; i < providers.length; i++) {
                 int[] ids = awm.getAppWidgetIds(new ComponentName(ctx, providers[i]));
@@ -764,6 +765,9 @@ public final class Arc7Skin {
     }
 
     public static String labelForBarToken(Context ctx, String tok) {
+        if (tok != null && tok.startsWith("@folder:") && tok.indexOf('|') > 8) {
+            return "📁 " + tok.substring(8, tok.indexOf('|'));
+        }
         if ("@browser".equals(tok)) return "Arc7 Browser";
         if ("@calendar".equals(tok)) return "Arc7 Calendar";
         if ("@photos".equals(tok)) return "Arc7 Photos";
@@ -775,6 +779,16 @@ public final class Arc7Skin {
         if ("@calculator".equals(tok)) return "Arc7 Calculator";
         if ("@clock".equals(tok)) return "Arc7 Clock & Alarms";
         if ("@ereader".equals(tok)) return "Arc7 E-Reader";
+        if ("@pdf".equals(tok)) return "Arc7 PDF & Scanner";
+        if ("@weather".equals(tok)) return "Arc7 Weather";
+        if ("@radio".equals(tok)) return "Arc7 Radio, Podcasts & RSS";
+        if ("@recorder".equals(tok)) return "Arc7 Voice Recorder";
+        if ("@arcade".equals(tok)) return "Arc7 Offline Arcade";
+        if ("@shield".equals(tok)) return "Arc7 Shield AdBlock";
+        if ("@boost".equals(tok)) return "Arc7 Boost & Swap";
+        if ("@secondscreen".equals(tok)) return "Arc7 Second Screen";
+        if ("@splitview".equals(tok)) return "Arc7 Split View";
+        if ("@wiki".equals(tok)) return "Arc7 Dictionary & Wiki";
         if ("@audio".equals(tok)) return "Arc7 Music Player";
         if ("@terminal".equals(tok)) return "Root Shell Terminal";
         if ("@wired".equals(tok)) return "Chromebook USB Internet";
@@ -792,8 +806,31 @@ public final class Arc7Skin {
         return tok == null ? "App" : tok;
     }
 
-    public static void launchBarToken(Context ctx, String tok) {
+    public static void launchBarToken(final Context ctx, String tok) {
         try {
+            if (tok != null && tok.startsWith("@folder:") && tok.indexOf('|') > 8 && ctx instanceof Activity) {
+                final String fname = tok.substring(8, tok.indexOf('|'));
+                String[] parts = tok.substring(tok.indexOf('|') + 1).split(";");
+                final List<String> comps = new ArrayList<String>();
+                final List<String> labels = new ArrayList<String>();
+                for (int i = 0; i < parts.length; i++) {
+                    String p = parts[i].trim();
+                    if (p.indexOf('/') > 0) {
+                        comps.add(p);
+                        labels.add(labelForBarToken(ctx, p));
+                    }
+                }
+                new AlertDialog.Builder((Activity) ctx)
+                        .setTitle("📁 " + fname)
+                        .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
+                            @Override
+                            public void onClick(DialogInterface d, int w) {
+                                launchBarToken(ctx, comps.get(w));
+                            }
+                        })
+                        .show();
+                return;
+            }
             Intent target = null;
             if ("@browser".equals(tok)) target = new Intent(ctx, Arc7BrowserActivity.class);
             else if ("@calendar".equals(tok)) target = new Intent(ctx, Arc7CalendarActivity.class);
@@ -808,6 +845,16 @@ public final class Arc7Skin {
             else if ("@calculator".equals(tok)) target = new Intent(ctx, Arc7CalculatorActivity.class);
             else if ("@clock".equals(tok)) target = new Intent(ctx, Arc7ClockActivity.class);
             else if ("@ereader".equals(tok)) target = new Intent(ctx, Arc7EbookReaderActivity.class);
+            else if ("@pdf".equals(tok)) target = new Intent(ctx, Arc7PdfViewerActivity.class);
+            else if ("@weather".equals(tok)) target = new Intent(ctx, Arc7WeatherActivity.class);
+            else if ("@radio".equals(tok)) target = new Intent(ctx, Arc7RadioRssActivity.class);
+            else if ("@recorder".equals(tok)) target = new Intent(ctx, Arc7RecorderActivity.class);
+            else if ("@arcade".equals(tok)) target = new Intent(ctx, Arc7ArcadeActivity.class);
+            else if ("@shield".equals(tok)) target = new Intent(ctx, Arc7ShieldActivity.class);
+            else if ("@boost".equals(tok)) target = new Intent(ctx, Arc7BoostActivity.class);
+            else if ("@secondscreen".equals(tok)) target = new Intent(ctx, Arc7SecondScreenActivity.class);
+            else if ("@splitview".equals(tok)) target = new Intent(ctx, Arc7SplitViewActivity.class);
+            else if ("@wiki".equals(tok)) target = new Intent(ctx, Arc7DictionaryWikiActivity.class);
             else if ("@audio".equals(tok)) target = new Intent(ctx, Arc7AudioPlayerActivity.class);
             else if ("@terminal".equals(tok)) target = new Intent(ctx, Arc7TerminalActivity.class);
             else if ("@wired".equals(tok)) target = new Intent(ctx, Arc7WiredInternetActivity.class);
@@ -1096,8 +1143,10 @@ public final class Arc7Skin {
         final List<String> names = new ArrayList<String>();
         final List<String> toks = new ArrayList<String>();
         String[] builtins = new String[]{
-                "@browser", "@calendar", "@photos", "@camera", "@vlc",
-                "@files", "@notes", "@calculator", "@clock", "@ereader",
+                "@browser", "@ereader", "@pdf", "@weather", "@radio", "@recorder",
+                "@arcade", "@wiki", "@splitview", "@secondscreen", "@shield", "@boost",
+                "@calendar", "@photos", "@camera", "@vlc",
+                "@files", "@notes", "@calculator", "@clock",
                 "@audio", "@wired", "@terminal", "@freedom", "@settings"
         };
         for (int i = 0; i < builtins.length; i++) {
@@ -1247,6 +1296,16 @@ public final class Arc7Skin {
         String c = cls == null ? "" : cls.toLowerCase(Locale.US);
 
         if ("ca.arc7freedom.app".equals(p)) {
+            if (c.contains("pdf")) return R.drawable.ic_pdf;
+            if (c.contains("weather")) return R.drawable.ic_weather;
+            if (c.contains("radio") || c.contains("rss")) return R.drawable.ic_radio;
+            if (c.contains("recorder")) return R.drawable.ic_recorder;
+            if (c.contains("arcade")) return R.drawable.ic_arcade;
+            if (c.contains("shield")) return R.drawable.ic_shield;
+            if (c.contains("boost")) return R.drawable.ic_boost;
+            if (c.contains("secondscreen")) return R.drawable.ic_display;
+            if (c.contains("splitview")) return R.drawable.ic_splitview;
+            if (c.contains("dictionary") || c.contains("wiki")) return R.drawable.ic_wiki;
             if (c.contains("browser")) return R.drawable.ic_browser;
             if (c.contains("ebook")) return R.drawable.ic_ereader;
             if (c.contains("audio")) return R.drawable.ic_audio;
