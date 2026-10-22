@@ -104,6 +104,10 @@ public class NetworkCertManager {
     private final RootShell shell;
     private Process proxyProcess;
 
+    public NetworkCertManager(Context ctx) {
+        this(ctx, ctx != null ? new RootShell(ctx) : null);
+    }
+
     public NetworkCertManager(Context ctx, RootShell shell) {
         this.appContext = ctx != null ? ctx.getApplicationContext() : null;
         this.shell = shell;

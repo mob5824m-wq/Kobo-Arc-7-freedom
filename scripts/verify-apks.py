@@ -111,14 +111,14 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
-        assert str(apk.get_androidversion_code()) == "52", f"Expected launcher versionCode 52, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "53", f"Expected launcher versionCode 53, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.2.0", f"Expected upgrader 2.2.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "220", f"Expected upgrader 220, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.3.0", f"Expected upgrader 2.3.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "230", f"Expected upgrader 230, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.2.0", f"Expected 2.2.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "220", f"Expected 220, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.3.0", f"Expected 2.3.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "230", f"Expected 230, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -157,10 +157,12 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7SecondScreenActivity",
             "ca.arc7freedom.app.Arc7SplitViewActivity",
             "ca.arc7freedom.app.Arc7DictionaryWikiActivity",
+            "ca.arc7freedom.app.Arc7StreamDeckActivity",
+            "ca.arc7freedom.app.Arc7VpnActivity",
         )
         for req_act in expected_acts:
             assert req_act in acts, f"Missing activity {req_act} in compiled AndroidManifest.xml!"
-        # Verify EVERY SINGLE ONE of all 28 activities has its OWN distinct android:taskAffinity!
+        # Verify EVERY SINGLE ONE of all 30 activities has its OWN distinct android:taskAffinity!
         ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
         manifest_xml = apk.get_android_manifest_xml()
         affinities = set()
@@ -170,8 +172,17 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
             assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
             affinities.add(taff)
-        assert len(affinities) == 28, f"Expected 28 distinct taskAffinity entries, got {len(affinities)}"
-        print(f"  [PASS] All {len(affinities)} Activities have 100% isolated android:taskAffinity stacks ({sorted(affinities)[0]} ..)")
+        assert len(affinities) == 30, f"Expected 30 distinct taskAffinity entries, got {len(affinities)}"
+        # Verify Android 4.2 VpnService contract: BIND_VPN_SERVICE permission + android.net.VpnService action!
+        vpn_svc_ok = False
+        for svc_el in manifest_xml.findall(".//service"):
+            if (svc_el.get(ANDROID_NS + "name") or "").endswith("Arc7VpnService"):
+                assert svc_el.get(ANDROID_NS + "permission") == "android.permission.BIND_VPN_SERVICE", "Arc7VpnService missing BIND_VPN_SERVICE!"
+                actions = [a.get(ANDROID_NS + "name") for a in svc_el.findall(".//action")]
+                assert "android.net.VpnService" in actions, f"Arc7VpnService missing android.net.VpnService intent-filter: {actions}"
+                vpn_svc_ok = True
+        assert vpn_svc_ok, "Arc7VpnService not registered in compiled AndroidManifest.xml!"
+        print(f"  [PASS] All {len(affinities)} Activities have 100% isolated android:taskAffinity stacks + Android 4.2 VpnService contract verified!")
 
         svcs = apk.get_services()
         for req_svc in (
@@ -1751,6 +1762,8 @@ public class JSONObject {
     public int optInt(String k, int d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).intValue() : d; }
     public long optLong(String k, long d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).longValue() : d; }
     public double optDouble(String k, double d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).doubleValue() : d; }
+    public boolean optBoolean(String k) { return optBoolean(k, false); }
+    public boolean optBoolean(String k, boolean d) { Object v = m.get(k); return v instanceof Boolean ? ((Boolean) v).booleanValue() : d; }
     public JSONObject optJSONObject(String k) { Object v = m.get(k); return v instanceof JSONObject ? (JSONObject) v : null; }
     public JSONArray optJSONArray(String k) { Object v = m.get(k); return v instanceof JSONArray ? (JSONArray) v : null; }
     public Iterator<String> keys() { return m.keySet().iterator(); }
@@ -1769,7 +1782,8 @@ public class JSONArray {
     public JSONArray put(Object v) { list.add(v); return this; }
     public Object get(int i) { return list.get(i); }
     public String getString(int i) { return String.valueOf(list.get(i)); }
-    public String optString(int i) { return i < list.size() ? String.valueOf(list.get(i)) : ""; }
+    public String optString(int i) { return optString(i, ""); }
+    public String optString(int i, String d) { return (i >= 0 && i < list.size() && list.get(i) != null) ? String.valueOf(list.get(i)) : d; }
     public double optDouble(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).doubleValue() : 0.0; }
     public int optInt(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).intValue() : 0; }
     public JSONObject getJSONObject(int i) { return (JSONObject) list.get(i); }
@@ -1832,9 +1846,20 @@ class MiniJson {
     }
 }
 """)
+        os.makedirs(os.path.join(td, "android/content"), exist_ok=True)
+        with open(os.path.join(td, "android/content/Context.java"), "w", encoding="utf-8") as cf:
+            cf.write("""package android.content;
+import java.io.File;
+public abstract class Context {
+    public static final int MODE_PRIVATE = 0;
+    public abstract SharedPreferences getSharedPreferences(String name, int mode);
+    public abstract File getFilesDir();
+}
+""")
         java_v220 = os.path.join(td, "VerifyV220Suite.java")
         with open(java_v220, "w", encoding="utf-8") as f:
             f.write("""
+import android.content.*;
 import ca.arc7freedom.app.*;
 import ca.arc7freedom.launcher.*;
 import java.io.*;
@@ -1918,7 +1943,128 @@ public class VerifyV220Suite {
         assert PinnedShortcutsStore.isFolderToken(ftok) && "Reading".equals(PinnedShortcutsStore.parseFolderName(ftok));
         assert PinnedShortcutsStore.parseFolderMembers(ftok).size() == 2;
 
+        // 8. v2.3.0 Full JVM Functional Suite:
+        //    - Strict School Wi-Fi WPA2-Enterprise (PEAP/TTLS/eduroam) + Hidden SSID `wpa_supplicant` generator
+        //    - WireGuard `.conf` & OpenVPN `.ovpn` parsers + Tailscale `tailscale status --json` peer/ExitNode parser
+        //    - Launcher v53 Free-Slot Drag-and-Drop, Swap, Folder Merge, Multi-Page Slot Move & Custom Drawer Sort
+        String eapBlock = Arc7SchoolWifiHelper.buildWpaSupplicantBlock(
+                "EDU-DISTRICT-SECURE",
+                Arc7SchoolWifiHelper.SEC_WPA2_EAP_PEAP,
+                null,
+                "student01@district.edu",
+                "S3cr3tPass!",
+                "anonymous@district.edu",
+                true);
+        assert eapBlock.contains("scan_ssid=1") : eapBlock;
+        assert eapBlock.contains("key_mgmt=WPA-EAP") : eapBlock;
+        assert eapBlock.contains("eap=PEAP") : eapBlock;
+        assert eapBlock.contains("MSCHAPV2") : eapBlock;
+        assert eapBlock.contains("student01@district.edu") : eapBlock;
+
+        TailscaleManager.WireGuardConfig wg = TailscaleManager.parseWireGuardConf(
+                "[Interface]\\n" +
+                "PrivateKey = YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=\\n" +
+                "Address = 10.66.66.2/32, fd00::2/128\\n" +
+                "DNS = 1.1.1.1\\n\\n" +
+                "[Peer]\\n" +
+                "PublicKey = YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI=\\n" +
+                "Endpoint = vpn.example.edu:51820\\n" +
+                "AllowedIPs = 0.0.0.0/0\\n");
+        assert wg.address.startsWith("10.66.66.2") && "vpn.example.edu:51820".equals(wg.endpoint) : "Bad WG parse";
+
+        Map<String, String> ovpn = TailscaleManager.parseOpenVpnConf(
+                "client\\ndev tun\\nproto tcp\\nremote stealth.example.org 443\\ncipher AES-256-GCM\\n");
+        assert "stealth.example.org".equals(ovpn.get("host")) && "443".equals(ovpn.get("port"));
+
+        String sampleTsJson = "{"
+                + "\\\"BackendState\\\":\\\"Running\\\","
+                + "\\\"Self\\\":{\\\"HostName\\\":\\\"kobo-arc-7\\\",\\\"TailscaleIPs\\\":[\\\"100.101.102.103\\\"]},"
+                + "\\\"Peer\\\":{"
+                + "\\\"node1\\\":{\\\"HostName\\\":\\\"home-desktop\\\",\\\"DNSName\\\":\\\"home-desktop.ts.net.\\\",\\\"OS\\\":\\\"windows\\\",\\\"Online\\\":true,\\\"ExitNodeOption\\\":true,\\\"TailscaleIPs\\\":[\\\"100.64.1.10\\\"]},"
+                + "\\\"node2\\\":{\\\"HostName\\\":\\\"laptop\\\",\\\"DNSName\\\":\\\"laptop.ts.net.\\\",\\\"OS\\\":\\\"linux\\\",\\\"Online\\\":false,\\\"ExitNodeOption\\\":false,\\\"TailscaleIPs\\\":[\\\"100.64.1.20\\\"]}"
+                + "}}";
+        List<TailscaleManager.TailnetPeer> peers = TailscaleManager.parseTailscalePeers(sampleTsJson);
+        assert peers.size() == 2 && peers.get(0).exitNodeOption && "100.64.1.10".equals(peers.get(0).tailscaleIp) : "Bad Tailscale peers parse";
+
+        // In-memory SharedPreferences Context shim to test Launcher v53 Free-Slot Drag-and-Drop end-to-end!
+        Context memCtx = new MemPrefsContext(dir);
+        PinnedShortcutsStore.setPageCount(memCtx, 3);
+        PinnedShortcutsStore.setDesktopColumns(memCtx, 6);
+        PinnedShortcutsStore.setDesktopRows(memCtx, 3);
+        assert PinnedShortcutsStore.getDesktopTotalCells(memCtx) == 18;
+        PinnedShortcutsStore.addShortcut(memCtx, 0, "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7BrowserActivity");
+        PinnedShortcutsStore.addShortcut(memCtx, 0, "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7StreamDeckActivity");
+        PinnedShortcutsStore.addShortcut(memCtx, 0, "ca.arc7freedom.app", "ca.arc7freedom.app.Arc7VpnActivity");
+        // Drag icon at slot 0 freely to open slot 11 on row 2 col 5!
+        PinnedShortcutsStore.moveOrSwapDesktopSlot(memCtx, 0, 0, 11, 18);
+        List<String> g0 = PinnedShortcutsStore.loadPageGridSlots(memCtx, 0, 18);
+        assert PinnedShortcutsStore.isEmptyToken(g0.get(0)) : "Expected slot 0 empty after free-slot drag: " + g0.get(0);
+        assert g0.get(11).endsWith("Arc7BrowserActivity") : "Expected Browser at slot 11: " + g0.get(11);
+        // Drop slot 2 (`Arc7VpnActivity`) onto slot 1 (`Arc7StreamDeckActivity`) -> merges into `@folder:`!
+        assert PinnedShortcutsStore.mergeDesktopSlotsIntoFolder(memCtx, 0, 2, 1, "PC & Network", 18);
+        List<String> gAfterFolder = PinnedShortcutsStore.loadPageGridSlots(memCtx, 0, 18);
+        assert PinnedShortcutsStore.isFolderToken(gAfterFolder.get(1)) && PinnedShortcutsStore.isEmptyToken(gAfterFolder.get(2));
+        assert PinnedShortcutsStore.parseFolderMembers(gAfterFolder.get(1)).size() == 2;
+        // Drag slot 11 across screen edge onto page 1!
+        assert PinnedShortcutsStore.moveDesktopSlotToPage(memCtx, 0, 11, 1, 18);
+        assert PinnedShortcutsStore.loadPageGridSlots(memCtx, 1, 18).get(0).endsWith("Arc7BrowserActivity");
+        // Custom All Apps Drawer reorder!
+        List<String> drawer = new ArrayList<String>(Arrays.asList("pkg/A", "pkg/B", "pkg/C", "pkg/D"));
+        PinnedShortcutsStore.moveDrawerOrderItem(memCtx, drawer, 3, 0);
+        assert PinnedShortcutsStore.isCustomDrawerSort(memCtx) && "pkg/D".equals(PinnedShortcutsStore.loadDrawerOrder(memCtx).get(0));
+
         System.out.println("JVM_V220_FULL_SUITE_OK");
+        System.out.println("JVM_V230_FULL_SUITE_OK");
+    }
+
+    private static final class MemPrefsContext extends Context {
+        private final File baseDir;
+        private final Map<String, SharedPreferences> map = new HashMap<String, SharedPreferences>();
+        MemPrefsContext(File d) { this.baseDir = d; }
+        @Override public File getFilesDir() { return baseDir; }
+        @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+            SharedPreferences sp = map.get(name);
+            if (sp == null) { sp = new MemSp(); map.put(name, sp); }
+            return sp;
+        }
+    }
+
+    private static final class MemSp implements SharedPreferences {
+        final Map<String, Object> m = new HashMap<String, Object>();
+        @Override public Map<String, ?> getAll() { return new HashMap<String, Object>(m); }
+        @Override public String getString(String k, String d) { Object v = m.get(k); return v instanceof String ? (String) v : d; }
+        @SuppressWarnings("unchecked")
+        @Override public Set<String> getStringSet(String k, Set<String> d) { Object v = m.get(k); return v instanceof Set ? (Set<String>) v : d; }
+        @Override public int getInt(String k, int d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).intValue() : d; }
+        @Override public long getLong(String k, long d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).longValue() : d; }
+        @Override public float getFloat(String k, float d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).floatValue() : d; }
+        @Override public boolean getBoolean(String k, boolean d) { Object v = m.get(k); return v instanceof Boolean ? (Boolean) v : d; }
+        @Override public boolean contains(String k) { return m.containsKey(k); }
+        @Override public Editor edit() {
+            return new Editor() {
+                final Map<String, Object> staged = new HashMap<String, Object>();
+                boolean clr = false;
+                @Override public Editor putString(String k, String v) { staged.put(k, v); return this; }
+                @Override public Editor putStringSet(String k, Set<String> v) { staged.put(k, v); return this; }
+                @Override public Editor putInt(String k, int v) { staged.put(k, Integer.valueOf(v)); return this; }
+                @Override public Editor putLong(String k, long v) { staged.put(k, Long.valueOf(v)); return this; }
+                @Override public Editor putFloat(String k, float v) { staged.put(k, Float.valueOf(v)); return this; }
+                @Override public Editor putBoolean(String k, boolean v) { staged.put(k, Boolean.valueOf(v)); return this; }
+                @Override public Editor remove(String k) { staged.put(k, null); return this; }
+                @Override public Editor clear() { clr = true; return this; }
+                @Override public boolean commit() {
+                    if (clr) m.clear();
+                    for (Map.Entry<String, Object> e : staged.entrySet()) {
+                        if (e.getValue() == null) m.remove(e.getKey());
+                        else m.put(e.getKey(), e.getValue());
+                    }
+                    return true;
+                }
+                @Override public void apply() { commit(); }
+            };
+        }
+        @Override public void registerOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener l) {}
+        @Override public void unregisterOnSharedPreferenceChangeListener(OnSharedPreferenceChangeListener l) {}
     }
 }
 """)
@@ -1927,6 +2073,7 @@ public class VerifyV220Suite {
         ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar"
         cp_jars = f"{ANDROID_JAR}:{app_classes}:{launcher_classes}"
         shim_srcs = [
+            os.path.join(td, "android/content/Context.java"),
             os.path.join(td, "org/xmlpull/v1/XmlPullParserFactory.java"),
             os.path.join(td, "org/json/JSONObject.java"),
             os.path.join(td, "org/json/JSONArray.java"),
@@ -1941,12 +2088,518 @@ public class VerifyV220Suite {
             [JAVA, "-ea", "-cp", f"{td}:{cp_jars}", "VerifyV220Suite", td],
             text=True,
         )
-        assert "JVM_V220_FULL_SUITE_OK" in out
-    print("  [PASS] All 14 v2.2.0 Upgrades + VK.com Book Storefront + Launcher v52 verified 100%!")
+        assert "JVM_V220_FULL_SUITE_OK" in out and "JVM_V230_FULL_SUITE_OK" in out
+    print("  [PASS] All 14 v2.2.0 Upgrades + VK.com + v2.3.0 School Wi-Fi, Tailscale/WG/OVPN & Launcher v53 JVM tests verified 100%!")
+
+
+def _ip_checksum(hdr: bytes) -> int:
+    if len(hdr) % 2 == 1:
+        hdr += b"\x00"
+    s = 0
+    for i in range(0, len(hdr), 2):
+        s += (hdr[i] << 8) | hdr[i + 1]
+    while s >> 16:
+        s = (s & 0xFFFF) + (s >> 16)
+    return (~s) & 0xFFFF
+
+
+def _build_ipv4_tcp_pkt(src_ip: str, dst_ip: str, sport: int, dport: int, seq: int, ack: int, flags: int, payload: bytes = b"") -> bytes:
+    sip = socket.inet_aton(src_ip)
+    dip = socket.inet_aton(dst_ip)
+    tcp_wo = struct.pack("!HHIIBBHHH", sport, dport, seq, ack, (5 << 4), flags, 32768, 0, 0) + payload
+    pseudo = sip + dip + struct.pack("!BBH", 0, 6, len(tcp_wo))
+    csum = _ip_checksum(pseudo + tcp_wo)
+    tcp = struct.pack("!HHIIBBHHH", sport, dport, seq, ack, (5 << 4), flags, 32768, csum, 0) + payload
+    tot = 20 + len(tcp)
+    ip_wo = struct.pack("!BBHHHBBH4s4s", 0x45, 0, tot, 1, 0x4000, 64, 6, 0, sip, dip)
+    ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, tot, 1, 0x4000, 64, 6, _ip_checksum(ip_wo), sip, dip)
+    return ip + tcp
+
+
+def _build_ipv4_udp_pkt(src_ip: str, dst_ip: str, sport: int, dport: int, payload: bytes) -> bytes:
+    sip = socket.inet_aton(src_ip)
+    dip = socket.inet_aton(dst_ip)
+    ulen = 8 + len(payload)
+    udp_wo = struct.pack("!HHHH", sport, dport, ulen, 0) + payload
+    pseudo = sip + dip + struct.pack("!BBH", 0, 17, ulen)
+    csum = _ip_checksum(pseudo + udp_wo) or 0xFFFF
+    udp = struct.pack("!HHHH", sport, dport, ulen, csum) + payload
+    tot = 20 + len(udp)
+    ip_wo = struct.pack("!BBHHHBBH4s4s", 0x45, 0, tot, 2, 0x4000, 64, 17, 0, sip, dip)
+    ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, tot, 2, 0x4000, 64, 17, _ip_checksum(ip_wo), sip, dip)
+    return ip + udp
+
+
+def verify_v230_native_vpn_streamdeck_and_relay(main_apk: str) -> None:
+    import array
+    import base64
+    import hashlib
+    import json
+    import select
+    import ssl
+    import threading
+    import time
+    import urllib.request
+    from cryptography.hazmat.primitives.asymmetric import x25519
+    from cryptography.hazmat.primitives import serialization
+
+    print("\n=== Verifying v2.3.0 Native `libarc7vpn.so` (`tun2socks` + `SCM_RIGHTS` + X25519), PC Stream Deck + OBS v5, & TLS 1.3 School VPN Relay ===")
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        names = set(zf.namelist())
+        for req_asset in (
+            "assets/chromebook/Start-PC-Stream-Deck.py",
+            "assets/chromebook/Start-PC-Stream-Deck.bat",
+            "assets/chromebook/Start-PC-Stream-Deck.sh",
+            "assets/chromebook/Start-PC-School-VPN-Relay.py",
+        ):
+            assert req_asset in names, f"Missing bundled v2.3.0 companion script in APK: {req_asset}"
+        for ic in ("ic_streamdeck", "ic_vpn"):
+            assert f"res/drawable-xhdpi-v4/{ic}.png" in names or f"res/drawable-xhdpi/{ic}.png" in names, f"Missing {ic} drawable!"
+
+    # 1. Run compiled host native `build/native/host/arc7vpn` self-test + Curve25519 + live packet-level `tun2socks`!
+    arc7vpn_bin = os.path.join(ROOT, "build/native/host/arc7vpn")
+    assert os.path.isfile(arc7vpn_bin), f"Missing host native binary {arc7vpn_bin}!"
+    st_out = subprocess.check_output([arc7vpn_bin, "selftest"], text=True).strip()
+    assert "ARC7VPN_SELFTEST_OK" in st_out, f"arc7vpn selftest failed: {st_out}"
+
+    kg_lines = dict(
+        ln.split("=", 1)
+        for ln in subprocess.check_output([arc7vpn_bin, "wg-keygen"], text=True).strip().splitlines()
+        if "=" in ln
+    )
+    priv_b64 = kg_lines["PRIVATE_KEY"].strip()
+    keygen_pub_b64 = kg_lines["PUBLIC_KEY"].strip()
+    pub_b64 = subprocess.check_output([arc7vpn_bin, "wg-pubkey"], input=priv_b64 + "\n", text=True).strip()
+    expected_pub = base64.b64encode(
+        x25519.X25519PrivateKey.from_private_bytes(base64.b64decode(priv_b64)).public_key().public_bytes(
+            serialization.Encoding.Raw, serialization.PublicFormat.Raw
+        )
+    ).decode("ascii")
+    assert keygen_pub_b64 == pub_b64 == expected_pub, f"Curve25519 mismatch: {keygen_pub_b64} vs {pub_b64} vs {expected_pub}!"
+    print("  [PASS] Native `arc7vpn selftest` + RFC 7748 X25519 `wg-keygen`/`wg-pubkey` match OpenSSL/cryptography bit-for-bit!")
+
+    # Packet-level `tun2socks` end-to-end test using EXACT Android 4.2 `Arc7VpnService`
+    # abstract `AF_UNIX` `SCM_RIGHTS` `tun_fd` handoff + `protect(fd)` IPC loop!
+    with tempfile.TemporaryDirectory():
+        ipc_name = f"arc7vpn_e2e_{os.getpid()}"
+        protected_fds_seen = []
+        stop_ev = threading.Event()
+        tun_app, tun_vpn = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+
+        ipc_srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        ipc_srv.bind(b"\x00" + ipc_name.encode("ascii"))
+        ipc_srv.listen(4)
+
+        def run_android_vpn_ipc_server():
+            ipc_srv.settimeout(0.25)
+            while not stop_ev.is_set():
+                try:
+                    c, _ = ipc_srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                try:
+                    # 1. Send `tun_fd` via SCM_RIGHTS (exact match of `Arc7VpnService.serveScmRightsAndProtectLoop`)
+                    c.sendmsg([b"T"], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array("i", [tun_vpn.fileno()]))])
+                    tun_vpn.close()
+                    c.settimeout(0.25)
+                    # 2. Receive outbound sockets via SCM_RIGHTS and reply 'K'
+                    while not stop_ev.is_set():
+                        try:
+                            fds = array.array("i")
+                            msg, anc, _, _ = c.recvmsg(16, socket.CMSG_LEN(fds.itemsize))
+                            if not msg:
+                                break
+                            for level, ctype, data in anc:
+                                if level == socket.SOL_SOCKET and ctype == socket.SCM_RIGHTS:
+                                    fds.frombytes(data[: len(data) - (len(data) % fds.itemsize)])
+                            for rfd in fds:
+                                protected_fds_seen.append(rfd)
+                                os.close(rfd)
+                            c.sendall(b"K")
+                        except socket.timeout:
+                            continue
+                finally:
+                    c.close()
+                break
+            ipc_srv.close()
+
+        # Local HTTP origin server
+        http_srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        http_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        http_srv.bind(("127.0.0.1", 0))
+        http_srv.listen(8)
+        http_port = http_srv.getsockname()[1]
+
+        def run_http_origin():
+            http_srv.settimeout(0.25)
+            while not stop_ev.is_set():
+                try:
+                    c, _ = http_srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                c.recv(2048)
+                c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 14\r\nConnection: close\r\n\r\nTUN2SOCKS_PASS")
+                c.close()
+
+        # Local minimal SOCKS5 TCP relay (redirects everything to 127.0.0.1:http_port so no external internet needed!)
+        socks_srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        socks_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        socks_srv.bind(("0.0.0.0", 0))
+        socks_srv.listen(8)
+        socks_port = socks_srv.getsockname()[1]
+
+        def run_socks5():
+            socks_srv.settimeout(0.25)
+            while not stop_ev.is_set():
+                try:
+                    c, _ = socks_srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                hdr = c.recv(262)
+                c.sendall(b"\x05\x00")
+                req = c.recv(262)
+                if len(req) >= 10:
+                    up = socket.create_connection(("127.0.0.1", http_port), timeout=3)
+                    c.sendall(b"\x05\x00\x00\x01\x7f\x00\x00\x01\x00\x50")
+                    for s_a, s_b in ((c, up), (up, c)):
+                        def pipe(src, dst):
+                            try:
+                                while True:
+                                    d = src.recv(4096)
+                                    if not d:
+                                        break
+                                    dst.sendall(d)
+                            except OSError:
+                                pass
+                            finally:
+                                try:
+                                    dst.shutdown(socket.SHUT_WR)
+                                except OSError:
+                                    pass
+                        threading.Thread(target=pipe, args=(s_a, s_b), daemon=True).start()
+
+        # Local UDP DNS server answering queries with A=93.184.216.34
+        dns_srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        dns_srv.bind(("0.0.0.0", 0))
+        dns_port = dns_srv.getsockname()[1]
+
+        def run_dns():
+            dns_srv.settimeout(0.25)
+            while not stop_ev.is_set():
+                try:
+                    q, addr = dns_srv.recvfrom(2048)
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                if len(q) >= 12:
+                    resp = (
+                        q[:2]
+                        + b"\x81\x80\x00\x01\x00\x01\x00\x00\x00\x00"
+                        + q[12:]
+                        + b"\xc0\x0c\x00\x01\x00\x01\x00\x00\x00\x3c\x00\x04\x5d\xb8\xd8\x22"
+                    )
+                    dns_srv.sendto(resp, addr)
+
+        for fn in (run_android_vpn_ipc_server, run_http_origin, run_socks5, run_dns):
+            threading.Thread(target=fn, daemon=True).start()
+        time.sleep(0.05)
+
+        vpn_proc = subprocess.Popen(
+            [
+                arc7vpn_bin,
+                "tun2socks",
+                "--tun-ipc", ipc_name,
+                "--mode", "socks5",
+                "--upstream", f"127.0.0.2:{socks_port}",
+                "--dns-udp", f"127.0.0.2:{dns_port}",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            # A. Inject raw IPv4+UDP port-53 DNS query into simulated `/dev/tun`!
+            dns_q = b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x07example\x03com\x00\x00\x01\x00\x01"
+            tun_app.send(_build_ipv4_udp_pkt("10.88.0.2", "8.8.8.8", 53000, 53, dns_q))
+            r, _, _ = select.select([tun_app], [], [], 3.0)
+            assert r, "Timed out waiting for UDP DNS reply from `arc7vpn tun2socks`!"
+            dns_pkt = tun_app.recv(4096)
+            assert dns_pkt[-4:] == b"\x5d\xb8\xd8\x22", f"Unexpected UDP DNS answer payload: {dns_pkt.hex()}"
+
+            # B. Perform full IPv4+TCP 3-way handshake + HTTP GET over `/dev/tun` through `tun2socks` -> SOCKS5!
+            tun_app.send(_build_ipv4_tcp_pkt("10.88.0.2", "93.184.216.34", 54321, 80, 1000, 0, 0x02))
+            r, _, _ = select.select([tun_app], [], [], 4.0)
+            assert r, "Timed out waiting for TCP SYN-ACK from `arc7vpn tun2socks`!"
+            synack = tun_app.recv(4096)
+            server_seq = struct.unpack("!I", synack[24:28])[0]
+            tun_app.send(_build_ipv4_tcp_pkt("10.88.0.2", "93.184.216.34", 54321, 80, 1001, server_seq + 1, 0x10))
+            http_get = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"
+            tun_app.send(_build_ipv4_tcp_pkt("10.88.0.2", "93.184.216.34", 54321, 80, 1001, server_seq + 1, 0x18, http_get))
+
+            collected = bytearray()
+            deadline = time.time() + 4.0
+            while time.time() < deadline and b"TUN2SOCKS_PASS" not in collected:
+                r, _, _ = select.select([tun_app], [], [], 0.5)
+                if not r:
+                    continue
+                pkt = tun_app.recv(4096)
+                ihl = (pkt[0] & 0x0F) * 4
+                doff = ((pkt[ihl + 12] >> 4) & 0x0F) * 4
+                collected.extend(pkt[ihl + doff :])
+            assert b"TUN2SOCKS_PASS" in collected, f"Did not receive HTTP body over tun2socks: {collected!r}"
+            assert len(protected_fds_seen) >= 2, f"Expected SCM_RIGHTS protect(fd) calls for DNS + TCP, got {protected_fds_seen}"
+            print(f"  [PASS] Live `arc7vpn tun2socks` end-to-end packet test passed ({len(protected_fds_seen)} `SCM_RIGHTS` protected sockets, UDP DNS + TCP HTTP 200 OK)!")
+        finally:
+            stop_ev.set()
+            vpn_proc.terminate()
+            vpn_proc.wait(timeout=3)
+            tun_app.close()
+            http_srv.close()
+            socks_srv.close()
+            dns_srv.close()
+
+    # 2. Live PC Stream Deck (`Start-PC-Stream-Deck.py`) + Mock OBS WebSocket v5 + Web Designer Studio E2E test!
+    with tempfile.TemporaryDirectory() as std:
+        # Mock OBS WebSocket v5 server on ephemeral port with SHA-256 challenge authentication!
+        obs_secret = "arc7-obs-pw"
+        obs_salt = "arc7salt1234"
+        obs_challenge = "arc7challenge5678"
+        obs_requests_received = []
+        obs_stop = threading.Event()
+        obs_srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        obs_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        obs_srv.bind(("127.0.0.1", 0))
+        obs_srv.listen(4)
+        obs_port = obs_srv.getsockname()[1]
+
+        def ws_accept_key(sec_key: str) -> str:
+            return base64.b64encode(hashlib.sha1((sec_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+
+        def ws_send_text(conn: socket.socket, text: str) -> None:
+            raw = text.encode("utf-8")
+            n = len(raw)
+            if n < 126:
+                conn.sendall(bytes([0x81, n]) + raw)
+            else:
+                conn.sendall(bytes([0x81, 126]) + struct.pack("!H", n) + raw)
+
+        def ws_recv_text(conn: socket.socket) -> str:
+            b0, b1 = conn.recv(2)
+            masked = (b1 & 0x80) != 0
+            length = b1 & 0x7F
+            if length == 126:
+                length = struct.unpack("!H", conn.recv(2))[0]
+            mask = conn.recv(4) if masked else b""
+            data = bytearray(conn.recv(length))
+            if masked:
+                for i in range(len(data)):
+                    data[i] ^= mask[i % 4]
+            return data.decode("utf-8")
+
+        def run_mock_obs():
+            obs_srv.settimeout(0.25)
+            while not obs_stop.is_set():
+                try:
+                    c, _ = obs_srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                try:
+                    req = c.recv(4096).decode("utf-8", errors="ignore")
+                    if "upgrade: websocket" not in req.lower():
+                        continue
+                    sec_key = ""
+                    for line in req.splitlines():
+                        if line.lower().startswith("sec-websocket-key:"):
+                            sec_key = line.split(":", 1)[1].strip()
+                    c.sendall(
+                        (
+                            "HTTP/1.1 101 Switching Protocols\r\n"
+                            "Upgrade: websocket\r\n"
+                            "Connection: Upgrade\r\n"
+                            f"Sec-WebSocket-Accept: {ws_accept_key(sec_key)}\r\n\r\n"
+                        ).encode("utf-8")
+                    )
+                    ws_send_text(c, json.dumps({
+                        "op": 0,
+                        "d": {
+                            "obsWebSocketVersion": "5.5.0",
+                            "rpcVersion": 1,
+                            "authentication": {"challenge": obs_challenge, "salt": obs_salt},
+                        },
+                    }))
+                    ident = json.loads(ws_recv_text(c))
+                    expected_secret = base64.b64encode(hashlib.sha256((obs_secret + obs_salt).encode()).digest()).decode()
+                    expected_auth = base64.b64encode(hashlib.sha256((expected_secret + obs_challenge).encode()).digest()).decode()
+                    assert ident["d"]["authentication"] == expected_auth, "OBS WebSocket v5 auth hash mismatch!"
+                    ws_send_text(c, json.dumps({"op": 2, "d": {"negotiatedRpcVersion": 1}}))
+                    msg = json.loads(ws_recv_text(c))
+                    obs_requests_received.append(msg["d"]["requestType"])
+                    ws_send_text(c, json.dumps({
+                        "op": 7,
+                        "d": {
+                            "requestType": msg["d"]["requestType"],
+                            "requestId": msg["d"]["requestId"],
+                            "requestStatus": {"result": True, "code": 100},
+                            "responseData": {},
+                        },
+                    }))
+                finally:
+                    c.close()
+
+        threading.Thread(target=run_mock_obs, daemon=True).start()
+
+        # Pick two free ports for Stream Deck TCP/UDP + Web Studio
+        s1 = socket.socket(); s1.bind(("127.0.0.1", 0)); sd_port = s1.getsockname()[1]; s1.close()
+        s2 = socket.socket(); s2.bind(("127.0.0.1", 0)); web_port = s2.getsockname()[1]; s2.close()
+        sd_state_file = os.path.join(std, "streamdeck-state.json")
+        sd_proc = subprocess.Popen(
+            [
+                sys.executable,
+                os.path.join(ROOT, "releases/Start-PC-Stream-Deck.py"),
+                "--port", str(sd_port),
+                "--web-port", str(web_port),
+                "--obs-port", str(obs_port),
+                "--obs-password", obs_secret,
+                "--state-file", sd_state_file,
+                "--no-adb",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            # Wait for Web Studio + UDP Auto-Discovery to come up!
+            for _ in range(40):
+                try:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{web_port}/api/status", timeout=0.5) as resp:
+                        if resp.status == 200:
+                            break
+                except Exception:
+                    time.sleep(0.1)
+
+            # A. Verify UDP LAN auto-discovery (`ARC7_STREAMDECK_DISCOVER` -> `ARC7_STREAMDECK_PC ...`)!
+            udp_c = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp_c.settimeout(2.0)
+            udp_c.sendto(b"ARC7_STREAMDECK_DISCOVER", ("127.0.0.1", sd_port))
+            disc_reply = udp_c.recvfrom(4096)[0].decode("utf-8")
+            udp_c.close()
+            assert disc_reply.startswith("ARC7_STREAMDECK_PC ") and str(sd_port) in disc_reply, disc_reply
+
+            # B. Connect Kobo Stream Deck TCP session, receive live PC `telemetry`, trigger OBS Scene 1 key!
+            tcp_c = socket.create_connection(("127.0.0.1", sd_port), timeout=3.0)
+            f_in = tcp_c.makefile("r", encoding="utf-8")
+            first_msg = json.loads(f_in.readline())
+            assert first_msg.get("type") == "telemetry" and "cpu" in first_msg, first_msg
+            tcp_c.sendall(b'{"type":"deck_action","cmd":"OBS_SCENE Scene 1","label":"Scene 1","mode":0,"active":true}\n')
+            for _ in range(8):
+                line = json.loads(f_in.readline())
+                if line.get("type") == "ack":
+                    break
+            assert "SetCurrentProgramScene" in obs_requests_received, f"OBS scene switch not triggered: {obs_requests_received}"
+
+            # C. Live push a custom profile from Web Studio `POST /api/push_profile` and verify connected Kobo receives it!
+            req_web = urllib.request.Request(
+                f"http://127.0.0.1:{web_port}/api/push_profile",
+                data=json.dumps({"type": "custom_profile", "name": "Streamer Live", "keys": [{"label": "BRB Live", "cmd": "OBS_SCENE BRB"}]}).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req_web, timeout=2.0) as wresp:
+                assert wresp.status == 200
+            saw_live_deck_push = False
+            for _ in range(10):
+                pushed = json.loads(f_in.readline())
+                if pushed.get("type") == "custom_profile":
+                    saw_live_deck_push = True
+                    break
+            assert saw_live_deck_push, "Web Studio push_profile did not live-push updated profile to connected Kobo!"
+            tcp_c.close()
+            print("  [PASS] Live `Start-PC-Stream-Deck.py` UDP discovery + TCP telemetry/action + OBS WebSocket v5 SHA-256 auth + Web Studio sync verified!")
+        finally:
+            obs_stop.set()
+            sd_proc.terminate()
+            sd_proc.wait(timeout=3)
+            obs_srv.close()
+
+    # 3. Live Personal Port-443 TLS 1.3 School VPN Relay (`Start-PC-School-VPN-Relay.py`) test!
+    with tempfile.TemporaryDirectory() as rtd:
+        # Target TCP echo/HTTP server
+        echo_srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        echo_srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        echo_srv.bind(("127.0.0.1", 0))
+        echo_srv.listen(4)
+        echo_port = echo_srv.getsockname()[1]
+        echo_stop = threading.Event()
+
+        def run_echo():
+            echo_srv.settimeout(0.25)
+            while not echo_stop.is_set():
+                try:
+                    c, _ = echo_srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                c.recv(1024)
+                c.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 16\r\n\r\nSTEALTH_443_PASS")
+                c.close()
+
+        threading.Thread(target=run_echo, daemon=True).start()
+        rs = socket.socket(); rs.bind(("127.0.0.1", 0)); relay_port = rs.getsockname()[1]; rs.close()
+        relay_proc = subprocess.Popen(
+            [
+                sys.executable,
+                os.path.join(ROOT, "releases/Start-PC-School-VPN-Relay.py"),
+                "--port", str(relay_port),
+                "--token", "student:schoolpass",
+                "--cert-dir", rtd,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            ctx_tls = ssl.create_default_context()
+            ctx_tls.check_hostname = False
+            ctx_tls.verify_mode = ssl.CERT_NONE
+            auth_b64 = base64.b64encode(b"student:schoolpass").decode("ascii")
+            connected = False
+            for _ in range(40):
+                try:
+                    with socket.create_connection(("127.0.0.1", relay_port), timeout=0.5) as raw_s:
+                        with ctx_tls.wrap_socket(raw_s, server_hostname="localhost") as tls_s:
+                            tls_s.sendall(
+                                f"CONNECT 127.0.0.1:{echo_port} HTTP/1.1\r\nProxy-Authorization: Basic {auth_b64}\r\n\r\n".encode("utf-8")
+                            )
+                            banner = tls_s.recv(1024)
+                            assert b"200" in banner, f"Unexpected CONNECT reply: {banner!r}"
+                            tls_s.sendall(b"GET / HTTP/1.1\r\nHost: internal\r\n\r\n")
+                            body = tls_s.recv(2048)
+                            assert b"STEALTH_443_PASS" in body, f"Missing tunnel payload: {body!r}"
+                            connected = True
+                            break
+                except (ConnectionRefusedError, OSError):
+                    time.sleep(0.1)
+            assert connected, "Failed to tunnel over TLS 1.3 Port-443 Stealth Relay!"
+            print("  [PASS] Live `Start-PC-School-VPN-Relay.py` TLS 1.3 Port-443 Stealth VPN tunnel verified end-to-end!")
+        finally:
+            echo_stop.set()
+            relay_proc.terminate()
+            relay_proc.wait(timeout=3)
+            echo_srv.close()
 
 
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.2.0.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.3.0.apk")
+    assert not os.path.exists(os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.2.0.apk")), "Stale v2.2.0 upgrader APK left in releases/!"
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",
@@ -1973,12 +2626,14 @@ def main() -> None:
             "lib/armeabi-v7a/libarc7root.so",
             "lib/armeabi-v7a/libarc7tool.so",
             "lib/armeabi-v7a/libarc7tls.so",
+            "lib/armeabi-v7a/libarc7vpn.so",
             "lib/armeabi-v7a/libarc7py3.so",
             "lib/armeabi-v7a/libarc7apt.so",
             "lib/armeabi/libarc7su.so",
             "lib/armeabi/libarc7root.so",
             "lib/armeabi/libarc7tool.so",
             "lib/armeabi/libarc7tls.so",
+            "lib/armeabi/libarc7vpn.so",
             "lib/armeabi/libarc7py3.so",
             "lib/armeabi/libarc7apt.so",
         ],
@@ -1993,6 +2648,7 @@ def main() -> None:
     verify_v200_all_11_upgrades()
     verify_v210_customizable_app_bar(main_apk, home_apk)
     verify_v220_all_14_upgrades_plus_vk(main_apk, home_apk)
+    verify_v230_native_vpn_streamdeck_and_relay(main_apk)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

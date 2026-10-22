@@ -80,6 +80,7 @@ public final class Arc7Skin {
         public final String name;
         public final String subtitle;
         public final int bgPage;
+        public final int bgColor;
         public final int headerTop;
         public final int headerBottom;
         public final int surface;
@@ -87,6 +88,7 @@ public final class Arc7Skin {
         public final int elevated;
         public final int border;
         public final int accent;
+        public final int accentColor;
         public final int accentLight;
         public final int accentDark;
         public final int accentSecondary;
@@ -103,6 +105,7 @@ public final class Arc7Skin {
             this.name = name;
             this.subtitle = subtitle;
             this.bgPage = bgPage;
+            this.bgColor = bgPage;
             this.headerTop = headerTop;
             this.headerBottom = headerBottom;
             this.surface = surface;
@@ -110,6 +113,7 @@ public final class Arc7Skin {
             this.elevated = surfaceElevated;
             this.border = border;
             this.accent = accent;
+            this.accentColor = accent;
             this.accentLight = accent;
             this.accentDark = accentDark;
             this.accentSecondary = accentSecondary;
@@ -589,6 +593,10 @@ public final class Arc7Skin {
         return g;
     }
 
+    public static Button secondaryButton(Context ctx, Palette p, String label) {
+        return actionButton(ctx, label, p != null ? p.surfaceElevated : 0xFF334155);
+    }
+
     public static GradientDrawable headerDrawable(Palette p) {
         return new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
@@ -786,6 +794,8 @@ public final class Arc7Skin {
         if ("@arcade".equals(tok)) return "Arc7 Offline Arcade";
         if ("@shield".equals(tok)) return "Arc7 Shield AdBlock";
         if ("@boost".equals(tok)) return "Arc7 Boost & Swap";
+        if ("@streamdeck".equals(tok)) return "Arc7 Stream Deck";
+        if ("@vpn".equals(tok)) return "Arc7 Wi-Fi & VPN";
         if ("@secondscreen".equals(tok)) return "Arc7 Second Screen";
         if ("@splitview".equals(tok)) return "Arc7 Split View";
         if ("@wiki".equals(tok)) return "Arc7 Dictionary & Wiki";
@@ -852,6 +862,8 @@ public final class Arc7Skin {
             else if ("@arcade".equals(tok)) target = new Intent(ctx, Arc7ArcadeActivity.class);
             else if ("@shield".equals(tok)) target = new Intent(ctx, Arc7ShieldActivity.class);
             else if ("@boost".equals(tok)) target = new Intent(ctx, Arc7BoostActivity.class);
+            else if ("@streamdeck".equals(tok)) target = new Intent(ctx, Arc7StreamDeckActivity.class);
+            else if ("@vpn".equals(tok)) target = new Intent(ctx, Arc7VpnActivity.class);
             else if ("@secondscreen".equals(tok)) target = new Intent(ctx, Arc7SecondScreenActivity.class);
             else if ("@splitview".equals(tok)) target = new Intent(ctx, Arc7SplitViewActivity.class);
             else if ("@wiki".equals(tok)) target = new Intent(ctx, Arc7DictionaryWikiActivity.class);

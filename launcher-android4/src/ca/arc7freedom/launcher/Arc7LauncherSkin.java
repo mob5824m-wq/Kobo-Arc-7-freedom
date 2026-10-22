@@ -137,6 +137,8 @@ public final class Arc7LauncherSkin {
             if (c.contains("radio") || c.contains("rss")) return R.drawable.ic_radio;
             if (c.contains("recorder")) return R.drawable.ic_recorder;
             if (c.contains("arcade")) return R.drawable.ic_arcade;
+            if (c.contains("streamdeck")) return R.drawable.ic_streamdeck;
+            if (c.contains("vpn")) return R.drawable.ic_vpn;
             if (c.contains("shield")) return R.drawable.ic_shield;
             if (c.contains("boost")) return R.drawable.ic_boost;
             if (c.contains("secondscreen")) return R.drawable.ic_display;

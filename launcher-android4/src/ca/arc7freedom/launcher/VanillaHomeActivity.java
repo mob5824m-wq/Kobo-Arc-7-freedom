@@ -81,6 +81,7 @@ public class VanillaHomeActivity extends Activity {
         String pkg;
         String cls;
         String folderToken; // non-null when entry represents an `@folder:Name|...` desktop folder!
+        boolean emptySlot;  // true for free-grid `@empty` drop slots on Home Desktop!
         Drawable icon;
     }
 
@@ -96,6 +97,43 @@ public class VanillaHomeActivity extends Activity {
     private final List<AppEntry> currentPageShortcuts = new ArrayList<AppEntry>();
     private final TextView[] pageDots = new TextView[MAX_PAGES];
     private GridView desktopGridView;
+    private GridView drawerGridView;
+    private FrameLayout rootFrame;
+
+    // v53 Interactive 60 fps Icon Drag-and-Drop + Rearrange Mode state
+    private final android.os.Handler dragHandler = new android.os.Handler();
+    private FrameLayout dragOverlayLayer;
+    private LinearLayout dropActionBar;
+    private TextView dropRemoveBtn;
+    private TextView dropFolderBtn;
+    private TextView dropPinBarBtn;
+    private TextView dropInfoBtn;
+    private LinearLayout dragGhostView;
+    private ImageView dragGhostIcon;
+    private TextView dragGhostLabel;
+    private TextView rearrangeChip;
+    private TextView drawerRearrangeBtn;
+    private TextView drawerSortBtn;
+
+    private boolean rearrangeMode = false;
+    private int selectedDesktopPage = -1;
+    private int selectedDesktopSlot = -1;
+    private int selectedAppBarSlot = -1;
+
+    private boolean iconDragArmed = false;
+    private boolean iconDragActive = false;
+    private boolean iconDragMoved = false;
+    private boolean iconDragFromDesktop = true;
+    private int iconDragOriginPage = 0;
+    private int iconDragOriginIndex = -1;
+    private int iconDragHoverIndex = -1;
+    private AppEntry iconDragEntry = null;
+    private float dragDownRawX = 0f;
+    private float dragDownRawY = 0f;
+    private float dragLastRawX = 0f;
+    private float dragLastRawY = 0f;
+    private long lastEdgePageFlipMs = 0L;
+    private Runnable pendingHoldDragRunnable = null;
 
     private AppWidgetManager appWidgetManager;
     private AppWidgetHost appWidgetHost;
@@ -194,6 +232,7 @@ public class VanillaHomeActivity extends Activity {
         });
 
         FrameLayout root = new FrameLayout(this);
+        rootFrame = root;
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
@@ -291,6 +330,18 @@ public class VanillaHomeActivity extends Activity {
             }
         });
         topCapsule.addView(searchChip, srLp);
+
+        rearrangeChip = makeTopChip("Rearrange", 0xBB0E3A53);
+        LinearLayout.LayoutParams rrLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rrLp.rightMargin = dp(6);
+        rearrangeChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleRearrangeMode();
+            }
+        });
+        topCapsule.addView(rearrangeChip, rrLp);
 
         appBarChip = makeTopChip("App Bar", 0xB30F2942);
         LinearLayout.LayoutParams abLp = new LinearLayout.LayoutParams(
@@ -452,6 +503,37 @@ public class VanillaHomeActivity extends Activity {
         });
         drawerHeader.addView(searchBox);
 
+        drawerSortBtn = makeTopChip(
+                PinnedShortcutsStore.isCustomDrawerSort(this) ? "Order: Custom" : "Order: A-Z", 0xCC1E293B);
+        LinearLayout.LayoutParams dsbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dsbLp.rightMargin = dp(6);
+        drawerSortBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean next = !PinnedShortcutsStore.isCustomDrawerSort(VanillaHomeActivity.this);
+                PinnedShortcutsStore.setCustomDrawerSort(VanillaHomeActivity.this, next);
+                drawerSortBtn.setText(next ? "Order: Custom" : "Order: A-Z");
+                reloadApps();
+                Toast.makeText(VanillaHomeActivity.this,
+                        next ? "Custom App Order active — hold & drag any app icon to reorder!"
+                             : "Sorted All Apps A-Z!", Toast.LENGTH_SHORT).show();
+            }
+        });
+        drawerHeader.addView(drawerSortBtn, dsbLp);
+
+        drawerRearrangeBtn = makeTopChip("Rearrange", 0xCC0E3A53);
+        LinearLayout.LayoutParams drbLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        drbLp.rightMargin = dp(6);
+        drawerRearrangeBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleRearrangeMode();
+            }
+        });
+        drawerHeader.addView(drawerRearrangeBtn, drbLp);
+
         TextView drawerCustomizeBtn = makeTopChip("\u2699 App Bar", 0xCC0F2942);
         LinearLayout.LayoutParams dcbLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -488,6 +570,7 @@ public class VanillaHomeActivity extends Activity {
         drawerOverlay.addView(divider, divParams);
 
         GridView grid = new GridView(this);
+        drawerGridView = grid;
         grid.setNumColumns(5);
         grid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
         grid.setVerticalSpacing(dp(14));
@@ -499,6 +582,10 @@ public class VanillaHomeActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         root.addView(drawerOverlay);
+
+        // 60 fps Floating Icon Drag-and-Drop Overlay + Top Drop Zone Bar
+        buildDragOverlayLayer(root);
+
         setContentView(root);
 
         IntentFilter filter = new IntentFilter();
@@ -565,8 +652,407 @@ public class VanillaHomeActivity extends Activity {
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent ev) {
-        if (swipeDetector != null) swipeDetector.onTouchEvent(ev);
+        if (handleIconDragTouchEvent(ev)) return true;
+        if (!iconDragActive && swipeDetector != null) swipeDetector.onTouchEvent(ev);
         return super.dispatchTouchEvent(ev);
+    }
+
+    private void buildDragOverlayLayer(FrameLayout root) {
+        dragOverlayLayer = new FrameLayout(this);
+        dragOverlayLayer.setVisibility(View.GONE);
+        dragOverlayLayer.setClickable(false);
+
+        dropActionBar = new LinearLayout(this);
+        dropActionBar.setOrientation(LinearLayout.HORIZONTAL);
+        dropActionBar.setGravity(Gravity.CENTER);
+        dropActionBar.setPadding(dp(12), dp(8), dp(12), dp(8));
+        GradientDrawable barBg = new GradientDrawable();
+        barBg.setColor(0xEE0B1324);
+        barBg.setCornerRadius(dp(16));
+        barBg.setStroke(dp(1), 0xFF38BDF8);
+        dropActionBar.setBackgroundDrawable(barBg);
+
+        dropRemoveBtn = makeDropTargetPill("\u2715  Remove", 0xCC991B1B);
+        dropFolderBtn = makeDropTargetPill("\uD83D\uDCC1  Folder", 0xCC0369A1);
+        dropPinBarBtn = makeDropTargetPill("\uD83D\uDCCC  Pin App Bar", 0xCC047857);
+        dropInfoBtn = makeDropTargetPill("\u2139  App Info", 0xCC334155);
+
+        dropActionBar.addView(dropRemoveBtn, makeDropPillParams());
+        dropActionBar.addView(dropFolderBtn, makeDropPillParams());
+        dropActionBar.addView(dropPinBarBtn, makeDropPillParams());
+        dropActionBar.addView(dropInfoBtn, makeDropPillParams());
+
+        FrameLayout.LayoutParams barLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP);
+        barLp.setMargins(dp(14), dp(8), dp(14), 0);
+        dragOverlayLayer.addView(dropActionBar, barLp);
+
+        dragGhostView = new LinearLayout(this);
+        dragGhostView.setOrientation(LinearLayout.VERTICAL);
+        dragGhostView.setGravity(Gravity.CENTER);
+        dragGhostView.setPadding(dp(10), dp(8), dp(10), dp(8));
+        GradientDrawable ghostBg = new GradientDrawable();
+        ghostBg.setColor(0xDD0F172A);
+        ghostBg.setCornerRadius(dp(18));
+        ghostBg.setStroke(dp(2), 0xFF38BDF8);
+        dragGhostView.setBackgroundDrawable(ghostBg);
+
+        dragGhostIcon = new ImageView(this);
+        dragGhostIcon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        dragGhostView.addView(dragGhostIcon, new LinearLayout.LayoutParams(dp(58), dp(58)));
+
+        dragGhostLabel = new TextView(this);
+        dragGhostLabel.setTextColor(Color.WHITE);
+        dragGhostLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        dragGhostLabel.setTypeface(Typeface.DEFAULT_BOLD);
+        dragGhostLabel.setSingleLine(true);
+        dragGhostLabel.setEllipsize(TextUtils.TruncateAt.END);
+        dragGhostLabel.setGravity(Gravity.CENTER);
+        dragGhostLabel.setPadding(0, dp(4), 0, 0);
+        dragGhostView.addView(dragGhostLabel, new LinearLayout.LayoutParams(
+                dp(92), ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        dragOverlayLayer.addView(dragGhostView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.LEFT));
+        root.addView(dragOverlayLayer, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    private LinearLayout.LayoutParams makeDropPillParams() {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        lp.leftMargin = dp(4);
+        lp.rightMargin = dp(4);
+        return lp;
+    }
+
+    private TextView makeDropTargetPill(String text, int bgColor) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        tv.setTypeface(Typeface.DEFAULT_BOLD);
+        tv.setGravity(Gravity.CENTER);
+        tv.setPadding(dp(8), dp(9), dp(8), dp(9));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(bgColor);
+        bg.setCornerRadius(dp(11));
+        bg.setStroke(dp(1), 0x66FFFFFF);
+        tv.setBackgroundDrawable(bg);
+        return tv;
+    }
+
+    private void toggleRearrangeMode() {
+        rearrangeMode = !rearrangeMode;
+        selectedDesktopPage = -1;
+        selectedDesktopSlot = -1;
+        selectedAppBarSlot = -1;
+        updateRearrangeChips();
+        refreshCurrentPageShortcuts();
+        rebuildDock();
+        if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
+        Toast.makeText(this,
+                rearrangeMode
+                        ? "Rearrange Mode ON: Drag any app icon to move it freely, or tap 2 spots to swap!"
+                        : "Home & App layout saved!",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateRearrangeChips() {
+        int col = rearrangeMode ? 0xEE059669 : 0xBB0E3A53;
+        String txt = rearrangeMode ? "\u2713 Done" : "Rearrange";
+        if (rearrangeChip != null) {
+            rearrangeChip.setText(txt);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(col);
+            g.setCornerRadius(dp(14));
+            g.setStroke(dp(1), rearrangeMode ? 0xFFA7F3D0 : 0x66FFFFFF);
+            rearrangeChip.setBackgroundDrawable(g);
+        }
+        if (drawerRearrangeBtn != null) {
+            drawerRearrangeBtn.setText(txt);
+            GradientDrawable g2 = new GradientDrawable();
+            g2.setColor(col);
+            g2.setCornerRadius(dp(14));
+            g2.setStroke(dp(1), rearrangeMode ? 0xFFA7F3D0 : 0x66FFFFFF);
+            drawerRearrangeBtn.setBackgroundDrawable(g2);
+        }
+        if (drawerSortBtn != null) {
+            drawerSortBtn.setText(PinnedShortcutsStore.isCustomDrawerSort(this) ? "Order: Custom" : "Order: A-Z");
+        }
+    }
+
+    private int findGridSlotAtRawPoint(GridView gv, float rawX, float rawY) {
+        if (gv == null || !gv.isShown()) return -1;
+        int[] loc = new int[2];
+        gv.getLocationOnScreen(loc);
+        int lx = Math.round(rawX) - loc[0];
+        int ly = Math.round(rawY) - loc[1];
+        if (lx < 0 || ly < 0 || lx > gv.getWidth() || ly > gv.getHeight()) return -1;
+        return gv.pointToPosition(lx, ly);
+    }
+
+    private void startLiveIconDrag() {
+        if (!iconDragArmed || iconDragEntry == null) return;
+        iconDragActive = true;
+        lastChildLongPressMs = System.currentTimeMillis();
+        if (rootFrame != null) rootFrame.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        if (dragGhostIcon != null) dragGhostIcon.setImageDrawable(iconDragEntry.icon);
+        if (dragGhostLabel != null) dragGhostLabel.setText(iconDragEntry.label);
+        if (dragOverlayLayer != null) {
+            dragOverlayLayer.setVisibility(View.VISIBLE);
+            dragOverlayLayer.bringToFront();
+            updateGhostPosition(dragLastRawX, dragLastRawY);
+            dragGhostView.setScaleX(0.92f);
+            dragGhostView.setScaleY(0.92f);
+            dragGhostView.animate().scaleX(1.10f).scaleY(1.10f).setDuration(120).start();
+        }
+        if (desktopAdapter != null) desktopAdapter.notifyDataSetChanged();
+        if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
+    }
+
+    private void updateGhostPosition(float rawX, float rawY) {
+        if (dragGhostView == null || rootFrame == null) return;
+        int[] rootLoc = new int[2];
+        rootFrame.getLocationOnScreen(rootLoc);
+        float gw = dragGhostView.getWidth() > 0 ? dragGhostView.getWidth() : dp(96);
+        float gh = dragGhostView.getHeight() > 0 ? dragGhostView.getHeight() : dp(96);
+        dragGhostView.setTranslationX((rawX - rootLoc[0]) - gw * 0.5f);
+        dragGhostView.setTranslationY((rawY - rootLoc[1]) - gh * 0.72f);
+
+        setPillHover(dropRemoveBtn, 0xCC991B1B, 0xFFDC2626, isPointInsideView(dropRemoveBtn, rawX, rawY));
+        setPillHover(dropFolderBtn, 0xCC0369A1, 0xFF0284C7, isPointInsideView(dropFolderBtn, rawX, rawY));
+        setPillHover(dropPinBarBtn, 0xCC047857, 0xFF10B981, isPointInsideView(dropPinBarBtn, rawX, rawY));
+        setPillHover(dropInfoBtn, 0xCC334155, 0xFF64748B, isPointInsideView(dropInfoBtn, rawX, rawY));
+    }
+
+    private void setPillHover(TextView tv, int baseColor, int hotColor, boolean hot) {
+        if (tv == null) return;
+        GradientDrawable g = (GradientDrawable) tv.getBackground();
+        if (g != null) {
+            g.setColor(hot ? hotColor : baseColor);
+            g.setStroke(dp(hot ? 2 : 1), hot ? Color.WHITE : 0x66FFFFFF);
+        }
+        tv.setScaleX(hot ? 1.05f : 1.0f);
+        tv.setScaleY(hot ? 1.05f : 1.0f);
+    }
+
+    private void cancelPendingDragState() {
+        if (pendingHoldDragRunnable != null) {
+            dragHandler.removeCallbacks(pendingHoldDragRunnable);
+            pendingHoldDragRunnable = null;
+        }
+        iconDragArmed = false;
+        iconDragActive = false;
+        iconDragMoved = false;
+        iconDragOriginIndex = -1;
+        iconDragHoverIndex = -1;
+        iconDragEntry = null;
+        if (dragOverlayLayer != null) dragOverlayLayer.setVisibility(View.GONE);
+    }
+
+    private boolean handleIconDragTouchEvent(MotionEvent ev) {
+        if (ev == null) return false;
+        int action = ev.getActionMasked();
+        float rx = ev.getRawX();
+        float ry = ev.getRawY();
+        dragLastRawX = rx;
+        dragLastRawY = ry;
+
+        if (action == MotionEvent.ACTION_DOWN) {
+            GridView activeGrid = drawerOpen ? drawerGridView : desktopGridView;
+            int pos = findGridSlotAtRawPoint(activeGrid, rx, ry);
+            List<AppEntry> src = drawerOpen ? filteredApps : currentPageShortcuts;
+            if (pos >= 0 && pos < src.size()) {
+                AppEntry hit = src.get(pos);
+                if (hit != null && !hit.emptySlot) {
+                    iconDragArmed = true;
+                    iconDragActive = false;
+                    iconDragMoved = false;
+                    iconDragFromDesktop = !drawerOpen;
+                    iconDragOriginPage = currentPage;
+                    iconDragOriginIndex = pos;
+                    iconDragHoverIndex = pos;
+                    iconDragEntry = hit;
+                    dragDownRawX = rx;
+                    dragDownRawY = ry;
+
+                    pendingHoldDragRunnable = new Runnable() {
+                        @Override
+                        public void run() {
+                            if (iconDragArmed && !iconDragActive) {
+                                startLiveIconDrag();
+                            }
+                        }
+                    };
+                    dragHandler.postDelayed(pendingHoldDragRunnable, rearrangeMode ? 120L : 310L);
+                }
+            }
+            return false;
+        }
+
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (!iconDragArmed && !iconDragActive) return false;
+            float dist = (float) Math.hypot(rx - dragDownRawX, ry - dragDownRawY);
+            if (!iconDragActive) {
+                if (rearrangeMode && dist > dp(8)) {
+                    if (pendingHoldDragRunnable != null) {
+                        dragHandler.removeCallbacks(pendingHoldDragRunnable);
+                        pendingHoldDragRunnable = null;
+                    }
+                    iconDragMoved = true;
+                    startLiveIconDrag();
+                    return true;
+                }
+                if (dist > dp(14)) {
+                    cancelPendingDragState();
+                    return false;
+                }
+                return false;
+            }
+
+            if (dist > dp(9)) iconDragMoved = true;
+            updateGhostPosition(rx, ry);
+
+            // Auto page-turn when dragging near Left or Right screen edge on Desktop!
+            if (iconDragFromDesktop && !drawerOpen && rootFrame != null) {
+                int w = rootFrame.getWidth();
+                long now = System.currentTimeMillis();
+                if (rx < dp(44) && currentPage > 0 && now - lastEdgePageFlipMs > 560L) {
+                    lastEdgePageFlipMs = now;
+                    switchToPage(currentPage - 1);
+                } else if (rx > w - dp(44) && currentPage < PinnedShortcutsStore.getPageCount(this) - 1
+                        && now - lastEdgePageFlipMs > 560L) {
+                    lastEdgePageFlipMs = now;
+                    switchToPage(currentPage + 1);
+                }
+            }
+
+            GridView targetGrid = iconDragFromDesktop ? desktopGridView : drawerGridView;
+            int hover = findGridSlotAtRawPoint(targetGrid, rx, ry);
+            if (hover != iconDragHoverIndex) {
+                iconDragHoverIndex = hover;
+                if (iconDragFromDesktop && desktopAdapter != null) desktopAdapter.notifyDataSetChanged();
+                if (!iconDragFromDesktop && drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
+            }
+            return true;
+        }
+
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (!iconDragActive) {
+                cancelPendingDragState();
+                return false;
+            }
+            final AppEntry dragged = iconDragEntry;
+            final boolean fromDesktop = iconDragFromDesktop;
+            final int origPage = iconDragOriginPage;
+            final int origIdx = iconDragOriginIndex;
+            final boolean moved = iconDragMoved;
+            cancelPendingDragState();
+
+            if (action == MotionEvent.ACTION_CANCEL || dragged == null) {
+                refreshCurrentPageShortcuts();
+                if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
+                return true;
+            }
+
+            // Held in place & lifted without dragging -> show rich icon/rearrange quick menu!
+            if (!moved) {
+                showAppOptions(dragged, fromDesktop, origIdx);
+                refreshCurrentPageShortcuts();
+                return true;
+            }
+
+            // 1. Top Drop Action Bar targets
+            if (isPointInsideView(dropRemoveBtn, rx, ry)) {
+                if (fromDesktop) {
+                    PinnedShortcutsStore.clearSlotAt(this, origPage, origIdx,
+                            PinnedShortcutsStore.getDesktopTotalCells(this));
+                    refreshCurrentPageShortcuts();
+                    Toast.makeText(this, "Removed " + dragged.label + " from Home", Toast.LENGTH_SHORT).show();
+                } else {
+                    openAppDetails(dragged.pkg);
+                }
+                return true;
+            }
+            if (isPointInsideView(dropPinBarBtn, rx, ry)
+                    || (dockBar != null && dockBar.isShown() && isPointInsideView(dockBar, rx, ry))) {
+                String compOrFolder = dragged.folderToken != null ? dragged.folderToken : (dragged.pkg + "/" + dragged.cls);
+                AppBarConfigStore.Config cfg = AppBarConfigStore.load(this);
+                if (!cfg.items.contains(compOrFolder) && cfg.items.size() < AppBarConfigStore.MAX_SLOTS) {
+                    cfg.items.add(compOrFolder);
+                    AppBarConfigStore.save(this, cfg);
+                    rebuildDock();
+                    Toast.makeText(this, "Pinned " + dragged.label + " to App Bar!", Toast.LENGTH_SHORT).show();
+                }
+                refreshCurrentPageShortcuts();
+                return true;
+            }
+            if (isPointInsideView(dropInfoBtn, rx, ry)) {
+                if (dragged.folderToken == null) openAppDetails(dragged.pkg);
+                refreshCurrentPageShortcuts();
+                return true;
+            }
+            if (isPointInsideView(dropFolderBtn, rx, ry)) {
+                showCreateFolderDialog();
+                refreshCurrentPageShortcuts();
+                return true;
+            }
+
+            // 2. Dropped directly onto Desktop Grid (supports empty slots, swaps & cross-page drops!)
+            if (fromDesktop) {
+                int totalCells = PinnedShortcutsStore.getDesktopTotalCells(this);
+                int destIdx = findGridSlotAtRawPoint(desktopGridView, rx, ry);
+                if (currentPage == origPage) {
+                    if (destIdx >= 0 && destIdx != origIdx) {
+                        PinnedShortcutsStore.moveOrSwapDesktopSlot(this, currentPage, origIdx, destIdx, totalCells);
+                    }
+                } else {
+                    List<String> srcSlots = PinnedShortcutsStore.loadPageGridSlots(this, origPage, totalCells);
+                    String token = (origIdx >= 0 && origIdx < srcSlots.size())
+                            ? srcSlots.get(origIdx) : PinnedShortcutsStore.EMPTY_SLOT;
+                    if (!PinnedShortcutsStore.isEmptyToken(token)) {
+                        PinnedShortcutsStore.clearSlotAt(this, origPage, origIdx, totalCells);
+                        List<String> dstSlots = PinnedShortcutsStore.loadPageGridSlots(this, currentPage, totalCells);
+                        if (destIdx >= 0 && destIdx < dstSlots.size()
+                                && PinnedShortcutsStore.isEmptyToken(dstSlots.get(destIdx))) {
+                            dstSlots.set(destIdx, token);
+                            PinnedShortcutsStore.savePage(this, currentPage, dstSlots);
+                        } else {
+                            PinnedShortcutsStore.addRawEntry(this, currentPage, token);
+                        }
+                    }
+                }
+                refreshCurrentPageShortcuts();
+                return true;
+            }
+
+            // 3. Dropped inside All Apps Drawer -> persist Custom App Order!
+            int drawerDest = findGridSlotAtRawPoint(drawerGridView, rx, ry);
+            if (drawerDest >= 0 && drawerDest < filteredApps.size() && origIdx >= 0
+                    && origIdx < filteredApps.size() && drawerDest != origIdx) {
+                List<String> keys = new ArrayList<String>();
+                for (int i = 0; i < allApps.size(); i++) {
+                    keys.add(allApps.get(i).pkg + "/" + allApps.get(i).cls);
+                }
+                String draggedKey = filteredApps.get(origIdx).pkg + "/" + filteredApps.get(origIdx).cls;
+                String targetKey = filteredApps.get(drawerDest).pkg + "/" + filteredApps.get(drawerDest).cls;
+                int fromAll = keys.indexOf(draggedKey);
+                int toAll = keys.indexOf(targetKey);
+                if (fromAll >= 0 && toAll >= 0) {
+                    PinnedShortcutsStore.moveDrawerOrderItem(this, keys, fromAll, toAll);
+                    updateRearrangeChips();
+                    reloadApps();
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private void openAppDetails(String pkg) {
+        Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
+        info.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        safeStart(info);
     }
 
     private void switchToPage(int index) {
@@ -914,17 +1400,14 @@ public class VanillaHomeActivity extends Activity {
 
     private void refreshCurrentPageShortcuts() {
         currentPageShortcuts.clear();
-        List<String> saved = PinnedShortcutsStore.loadPage(this, currentPage);
-
-        if (currentPage == 0 && saved.isEmpty() && !allApps.isEmpty()) {
-            for (int i = 0; i < allApps.size() && saved.size() < 10; i++) {
+        if (currentPage == 0 && !PinnedShortcutsStore.hasAnyShortcut(this, 0) && !allApps.isEmpty()) {
+            for (int i = 0; i < allApps.size() && PinnedShortcutsStore.loadPage(this, 0).size() < 10; i++) {
                 AppEntry e = allApps.get(i);
                 if (e.pkg.equals("ca.arc7freedom.app")
                         || e.pkg.equals("com.aurora.store")
                         || e.pkg.equals("eu.bubu1.fdroidclassic.debug")
                         || e.pkg.contains("fdroid")) {
                     PinnedShortcutsStore.addShortcut(this, 0, e.pkg, e.cls);
-                    saved.add(e.pkg + "/" + e.cls);
                 }
             }
         }
@@ -935,8 +1418,20 @@ public class VanillaHomeActivity extends Activity {
         int totalPages = PinnedShortcutsStore.getPageCount(this);
         if (currentPage >= totalPages) currentPage = totalPages - 1;
 
-        for (int i = 0; i < saved.size(); i++) {
-            String key = saved.get(i);
+        int totalCells = PinnedShortcutsStore.getDesktopTotalCells(this);
+        List<String> gridSlots = PinnedShortcutsStore.loadPageGridSlots(this, currentPage, totalCells);
+
+        for (int i = 0; i < gridSlots.size(); i++) {
+            String key = gridSlots.get(i);
+            if (PinnedShortcutsStore.isEmptyToken(key)) {
+                AppEntry empty = new AppEntry();
+                empty.emptySlot = true;
+                empty.pkg = "";
+                empty.cls = "";
+                empty.label = "";
+                currentPageShortcuts.add(empty);
+                continue;
+            }
             if (PinnedShortcutsStore.isFolderToken(key)) {
                 AppEntry fe = new AppEntry();
                 fe.folderToken = key;
@@ -947,12 +1442,23 @@ public class VanillaHomeActivity extends Activity {
                 currentPageShortcuts.add(fe);
                 continue;
             }
+            AppEntry resolved = null;
             for (int j = 0; j < allApps.size(); j++) {
                 AppEntry e = allApps.get(j);
                 if ((e.pkg + "/" + e.cls).equals(key)) {
-                    currentPageShortcuts.add(e);
+                    resolved = e;
                     break;
                 }
+            }
+            if (resolved != null) {
+                currentPageShortcuts.add(resolved);
+            } else {
+                AppEntry empty = new AppEntry();
+                empty.emptySlot = true;
+                empty.pkg = "";
+                empty.cls = "";
+                empty.label = "";
+                currentPageShortcuts.add(empty);
             }
         }
 
@@ -1091,6 +1597,23 @@ public class VanillaHomeActivity extends Activity {
             }
         });
 
+        if (PinnedShortcutsStore.isCustomDrawerSort(this)) {
+            final List<String> customOrder = PinnedShortcutsStore.loadDrawerOrder(this);
+            if (!customOrder.isEmpty()) {
+                Collections.sort(allApps, new Comparator<AppEntry>() {
+                    @Override
+                    public int compare(AppEntry a, AppEntry b) {
+                        int ia = customOrder.indexOf(a.pkg + "/" + a.cls);
+                        int ib = customOrder.indexOf(b.pkg + "/" + b.cls);
+                        if (ia < 0 && ib < 0) return a.label.compareToIgnoreCase(b.label);
+                        if (ia < 0) return 1;
+                        if (ib < 0) return -1;
+                        return ia < ib ? -1 : (ia > ib ? 1 : 0);
+                    }
+                });
+            }
+        }
+
         applyLauncherSkinChrome();
         filterApps(searchBox != null ? searchBox.getText().toString() : "");
         refreshCurrentPageShortcuts();
@@ -1209,6 +1732,20 @@ public class VanillaHomeActivity extends Activity {
             final String fname = PinnedShortcutsStore.parseFolderName(token);
             return makeBuiltinSlot(token, fname, R.drawable.ic_files, new View.OnClickListener() {
                 @Override public void onClick(View v) { showFolderPopupDialog(token); }
+            });
+        }
+        if ("@streamdeck".equals(token)) {
+            return makeBuiltinSlot(token, "StreamDeck", R.drawable.ic_streamdeck, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7StreamDeckActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@vpn".equals(token)) {
+            return makeBuiltinSlot(token, "VPN/Tailscale", R.drawable.ic_vpn, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7VpnActivity")) openDrawer();
+                }
             });
         }
         if ("@pdf".equals(token)) {
@@ -1710,7 +2247,43 @@ public class VanillaHomeActivity extends Activity {
                 return false;
             }
         });
-        slot.setOnClickListener(s.action);
+        if (rearrangeMode) {
+            GradientDrawable ring = new GradientDrawable();
+            ring.setCornerRadius(dp(10));
+            ring.setColor(selectedAppBarSlot == slotConfigIdx ? 0x5538BDF8 : 0x22FFFFFF);
+            ring.setStroke(dp(selectedAppBarSlot == slotConfigIdx ? 2 : 1),
+                    selectedAppBarSlot == slotConfigIdx ? 0xFF38BDF8 : 0x55FFFFFF);
+            slot.setBackgroundDrawable(ring);
+        }
+
+        slot.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (rearrangeMode) {
+                    if (selectedAppBarSlot < 0) {
+                        selectedAppBarSlot = slotConfigIdx;
+                        rebuildDock();
+                        Toast.makeText(VanillaHomeActivity.this,
+                                "Selected '" + s.label + "' — tap another App Bar icon to swap!", Toast.LENGTH_SHORT).show();
+                    } else if (selectedAppBarSlot == slotConfigIdx) {
+                        selectedAppBarSlot = -1;
+                        rebuildDock();
+                    } else {
+                        AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
+                        if (selectedAppBarSlot < cfg.items.size() && slotConfigIdx < cfg.items.size()) {
+                            String tmp = cfg.items.get(selectedAppBarSlot);
+                            cfg.items.set(selectedAppBarSlot, cfg.items.get(slotConfigIdx));
+                            cfg.items.set(slotConfigIdx, tmp);
+                            AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
+                        }
+                        selectedAppBarSlot = -1;
+                        rebuildDock();
+                    }
+                    return;
+                }
+                if (s.action != null) s.action.onClick(v);
+            }
+        });
         slot.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
             public boolean onLongClick(View v) {
@@ -2188,6 +2761,23 @@ public class VanillaHomeActivity extends Activity {
                             }
                         });
 
+                final String[] rowOpts = new String[]{
+                        "2 Rows (Spacious Widget Layout)",
+                        "3 Rows (Balanced Tablet Default)",
+                        "4 Rows (Dense Home Grid)",
+                        "5 Rows (Full-Screen App Matrix)"
+                };
+                int curRowIdx = PinnedShortcutsStore.getDesktopRows(VanillaHomeActivity.this) - 2;
+                addSelectorRow(rootBox, "Desktop Grid Rows", rowOpts[curRowIdx], rowOpts, curRowIdx,
+                        new IntChoiceCallback() {
+                            @Override
+                            public void onSelected(int which) {
+                                PinnedShortcutsStore.setDesktopRows(VanillaHomeActivity.this, 2 + which);
+                                refreshCurrentPageShortcuts();
+                                renderRef[0].run();
+                            }
+                        });
+
                 final String[] pageOpts = new String[]{
                         "3 Home Desktop Pages",
                         "4 Home Desktop Pages",
@@ -2556,10 +3146,19 @@ public class VanillaHomeActivity extends Activity {
     }
 
     private void showAppOptions(final AppEntry e, final boolean onDesktop) {
+        showAppOptions(e, onDesktop, -1);
+    }
+
+    private void showAppOptions(final AppEntry e, final boolean onDesktop, final int slotIdx) {
+        if (e == null || e.emptySlot) {
+            showWidgetPickerDialog();
+            return;
+        }
         if (e.folderToken != null) {
             showFolderPopupDialog(e.folderToken);
             return;
         }
+        final int totalCells = PinnedShortcutsStore.getDesktopTotalCells(this);
         final AppBarConfigStore.Config barCfg = AppBarConfigStore.load(this);
         final boolean inBar = AppBarConfigStore.containsComponent(barCfg, e.pkg, e.cls);
         final boolean lockedNow = PinnedShortcutsStore.isAppLocked(this, e.pkg);
@@ -2568,72 +3167,128 @@ public class VanillaHomeActivity extends Activity {
                 ? "Unpin from Page " + (currentPage + 1)
                 : "Pin to Home Page " + (currentPage + 1);
         final String lockAction = lockedNow ? "🔓 Unlock App PIN Protection" : "🔒 Lock App Behind 4-Digit PIN";
-        final String[] items = new String[]{
-                "Open " + e.label,
-                barAction,
-                pageAction,
-                lockAction,
-                "Customize App Bar & Desktop...",
-                "App Info"
-        };
+        final String[] items = onDesktop
+                ? new String[]{
+                        "Open " + e.label,
+                        rearrangeMode ? "\u2713 Exit Rearrange Mode" : "\u2725 Enter Rearrange / Drag Mode",
+                        "\u25C0 Move Left on Grid",
+                        "Move Right on Grid \u25B6",
+                        "Move to Another Desktop Page...",
+                        barAction,
+                        pageAction,
+                        lockAction,
+                        "Customize App Bar & Desktop...",
+                        "App Info"
+                }
+                : new String[]{
+                        "Open " + e.label,
+                        rearrangeMode ? "\u2713 Exit Rearrange Mode" : "\u2725 Rearrange App Icons (Drag / Swap)",
+                        pageAction,
+                        barAction,
+                        lockAction,
+                        "Customize App Bar & Desktop...",
+                        "App Info"
+                };
         new AlertDialog.Builder(this)
                 .setTitle(e.label)
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
+                        if (onDesktop) {
+                            if (which == 0) {
+                                launchEntry(e);
+                            } else if (which == 1) {
+                                toggleRearrangeMode();
+                            } else if (which == 2 && slotIdx > 0) {
+                                PinnedShortcutsStore.moveOrSwapDesktopSlot(
+                                        VanillaHomeActivity.this, currentPage, slotIdx, slotIdx - 1, totalCells);
+                                refreshCurrentPageShortcuts();
+                            } else if (which == 3 && slotIdx >= 0) {
+                                PinnedShortcutsStore.moveOrSwapDesktopSlot(
+                                        VanillaHomeActivity.this, currentPage, slotIdx, slotIdx + 1, totalCells);
+                                refreshCurrentPageShortcuts();
+                            } else if (which == 4) {
+                                int pc = PinnedShortcutsStore.getPageCount(VanillaHomeActivity.this);
+                                final String[] pnames = new String[pc];
+                                for (int p = 0; p < pc; p++) pnames[p] = "Desktop Page " + (p + 1);
+                                new AlertDialog.Builder(VanillaHomeActivity.this)
+                                        .setTitle("Move " + e.label + " to Page")
+                                        .setItems(pnames, new DialogInterface.OnClickListener() {
+                                            @Override
+                                            public void onClick(DialogInterface d2, int targetPage) {
+                                                if (slotIdx >= 0 && PinnedShortcutsStore.moveDesktopSlotToPage(
+                                                        VanillaHomeActivity.this, currentPage, slotIdx, targetPage, totalCells)) {
+                                                    switchToPage(targetPage);
+                                                }
+                                            }
+                                        })
+                                        .show();
+                            } else if (which == 5) {
+                                togglePinInAppBar(e, inBar);
+                            } else if (which == 6) {
+                                PinnedShortcutsStore.removeShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
+                                refreshCurrentPageShortcuts();
+                            } else if (which == 7) {
+                                toggleAppLockPin(e, lockedNow);
+                            } else if (which == 8) {
+                                showAppBarCustomizerDialog();
+                            } else if (which == 9) {
+                                openAppDetails(e.pkg);
+                            }
+                            return;
+                        }
+
                         if (which == 0) {
                             launchEntry(e);
                         } else if (which == 1) {
-                            if (inBar) {
-                                AppBarConfigStore.removeComponent(VanillaHomeActivity.this, e.pkg, e.cls);
-                                rebuildDock();
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        "Removed " + e.label + " from App Bar", Toast.LENGTH_SHORT).show();
-                            } else if (AppBarConfigStore.addOrPinComponent(VanillaHomeActivity.this, e.pkg, e.cls)) {
-                                rebuildDock();
-                                closeDrawer();
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        "Pinned " + e.label + " to App Bar!", Toast.LENGTH_SHORT).show();
-                            } else {
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        "App Bar is full (" + AppBarConfigStore.MAX_SLOTS + " slots max).",
-                                        Toast.LENGTH_SHORT).show();
-                            }
+                            toggleRearrangeMode();
                         } else if (which == 2) {
-                            if (onDesktop) {
-                                PinnedShortcutsStore.removeShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
-                                refreshCurrentPageShortcuts();
-                            } else {
-                                PinnedShortcutsStore.addShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
-                                refreshCurrentPageShortcuts();
-                                closeDrawer();
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        "Pinned " + e.label + " to Page " + (currentPage + 1), Toast.LENGTH_SHORT).show();
-                            }
+                            PinnedShortcutsStore.addShortcut(VanillaHomeActivity.this, currentPage, e.pkg, e.cls);
+                            refreshCurrentPageShortcuts();
+                            closeDrawer();
+                            Toast.makeText(VanillaHomeActivity.this,
+                                    "Pinned " + e.label + " to Page " + (currentPage + 1), Toast.LENGTH_SHORT).show();
                         } else if (which == 3) {
-                            if (PinnedShortcutsStore.getPinCode(VanillaHomeActivity.this).isEmpty()) {
-                                showSetPinDialog(new Runnable() {
-                                    @Override public void run() {
-                                        PinnedShortcutsStore.setAppLocked(VanillaHomeActivity.this, e.pkg, true);
-                                        Toast.makeText(VanillaHomeActivity.this, "Locked " + e.label, Toast.LENGTH_SHORT).show();
-                                    }
-                                });
-                            } else {
-                                PinnedShortcutsStore.setAppLocked(VanillaHomeActivity.this, e.pkg, !lockedNow);
-                                Toast.makeText(VanillaHomeActivity.this,
-                                        (!lockedNow ? "Locked " : "Unlocked ") + e.label, Toast.LENGTH_SHORT).show();
-                            }
+                            togglePinInAppBar(e, inBar);
                         } else if (which == 4) {
+                            toggleAppLockPin(e, lockedNow);
+                        } else if (which == 5) {
                             showAppBarCustomizerDialog();
                         } else {
-                            Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    Uri.parse("package:" + e.pkg));
-                            info.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            safeStart(info);
+                            openAppDetails(e.pkg);
                         }
                     }
                 })
                 .show();
+    }
+
+    private void togglePinInAppBar(AppEntry e, boolean inBar) {
+        if (inBar) {
+            AppBarConfigStore.removeComponent(this, e.pkg, e.cls);
+            rebuildDock();
+            Toast.makeText(this, "Removed " + e.label + " from App Bar", Toast.LENGTH_SHORT).show();
+        } else if (AppBarConfigStore.addOrPinComponent(this, e.pkg, e.cls)) {
+            rebuildDock();
+            closeDrawer();
+            Toast.makeText(this, "Pinned " + e.label + " to App Bar!", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this, "App Bar is full (" + AppBarConfigStore.MAX_SLOTS + " slots max).",
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void toggleAppLockPin(final AppEntry e, boolean lockedNow) {
+        if (PinnedShortcutsStore.getPinCode(this).isEmpty()) {
+            showSetPinDialog(new Runnable() {
+                @Override public void run() {
+                    PinnedShortcutsStore.setAppLocked(VanillaHomeActivity.this, e.pkg, true);
+                    Toast.makeText(VanillaHomeActivity.this, "Locked " + e.label, Toast.LENGTH_SHORT).show();
+                }
+            });
+        } else {
+            PinnedShortcutsStore.setAppLocked(this, e.pkg, !lockedNow);
+            Toast.makeText(this, (!lockedNow ? "Locked " : "Unlocked ") + e.label, Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void safeStart(Intent i) {
@@ -2664,7 +3319,7 @@ public class VanillaHomeActivity extends Activity {
         @Override public long getItemId(int position) { return position; }
 
         @Override
-        public View getView(int position, View convertView, ViewGroup parent) {
+        public View getView(final int position, View convertView, ViewGroup parent) {
             final AppEntry entry = source.get(position);
             LinearLayout cell = (LinearLayout) convertView;
             ImageView iconView;
@@ -2696,8 +3351,64 @@ public class VanillaHomeActivity extends Activity {
                 labelView = (TextView) cell.findViewById(1002);
             }
 
+            boolean isDragSource = iconDragActive
+                    && ((onDesktop && iconDragFromDesktop && currentPage == iconDragOriginPage && position == iconDragOriginIndex)
+                        || (!onDesktop && !iconDragFromDesktop && position == iconDragOriginIndex));
+            boolean isHoverTarget = iconDragActive
+                    && ((onDesktop && iconDragFromDesktop && position == iconDragHoverIndex)
+                        || (!onDesktop && !iconDragFromDesktop && position == iconDragHoverIndex));
+            boolean isSelected = onDesktop && rearrangeMode
+                    && selectedDesktopPage == currentPage && selectedDesktopSlot == position;
+
+            if (entry.emptySlot) {
+                iconView.setImageDrawable(null);
+                labelView.setText((rearrangeMode || iconDragActive) ? "\u00B7" : "");
+                cell.setAlpha(1f);
+                if (rearrangeMode || iconDragActive) {
+                    GradientDrawable slotBg = new GradientDrawable();
+                    slotBg.setCornerRadius(dp(12));
+                    slotBg.setColor(isHoverTarget ? 0x4438BDF8 : 0x16FFFFFF);
+                    slotBg.setStroke(dp(isHoverTarget ? 2 : 1), isHoverTarget ? 0xFF38BDF8 : 0x3AFFFFFF);
+                    cell.setBackgroundDrawable(slotBg);
+                } else {
+                    cell.setBackgroundDrawable(null);
+                }
+                cell.setOnTouchListener(null);
+                cell.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        if (rearrangeMode && selectedDesktopSlot >= 0) {
+                            handleRearrangeTapOnDesktopSlot(position);
+                        }
+                    }
+                });
+                cell.setOnLongClickListener(new View.OnLongClickListener() {
+                    @Override
+                    public boolean onLongClick(View v) {
+                        lastChildLongPressMs = System.currentTimeMillis();
+                        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                        showWidgetPickerDialog();
+                        return true;
+                    }
+                });
+                return cell;
+            }
+
             iconView.setImageDrawable(entry.icon);
             labelView.setText(entry.label);
+            cell.setAlpha(isDragSource ? 0.30f : 1.0f);
+
+            if (isHoverTarget || isSelected || rearrangeMode) {
+                GradientDrawable tileFrame = new GradientDrawable();
+                tileFrame.setCornerRadius(dp(12));
+                tileFrame.setColor(isSelected ? 0x4438BDF8 : (isHoverTarget ? 0x3A10B981 : 0x14FFFFFF));
+                tileFrame.setStroke(dp((isHoverTarget || isSelected) ? 2 : 1),
+                        isSelected ? 0xFF38BDF8 : (isHoverTarget ? 0xFF34D399 : 0x40FFFFFF));
+                cell.setBackgroundDrawable(tileFrame);
+            } else {
+                cell.setBackgroundDrawable(null);
+            }
+
             cell.setOnTouchListener(new View.OnTouchListener() {
                 @Override
                 public boolean onTouch(View v, MotionEvent ev) {
@@ -2714,6 +3425,14 @@ public class VanillaHomeActivity extends Activity {
             cell.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    if (rearrangeMode) {
+                        if (onDesktop) {
+                            handleRearrangeTapOnDesktopSlot(position);
+                        } else {
+                            handleRearrangeTapOnDrawerSlot(position);
+                        }
+                        return;
+                    }
                     launchEntry(entry);
                 }
             });
@@ -2722,11 +3441,81 @@ public class VanillaHomeActivity extends Activity {
                 public boolean onLongClick(View v) {
                     lastChildLongPressMs = System.currentTimeMillis();
                     v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                    showAppOptions(entry, onDesktop);
+                    showAppOptions(entry, onDesktop, position);
                     return true;
                 }
             });
             return cell;
         }
+    }
+
+    private void handleRearrangeTapOnDesktopSlot(int targetSlot) {
+        int totalCells = PinnedShortcutsStore.getDesktopTotalCells(this);
+        if (selectedDesktopSlot < 0) {
+            if (targetSlot >= 0 && targetSlot < currentPageShortcuts.size()
+                    && !currentPageShortcuts.get(targetSlot).emptySlot) {
+                selectedDesktopPage = currentPage;
+                selectedDesktopSlot = targetSlot;
+                refreshCurrentPageShortcuts();
+                Toast.makeText(this,
+                        "Selected '" + currentPageShortcuts.get(targetSlot).label
+                                + "' — tap any slot or switch page to place it!",
+                        Toast.LENGTH_SHORT).show();
+            }
+            return;
+        }
+        int srcPage = selectedDesktopPage;
+        int srcSlot = selectedDesktopSlot;
+        selectedDesktopPage = -1;
+        selectedDesktopSlot = -1;
+
+        if (srcPage == currentPage) {
+            if (srcSlot != targetSlot) {
+                PinnedShortcutsStore.moveOrSwapDesktopSlot(this, currentPage, srcSlot, targetSlot, totalCells);
+            }
+        } else {
+            List<String> srcSlots = PinnedShortcutsStore.loadPageGridSlots(this, srcPage, totalCells);
+            String token = (srcSlot >= 0 && srcSlot < srcSlots.size())
+                    ? srcSlots.get(srcSlot) : PinnedShortcutsStore.EMPTY_SLOT;
+            if (!PinnedShortcutsStore.isEmptyToken(token)) {
+                PinnedShortcutsStore.clearSlotAt(this, srcPage, srcSlot, totalCells);
+                List<String> dstSlots = PinnedShortcutsStore.loadPageGridSlots(this, currentPage, totalCells);
+                if (targetSlot >= 0 && targetSlot < dstSlots.size()
+                        && PinnedShortcutsStore.isEmptyToken(dstSlots.get(targetSlot))) {
+                    dstSlots.set(targetSlot, token);
+                    PinnedShortcutsStore.savePage(this, currentPage, dstSlots);
+                } else {
+                    PinnedShortcutsStore.addRawEntry(this, currentPage, token);
+                }
+            }
+        }
+        refreshCurrentPageShortcuts();
+    }
+
+    private void handleRearrangeTapOnDrawerSlot(int targetIdx) {
+        if (selectedDesktopSlot < 0) {
+            selectedDesktopSlot = targetIdx;
+            if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
+            Toast.makeText(this, "Tap another app icon to move there!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        int origIdx = selectedDesktopSlot;
+        selectedDesktopSlot = -1;
+        if (origIdx >= 0 && origIdx < filteredApps.size()
+                && targetIdx >= 0 && targetIdx < filteredApps.size() && origIdx != targetIdx) {
+            List<String> keys = new ArrayList<String>();
+            for (int i = 0; i < allApps.size(); i++) {
+                keys.add(allApps.get(i).pkg + "/" + allApps.get(i).cls);
+            }
+            int fromAll = keys.indexOf(filteredApps.get(origIdx).pkg + "/" + filteredApps.get(origIdx).cls);
+            int toAll = keys.indexOf(filteredApps.get(targetIdx).pkg + "/" + filteredApps.get(targetIdx).cls);
+            if (fromAll >= 0 && toAll >= 0) {
+                PinnedShortcutsStore.moveDrawerOrderItem(this, keys, fromAll, toAll);
+                updateRearrangeChips();
+                reloadApps();
+                return;
+            }
+        }
+        if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
     }
 }
