@@ -1,228 +1,235 @@
-<# :
+<# : batch portion
 @echo off
 setlocal
-title Kobo Arc 7 Freedom - Zero-SSL Home Wi-Fi Sideload Server (:8000)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((Get-Content -LiteralPath '%~f0' -Raw))) -ScriptDir '%~dp0'"
+title Kobo Arc 7 Freedom v1.9.0 - Concurrent Home Wi-Fi OTA Rooting Server (:8000)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([ScriptBlock]::Create((Get-Content -LiteralPath '%~f0' -Raw)))"
 pause
 exit /b
 #>
-param([string]$ScriptDir = "")
 
-$ErrorActionPreference = "Continue"
-if ([string]::IsNullOrWhiteSpace($ScriptDir)) {
-    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-}
-$ScriptDir = $ScriptDir.TrimEnd('\', '/')
-
-# Locate repo `releases\` folder if present; otherwise create standalone `Kobo-WiFi-Server` folder next to this .bat!
-$RepoReleases = Join-Path (Split-Path -Parent $ScriptDir) "releases"
-if (Test-Path (Join-Path $RepoReleases "KoboArc7Freedom.apk")) {
-    $ServeDir = $RepoReleases
-} elseif (Test-Path (Join-Path $ScriptDir "KoboArc7Freedom.apk")) {
-    $ServeDir = $ScriptDir
-} else {
-    $ServeDir = Join-Path $ScriptDir "Kobo-WiFi-Files"
-    New-Item -ItemType Directory -Force -Path $ServeDir | Out-Null
-}
-
-Write-Host ""
-Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host "  Kobo Arc 7 Freedom - 1-Click Windows Home Wi-Fi Server (Zero SSL!)" -ForegroundColor Cyan
-Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host "Serving folder: $ServeDir" -ForegroundColor Gray
-
-# Auto-download latest signed APKs from GitHub Releases if run standalone in Downloads!
+$ErrorActionPreference = 'Continue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$NeededApks = @(
-    @{ Name = "Upgrade-My-Kobo-To-v1.8.2.apk"; Url = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Upgrade-My-Kobo-To-v1.8.2.apk" },
-    @{ Name = "KoboArc7Freedom.apk"; Url = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk" },
-    @{ Name = "VanillaAndroid4Home.apk"; Url = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/VanillaAndroid4Home.apk" }
-)
-foreach ($item in $NeededApks) {
-    $dest = Join-Path $ServeDir $item.Name
-    if (-not (Test-Path $dest) -or ((Get-Item $dest).Length -lt 10240)) {
-        Write-Host "Downloading $($item.Name) from GitHub Releases..." -ForegroundColor Yellow
-        try {
-            Invoke-WebRequest -Uri $item.Url -OutFile $dest -UseBasicParsing
-            Write-Host "  Saved $($item.Name) ($([Math]::Round((Get-Item $dest).Length / 1MB, 2)) MB)" -ForegroundColor Green
-        } catch {
-            Write-Host "  ERROR downloading $($item.Name): $($_.Exception.Message)" -ForegroundColor Red
-        }
-    }
-}
 
-# Ensure Windows Defender Firewall allows inbound LAN TCP 8000 (Public & Private profiles!)
-$RuleName = "Kobo Arc 7 Wi-Fi Installer (TCP 8000)"
-$ExistingRule = netsh advfirewall firewall show rule name="$RuleName" 2>$null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Opening Windows Defender Firewall port 8000 so Kobo Arc 7 can connect over Wi-Fi..." -ForegroundColor Yellow
-    $fwCmd = "/c netsh advfirewall firewall add rule name=`"$RuleName`" dir=in action=allow protocol=TCP localport=8000 profile=any & netsh advfirewall firewall add rule name=`"Kobo Arc 7 Wi-Fi Installer (TCP 8080)`" dir=in action=allow protocol=TCP localport=8080 profile=any"
-    try {
-        Start-Process -FilePath "cmd.exe" -ArgumentList $fwCmd -Verb RunAs -WindowStyle Hidden -Wait -ErrorAction Stop
-        Write-Host "  Windows Firewall TCP 8000 & 8080 unlocked for home Wi-Fi!" -ForegroundColor Green
-    } catch {
-        Write-Host "  Note: Firewall prompt skipped. If tablet times out, allow TCP port 8000 in Windows Firewall." -ForegroundColor DarkYellow
-    }
-}
-
-# Enumerate real LAN IPv4 addresses (skip WSL, Hyper-V, Docker, VPN, APIPA 169.254.*, Loopback)
-$LanIps = @()
-try {
-    $adapters = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object {
-        $_.IPAddress -notlike "127.*" -and
-        $_.IPAddress -notlike "169.254.*" -and
-        $_.InterfaceAlias -notmatch "WSL|Hyper-V|vEthernet|Docker|Loopback|Tailscale|WireGuard|TAP|ZeroTier"
-    } | Sort-Object -Property @{Expression = { if ($_.InterfaceAlias -match "Wi-Fi|Wireless|WLAN") { 0 } else { 1 } }}
-    foreach ($a in $adapters) {
-        if ($LanIps -notcontains $a.IPAddress) { $LanIps += $a.IPAddress }
-    }
-} catch {}
-if ($LanIps.Count -eq 0) {
-    [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) | Where-Object {
-        $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and
-        $_.IPAddressToString -notlike "127.*" -and $_.IPAddressToString -notlike "169.254.*"
-    } | ForEach-Object { $LanIps += $_.IPAddressToString }
-}
-if ($LanIps.Count -eq 0) { $LanIps = @("127.0.0.1") }
-
-# Prefer Python server if available; otherwise run built-in native .NET TcpListener HTTP/1.1 server!
-$PyScript = Join-Path $ScriptDir "serve-over-wifi.py"
-if (Test-Path $PyScript) {
-    foreach ($py in @("py", "python", "python3")) {
-        $cmd = Get-Command $py -ErrorAction SilentlyContinue
-        if ($cmd -and $cmd.Source -notmatch "WindowsApps") {
-            & $py $PyScript
-            exit $LASTEXITCODE
-        }
-    }
-}
-
-# Built-in Zero-Python .NET TcpListener HTTP/1.1 Server
-$Listener = $null
 $Port = 8000
-foreach ($p in @(8000, 8080, 8888)) {
-    try {
-        $l = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $p)
-        $l.Server.SetSocketOption([System.Net.Sockets.SocketOptionLevel]::Socket, [System.Net.Sockets.SocketOptionName]::ReuseAddress, $true)
-        $l.Start()
-        $Listener = $l
-        $Port = $p
-        break
-    } catch {}
-}
-if (-not $Listener) {
-    Write-Host "ERROR: Could not bind TCP port 8000/8080/8888." -ForegroundColor Red
-    exit 1
+$WorkDir = Join-Path $env:USERPROFILE "Downloads\Kobo-Arc-7-Freedom-WiFi"
+New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+
+# Copy local APKs first if user downloaded them alongside this .bat
+$ScriptFolder = $PSScriptRoot
+if (-not $ScriptFolder) { $ScriptFolder = (Get-Location).Path }
+foreach ($localName in @("Upgrade-My-Kobo-To-v1.9.0.apk", "KoboArc7Freedom.apk", "AuroraStore.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
+    foreach ($candidateDir in @($ScriptFolder, (Join-Path $ScriptFolder "..\releases"))) {
+        $cand = Join-Path $candidateDir $localName
+        if (Test-Path -LiteralPath $cand) {
+            Copy-Item -Force -LiteralPath $cand -Destination (Join-Path $WorkDir $localName)
+        }
+    }
 }
 
+$PagesBase = "https://mob5824m-wq.github.io/Kobo-Arc-7-freedom"
+$ReleaseBase = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
+$RequiredFiles = @(
+    "Upgrade-My-Kobo-To-v1.9.0.apk",
+    "KoboArc7Freedom.apk",
+    "AuroraStore.apk",
+    "VanillaAndroid4Home.apk",
+    "SHA256SUMS.txt"
+)
+
+foreach ($f in $RequiredFiles) {
+    $dst = Join-Path $WorkDir $f
+    if (-not (Test-Path -LiteralPath $dst) -or ((Get-Item -LiteralPath $dst).Length -lt 512)) {
+        Write-Host "==> Downloading $f ..." -ForegroundColor Cyan
+        $ok = $false
+        foreach ($base in @($PagesBase, $ReleaseBase)) {
+            try {
+                Invoke-WebRequest -UseBasicParsing -Uri "$base/$f" -OutFile $dst -TimeoutSec 120
+                if ((Test-Path -LiteralPath $dst) -and ((Get-Item -LiteralPath $dst).Length -gt 200)) {
+                    $ok = $true
+                    break
+                }
+            } catch {}
+        }
+        if (-not $ok) {
+            Write-Warning "Could not auto-download $f — check your internet connection."
+        }
+    }
+}
+
+# Best-effort Windows Firewall open on TCP 8000 (silent if non-admin)
+try {
+    netsh advfirewall firewall add rule name="Kobo Arc 7 Wi-Fi OTA 8000" dir=in action=allow protocol=TCP localport=$Port 2>$null | Out-Null
+} catch {}
+
+# Detect real LAN IPv4 addresses (excluding loopback, APIPA, WSL/Hyper-V virtual NICs)
+$Ips = @()
+try {
+    $Ips = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+        Where-Object {
+            $_.IPAddress -notlike '127.*' -and
+            $_.IPAddress -notlike '169.254.*' -and
+            $_.InterfaceAlias -notmatch 'WSL|vEthernet|Loopback|VMware|VirtualBox'
+        } |
+        Select-Object -ExpandProperty IPAddress -Unique
+} catch {}
+if (-not $Ips -or $Ips.Count -eq 0) {
+    $Ips = [System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) |
+        Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.IPAddressToString -notlike '127.*' } |
+        ForEach-Object { $_.IPAddressToString }
+}
+
+$Listener = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
+$Listener.Start()
+
 Write-Host ""
-Write-Host "  READY! On your Kobo Arc 7 tablet:" -ForegroundColor Green
-Write-Host "  1. Enable Settings -> Security -> Unknown sources"
-Write-Host "  2. Open Kobo's Browser and type this exact PLAIN HTTP address:"
-Write-Host ""
-foreach ($ip in $LanIps) {
-    Write-Host "         http://${ip}:${Port}" -ForegroundColor White -BackgroundColor DarkBlue
+Write-Host "========================================================================" -ForegroundColor Green
+Write-Host "  KOBO ARC 7 FREEDOM v1.9.0 - CONCURRENT WI-FI OTA ROOTING SERVER LIVE!" -ForegroundColor Green
+Write-Host "========================================================================" -ForegroundColor Green
+Write-Host "  1. On Kobo Arc 7, enable: Settings -> Security -> Unknown sources"
+Write-Host "  2. Open Kobo's Browser and type this exact address (with http://):"
+foreach ($ip in $Ips) {
+    Write-Host ""
+    Write-Host "       http://${ip}:${Port}" -ForegroundColor Yellow
 }
 Write-Host ""
-Write-Host "  Keep this window open until KoboArc7Freedom.apk finishes downloading!" -ForegroundColor Yellow
-Write-Host "======================================================================" -ForegroundColor Cyan
+Write-Host "  3. Tap 'KoboArc7Freedom.apk' (new root) or 'Upgrade-My-Kobo-To-v1.9.0.apk'!"
+Write-Host "========================================================================" -ForegroundColor Green
+Write-Host ""
+
+$ClientHandler = {
+    param($Client, $ServeRoot)
+    try {
+        $Client.ReceiveTimeout = 15000
+        $Client.SendTimeout = 120000
+        $Stream = $Client.GetStream()
+
+        # Read HTTP request header lines
+        $HeaderBuf = New-Object System.Collections.Generic.List[byte]
+        $b = 0
+        $FirstByteChecked = $false
+        while ($HeaderBuf.Count -lt 16384) {
+            $b = $Stream.ReadByte()
+            if ($b -lt 0) { return }
+            if (-not $FirstByteChecked) {
+                $FirstByteChecked = $true
+                # Immediately reject accidental TLS ClientHello (0x16 / 0x80) so HTTPS-First falls back to HTTP in <1ms!
+                if ($b -eq 0x16 -or $b -eq 0x80) { return }
+            }
+            $HeaderBuf.Add([byte]$b)
+            $cnt = $HeaderBuf.Count
+            if ($cnt -ge 4 -and
+                $HeaderBuf[$cnt-4] -eq 13 -and $HeaderBuf[$cnt-3] -eq 10 -and
+                $HeaderBuf[$cnt-2] -eq 13 -and $HeaderBuf[$cnt-1] -eq 10) {
+                break
+            }
+        }
+
+        $ReqText = [System.Text.Encoding]::ASCII.GetString($HeaderBuf.ToArray())
+        $Lines = $ReqText -split "`r`n"
+        if ($Lines.Count -lt 1) { return }
+        $Parts = $Lines[0] -split ' '
+        if ($Parts.Count -lt 2) { return }
+        $Method = $Parts[0].ToUpperInvariant()
+        $RawUrl = $Parts[1]
+        $CleanPath = [Uri]::UnescapeDataString(($RawUrl -split '\?')[0]).TrimStart('/')
+        $ForceOctet = $false
+        if ($CleanPath.StartsWith("raw/")) {
+            $ForceOctet = $true
+            $CleanPath = $CleanPath.Substring(4)
+        }
+        $SafeName = [System.IO.Path]::GetFileName($CleanPath)
+
+        $RangeHeader = $null
+        foreach ($ln in $Lines) {
+            if ($ln -match '^Range:\s*bytes=(\d*)-(\d*)') {
+                $RangeHeader = $Matches
+            }
+        }
+
+        if ([string]::IsNullOrWhiteSpace($SafeName) -or $SafeName -eq "index.html") {
+            $Rows = ""
+            foreach ($item in Get-ChildItem -LiteralPath $ServeRoot -File | Sort-Object Name) {
+                $mb = "{0:N2} MB" -f ($item.Length / 1MB)
+                $cls = if ($item.Name -match '^Upgrade-My-Kobo|^KoboArc7Freedom') { "btn primary" } else { "btn" }
+                $Rows += "<a class='$cls' href='./$($item.Name)'>Download $($item.Name) ($mb)</a>"
+                if ($item.Extension -eq ".apk") {
+                    $Rows += "<a class='sub' href='./raw/$($item.Name)'>Alternate Direct Binary Stream ($($item.Name))</a>"
+                }
+            }
+            $Html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Kobo Arc 7 v1.9.0 OTA Portal</title><style>body{font-family:sans-serif;background:#0b1017;color:#f8fafc;padding:18px;}.card{background:#151e29;border:1px solid #2b3b4e;border-radius:12px;padding:18px;max-width:660px;margin:auto;}h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;text-decoration:none;padding:15px;border-radius:9px;margin:10px 0 4px 0;font-weight:bold;border:1px solid #475569;text-align:center;}.primary{background:#0284c7;border-color:#7dd3fc;font-size:17px;}.sub{display:block;color:#93c5fd;text-align:center;font-size:12.5px;margin-bottom:10px;}</style></head><body><div class='card'><h1>Kobo Arc 7 Freedom v1.9.0 — Wi-Fi OTA Rooting &amp; Installer</h1><p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b>.<br>2. Tap a blue button below to download directly over Wi-Fi.<br>3. Pull down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>$Rows</div></body></html>"
+            $BodyBytes = [System.Text.Encoding]::UTF8.GetBytes($Html)
+            $Hdr = "HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($BodyBytes.Length)`r`nConnection: close`r`nCache-Control: no-store`r`n`r`n"
+            $HdrBytes = [System.Text.Encoding]::ASCII.GetBytes($Hdr)
+            $Stream.Write($HdrBytes, 0, $HdrBytes.Length)
+            if ($Method -ne "HEAD") {
+                $Stream.Write($BodyBytes, 0, $BodyBytes.Length)
+            }
+            $Stream.Flush()
+            return
+        }
+
+        $TargetFile = Join-Path $ServeRoot $SafeName
+        if (-not (Test-Path -LiteralPath $TargetFile -PathType Leaf)) {
+            $NotFound = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: 9`r`nConnection: close`r`n`r`nNot Found")
+            $Stream.Write($NotFound, 0, $NotFound.Length)
+            return
+        }
+
+        $FileInfo = Get-Item -LiteralPath $TargetFile
+        $TotalLen = [int64]$FileInfo.Length
+        $StartPos = [int64]0
+        $EndPos = [int64]($TotalLen - 1)
+        $StatusLine = "HTTP/1.1 200 OK"
+        $RangeResp = ""
+
+        if ($RangeHeader -ne $null -and $TotalLen -gt 0) {
+            if ($RangeHeader[1].Length -gt 0) { $StartPos = [int64]$RangeHeader[1] }
+            if ($RangeHeader[2].Length -gt 0) { $EndPos = [Math]::Min([int64]$RangeHeader[2], $TotalLen - 1) }
+            if ($StartPos -le $EndPos -and $StartPos -lt $TotalLen) {
+                $StatusLine = "HTTP/1.1 206 Partial Content"
+                $RangeResp = "Content-Range: bytes $StartPos-$EndPos/$TotalLen`r`n"
+            }
+        }
+
+        $SendLen = ($EndPos - $StartPos) + 1
+        $Mime = if ($ForceOctet) { "application/octet-stream" } elseif ($SafeName.ToLower().EndsWith(".apk")) { "application/vnd.android.package-archive" } else { "text/plain; charset=utf-8" }
+        $Hdr = "$StatusLine`r`nContent-Type: $Mime`r`nContent-Length: $SendLen`r`nAccept-Ranges: bytes`r`n${RangeResp}Content-Disposition: attachment; filename=`"$SafeName`"`r`nConnection: close`r`n`r`n"
+        $HdrBytes = [System.Text.Encoding]::ASCII.GetBytes($Hdr)
+        $Stream.Write($HdrBytes, 0, $HdrBytes.Length)
+
+        if ($Method -ne "HEAD") {
+            Write-Host "[OTA] Streaming $SafeName ($SendLen bytes) -> $($Client.Client.RemoteEndPoint)" -ForegroundColor Cyan
+            $Fs = [System.IO.File]::Open($TargetFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+            try {
+                $Fs.Position = $StartPos
+                $Buf = New-Object byte[] 65536
+                $Rem = $SendLen
+                while ($Rem -gt 0) {
+                    $Want = [int][Math]::Min([int64]$Buf.Length, $Rem)
+                    $Read = $Fs.Read($Buf, 0, $Want)
+                    if ($Read -le 0) { break }
+                    $Stream.Write($Buf, 0, $Read)
+                    $Rem -= $Read
+                }
+                $Stream.Flush()
+                Write-Host "[OTA] Completed $SafeName!" -ForegroundColor Green
+            } finally {
+                $Fs.Close()
+            }
+        }
+    } catch {
+    } finally {
+        try { $Client.Close() } catch {}
+    }
+}
+
+$Pool = [RunspaceFactory]::CreateRunspacePool(1, 16)
+$Pool.Open()
 
 while ($true) {
-    $client = $Listener.AcceptTcpClient()
-    try {
-        $client.ReceiveTimeout = 20000
-        $client.SendTimeout = 60000
-        $stream = $client.GetStream()
-        $first = $stream.ReadByte()
-        # Reject TLS ClientHello (0x16 / 0x80) immediately so Chrome/Safari HTTPS-First falls back to http://!
-        if ($first -lt 0 -or $first -eq 0x16 -or $first -eq 0x80) {
-            $client.Close()
-            continue
-        }
-        $ms = New-Object System.IO.MemoryStream
-        $ms.WriteByte([byte]$first)
-        $p3 = 0; $p2 = 0; $p1 = $first
-        while ($ms.Length -lt 16384) {
-            $b = $stream.ReadByte()
-            if ($b -lt 0) { break }
-            $ms.WriteByte([byte]$b)
-            if ($p3 -eq 13 -and $p2 -eq 10 -and $p1 -eq 13 -and $b -eq 10) { break }
-            $p3 = $p2; $p2 = $p1; $p1 = $b
-        }
-        $reqText = [System.Text.Encoding]::ASCII.GetString($ms.ToArray())
-        $reqLine = ($reqText -split "`r`n")[0]
-        $parts = $reqLine -split " "
-        $method = $parts[0]
-        $rawUrl = if ($parts.Length -ge 2) { $parts[1] } else { "/" }
-        $cleanPath = ($rawUrl -split "\?")[0]
-        $forceRaw = $false
-        if ($cleanPath.StartsWith("/raw/")) {
-            $forceRaw = $true
-            $cleanPath = "/" + $cleanPath.Substring(5)
-        }
-        $decodedName = [System.Uri]::UnescapeDataString($cleanPath.TrimStart('/'))
-
-        if ([string]::IsNullOrEmpty($decodedName) -or $decodedName -eq "index.html") {
-            $btns = ""
-            Get-ChildItem -File $ServeDir | Sort-Object Name | ForEach-Object {
-                $mb = [Math]::Round($_.Length / 1MB, 2)
-                $enc = [System.Uri]::EscapeDataString($_.Name)
-                $cls = if ($_.Name -eq "KoboArc7Freedom.apk") { "btn primary" } else { "btn" }
-                $btns += "<a class='$cls' href='./$enc'>Download $($_.Name) ($mb MB)</a>"
-                if ($_.Name.EndsWith(".apk")) {
-                    $btns += "<a class='btn alt' href='./raw/$enc'>Alternate Direct Binary Download: $($_.Name) (use if Kobo says Cannot Download)</a>"
-                }
-            }
-            $html = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>" +
-                    "<title>Kobo Arc 7 Wi-Fi Installer</title>" +
-                    "<style>body{font-family:sans-serif;background:#0e1319;color:#f8fafc;padding:20px;margin:0;}" +
-                    ".card{background:#161e28;border:1px solid #2b394b;border-radius:10px;padding:20px;max-width:660px;margin:0 auto;}" +
-                    "h1{color:#38bdf8;font-size:21px;margin:0 0 10px 0;}p,li{color:#cbd5e1;line-height:1.5;font-size:15px;}" +
-                    ".btn{display:block;background:#1f2a38;color:#fff;text-decoration:none;padding:15px 18px;border-radius:8px;margin:10px 0;font-weight:bold;border:1px solid #475569;text-align:center;}" +
-                    ".primary{background:#0284c7;border-color:#7dd3fc;font-size:18px;}.alt{background:#0f172a;font-size:13px;color:#93c5fd;}</style>" +
-                    "</head><body><div class='card'><h1>Kobo Arc 7 Freedom — Local Wi-Fi Installer</h1>" +
-                    "<ol><li>Enable <b>Settings &rarr; Security &rarr; Unknown sources</b> on your tablet.</li>" +
-                    "<li>Tap the blue button below to download <b>KoboArc7Freedom.apk</b> over Wi-Fi.</li>" +
-                    "<li>Swipe down from the <b>top-left corner</b> of your Kobo screen and tap <b>KoboArc7Freedom.apk</b> to install!</li></ol>" +
-                    $btns + "</div></body></html>"
-            $bodyBytes = [System.Text.Encoding]::UTF8.GetBytes($html)
-            $hdr = "HTTP/1.1 200 OK`r`nContent-Type: text/html; charset=utf-8`r`nContent-Length: $($bodyBytes.Length)`r`nCache-Control: no-store`r`nConnection: close`r`n`r`n"
-            $hdrBytes = [System.Text.Encoding]::ASCII.GetBytes($hdr)
-            $stream.Write($hdrBytes, 0, $hdrBytes.Length)
-            if ($method -ne "HEAD") { $stream.Write($bodyBytes, 0, $bodyBytes.Length) }
-        } else {
-            $safeName = [System.IO.Path]::GetFileName($decodedName)
-            $filePath = Join-Path $ServeDir $safeName
-            if (Test-Path -LiteralPath $filePath -PathType Leaf) {
-                $fi = Get-Item -LiteralPath $filePath
-                $mime = if ($forceRaw) { "application/octet-stream" } elseif ($safeName.ToLower().EndsWith(".apk")) { "application/vnd.android.package-archive" } else { "application/octet-stream" }
-                $hdr = "HTTP/1.1 200 OK`r`nContent-Type: $mime`r`nContent-Length: $($fi.Length)`r`nAccept-Ranges: none`r`nContent-Disposition: attachment; filename=`"$safeName`"`r`nConnection: close`r`n`r`n"
-                $hdrBytes = [System.Text.Encoding]::ASCII.GetBytes($hdr)
-                $stream.Write($hdrBytes, 0, $hdrBytes.Length)
-                if ($method -ne "HEAD") {
-                    Write-Host "  -> Sending $safeName ($([Math]::Round($fi.Length / 1MB, 2)) MB) to $($client.Client.RemoteEndPoint)..." -ForegroundColor Cyan
-                    $fs = [System.IO.File]::OpenRead($filePath)
-                    try {
-                        $buf = New-Object byte[] 65536
-                        while (($read = $fs.Read($buf, 0, $buf.Length)) -gt 0) {
-                            $stream.Write($buf, 0, $read)
-                        }
-                        Write-Host "  [100% DELIVERED] $safeName finished transferring to tablet!" -ForegroundColor Green
-                    } finally {
-                        $fs.Close()
-                    }
-                }
-            } else {
-                $err = [System.Text.Encoding]::UTF8.GetBytes("Not found")
-                $hdr = [System.Text.Encoding]::ASCII.GetBytes("HTTP/1.1 404 Not Found`r`nContent-Length: $($err.Length)`r`nConnection: close`r`n`r`n")
-                $stream.Write($hdr, 0, $hdr.Length)
-                if ($method -ne "HEAD") { $stream.Write($err, 0, $err.Length) }
-            }
-        }
-        $stream.Flush()
-    } catch {
-        # Normal socket abort when Android Browser hands download off to DownloadManager
-    } finally {
-        $client.Close()
-    }
+    $TcpClient = $Listener.AcceptTcpClient()
+    $Ps = [PowerShell]::Create()
+    $Ps.RunspacePool = $Pool
+    [void]$Ps.AddScript($ClientHandler).AddArgument($TcpClient).AddArgument($WorkDir)
+    [void]$Ps.BeginInvoke()
 }

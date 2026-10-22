@@ -247,6 +247,7 @@ public class Arc7AudioPlayerActivity extends Activity {
         root.addView(qScroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
         ui.post(tick);
 
         if (getIntent() != null && getIntent().getData() != null &&

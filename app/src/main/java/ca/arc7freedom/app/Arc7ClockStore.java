@@ -8,38 +8,89 @@ import android.content.SharedPreferences;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
-import android.media.Ringtone;
-import android.media.RingtoneManager;
-import android.net.Uri;
+import android.provider.Settings;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 /**
  * Persistent storage, exact Android 4.2 `AlarmManager.set(RTC_WAKEUP, ...)` scheduler,
- * boot-time re-registrar, and guaranteed loud dual-source alarm chime engine
- * (plays BOTH system alarm ringtone AND a pure-Java 44.1 kHz dual-harmonic chime on
- * `AudioManager.STREAM_ALARM` so even debloated tablets without `/system/media/audio/alarms`
- * ALWAYS sound loud and clear!).
+ * 12-hour (`AM/PM`) + 24-hour time formatting, individual per-alarm volume (`0%–100%`),
+ * and 14 nostalgic Apple + nostalgic Android 44.1 kHz harmonic PCM alarm chimes!
  */
 public class Arc7ClockStore {
 
     public static final String ACTION_ALARM_TRIGGER = "ca.arc7freedom.app.ACTION_ALARM_TRIGGER";
     public static final String ACTION_TIMER_TRIGGER = "ca.arc7freedom.app.ACTION_TIMER_TRIGGER";
 
-    public static final int REPEAT_EVERY_DAY = 0x7F;          // Sun..Sat bits 0..6
-    public static final int REPEAT_WEEKDAYS  = 0x3E;          // Mon..Fri bits 1..5
-    public static final int REPEAT_WEEKENDS  = 0x41;          // Sun(bit0) + Sat(bit6)
+    public static final int REPEAT_EVERY_DAY = 0x7F; // Sun..Sat bits 0..6
+    public static final int REPEAT_WEEKDAYS  = 0x3E; // Mon..Fri bits 1..5
+    public static final int REPEAT_WEEKENDS  = 0x41; // Sun(bit0) + Sat(bit6)
     public static final int REPEAT_ONCE      = 0x00;
+
+    /* ==================== 14 NOSTALGIC APPLE + NOSTALGIC ANDROID CHIMES ==================== */
+    public static final String CHIME_APPLE_MARIMBA   = "apple_marimba";
+    public static final String CHIME_APPLE_RADAR     = "apple_radar";
+    public static final String CHIME_APPLE_OPENING   = "apple_opening";
+    public static final String CHIME_APPLE_XYLOPHONE = "apple_xylophone";
+    public static final String CHIME_APPLE_HARP      = "apple_harp";
+    public static final String CHIME_APPLE_CHIMES    = "apple_chimes";
+    public static final String CHIME_APPLE_SCIFI     = "apple_scifi";
+    public static final String CHIME_ANDROID_HELIUM   = "android_helium";
+    public static final String CHIME_ANDROID_OXYGEN   = "android_oxygen";
+    public static final String CHIME_ANDROID_PYXIS    = "android_pyxis";
+    public static final String CHIME_ANDROID_CESIUM   = "android_cesium";
+    public static final String CHIME_ANDROID_ARGON    = "android_argon";
+    public static final String CHIME_ANDROID_PLATINUM = "android_platinum";
+    public static final String CHIME_ARC7_SUNRISE     = "arc7_sunrise";
+
+    public static final String[] CHIME_IDS = new String[]{
+            CHIME_APPLE_MARIMBA,
+            CHIME_APPLE_RADAR,
+            CHIME_APPLE_OPENING,
+            CHIME_APPLE_XYLOPHONE,
+            CHIME_APPLE_HARP,
+            CHIME_APPLE_CHIMES,
+            CHIME_APPLE_SCIFI,
+            CHIME_ANDROID_HELIUM,
+            CHIME_ANDROID_OXYGEN,
+            CHIME_ANDROID_PYXIS,
+            CHIME_ANDROID_CESIUM,
+            CHIME_ANDROID_ARGON,
+            CHIME_ANDROID_PLATINUM,
+            CHIME_ARC7_SUNRISE
+    };
+
+    public static final String[] CHIME_LABELS = new String[]{
+            "\uD83C\uDF4E Apple Classic — Marimba (iPhone OS)",
+            "\uD83C\uDF4E Apple Classic — Radar (iOS Wake Alarm)",
+            "\uD83C\uDF4E Apple Classic — Opening (iOS 7)",
+            "\uD83C\uDF4E Apple Classic — Xylophone",
+            "\uD83C\uDF4E Apple Classic — Concert Harp",
+            "\uD83C\uDF4E Apple Classic — Wind Chimes",
+            "\uD83C\uDF4E Apple Classic — Sci-Fi Retro",
+            "\uD83E\uDD16 Android Nostalgic — Helium (Jelly Bean 4.2)",
+            "\uD83E\uDD16 Android Nostalgic — Oxygen (Holo 4.0)",
+            "\uD83E\uDD16 Android Nostalgic — Pyxis (ICS Bell)",
+            "\uD83E\uDD16 Android Nostalgic — Cesium (Nexus Wake)",
+            "\uD83E\uDD16 Android Nostalgic — Argon (KitKat Piano)",
+            "\uD83E\uDD16 Android Nostalgic — Platinum (Gingerbread)",
+            "\u2600\uFE0F Arc7 Original — Sunrise Triad"
+    };
 
     private static final String PREFS = "arc7_clock_store";
     private static final String KEY_ALARMS = "alarms_json";
     private static final String KEY_NEXT_ID = "next_alarm_id";
+    private static final String KEY_USE_12H = "use_12h_clock";
     private static final String KEY_TIMER_END = "timer_end_wall_ms";
     private static final String KEY_TIMER_REM = "timer_paused_rem_ms";
     private static final String KEY_TIMER_RUN = "timer_running";
@@ -48,8 +99,68 @@ public class Arc7ClockStore {
     private static final int TIMER_REQ_CODE = 990001;
 
     private static volatile boolean ringingActive = false;
-    private static volatile Ringtone activeRingtone = null;
     private static volatile Thread synthThread = null;
+
+    public static String getChimeLabel(String chimeId) {
+        if (chimeId != null) {
+            for (int i = 0; i < CHIME_IDS.length; i++) {
+                if (CHIME_IDS[i].equals(chimeId)) return CHIME_LABELS[i];
+            }
+        }
+        return CHIME_LABELS[0];
+    }
+
+    public static int getChimeIndex(String chimeId) {
+        if (chimeId != null) {
+            for (int i = 0; i < CHIME_IDS.length; i++) {
+                if (CHIME_IDS[i].equals(chimeId)) return i;
+            }
+        }
+        return 0;
+    }
+
+    /* ==================== 12-HOUR (AM/PM) & 24-HOUR TIME MODE ==================== */
+
+    public static boolean is12HourMode(Context ctx) {
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (sp.contains(KEY_USE_12H)) {
+            return sp.getBoolean(KEY_USE_12H, true);
+        }
+        try {
+            String sys = Settings.System.getString(ctx.getContentResolver(), Settings.System.TIME_12_24);
+            if ("24".equals(sys)) return false;
+            if ("12".equals(sys)) return true;
+        } catch (Throwable ignored) {}
+        return true; // Default to friendly 12-hour AM/PM clock!
+    }
+
+    public static void set12HourMode(Context ctx, boolean use12Hour) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean(KEY_USE_12H, use12Hour)
+                .commit();
+        try {
+            Settings.System.putString(ctx.getContentResolver(),
+                    Settings.System.TIME_12_24, use12Hour ? "12" : "24");
+        } catch (Throwable ignored) {}
+        try {
+                    new RootShell(ctx).execRoot(
+                            "settings put system time_12_24 " + (use12Hour ? "12" : "24") + " 2>/dev/null || true",
+                            null);
+        } catch (Throwable ignored) {}
+        try {
+            ctx.sendBroadcast(new Intent(Intent.ACTION_TIME_CHANGED));
+        } catch (Throwable ignored) {}
+        Arc7ClockWidgetProvider.refreshAll(ctx);
+    }
+
+    public static String formatClockNow(Context ctx, Date now, boolean withSeconds) {
+        boolean use12 = is12HourMode(ctx);
+        String pat = use12
+                ? (withSeconds ? "h:mm:ss a" : "h:mm a")
+                : (withSeconds ? "HH:mm:ss" : "HH:mm");
+        return new SimpleDateFormat(pat, Locale.US).format(now);
+    }
 
     public static class AlarmEntry {
         public int id;
@@ -58,12 +169,24 @@ public class Arc7ClockStore {
         public String label;
         public int repeatMask; // bit 0=Sun .. bit 6=Sat; 0 = One-time
         public boolean enabled;
+        public String chimeId = CHIME_APPLE_MARIMBA;
+        public int volumePercent = 85; // Individual per-alarm volume: 0..100
+
+        public String formatTimePreferred(Context ctx) {
+            if (is12HourMode(ctx)) {
+                int h12 = hour % 12;
+                if (h12 == 0) h12 = 12;
+                String ampm = hour < 12 ? "AM" : "PM";
+                return String.format(Locale.US, "%d:%02d %s", h12, minute, ampm);
+            }
+            return String.format(Locale.US, "%02d:%02d", hour, minute);
+        }
 
         public String formatTime24And12() {
             int h12 = hour % 12;
             if (h12 == 0) h12 = 12;
             String ampm = hour < 12 ? "AM" : "PM";
-            return String.format(Locale.US, "%02d:%02d  (%d:%02d %s)", hour, minute, h12, minute, ampm);
+            return String.format(Locale.US, "%d:%02d %s  (%02d:%02d)", h12, minute, ampm, hour, minute);
         }
 
         public String describeRepeat() {
@@ -88,13 +211,16 @@ public class Arc7ClockStore {
         String raw = sp.getString(KEY_ALARMS, null);
         List<AlarmEntry> out = new ArrayList<AlarmEntry>();
         if (raw == null) {
-            // Seed two helpful disabled starter presets on first launch!
             AlarmEntry a1 = new AlarmEntry();
             a1.id = 1; a1.hour = 7; a1.minute = 0; a1.label = "Morning Wake Up";
             a1.repeatMask = REPEAT_WEEKDAYS; a1.enabled = false;
+            a1.chimeId = CHIME_APPLE_MARIMBA; a1.volumePercent = 85;
+
             AlarmEntry a2 = new AlarmEntry();
             a2.id = 2; a2.hour = 8; a2.minute = 30; a2.label = "Weekend Reading";
             a2.repeatMask = REPEAT_WEEKENDS; a2.enabled = false;
+            a2.chimeId = CHIME_ANDROID_HELIUM; a2.volumePercent = 65;
+
             out.add(a1);
             out.add(a2);
             sp.edit().putInt(KEY_NEXT_ID, 3).commit();
@@ -112,6 +238,8 @@ public class Arc7ClockStore {
                 e.label = o.optString("label", "Alarm");
                 e.repeatMask = o.optInt("repeatMask", REPEAT_EVERY_DAY);
                 e.enabled = o.optBoolean("enabled", true);
+                e.chimeId = o.optString("chimeId", CHIME_APPLE_MARIMBA);
+                e.volumePercent = Math.max(0, Math.min(100, o.optInt("volumePercent", 85)));
                 out.add(e);
             }
         } catch (Throwable ignored) {}
@@ -137,6 +265,8 @@ public class Arc7ClockStore {
                 o.put("label", e.label == null ? "Alarm" : e.label);
                 o.put("repeatMask", e.repeatMask);
                 o.put("enabled", e.enabled);
+                o.put("chimeId", e.chimeId == null ? CHIME_APPLE_MARIMBA : e.chimeId);
+                o.put("volumePercent", Math.max(0, Math.min(100, e.volumePercent)));
                 arr.put(o);
             } catch (Throwable ignored) {}
         }
@@ -144,6 +274,7 @@ public class Arc7ClockStore {
                 .edit()
                 .putString(KEY_ALARMS, arr.toString())
                 .commit();
+        Arc7ClockWidgetProvider.refreshAll(ctx);
     }
 
     public static int nextAlarmId(Context ctx) {
@@ -154,9 +285,6 @@ public class Arc7ClockStore {
     }
 
     public static long computeNextTriggerMillis(AlarmEntry e, long nowMillis) {
-        Calendar now = Calendar.getInstance();
-        now.setTimeInMillis(nowMillis);
-
         Calendar cand = Calendar.getInstance();
         cand.setTimeInMillis(nowMillis);
         cand.set(Calendar.HOUR_OF_DAY, e.hour);
@@ -173,7 +301,7 @@ public class Arc7ClockStore {
         for (int addDays = 0; addDays < 8; addDays++) {
             Calendar test = (Calendar) cand.clone();
             test.add(Calendar.DAY_OF_YEAR, addDays);
-            int dowBit = test.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY; // 0..6
+            int dowBit = test.get(Calendar.DAY_OF_WEEK) - Calendar.SUNDAY;
             if ((e.repeatMask & (1 << dowBit)) != 0 && test.getTimeInMillis() > nowMillis + 1000L) {
                 return test.getTimeInMillis();
             }
@@ -189,27 +317,36 @@ public class Arc7ClockStore {
         intent.setAction(ACTION_ALARM_TRIGGER);
         intent.putExtra("alarm_id", e.id);
         intent.putExtra("label", e.label);
+        intent.putExtra("chime_id", e.chimeId);
+        intent.putExtra("volume_pct", e.volumePercent);
         PendingIntent pi = PendingIntent.getBroadcast(
                 ctx, 50000 + e.id, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         if (!e.enabled) {
             am.cancel(pi);
+            Arc7ClockWidgetProvider.refreshAll(ctx);
             return;
         }
         long triggerAt = computeNextTriggerMillis(e, System.currentTimeMillis());
-        // Note: On targetSdkVersion 17, AlarmManager.set() IS ALWAYS EXACT at OS level across ALL Android versions!
         am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
+        Arc7ClockWidgetProvider.refreshAll(ctx);
     }
 
-    public static void scheduleSnooze(Context ctx, String label, int minutes) {
+    public static void scheduleSnooze(Context ctx, String label, int minutes, String chimeId, int volumePercent) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
         Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
         intent.setAction(ACTION_ALARM_TRIGGER);
         intent.putExtra("alarm_id", -1);
         intent.putExtra("label", (label == null ? "Alarm" : label) + " (Snoozed)");
+        intent.putExtra("chime_id", chimeId == null ? CHIME_APPLE_MARIMBA : chimeId);
+        intent.putExtra("volume_pct", volumePercent);
         PendingIntent pi = PendingIntent.getBroadcast(
                 ctx, 59999, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         am.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + minutes * 60000L, pi);
+    }
+
+    public static void scheduleSnooze(Context ctx, String label, int minutes) {
+        scheduleSnooze(ctx, label, minutes, CHIME_APPLE_MARIMBA, 85);
     }
 
     public static void rescheduleAllOnBoot(Context ctx) {
@@ -246,8 +383,8 @@ public class Arc7ClockStore {
         long diffMin = Math.max(1L, (best - now + 30000L) / 60000L);
         long hrs = diffMin / 60L;
         long mins = diffMin % 60L;
-        return String.format(Locale.US, "Next Alarm: %s — %s (rings in %dh %dm)",
-                bestAlarm.formatTime24And12(), bestAlarm.label, hrs, mins);
+        return String.format(Locale.US, "Next Alarm: %s — %s (Vol %d%% • in %dh %dm)",
+                bestAlarm.formatTimePreferred(ctx), bestAlarm.label, bestAlarm.volumePercent, hrs, mins);
     }
 
     /* ==================== PERSISTENT COUNTDOWN TIMER STATE ==================== */
@@ -303,39 +440,95 @@ public class Arc7ClockStore {
         am.cancel(pi);
     }
 
-    /* ==================== DUAL SYSTEM + PCM SYNTHESIZED ALARM RINGER ==================== */
+    /* ==================== 44.1 kHz CHIME SYNTHESIZER + PER-ALARM VOLUME ==================== */
+
+    private static final class ChimeSpec {
+        final double[] notesHz;
+        final int stepMs;
+        final int timbre; // 0=marimba wood, 1=bright radar/beep, 2=crystal bell, 3=harp/piano, 4=vibrato scifi
+
+        ChimeSpec(double[] notesHz, int stepMs, int timbre) {
+            this.notesHz = notesHz;
+            this.stepMs = stepMs;
+            this.timbre = timbre;
+        }
+    }
+
+    private static ChimeSpec resolveChimeSpec(String id) {
+        if (CHIME_APPLE_RADAR.equals(id)) {
+            return new ChimeSpec(new double[]{1174.66, 1479.98, 1174.66, 1479.98, 1174.66, 0, 0, 0}, 105, 1);
+        }
+        if (CHIME_APPLE_OPENING.equals(id)) {
+            return new ChimeSpec(new double[]{369.99, 554.37, 830.61, 932.33, 830.61, 0, 0}, 210, 2);
+        }
+        if (CHIME_APPLE_XYLOPHONE.equals(id)) {
+            return new ChimeSpec(new double[]{783.99, 659.25, 523.25, 392.00, 523.25, 659.25, 783.99, 1046.50, 0}, 130, 0);
+        }
+        if (CHIME_APPLE_HARP.equals(id)) {
+            return new ChimeSpec(new double[]{261.63, 329.63, 392.00, 493.88, 587.33, 659.25, 783.99, 0, 0}, 175, 3);
+        }
+        if (CHIME_APPLE_CHIMES.equals(id)) {
+            return new ChimeSpec(new double[]{659.25, 830.61, 987.77, 1318.51, 1108.73, 987.77, 0, 0}, 190, 2);
+        }
+        if (CHIME_APPLE_SCIFI.equals(id)) {
+            return new ChimeSpec(new double[]{523.25, 783.99, 698.46, 1046.50, 0, 0}, 240, 4);
+        }
+        if (CHIME_ANDROID_HELIUM.equals(id)) {
+            return new ChimeSpec(new double[]{1046.50, 783.99, 1318.51, 0, 1046.50, 1318.51, 0, 0}, 135, 2);
+        }
+        if (CHIME_ANDROID_OXYGEN.equals(id)) {
+            return new ChimeSpec(new double[]{440.00, 659.25, 987.77, 739.99, 0, 0}, 215, 2);
+        }
+        if (CHIME_ANDROID_PYXIS.equals(id)) {
+            return new ChimeSpec(new double[]{587.33, 880.00, 1174.66, 1479.98, 0, 0}, 125, 1);
+        }
+        if (CHIME_ANDROID_CESIUM.equals(id)) {
+            return new ChimeSpec(new double[]{783.99, 1174.66, 1567.98, 0, 783.99, 1567.98, 0, 0}, 115, 1);
+        }
+        if (CHIME_ANDROID_ARGON.equals(id)) {
+            return new ChimeSpec(new double[]{349.23, 440.00, 523.25, 783.99, 659.25, 0, 0}, 200, 3);
+        }
+        if (CHIME_ANDROID_PLATINUM.equals(id)) {
+            return new ChimeSpec(new double[]{880.00, 1108.73, 1318.51, 1760.00, 0, 0}, 145, 1);
+        }
+        if (CHIME_ARC7_SUNRISE.equals(id)) {
+            return new ChimeSpec(new double[]{523.25, 659.25, 783.99, 0.0}, 200, 2);
+        }
+        // Default: Apple Marimba (B4 - G#4 - B4 - E5 - G#5 - F#5 - E5 - B4)
+        return new ChimeSpec(new double[]{493.88, 415.30, 493.88, 659.25, 830.61, 739.99, 659.25, 493.88, 0}, 145, 0);
+    }
+
+    public static void previewChime(final Context ctx, final String chimeId, final int volumePercent) {
+        stopAlarmRinging();
+        startAlarmRingingInternal(ctx, chimeId, volumePercent, 3200L);
+    }
 
     public static synchronized void startAlarmRinging(final Context ctx) {
-        if (ringingActive) return;
+        startAlarmRinging(ctx, CHIME_APPLE_MARIMBA, 85);
+    }
+
+    public static synchronized void startAlarmRinging(final Context ctx, final String chimeId, final int volumePercent) {
+        startAlarmRingingInternal(ctx, chimeId, volumePercent, 0L);
+    }
+
+    private static synchronized void startAlarmRingingInternal(
+            final Context ctx, final String chimeId, final int volumePercent, final long maxDurationMs) {
+        stopAlarmRinging();
+        final int clampedPct = Math.max(0, Math.min(100, volumePercent));
+        if (clampedPct == 0) {
+            return; // 0% per-alarm silent/screen-wake-only mode!
+        }
         ringingActive = true;
 
         try {
             AudioManager audioMgr = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
             if (audioMgr != null) {
                 int maxVol = audioMgr.getStreamMaxVolume(AudioManager.STREAM_ALARM);
-                int curVol = audioMgr.getStreamVolume(AudioManager.STREAM_ALARM);
-                if (curVol < Math.max(1, (maxVol * 3) / 4)) {
-                    audioMgr.setStreamVolume(AudioManager.STREAM_ALARM, Math.max(1, (maxVol * 4) / 5), 0);
-                }
+                int targetStep = Math.max(1, Math.round((clampedPct / 100.0f) * maxVol));
+                audioMgr.setStreamVolume(AudioManager.STREAM_ALARM, targetStep, 0);
             }
         } catch (Throwable ignored) {}
 
-        // 1. Try system alarm ringtone if present
-        try {
-            Uri uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
-            if (uri == null) uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
-            if (uri != null) {
-                Ringtone r = RingtoneManager.getRingtone(ctx.getApplicationContext(), uri);
-                if (r != null) {
-                    r.setStreamType(AudioManager.STREAM_ALARM);
-                    r.play();
-                    activeRingtone = r;
-                }
-            }
-        } catch (Throwable ignored) {}
-
-        // 2. Always drive crisp 44.1 kHz harmonic chime pulses on STREAM_ALARM so even
-        //    debloated tablets with zero /system/media/audio files wake the user reliably!
         synthThread = new Thread(new Runnable() {
             @Override
             public void run() {
@@ -349,33 +542,27 @@ public class Arc7ClockStore {
                             sr,
                             AudioFormat.CHANNEL_OUT_MONO,
                             AudioFormat.ENCODING_PCM_16BIT,
-                            Math.max(minBuf, sr),
+                            Math.max(minBuf, sr / 2),
                             AudioTrack.MODE_STREAM);
+                    float gain = Math.max(0.0f, Math.min(1.0f, clampedPct / 100.0f));
+                    track.setStereoVolume(gain, gain);
                     track.play();
 
-                    // Pleasant ascending 3-note chime (C5 523.25Hz -> E5 659.25Hz -> G5 783.99Hz) + pause
-                    double[] freqs = new double[]{523.25, 659.25, 783.99, 0.0};
-                    int noteSamples = sr / 5; // 200 ms per note
-                    short[] pcm = new short[noteSamples];
-                    int step = 0;
-                    while (ringingActive) {
-                        double f = freqs[step % freqs.length];
-                        for (int i = 0; i < noteSamples; i++) {
-                            if (f <= 0.0) {
-                                pcm[i] = 0;
-                            } else {
-                                double env = Math.min(1.0, Math.min(i / 600.0, (noteSamples - i) / 2200.0));
-                                double t = (double) i / (double) sr;
-                                double wave = 0.72 * Math.sin(2.0 * Math.PI * f * t)
-                                        + 0.28 * Math.sin(4.0 * Math.PI * f * t);
-                                pcm[i] = (short) (wave * env * 22000.0);
-                            }
+                    short[] phrase = synthesizeChimePhrase(chimeId, clampedPct);
+                    long startedAt = System.currentTimeMillis();
+                    int offset = 0;
+                    int chunk = 4096;
+                    while (ringingActive && phrase.length > 0) {
+                        if (maxDurationMs > 0L && System.currentTimeMillis() - startedAt >= maxDurationMs) {
+                            break;
                         }
-                        track.write(pcm, 0, noteSamples);
-                        step++;
+                        int count = Math.min(chunk, phrase.length - offset);
+                        track.write(phrase, offset, count);
+                        offset = (offset + count) % phrase.length;
                     }
                 } catch (Throwable ignored) {
                 } finally {
+                    ringingActive = false;
                     if (track != null) {
                         try { track.stop(); } catch (Throwable ignored) {}
                         try { track.release(); } catch (Throwable ignored) {}
@@ -386,12 +573,54 @@ public class Arc7ClockStore {
         synthThread.start();
     }
 
+    public static short[] synthesizeChimePhrase(String chimeId, int volumePercent) {
+        final int sr = 44100;
+        int clampedPct = Math.max(0, Math.min(100, volumePercent));
+        double gain = clampedPct / 100.0;
+        ChimeSpec spec = resolveChimeSpec(chimeId);
+        int noteSamples = Math.max(2048, (sr * spec.stepMs) / 1000);
+        short[] out = new short[noteSamples * spec.notesHz.length];
+        for (int step = 0; step < spec.notesHz.length; step++) {
+            double f = spec.notesHz[step];
+            int base = step * noteSamples;
+            if (f <= 0.0) continue;
+            for (int i = 0; i < noteSamples; i++) {
+                double progress = (double) i / (double) noteSamples;
+                double attack = Math.min(1.0, i / 280.0);
+                double decay = (spec.timbre == 0 || spec.timbre == 3)
+                        ? Math.exp(-3.4 * progress)
+                        : Math.min(1.0, (noteSamples - i) / 1600.0);
+                double env = attack * decay;
+                double t = (double) i / (double) sr;
+                double wave;
+                if (spec.timbre == 0) {
+                    wave = 0.78 * Math.sin(2.0 * Math.PI * f * t)
+                            + 0.22 * Math.sin(8.0 * Math.PI * f * t) * Math.exp(-6.0 * progress);
+                } else if (spec.timbre == 1) {
+                    wave = 0.62 * Math.sin(2.0 * Math.PI * f * t)
+                            + 0.26 * Math.sin(4.0 * Math.PI * f * t)
+                            + 0.12 * Math.sin(6.0 * Math.PI * f * t);
+                } else if (spec.timbre == 3) {
+                    wave = 0.68 * Math.sin(2.0 * Math.PI * f * t)
+                            + 0.22 * Math.sin(4.0 * Math.PI * f * t)
+                            + 0.10 * Math.sin(6.0 * Math.PI * f * t);
+                } else if (spec.timbre == 4) {
+                    double mod = f * (1.0 + 0.022 * Math.sin(2.0 * Math.PI * 11.0 * t));
+                    wave = 0.75 * Math.sin(2.0 * Math.PI * mod * t)
+                            + 0.25 * Math.sin(4.0 * Math.PI * mod * t);
+                } else {
+                    wave = 0.66 * Math.sin(2.0 * Math.PI * f * t)
+                            + 0.24 * Math.sin(4.0 * Math.PI * f * t)
+                            + 0.10 * Math.sin(5.5 * Math.PI * f * t);
+                }
+                out[base + i] = (short) (wave * env * 24000.0 * gain);
+            }
+        }
+        return out;
+    }
+
     public static synchronized void stopAlarmRinging() {
         ringingActive = false;
-        if (activeRingtone != null) {
-            try { activeRingtone.stop(); } catch (Throwable ignored) {}
-            activeRingtone = null;
-        }
         Thread t = synthThread;
         synthThread = null;
         if (t != null) {

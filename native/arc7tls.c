@@ -2004,18 +2004,79 @@ static void copy_inbound_header_line(const char *client_req, const char *hdr_nam
     }
 }
 
+static void extract_header_value(const char *headers, const char *name, char *out, size_t cap);
+
 static void stream_https_bridge(int client_fd,
                                 const char *method,
                                 const char *url_initial,
                                 const char *client_req,
+                                size_t client_req_len,
                                 const char *ca_bundle) {
     int is_head = (strcasecmp(method, "HEAD") == 0);
+    int is_post = (strcasecmp(method, "POST") == 0 || strcasecmp(method, "PUT") == 0);
     int allow_skew = (time(NULL) < 1767225600) ? 1 : 0;
 
-    char extra_hdrs[1024] = {0};
-    copy_inbound_header_line(client_req, "Range", extra_hdrs, sizeof(extra_hdrs));
-    copy_inbound_header_line(client_req, "If-Modified-Since", extra_hdrs, sizeof(extra_hdrs));
-    copy_inbound_header_line(client_req, "If-None-Match", extra_hdrs, sizeof(extra_hdrs));
+    /* Extract optional request body (including reading remaining bytes if > initial recv) */
+    size_t content_len = 0;
+    uint8_t *post_body = NULL;
+    const char *hdr_end = strstr(client_req, "\r\n\r\n");
+    if (is_post && hdr_end) {
+        char cl_buf[64] = {0};
+        extract_header_value(client_req, "Content-Length", cl_buf, sizeof(cl_buf));
+        if (cl_buf[0]) content_len = (size_t)strtoul(cl_buf, NULL, 10);
+        if (content_len > 0 && content_len <= 8 * 1024 * 1024) {
+            post_body = (uint8_t *)malloc(content_len);
+            if (post_body) {
+                size_t body_offset = (size_t)((hdr_end + 4) - client_req);
+                size_t already = client_req_len > body_offset ? (client_req_len - body_offset) : 0;
+                if (already > content_len) already = content_len;
+                if (already > 0) memcpy(post_body, hdr_end + 4, already);
+                while (already < content_len) {
+                    ssize_t r = recv(client_fd, post_body + already, content_len - already, 0);
+                    if (r <= 0) break;
+                    already += (size_t)r;
+                }
+                content_len = already;
+            }
+        }
+    }
+
+    /* Forward custom caller headers (`Range`, `Authorization`, `X-DFE-*`, `Content-Type`, custom `User-Agent`, etc.) */
+    char extra_hdrs[8192] = {0};
+    char custom_ua[512] = {0};
+    char custom_accept[256] = {0};
+    extract_header_value(client_req, "User-Agent", custom_ua, sizeof(custom_ua));
+    extract_header_value(client_req, "Accept", custom_accept, sizeof(custom_accept));
+
+    if (hdr_end) {
+        const char *ln = strstr(client_req, "\r\n");
+        if (ln) ln += 2;
+        size_t pos = 0;
+        while (ln && ln < hdr_end && pos + 256 < sizeof(extra_hdrs)) {
+            const char *eol = strstr(ln, "\r\n");
+            if (!eol || eol > hdr_end) break;
+            size_t llen = (size_t)(eol - ln);
+            if (llen > 0 &&
+                strncasecmp(ln, "Host:", 5) != 0 &&
+                strncasecmp(ln, "Connection:", 11) != 0 &&
+                strncasecmp(ln, "Proxy-Connection:", 17) != 0 &&
+                strncasecmp(ln, "User-Agent:", 11) != 0 &&
+                strncasecmp(ln, "Accept:", 7) != 0 &&
+                strncasecmp(ln, "Accept-Encoding:", 16) != 0 &&
+                strncasecmp(ln, "Content-Length:", 15) != 0) {
+                memcpy(extra_hdrs + pos, ln, llen);
+                pos += llen;
+                extra_hdrs[pos++] = '\r';
+                extra_hdrs[pos++] = '\n';
+                extra_hdrs[pos] = '\0';
+            }
+            ln = eol + 2;
+        }
+    }
+    if (is_post) {
+        size_t cur = strlen(extra_hdrs);
+        snprintf(extra_hdrs + cur, sizeof(extra_hdrs) - cur, "Content-Length: %zu\r\n", content_len);
+    }
 
     char current_url[2048];
     snprintf(current_url, sizeof(current_url), "%s", url_initial);
@@ -2023,6 +2084,7 @@ static void stream_https_bridge(int client_fd,
     for (int hop = 0; hop < 12; hop++) {
         parsed_url_t u;
         if (parse_url(current_url, &u) != 0) {
+            free(post_body);
             dprintf(client_fd, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nInvalid URL\n");
             return;
         }
@@ -2048,26 +2110,33 @@ static void stream_https_bridge(int client_fd,
             return;
         }
 
-        char *req = (char *)malloc(4096);
+        char *req = (char *)malloc(12288);
         unsigned char *hdr = (unsigned char *)malloc(65536);
         unsigned char *buf = (unsigned char *)malloc(32768);
         if (!req || !hdr || !buf) {
+            free(post_body);
             free(req); free(hdr); free(buf);
             tls_conn_free(&conn);
             return;
         }
 
-        int req_len = snprintf(req, 4096,
+        const char *wire_method = is_head ? "HEAD" : (is_post ? method : "GET");
+        int req_len = snprintf(req, 12288,
                                "%s %s HTTP/1.1\r\n"
                                "Host: %s\r\n"
-                               "User-Agent: F-Droid 1.2 (Arc7Freedom/1.8 TLS1.3)\r\n"
-                               "Accept: */*\r\n"
+                               "User-Agent: %s\r\n"
+                               "Accept: %s\r\n"
                                "Accept-Encoding: identity\r\n"
                                "%s"
                                "Connection: close\r\n\r\n",
-                               is_head ? "HEAD" : "GET",
-                               u.path, u.host, extra_hdrs);
-        if (tls_write_all(&conn, req, (size_t)req_len) != 0) {
+                               wire_method,
+                               u.path, u.host,
+                               custom_ua[0] ? custom_ua : "F-Droid 1.2 (Arc7Freedom/1.9 TLS1.3)",
+                               custom_accept[0] ? custom_accept : "*/*",
+                               extra_hdrs);
+        if (tls_write_all(&conn, req, (size_t)req_len) != 0 ||
+            (is_post && post_body && content_len > 0 && tls_write_all(&conn, post_body, content_len) != 0)) {
+            free(post_body);
             free(req); free(hdr); free(buf);
             tls_conn_free(&conn);
             dprintf(client_fd, "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\nWrite error\n");
@@ -2146,6 +2215,7 @@ static void stream_https_bridge(int client_fd,
         send(client_fd, out_hdr, opos, MSG_NOSIGNAL);
 
         if (is_head || status_code == 304 || status_code == 204) {
+            free(post_body);
             free(req); free(hdr); free(buf);
             tls_conn_free(&conn);
             return;
@@ -2154,6 +2224,7 @@ static void stream_https_bridge(int client_fd,
         size_t leftover_len = hdr_used - (size_t)body_pos;
         if (!is_chunked) {
             if (leftover_len > 0 && send(client_fd, hdr + body_pos, leftover_len, MSG_NOSIGNAL) <= 0) {
+                free(post_body);
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
                 return;
@@ -2214,10 +2285,12 @@ static void stream_https_bridge(int client_fd,
                 free(cbuf);
             }
         }
+        free(post_body);
         free(req); free(hdr); free(buf);
         tls_conn_free(&conn);
         return;
     }
+    free(post_body);
     dprintf(client_fd, "HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\nToo many redirects\n");
 }
 
@@ -2605,7 +2678,7 @@ static void *handle_proxy_client(void *arg) {
 
     /* 2. Fast Versioned Liveness Probe & Hot-Upgrade Shutdown Endpoint */
     if (strcmp(target, "/__ping") == 0) {
-        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY_V182\n");
+        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY_V190\n");
         free(req);
         close(fd);
         free(job);
@@ -2623,14 +2696,14 @@ static void *handle_proxy_client(void *arg) {
     if (strncmp(target, "/__https/", 9) == 0) {
         char https_url[2048];
         snprintf(https_url, sizeof(https_url), "https://%.2035s", target + 9);
-        stream_https_bridge(fd, method, https_url, req, job->ca_bundle);
+        stream_https_bridge(fd, method, https_url, req, (size_t)used, job->ca_bundle);
         free(req);
         close(fd);
         free(job);
         return NULL;
     }
     if (strncasecmp(target, "http://", 7) == 0 || strncasecmp(target, "https://", 8) == 0) {
-        stream_https_bridge(fd, method, target, req, job->ca_bundle);
+        stream_https_bridge(fd, method, target, req, (size_t)used, job->ca_bundle);
         free(req);
         close(fd);
         free(job);

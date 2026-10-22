@@ -74,25 +74,19 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     certMgr.ensureCaBundleFile();
                     certMgr.startBrowserGateway();
 
-                    if (isPkgUpgrade && rooted) {
-                        new TabletOptimizerManager(context, shell).ensureCompanionAppsUpgradedSilently();
+                    // Always ensure Aurora Store, Launcher v49, Python 3, `apt`, & Default Launcher / Kobo Care removal stay applied!
+                    TabletOptimizerManager opt = new TabletOptimizerManager(context, shell);
+                    if (rooted) {
+                        opt.ensureCompanionAppsUpgradedSilently();
+                    } else {
+                        opt.provisionPython3AndAptSystemWide(null, false);
                     }
 
                     ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
                     NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
                     if (active != null && active.isConnected()) {
-                        if (Calendar.getInstance().get(Calendar.YEAR) < 2026 && rooted) {
-                            String tlsPath = shell.getTlsEngineBinary().getAbsolutePath();
-                            RootShell.ExecResult r = shell.execRoot("'" + tlsPath + "' ntp --set", null);
-                            if (r.exitCode == 0 && r.stdout.contains("ANDROID_DATE=")) {
-                                for (String ln : r.stdout.split("\n")) {
-                                    if (ln.trim().startsWith("ANDROID_DATE=")) {
-                                        String d = ln.trim().substring("ANDROID_DATE=".length()).trim();
-                                        shell.execRoot("date -s " + d + " >/dev/null 2>&1 || true", null);
-                                    }
-                                }
-                            }
-                        }
+                        // Automatically sync BOTH exact local IANA timezone AND atomic time whenever Wi-Fi connects!
+                        certMgr.syncTimeAndTimezoneAutomatically(rooted, null);
                     }
                 } catch (Throwable ignored) {
                 } finally {

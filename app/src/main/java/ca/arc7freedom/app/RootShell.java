@@ -58,7 +58,10 @@ public class RootShell {
         binDir.setExecutable(true, false);
 
         String nativeDirPath = appContext.getApplicationInfo().nativeLibraryDir;
-        String[] libs = new String[]{"libarc7root.so", "libarc7su.so", "libarc7tool.so", "libarc7tls.so"};
+        String[] libs = new String[]{
+                "libarc7root.so", "libarc7su.so", "libarc7tool.so",
+                "libarc7tls.so", "libarc7py3.so", "libarc7apt.so"
+        };
         for (String name : libs) {
             File src = new File(nativeDirPath, name);
             File dst = new File(binDir, name);
@@ -70,6 +73,34 @@ public class RootShell {
                 dst.setExecutable(true, false);
             }
         }
+        // Provide direct CLI aliases (`python3`, `python`, `apt`, `apt-get`, `apt-cache`, `arc7tls`)
+        // right inside `binDir` so even unrooted shells in Arc7 Terminal have instant `python3` & `apt`!
+        linkAliasQuietly(new File(binDir, "libarc7py3.so"), new File(binDir, "python3"));
+        linkAliasQuietly(new File(binDir, "libarc7py3.so"), new File(binDir, "python"));
+        linkAliasQuietly(new File(binDir, "libarc7apt.so"), new File(binDir, "apt"));
+        linkAliasQuietly(new File(binDir, "libarc7apt.so"), new File(binDir, "apt-get"));
+        linkAliasQuietly(new File(binDir, "libarc7apt.so"), new File(binDir, "apt-cache"));
+        linkAliasQuietly(new File(binDir, "libarc7tls.so"), new File(binDir, "arc7tls"));
+    }
+
+    private static void linkAliasQuietly(File target, File link) {
+        if (!target.exists() || link.exists()) return;
+        try {
+            Runtime.getRuntime().exec(new String[]{"ln", "-s", target.getAbsolutePath(), link.getAbsolutePath()}).waitFor();
+        } catch (Throwable ignored) {}
+        if (!link.exists()) {
+            copyFile(target, link);
+            link.setReadable(true, false);
+            link.setExecutable(true, false);
+        }
+    }
+
+    public File getPython3Binary() {
+        return resolveBinary("libarc7py3.so");
+    }
+
+    public File getAptBinary() {
+        return resolveBinary("libarc7apt.so");
     }
 
     public File getRootEngineBinary() {

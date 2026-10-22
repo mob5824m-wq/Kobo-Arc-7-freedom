@@ -263,9 +263,34 @@ $ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
     -lpthread \
     -o build/native/armeabi-v7a/libarc7tls.so
 
+POCKETPY_DIR="${POCKETPY_DIR:-/tmp/pocketpy-src}"
+if [ ! -d "$POCKETPY_DIR" ]; then
+    git clone --depth 1 --branch v1.4.6 https://github.com/pocketpy/pocketpy.git "$POCKETPY_DIR"
+fi
+
+PKPY_SRCS=$(python3 -c 'import glob,sys; print(" ".join(s for s in sorted(glob.glob(sys.argv[1]+"/src/*.cpp")) if not s.endswith("pocketpy_c.c")))' "$POCKETPY_DIR")
+$ZIG_CMD c++ -target arm-linux-musleabi -march=armv7-a -mcpu=cortex_a8 -std=c++17 \
+    -Os -s -static -Wno-date-time -ffunction-sections -fdata-sections -Wl,--gc-sections \
+    -I"$POCKETPY_DIR/include" \
+    native/arc7py3.cpp $PKPY_SRCS \
+    -lpthread \
+    -o build/native/armeabi-v7a/libarc7py3.so
+
+$ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
+    -DHAVE_UNISTD_H=1 -DHAVE_STDARG_H=1 \
+    -DMBEDTLS_THREADING_C -DMBEDTLS_THREADING_PTHREAD \
+    -I"$MBEDTLS_DIR/include" -I"$ZLIB_DIR" \
+    native/arc7apt.c \
+    "$ZLIB_DIR"/adler32.c "$ZLIB_DIR"/crc32.c \
+    "$ZLIB_DIR"/inffast.c "$ZLIB_DIR"/inflate.c \
+    "$ZLIB_DIR"/inftrees.c "$ZLIB_DIR"/zutil.c \
+    build/mbedtls-arm/libmbedtls_all.a \
+    -lpthread \
+    -o build/native/armeabi-v7a/libarc7apt.so
+
 cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
-echo "==> [3/7] Building standalone Stock Android 4.2 Home Launcher v48 w/ Widgets (VanillaAndroid4Home.apk)..."
+echo "==> [3/8] Building standalone Stock Android 4.2 Home Launcher v49 (Long-Press Widgets) & Aurora Store (com.aurora.store)..."
 rm -rf build/launcher && mkdir -p build/launcher/{res_compiled,gen,classes,dex}
 "$AAPT2" compile --dir launcher-android4/res -o build/launcher/res_compiled/res.zip
 "$AAPT2" link \
@@ -297,6 +322,41 @@ compile_java_and_dex \
     --v3-signing-enabled true \
     --out releases/VanillaAndroid4Home.apk \
     build/launcher/aligned.apk
+
+rm -rf build/aurora && mkdir -p build/aurora/{res_compiled,gen,classes,dex}
+"$AAPT2" compile --dir aurora-store/res -o build/aurora/res_compiled/res.zip
+"$AAPT2" link \
+    -I "$ANDROID_JAR" \
+    --manifest aurora-store/AndroidManifest.xml \
+    --java build/aurora/gen \
+    --min-sdk-version 15 \
+    --target-sdk-version 17 \
+    --no-compile-sdk-metadata \
+    -o build/aurora/unsigned.apk \
+    build/aurora/res_compiled/res.zip
+
+compile_java_and_dex \
+    build/aurora/classes \
+    build/aurora/dex \
+    build/aurora/gen/com/aurora/store/R.java \
+    aurora-store/src/com/aurora/store/*.java
+
+(cd build/aurora/dex && zip -qj ../unsigned.apk classes.dex)
+"$ZIPALIGN" -f -p 4 build/aurora/unsigned.apk build/aurora/aligned.apk
+"$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
+    --ks "$KEYSTORE_PATH" \
+    --ks-pass "pass:$KEYSTORE_PASS" \
+    --key-pass "pass:$KEYSTORE_PASS" \
+    --ks-key-alias "$KEYSTORE_ALIAS" \
+    --min-sdk-version 15 \
+    --v1-signing-enabled true \
+    --v2-signing-enabled true \
+    --v3-signing-enabled true \
+    --out releases/AuroraStore.apk \
+    build/aurora/aligned.apk
+
+mkdir -p app/src/main/assets/starter-apps
+cp -f releases/AuroraStore.apk app/src/main/assets/starter-apps/AuroraStore.apk
 
 mkdir -p app/src/main/assets
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
@@ -341,7 +401,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.8.2.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v1.9.0.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -365,7 +425,7 @@ compile_java_and_dex \
 
 (cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
-rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk
+rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk releases/Upgrade-My-Kobo-To-v1.8.2.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
     --ks-pass "pass:$KEYSTORE_PASS" \
@@ -375,16 +435,17 @@ rm -f releases/Upgrade-My-Kobo-To-v1.8.1.apk
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v1.8.2.apk \
+    --out releases/Upgrade-My-Kobo-To-v1.9.0.apk \
     build/upgrader/aligned.apk
 
 echo "==> [7/8] Generating static Web Portals & writing SHA256SUMS.txt..."
 rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
-chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
+chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v1.8.2.apk \
+    Upgrade-My-Kobo-To-v1.9.0.apk \
     KoboArc7Freedom.apk \
+    AuroraStore.apk \
     VanillaAndroid4Home.apk \
     Backup-Kobo-To-Laptop-ADB.bat \
     Backup-Kobo-To-Laptop-ADB.sh \
@@ -392,8 +453,9 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v1.8.2.apk \
+    releases/Upgrade-My-Kobo-To-v1.9.0.apk \
     releases/KoboArc7Freedom.apk \
+    releases/AuroraStore.apk \
     releases/VanillaAndroid4Home.apk \
     releases/Backup-Kobo-To-Laptop-ADB.bat \
     releases/Backup-Kobo-To-Laptop-ADB.sh \

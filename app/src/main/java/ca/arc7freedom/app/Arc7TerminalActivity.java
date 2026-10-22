@@ -26,6 +26,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -87,14 +88,17 @@ public class Arc7TerminalActivity extends Activity {
         LinearLayout chips = new LinearLayout(this);
         chips.setOrientation(LinearLayout.HORIZONTAL);
         String[][] presets = {
+            {"Python 3", "python3 --version && python3 -c \"import sys, platform; print('Python OK on', platform.machine(), sys.version)\""},
+            {"apt update", "apt update"},
+            {"apt list", "apt list"},
+            {"Date / Zone", "date && echo TZ=$(getprop persist.sys.timezone)"},
             {"id", "id"},
             {"df / Storage", "df"},
             {"RAM / free", "while IFS= read -r l; do case \"$l\" in MemTotal:*|MemFree:*|Buffers:*|Cached:*|Swap*) echo \"$l\" ;; esac; done < /proc/meminfo"},
             {"Partitions", "cat /proc/emmc 2>/dev/null || cat /proc/dumchar_info 2>/dev/null || cat /proc/partitions"},
             {"Mounts", "mount"},
             {"Network", "netstat 2>/dev/null || cat /proc/net/route"},
-            {"Kernel Version", "cat /proc/version && uptime"},
-            {"Props", "getprop | while IFS= read -r l; do case \"$l\" in *product*|*build*|*usb*|*dns*) echo \"$l\" ;; esac; done"}
+            {"Kernel Version", "cat /proc/version && uptime"}
         };
         for (int i = 0; i < presets.length; i++) {
             final String cmdStr = presets[i][1];
@@ -131,9 +135,9 @@ public class Arc7TerminalActivity extends Activity {
         txtScreen.setPadding(dp(12), dp(10), dp(12), dp(10));
         txtScreen.setTextIsSelectable(true);
         txtScreen.setText(
-                "Kobo Arc 7 Freedom — Interactive Root & Linux Shell (v1.7.0)\n" +
-                "Native binaries on PATH: " + getApplicationInfo().nativeLibraryDir + "\n" +
-                "Tip: Tap any quick-chip above or type any shell command below (`su`, `arc7tool`, `arc7tls`, `pm`, `ls`, etc.).\n\n");
+                "Kobo Arc 7 Freedom — Interactive Root, Python 3 & APT Linux Shell (v1.9.0)\n" +
+                "Pre-installed CLI tools: `python3`, `python`, `apt`, `apt-get`, `apt-cache`, `su`, `arc7tool`, `arc7tls`\n" +
+                "Tip: Try `python3 -c \"print(2**100)\"`, `apt update`, `apt search curl`, or `apt install -y jq`!\n\n");
         scrollScreen.addView(txtScreen);
         root.addView(scrollScreen, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -183,6 +187,7 @@ public class Arc7TerminalActivity extends Activity {
         root.addView(inputBar);
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
         refreshPromptUi();
     }
 
@@ -236,10 +241,16 @@ public class Arc7TerminalActivity extends Activity {
     private void executeCommand(final String cmd) {
         appendConsole(lblPrompt.getText().toString() + cmd + "\n");
         final String nativeLibDir = getApplicationInfo().nativeLibraryDir;
+        final String localBinDir = new File(getFilesDir(), "bin").getAbsolutePath();
+        final String tzProp = TimeZone.getDefault().getID();
         shellPool.execute(new Runnable() {
             @Override
             public void run() {
-                String wrapped = "export PATH='" + nativeLibDir + "':/system/xbin:/system/bin:/sbin:$PATH\n" +
+                String wrapped =
+                        "export TZ='" + tzProp + "'\n" +
+                        "export PATH='/data/local/arc7linux/wrappers:/data/local/arc7linux/usr/bin:/data/local/arc7linux/bin:/system/xbin:/system/bin:/sbin:" + localBinDir + ":" + nativeLibDir + "':$PATH\n" +
+                        "export LD_LIBRARY_PATH='/data/local/arc7linux/lib:/data/local/arc7linux/usr/lib'\n" +
+                        "export SSL_CERT_FILE='/data/local/arc7linux/etc/ssl/cert.pem'\n" +
                         "cd '" + currentDir.replace("'", "'\\''") + "' 2>/dev/null || cd /\n" +
                         cmd + "\n" +
                         "echo __ARC7_PWD__=\"$(pwd)\"\n";

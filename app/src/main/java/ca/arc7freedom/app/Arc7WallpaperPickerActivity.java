@@ -182,6 +182,7 @@ public class Arc7WallpaperPickerActivity extends Activity {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
+        Arc7UiAnimator.attachActivityAnimations(this);
         selectTheme(0);
     }
 

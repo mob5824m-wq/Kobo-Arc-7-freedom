@@ -341,6 +341,17 @@ def icon_home(sz):
     return c.downsample()
 
 
+def icon_aurora(sz):
+    c = Canvas(sz)
+    c.rounded_tile((16, 185, 129), (79, 70, 229), (125, 211, 252))
+    # Shopping bag handle + body + Aurora star/A emblem
+    c.arc(0.50, 0.34, 0.14, 180, 360, 0.045, (255, 255, 255, 255))
+    c.rect(0.24, 0.35, 0.76, 0.79, (255, 255, 255, 245), 0.07)
+    c.triangle((0.50, 0.44), (0.37, 0.71), (0.63, 0.71), (15, 118, 110, 255))
+    c.circle(0.50, 0.62, 0.048, (255, 255, 255, 255))
+    return c.downsample()
+
+
 FONT_5X7 = {
     "A": ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
     "B": ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
@@ -455,7 +466,7 @@ def generate_logo_banner():
         )
         d.text(
             (238, 124),
-            "ZERO-BRICK VERIFIED SUITE  v1.7.0   •   MT8125 & TEGRA 3",
+            "ZERO-BRICK VERIFIED SUITE  v1.9.0   •   MT8125 & TEGRA 3",
             fill=(134, 239, 172, 255),
             font=f_tag,
         )
@@ -530,6 +541,8 @@ def main():
             write_rgba_png(out, sz, sz, fn(sz))
         home_out = os.path.join(ROOT, "launcher-android4", "res", "drawable-" + dpi, "ic_launcher_home.png")
         write_rgba_png(home_out, sz, sz, icon_home(sz))
+        aurora_out = os.path.join(ROOT, "aurora-store", "res", "drawable-" + dpi, "ic_launcher.png")
+        write_rgba_png(aurora_out, sz, sz, icon_aurora(sz))
 
     # Dedicated header emblem badge inside MainActivity
     write_rgba_png(

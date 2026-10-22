@@ -24,16 +24,19 @@ import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextUtils;
 import android.text.TextWatcher;
+import android.text.format.DateFormat;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.GestureDetector;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.OvershootInterpolator;
 import android.widget.BaseAdapter;
-import android.widget.DigitalClock;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.GridView;
@@ -52,12 +55,12 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Clean Vanilla Android 4.2.2 Jelly Bean Home Screen Launcher — upgraded in v1.8.0 with:
- *   - Full live Android Home Screen AppWidget Host (`AppWidgetHost` ID `1024` +
- *     `AppWidgetManager` bind, configure, multi-page persistence, resize height, & remove)!
- *   - Isolated task launching (`FLAG_ACTIVITY_NEW_TASK | FLAG_ACTIVITY_RESET_TASK_IF_NEEDED`)
- *     so every app opens in its own independent task stack!
- *   - 3 Swipeable Home Pages, All-Apps Drawer, Instant Search, & 5-Icon Favorites Dock.
+ * Clean Vanilla Android 4.2.2 Jelly Bean Home Screen Launcher — upgraded in v1.9.0 with:
+ *   - Long-press anywhere on Home workspace to add widgets (zero `+ Widget` button clutter,
+ *     zero `"Tap + Widget"` text or placeholders anywhere on screen!)
+ *   - Automatic 12-hour (`AM/PM`) and 24-hour time formatting across clock & status header
+ *   - Smooth 60 fps page swipe slides, zoom-in All-Apps drawer, and spring icon physics
+ *   - Full live Android Home Screen AppWidget Host (`AppWidgetHost` ID `1024`)
  */
 public class VanillaHomeActivity extends Activity {
 
@@ -88,18 +91,26 @@ public class VanillaHomeActivity extends Activity {
     private LinearLayout widgetsContainer;
     private LinearLayout drawerOverlay;
     private LinearLayout dockBar;
+    private TextView clockView;
     private TextView dateView;
-    private TextView desktopHintView;
     private EditText searchBox;
     private AppGridAdapter desktopAdapter;
     private AppGridAdapter drawerAdapter;
     private GestureDetector swipeDetector;
     private boolean drawerOpen = false;
+    private long lastChildLongPressMs = 0L;
 
     private final BroadcastReceiver pkgReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             reloadApps();
+        }
+    };
+
+    private final BroadcastReceiver clockTickReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            updateDateLabel();
         }
     };
 
@@ -111,6 +122,19 @@ public class VanillaHomeActivity extends Activity {
         appWidgetHost = new AppWidgetHost(getApplicationContext(), APPWIDGET_HOST_ID);
 
         swipeDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public void onLongPress(MotionEvent e) {
+                if (drawerOpen) return;
+                long now = System.currentTimeMillis();
+                // Skip if a child icon, dock item, or placed widget already handled this long-press
+                if (now - lastChildLongPressMs < 650L) return;
+                if (dockBar != null && e != null && e.getRawY() >= dockBar.getTop() - dp(8)) return;
+                if (desktopView != null) {
+                    desktopView.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                }
+                showWidgetPickerDialog();
+            }
+
             @Override
             public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX, float velocityY) {
                 if (e1 == null || e2 == null || drawerOpen) return false;
@@ -133,12 +157,21 @@ public class VanillaHomeActivity extends Activity {
         root.setLayoutParams(new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // 1. Desktop workspace (top bar + live Home Screen Widgets + shortcuts grid + page dots + dock)
+        // 1. Desktop workspace (clean top clock/date bar + live Home Screen Widgets + shortcuts grid + page dots + dock)
         desktopView = new LinearLayout(this);
         desktopView.setOrientation(LinearLayout.VERTICAL);
         desktopView.setPadding(dp(16), dp(8), dp(16), dp(8));
+        desktopView.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showWidgetPickerDialog();
+                return true;
+            }
+        });
 
-        // Top bar: Left = Date | Center = Clock | Right = [+ Widget] [Apps] [Wallpaper]
+        // Clean top bar: Clock + Date on left, subtle Wallpaper button on right (ZERO '+ Widget' button!)
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -148,12 +181,12 @@ public class VanillaHomeActivity extends Activity {
         clockCol.setOrientation(LinearLayout.HORIZONTAL);
         clockCol.setGravity(Gravity.CENTER_VERTICAL);
 
-        DigitalClock clock = new DigitalClock(this);
-        clock.setTextColor(Color.WHITE);
-        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
-        clock.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
-        clock.setShadowLayer(6f, 0f, 2f, 0xCC000000);
-        clockCol.addView(clock);
+        clockView = new TextView(this);
+        clockView.setTextColor(Color.WHITE);
+        clockView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        clockView.setTypeface(Typeface.create("sans-serif-light", Typeface.NORMAL));
+        clockView.setShadowLayer(6f, 0f, 2f, 0xCC000000);
+        clockCol.addView(clockView);
 
         dateView = new TextView(this);
         dateView.setTextColor(0xEEFFFFFF);
@@ -166,21 +199,7 @@ public class VanillaHomeActivity extends Activity {
         topBar.addView(clockCol, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        // Prominent [+ Widget] pill in top bar!
-        TextView addWidgetChip = makeTopChip("+ Widget", 0xDD2563EB);
-        addWidgetChip.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                showWidgetPickerDialog();
-            }
-        });
-        topBar.addView(addWidgetChip);
-
         TextView wallpaperChip = makeTopChip("Wallpaper", 0x991E293B);
-        LinearLayout.LayoutParams wpLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        wpLp.leftMargin = dp(8);
-        wallpaperChip.setLayoutParams(wpLp);
         wallpaperChip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -206,15 +225,7 @@ public class VanillaHomeActivity extends Activity {
         desktopView.addView(widgetScroll, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        desktopHintView = new TextView(this);
-        desktopHintView.setTextColor(0xCCFFFFFF);
-        desktopHintView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        desktopHintView.setGravity(Gravity.CENTER_HORIZONTAL);
-        desktopHintView.setShadowLayer(4f, 0f, 1f, 0xCC000000);
-        desktopHintView.setPadding(0, dp(2), 0, dp(4));
-        desktopView.addView(desktopHintView);
-
-        // Pinned Home Shortcuts Grid (middle workspace)
+        // Pinned Home Shortcuts Grid (middle workspace — NO placeholder text!)
         GridView desktopGrid = new GridView(this);
         desktopGrid.setNumColumns(5);
         desktopGrid.setStretchMode(GridView.STRETCH_COLUMN_WIDTH);
@@ -223,6 +234,15 @@ public class VanillaHomeActivity extends Activity {
         desktopGrid.setGravity(Gravity.CENTER);
         desktopAdapter = new AppGridAdapter(currentPageShortcuts, true);
         desktopGrid.setAdapter(desktopAdapter);
+        desktopGrid.setOnLongClickListener(new View.OnLongClickListener() {
+            @Override
+            public boolean onLongClick(View v) {
+                lastChildLongPressMs = System.currentTimeMillis();
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                showWidgetPickerDialog();
+                return true;
+            }
+        });
         desktopView.addView(desktopGrid, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
@@ -300,16 +320,6 @@ public class VanillaHomeActivity extends Activity {
         });
         drawerHeader.addView(searchBox);
 
-        TextView addWidgetBtn2 = makeTopChip("+ Widget", 0xDD2563EB);
-        addWidgetBtn2.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                closeDrawer();
-                showWidgetPickerDialog();
-            }
-        });
-        drawerHeader.addView(addWidgetBtn2);
-
         TextView closeBtn = new TextView(this);
         closeBtn.setText("\u2715  HOME");
         closeBtn.setTextColor(Color.WHITE);
@@ -352,6 +362,12 @@ public class VanillaHomeActivity extends Activity {
         filter.addAction(Intent.ACTION_PACKAGE_CHANGED);
         filter.addDataScheme("package");
         registerReceiver(pkgReceiver, filter);
+
+        IntentFilter clockFilter = new IntentFilter();
+        clockFilter.addAction(Intent.ACTION_TIME_TICK);
+        clockFilter.addAction(Intent.ACTION_TIME_CHANGED);
+        clockFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+        registerReceiver(clockTickReceiver, clockFilter);
 
         reloadApps();
     }
@@ -399,9 +415,21 @@ public class VanillaHomeActivity extends Activity {
     }
 
     private void switchToPage(int index) {
-        currentPage = Math.max(0, Math.min(PAGE_COUNT - 1, index));
+        int clamped = Math.max(0, Math.min(PAGE_COUNT - 1, index));
+        int dir = clamped > currentPage ? 1 : (clamped < currentPage ? -1 : 0);
+        currentPage = clamped;
         refreshCurrentPageShortcuts();
         renderWidgetsForCurrentPage();
+        if (dir != 0 && desktopView != null) {
+            desktopView.setTranslationX(dir * dp(34));
+            desktopView.setAlpha(0.72f);
+            desktopView.animate()
+                    .translationX(0f)
+                    .alpha(1f)
+                    .setDuration(200)
+                    .setInterpolator(new DecelerateInterpolator())
+                    .start();
+        }
     }
 
     /* -------------------- Home Screen AppWidget Host Engine -------------------- */
@@ -449,6 +477,8 @@ public class VanillaHomeActivity extends Activity {
                 hv.setOnLongClickListener(new View.OnLongClickListener() {
                     @Override
                     public boolean onLongClick(View v) {
+                        lastChildLongPressMs = System.currentTimeMillis();
+                        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                         showWidgetManageDialog(rec, widgetLabel);
                         return true;
                     }
@@ -726,11 +756,12 @@ public class VanillaHomeActivity extends Activity {
         currentPageShortcuts.clear();
         List<String> saved = PinnedShortcutsStore.loadPage(this, currentPage);
 
-        // Auto-seed Page 1 with Arc7 apps on very first boot!
+        // Auto-seed Page 1 with Arc7 apps + Aurora Store + F-Droid on very first boot!
         if (currentPage == 0 && saved.isEmpty() && !allApps.isEmpty()) {
-            for (int i = 0; i < allApps.size() && saved.size() < 8; i++) {
+            for (int i = 0; i < allApps.size() && saved.size() < 10; i++) {
                 AppEntry e = allApps.get(i);
                 if (e.pkg.equals("ca.arc7freedom.app")
+                        || e.pkg.equals("com.aurora.store")
                         || e.pkg.equals("eu.bubu1.fdroidclassic.debug")
                         || e.pkg.contains("fdroid")) {
                     PinnedShortcutsStore.addShortcut(this, 0, e.pkg, e.cls);
@@ -750,17 +781,17 @@ public class VanillaHomeActivity extends Activity {
             }
         }
 
-        List<PinnedShortcutsStore.WidgetRecord> wList = PinnedShortcutsStore.loadWidgets(this, currentPage);
-        if (desktopHintView != null) {
-            desktopHintView.setText("Page " + (currentPage + 1) + " of " + PAGE_COUNT + "  •  " +
-                    (wList.isEmpty()
-                            ? "Tap '+ Widget' above to add clocks, audio controls & Android widgets, or long-press any app in All Apps to pin"
-                            : (wList.size() + " live widget(s) active • Tap \u22EF or long-press a widget to resize/remove")));
-        }
         for (int i = 0; i < PAGE_COUNT; i++) {
             if (pageDots[i] != null) {
-                pageDots[i].setTextColor(i == currentPage ? 0xFF38BDF8 : 0x66FFFFFF);
-                pageDots[i].setTextSize(TypedValue.COMPLEX_UNIT_SP, i == currentPage ? 16 : 12);
+                boolean active = (i == currentPage);
+                pageDots[i].setTextColor(active ? 0xFF38BDF8 : 0x66FFFFFF);
+                pageDots[i].setTextSize(TypedValue.COMPLEX_UNIT_SP, active ? 16 : 12);
+                if (active) {
+                    pageDots[i].animate().scaleX(1.22f).scaleY(1.22f).setDuration(160)
+                            .setInterpolator(new OvershootInterpolator()).start();
+                } else {
+                    pageDots[i].animate().scaleX(1f).scaleY(1f).setDuration(140).start();
+                }
             }
         }
         if (desktopAdapter != null) desktopAdapter.notifyDataSetChanged();
@@ -782,9 +813,8 @@ public class VanillaHomeActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        try {
-            unregisterReceiver(pkgReceiver);
-        } catch (Throwable ignored) {}
+        try { unregisterReceiver(pkgReceiver); } catch (Throwable ignored) {}
+        try { unregisterReceiver(clockTickReceiver); } catch (Throwable ignored) {}
         super.onDestroy();
     }
 
@@ -800,8 +830,19 @@ public class VanillaHomeActivity extends Activity {
     }
 
     private void updateDateLabel() {
+        Date now = new Date();
+        boolean use24 = false;
+        try {
+            use24 = DateFormat.is24HourFormat(this);
+        } catch (Throwable ignored) {}
+        SimpleDateFormat clockFmt = new SimpleDateFormat(use24 ? "HH:mm" : "h:mm a", Locale.US);
+        if (clockView != null) {
+            clockView.setText(clockFmt.format(now));
+        }
         SimpleDateFormat fmt = new SimpleDateFormat("EEEE, MMMM d, yyyy", Locale.US);
-        dateView.setText(fmt.format(new Date()).toUpperCase(Locale.US));
+        if (dateView != null) {
+            dateView.setText(fmt.format(now).toUpperCase(Locale.US));
+        }
     }
 
     private void openDrawer() {
@@ -809,11 +850,36 @@ public class VanillaHomeActivity extends Activity {
         searchBox.setText("");
         filterApps("");
         drawerOverlay.setVisibility(View.VISIBLE);
+        drawerOverlay.setAlpha(0f);
+        drawerOverlay.setScaleX(0.94f);
+        drawerOverlay.setScaleY(0.94f);
+        drawerOverlay.animate()
+                .alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(200)
+                .setInterpolator(new DecelerateInterpolator())
+                .start();
     }
 
     private void closeDrawer() {
         drawerOpen = false;
-        drawerOverlay.setVisibility(View.GONE);
+        if (drawerOverlay != null && drawerOverlay.getVisibility() == View.VISIBLE) {
+            drawerOverlay.animate()
+                    .alpha(0f).scaleX(0.95f).scaleY(0.95f)
+                    .setDuration(150)
+                    .withEndAction(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!drawerOpen) {
+                                drawerOverlay.setVisibility(View.GONE);
+                                drawerOverlay.setScaleX(1f);
+                                drawerOverlay.setScaleY(1f);
+                                drawerOverlay.setAlpha(1f);
+                            }
+                        }
+                    }).start();
+        } else if (drawerOverlay != null) {
+            drawerOverlay.setVisibility(View.GONE);
+        }
     }
 
     private void reloadApps() {
@@ -910,10 +976,10 @@ public class VanillaHomeActivity extends Activity {
         });
         dockBar.addView(allAppsBtn, centerParams);
 
-        addDockButton("F-Droid", new View.OnClickListener() {
+        addDockButton("Aurora", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (!launchByPackagePrefix("eu.bubu1.fdroidclassic.debug", "org.fdroid.fdroid", "eu.bubu1.fdroidclassic")) {
+                if (!launchByPackagePrefix("com.aurora.store", "eu.bubu1.fdroidclassic.debug", "org.fdroid.fdroid")) {
                     launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7AppManagerActivity");
                 }
             }
@@ -1010,6 +1076,7 @@ public class VanillaHomeActivity extends Activity {
     private void safeStart(Intent i) {
         try {
             startActivity(i);
+            overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         } catch (Throwable t) {
             Toast.makeText(this, "Cannot launch: " + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -1068,6 +1135,19 @@ public class VanillaHomeActivity extends Activity {
 
             iconView.setImageDrawable(entry.icon);
             labelView.setText(entry.label);
+            cell.setOnTouchListener(new View.OnTouchListener() {
+                @Override
+                public boolean onTouch(View v, MotionEvent ev) {
+                    int a = ev.getActionMasked();
+                    if (a == MotionEvent.ACTION_DOWN) {
+                        v.animate().scaleX(0.91f).scaleY(0.91f).setDuration(80).start();
+                    } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                        v.animate().scaleX(1f).scaleY(1f).setDuration(140)
+                                .setInterpolator(new OvershootInterpolator(1.7f)).start();
+                    }
+                    return false;
+                }
+            });
             cell.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
@@ -1077,6 +1157,8 @@ public class VanillaHomeActivity extends Activity {
             cell.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override
                 public boolean onLongClick(View v) {
+                    lastChildLongPressMs = System.currentTimeMillis();
+                    v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
                     showAppOptions(entry, onDesktop);
                     return true;
                 }

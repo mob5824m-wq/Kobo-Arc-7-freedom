@@ -434,25 +434,138 @@ public class NetworkCertManager {
         }
     }
 
+    /**
+     * Automatically detects the user's real local IANA timezone (`e.g. America/Toronto`) over
+     * Wi-Fi via multiple geo-timezone endpoints and applies BOTH Android `AlarmManager.setTimeZone`,
+     * `setprop persist.sys.timezone`, AND exact UTC atomic epoch (`settimeofday`) WITH ZERO
+     * UTC-vs-local `date -s` double-offset bugs!
+     */
+    public String syncTimeAndTimezoneAutomatically(boolean hasRoot, final ProgressListener listener) {
+        String detectedZone = detectAndApplyLocalTimezone(hasRoot, listener);
+        syncTabletClock(hasRoot, listener);
+        return detectedZone;
+    }
+
+    public String detectAndApplyLocalTimezone(boolean hasRoot, final ProgressListener listener) {
+        String[] endpoints = new String[]{
+                "http://127.0.0.1:8118/__https/ipwho.is/?fields=timezone",
+                "http://ip-api.com/json/?fields=status,timezone",
+                "http://127.0.0.1:8118/__https/timeapi.io/api/time/current/ip",
+                "http://127.0.0.1:8118/__https/worldtimeapi.org/api/ip"
+        };
+        String foundTz = null;
+        for (int i = 0; i < endpoints.length && foundTz == null; i++) {
+            HttpURLConnection conn = null;
+            try {
+                conn = (HttpURLConnection) new URL(endpoints[i]).openConnection(Proxy.NO_PROXY);
+                conn.setConnectTimeout(4500);
+                conn.setReadTimeout(5500);
+                conn.setRequestProperty("User-Agent", "Arc7Freedom/1.9.0");
+                if (conn.getResponseCode() == 200) {
+                    BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
+                    StringBuilder sb = new StringBuilder();
+                    String ln;
+                    while ((ln = br.readLine()) != null) sb.append(ln);
+                    br.close();
+                    String json = sb.toString();
+                    org.json.JSONObject obj = new org.json.JSONObject(json);
+                    if (obj.has("timezone")) {
+                        Object tzVal = obj.get("timezone");
+                        if (tzVal instanceof org.json.JSONObject) {
+                            foundTz = ((org.json.JSONObject) tzVal).optString("id", null);
+                        } else if (tzVal instanceof String) {
+                            foundTz = (String) tzVal;
+                        }
+                    } else if (obj.has("timeZone")) {
+                        foundTz = obj.optString("timeZone", null);
+                    }
+                    if (foundTz != null) {
+                        foundTz = foundTz.trim();
+                        if (!foundTz.contains("/") && !"UTC".equalsIgnoreCase(foundTz)) {
+                            foundTz = null;
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }
+
+        if (foundTz != null && foundTz.length() >= 3) {
+            applySystemTimezone(foundTz, hasRoot, listener);
+            return foundTz;
+        }
+        return TimeZone.getDefault().getID();
+    }
+
+    public void applySystemTimezone(String tzId, boolean hasRoot, final ProgressListener listener) {
+        if (tzId == null || tzId.trim().isEmpty()) return;
+        String cleanTz = tzId.trim();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(cleanTz));
+        } catch (Throwable ignored) {}
+        try {
+            android.app.AlarmManager am = (android.app.AlarmManager)
+                    appContext.getSystemService(Context.ALARM_SERVICE);
+            if (am != null) {
+                am.setTimeZone(cleanTz);
+            }
+        } catch (Throwable ignored) {}
+        if (hasRoot && shell != null) {
+            shell.execRoot(
+                    "setprop persist.sys.timezone " + RootShell.shellQuote(cleanTz) + " >/dev/null 2>&1 || true; "
+                    + "settings put global auto_time_zone 1 >/dev/null 2>&1 || true; "
+                    + "am broadcast -a android.intent.action.TIMEZONE_CHANGED --es time-zone "
+                    + RootShell.shellQuote(cleanTz) + " >/dev/null 2>&1 || true",
+                    null);
+        }
+        try {
+            Arc7ClockWidgetProvider.refreshAll(appContext);
+        } catch (Throwable ignored) {}
+        if (listener != null) {
+            listener.onLog("Applied local IANA timezone automatically: " + cleanTz);
+        }
+    }
+
     private void syncTabletClock(boolean hasRoot, final ProgressListener listener) {
+        // Always ensure local IANA timezone is applied BEFORE setting or formatting wall clock!
+        String activeTz = detectAndApplyLocalTimezone(hasRoot, listener);
+        TimeZone localZone = TimeZone.getTimeZone(activeTz);
+
         File tlsBin = shell.getTlsEngineBinary();
         if (tlsBin != null && tlsBin.exists()) {
+            // Note: `libarc7tls.so ntp --set` sets the kernel clock directly via `settimeofday(&tv_utc, NULL)`
+            // in pure UTC epoch seconds — NEVER run non-UTC `date -s <UTC_STR>` afterwards, which previously
+            // shifted local wall time by the UTC offset!
             RootShell.ExecResult ntpRes = hasRoot
                     ? shell.execRoot("'" + tlsBin.getAbsolutePath() + "' ntp --set", null)
                     : shell.execCommandArray(new String[]{tlsBin.getAbsolutePath(), "ntp"}, null);
-            if (ntpRes.exitCode == 0 && (ntpRes.stdout.contains("NTP_UTC=") || ntpRes.stdout.contains("ANDROID_DATE="))) {
-                String androidDate = extractKey(ntpRes.stdout, "ANDROID_DATE=");
+            if (ntpRes.exitCode == 0 && (ntpRes.stdout.contains("NTP_UTC=")
+                    || ntpRes.stdout.contains("EPOCH=") || ntpRes.stdout.contains("ANDROID_DATE="))) {
+                String epochStr = extractKey(ntpRes.stdout, "EPOCH=");
                 String isoUtc = extractKey(ntpRes.stdout, "NTP_UTC=");
                 if (isoUtc == null) isoUtc = extractKey(ntpRes.stdout, "ISO_UTC=");
-                if (hasRoot && androidDate != null) {
-                    shell.execRoot("date -s " + androidDate + " >/dev/null 2>&1 || true", null);
+                if (hasRoot && epochStr != null) {
+                    try {
+                        long epochMs = Long.parseLong(epochStr.trim()) * 1000L;
+                        SimpleDateFormat localFmt = new SimpleDateFormat("yyyyMMdd.HHmmss", Locale.US);
+                        localFmt.setTimeZone(localZone);
+                        String localDateArg = localFmt.format(new Date(epochMs));
+                        shell.execRoot("TZ=" + RootShell.shellQuote(activeTz)
+                                + " date -s " + localDateArg + " >/dev/null 2>&1 || true; "
+                                + "am broadcast -a android.intent.action.TIME_SET >/dev/null 2>&1 || true", null);
+                    } catch (Throwable ignored) {}
                 }
-                listener.onLog("Synced atomic UTC time via NTP/HTTP: " + isoUtc);
+                if (listener != null) {
+                    listener.onLog("Synced atomic time (" + isoUtc + ") in local timezone " + activeTz);
+                }
                 return;
             }
         }
 
-        // Fallback if router firewall blocks UDP port 123: read HTTP Date: header over TCP port 80!
+        // Fallback if router firewall blocks UDP port 123: read HTTP Date: header over TCP port 80
+        // and format specifically in `localZone` (`TZ=<activeTz>`)!
         String[] httpUrls = new String[]{
                 "http://1.1.1.1/",
                 "http://connectivitycheck.gstatic.com/generate_204",
@@ -466,15 +579,17 @@ public class NetworkCertManager {
                 conn.setConnectTimeout(5000);
                 conn.setReadTimeout(5000);
                 long serverDateMs = conn.getDate();
-                if (serverDateMs > BUILD_FLOOR_EPOCH_MS - (86400L * 365000L) && serverDateMs > 1700000000000L) {
+                if (serverDateMs > 1700000000000L) {
                     SimpleDateFormat fmt = new SimpleDateFormat("yyyyMMdd.HHmmss", Locale.US);
-                    fmt.setTimeZone(TimeZone.getTimeZone("UTC"));
-                    String dateArg = fmt.format(new Date(serverDateMs));
+                    fmt.setTimeZone(localZone);
+                    String localDateArg = fmt.format(new Date(serverDateMs));
                     if (hasRoot) {
-                        shell.execRoot("date -s " + dateArg + " >/dev/null 2>&1 || true", null);
-                        listener.onLog("Synced tablet clock via HTTP Date header (" + u + ") -> " + dateArg + " UTC");
-                    } else {
-                        listener.onLog("Network UTC time is " + dateArg + " (root tablet in Tab 1 to set system clock automatically).");
+                        shell.execRoot("TZ=" + RootShell.shellQuote(activeTz)
+                                + " date -s " + localDateArg + " >/dev/null 2>&1 || true; "
+                                + "am broadcast -a android.intent.action.TIME_SET >/dev/null 2>&1 || true", null);
+                        if (listener != null) {
+                            listener.onLog("Synced local clock via HTTP Date (" + u + ") -> " + localDateArg + " (" + activeTz + ")");
+                        }
                     }
                     return;
                 }
@@ -483,8 +598,9 @@ public class NetworkCertManager {
                 if (conn != null) conn.disconnect();
             }
         }
-        listener.onLog("Clock sync skipped (Wi-Fi offline right now) — current device year: " +
-                Calendar.getInstance().get(Calendar.YEAR));
+        if (listener != null) {
+            listener.onLog("Clock sync skipped (Wi-Fi offline right now) — timezone: " + activeTz);
+        }
     }
 
     private List<String> findExpiredSystemCertFilenames() {
@@ -641,7 +757,7 @@ public class NetworkCertManager {
         return caDir;
     }
 
-    public static final String EXPECTED_GATEWAY_PING = "ARC7_TLS13_READY_V182";
+    public static final String EXPECTED_GATEWAY_PING = "ARC7_TLS13_READY_V190";
 
     public static String probeGatewayPing(int port) {
         Socket s = new Socket();

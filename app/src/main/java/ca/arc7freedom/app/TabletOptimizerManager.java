@@ -36,6 +36,7 @@ public class TabletOptimizerManager {
     public static final String PREFS = "arc7_optimizer";
     public static final String KEY_BIND_SD_BOOT = "bind_sd_folders_on_boot";
     public static final String FDROID_ASSET = "starter-apps/FDroidClassicLegacy.apk";
+    public static final String AURORA_ASSET = "starter-apps/AuroraStore.apk";
 
     private static final String[] HEAVY_MEDIA_DIRS = {
         "Download", "Books", "Movies", "Music", "DCIM"
@@ -251,9 +252,206 @@ public class TabletOptimizerManager {
     }
 
     /**
-     * Silently upgrades companion APKs (`VanillaAndroid4Home.apk` -> `versionCode >= 48` with
-     * full Home Screen Widgets + isolated app tasks, AND migrates legacy `v1.7.0` F-Droid Classic
-     * installs to our `v1.8.0` TLS 1.3 Index Bridge build) right when `v1.8.0` starts!
+     * Installs our native Android 4.2 (`minSdk=15`, `DEX 035`, `TLS 1.3`) **Aurora Store**
+     * (`com.aurora.store`, `v4.8.4-arc7`) cleanly via root `pm install -r` or PackageInstaller!
+     */
+    public boolean installBundledAuroraStore(LogSink log) {
+        if (log != null) {
+            log.onLog("=== Installing Bundled Aurora Store (`com.aurora.store` — Android 4.2 + TLS 1.3) ===");
+        }
+        Arc7TlsGatewayService.ensureStarted(ctx);
+        try {
+            new NetworkCertManager(ctx, shell).startBrowserGateway();
+        } catch (Throwable ignored) {}
+
+        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
+        if (!outDir.exists()) outDir.mkdirs();
+        File outApk = new File(outDir, "AuroraStore.apk");
+
+        InputStream in = null;
+        FileOutputStream fos = null;
+        try {
+            in = ctx.getAssets().open(AURORA_ASSET);
+            fos = new FileOutputStream(outApk);
+            byte[] buf = new byte[65536];
+            int r;
+            long total = 0;
+            while ((r = in.read(buf)) > 0) {
+                fos.write(buf, 0, r);
+                total += r;
+            }
+            fos.flush();
+            if (log != null) {
+                log.onLog("Extracted AuroraStore.apk (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
+            }
+        } catch (Throwable t) {
+            if (log != null) log.onLog("ERROR extracting AuroraStore.apk: " + t.getMessage());
+            return false;
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
+        }
+
+        if (shell.isRootAvailable()) {
+            RootShell.ExecResult pm = shell.execRoot(
+                    "pm install -r " + RootShell.shellQuote(outApk.getAbsolutePath()), null);
+            if (log != null) log.onLog(pm.stdout.trim());
+            if (pm.stdout.contains("Success")) {
+                if (log != null) log.onLog("SUCCESS: Aurora Store (`com.aurora.store`) installed!");
+                return true;
+            }
+        }
+        Intent prompt = new Intent(Intent.ACTION_VIEW);
+        prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
+        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ctx.startActivity(prompt);
+        return true;
+    }
+
+    /**
+     * Installs native ARMv7 `python3`, `python`, `apt`, `apt-get`, `apt-cache`, & `arc7tls`
+     * system-wide into `/system/xbin/` + `/data/local/arc7linux/` immediately AND runs a quiet
+     * background online `apt update && apt install -y python3 py3-pip curl nano` over Wi-Fi!
+     */
+    public boolean provisionPython3AndAptSystemWide(final LogSink log, boolean allowBackgroundOnlineSync) {
+        shell.prepareBinaries();
+        File pyBin = shell.getPython3Binary();
+        File aptBin = shell.getAptBinary();
+        File tlsBin = shell.getTlsEngineBinary();
+        if (pyBin == null || !pyBin.exists() || aptBin == null || !aptBin.exists()) {
+            if (log != null) log.onLog("WARNING: Native python3/apt binaries missing from nativeLibraryDir.");
+            return false;
+        }
+
+        File caFile = null;
+        try {
+            caFile = new NetworkCertManager(ctx, shell).ensureCaBundleFile();
+        } catch (Throwable ignored) {}
+
+        if (shell.isRootAvailable()) {
+            String qPy = RootShell.shellQuote(pyBin.getAbsolutePath());
+            String qApt = RootShell.shellQuote(aptBin.getAbsolutePath());
+            String qTls = tlsBin != null ? RootShell.shellQuote(tlsBin.getAbsolutePath()) : "''";
+            String qCa = (caFile != null && caFile.exists()) ? RootShell.shellQuote(caFile.getAbsolutePath()) : "''";
+
+            String cmd =
+                    "(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
+                    "mkdir -p /system/xbin /data/local/arc7linux/bin /data/local/arc7linux/etc/ssl /data/local/arc7linux/var/cache/apt\n" +
+                    "cat " + qPy + " > /system/xbin/python3 && chmod 0755 /system/xbin/python3\n" +
+                    "ln -sf /system/xbin/python3 /system/xbin/python 2>/dev/null || cat " + qPy + " > /system/xbin/python\n" +
+                    "chmod 0755 /system/xbin/python\n" +
+                    "cat " + qApt + " > /system/xbin/apt && chmod 0755 /system/xbin/apt\n" +
+                    "ln -sf /system/xbin/apt /system/xbin/apt-get 2>/dev/null || cat " + qApt + " > /system/xbin/apt-get\n" +
+                    "ln -sf /system/xbin/apt /system/xbin/apt-cache 2>/dev/null || cat " + qApt + " > /system/xbin/apt-cache\n" +
+                    "chmod 0755 /system/xbin/apt-get /system/xbin/apt-cache\n" +
+                    "if [ -n " + qTls + " ] && [ -f " + qTls + " ]; then\n" +
+                    "  cat " + qTls + " > /system/xbin/arc7tls && chmod 0755 /system/xbin/arc7tls\n" +
+                    "fi\n" +
+                    "if [ -n " + qCa + " ] && [ -f " + qCa + " ]; then\n" +
+                    "  cat " + qCa + " > /data/local/arc7linux/etc/ssl/cert.pem\n" +
+                    "  chmod 0644 /data/local/arc7linux/etc/ssl/cert.pem\n" +
+                    "fi\n" +
+                    "sync\n" +
+                    "mount -o remount,ro /system 2>/dev/null || true";
+            shell.execRoot(cmd, null);
+            if (log != null) {
+                log.onLog("Installed `/system/xbin/python3`, `/system/xbin/python`, `/system/xbin/apt`, `/system/xbin/apt-get`, & `/system/xbin/apt-cache`!");
+            }
+
+            if (allowBackgroundOnlineSync) {
+                final android.content.SharedPreferences prefs =
+                        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+                if (!prefs.getBoolean("apt_cpython_bootstrapped_v190", false)) {
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            RootShell.ExecResult r = shell.execRoot(
+                                    "/system/xbin/apt update && /system/xbin/apt install -y python3 py3-pip curl nano ca-certificates",
+                                    null);
+                            if (r.exitCode == 0) {
+                                prefs.edit().putBoolean("apt_cpython_bootstrapped_v190", true).commit();
+                            }
+                        }
+                    }, "Arc7AutoAptBootstrap").start();
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Safely archives & removes the stock default launcher (`Launcher2.apk` / `com.android.launcher`
+     * / `com.kobo.home` / `com.kobo.tapestry`), `Kobo Care`, AND discontinued dead apps (`Pocket`,
+     * `Zinio`, `7digital`, `Rdio`, `Google+`, `Talk`/`Hangouts`, `Currents`/`Magazines`, `GoogleEars`,
+     * `Videos`, `GenieWidget`), ONLY AFTER confirming `VanillaAndroid4Home` (`ca.arc7freedom.launcher`)
+     * is installed & enabled as the active Home launcher!
+     */
+    public void removeDefaultLauncherAndDiscontinuedApps(LogSink log) {
+        if (!shell.isRootAvailable()) return;
+        boolean arcHomeReady = false;
+        try {
+            arcHomeReady = ctx.getPackageManager().getPackageInfo("ca.arc7freedom.launcher", 0) != null;
+        } catch (Throwable ignored) {}
+        if (!arcHomeReady && !new File("/system/app/VanillaAndroid4Home.apk").exists()) {
+            if (log != null) {
+                log.onLog("Skipping default launcher removal because VanillaAndroid4Home is not yet installed.");
+            }
+            return;
+        }
+
+        String script =
+                "set +e\n" +
+                "(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
+                "mkdir -p /data/local/arc7_kobo_archive\n" +
+                "pm enable ca.arc7freedom.launcher >/dev/null 2>&1 || true\n" +
+                "pm enable ca.arc7freedom.launcher/ca.arc7freedom.launcher.VanillaHomeActivity >/dev/null 2>&1 || true\n" +
+                "\n" +
+                "# 1. Archive & remove stock Default Launchers + Kobo Care + Discontinued 2012-2013 Apps\n" +
+                "for _apk in /system/app/*.apk; do\n" +
+                "  [ -e \"$_apk\" ] || continue\n" +
+                "  _bn=$(basename \"$_apk\")\n" +
+                "  case \"$_bn\" in\n" +
+                "    *VanillaAndroid4*|*Arc7Freedom*|*KoboReader.apk)\n" +
+                "      continue\n" +
+                "      ;;\n" +
+                "    Launcher.apk|Launcher2.apk|Launcher3.apk|*Launcher2*|*ArcHome*|*Tapestry*|*KoboCare*|*KoboSupport*|*KoboDiagnostics*|*KoboSetup*|*KoboOTA*|*KoboUpdater*|*Pocket*|*ReadItLater*|*Zinio*|*7digital*|*SevenDigital*|*Rdio*|*PlusOne*|*Talk.apk|*Hangouts*|*Magazines*|*Currents*|*GoogleEars*|*Videos.apk|*GenieWidget*)\n" +
+                "      mv \"$_apk\" \"/data/local/arc7_kobo_archive/$_bn\" 2>/dev/null || rm -f \"$_apk\"\n" +
+                "      _odex=\"${_apk%.apk}.odex\"\n" +
+                "      [ -e \"$_odex\" ] && (mv \"$_odex\" \"/data/local/arc7_kobo_archive/$(basename \"$_odex\")\" 2>/dev/null || rm -f \"$_odex\")\n" +
+                "      echo \"Archived & removed: $_bn\"\n" +
+                "      ;;\n" +
+                "  esac\n" +
+                "done\n" +
+                "\n" +
+                "# 2. Also uninstall/disable user-data updates or package entries for Default Launchers, Kobo Care, & Discontinued Apps\n" +
+                "for _pkg in \\\n" +
+                "  com.android.launcher com.android.launcher2 com.android.launcher3 \\\n" +
+                "  com.kobo.home com.kobo.launcher com.kobo.tapestry com.kobo.arc.home \\\n" +
+                "  com.kobo.care com.kobo.support com.kobo.help com.kobo.diagnostics com.kobo.analytics \\\n" +
+                "  com.kobo.setup com.kobo.setupwizard com.kobo.ota com.kobo.updater \\\n" +
+                "  com.ideashower.readitlater.pro com.pocket.app \\\n" +
+                "  com.zinio.mobile.android.reader uk.co.sevendigital.android com.rdio.android.ui \\\n" +
+                "  com.google.android.apps.plus com.google.android.talk \\\n" +
+                "  com.google.android.apps.magazines com.google.android.ears \\\n" +
+                "  com.google.android.videos com.google.android.apps.genie.geniewidget; do\n" +
+                "  pm uninstall \"$_pkg\" >/dev/null 2>&1 || true\n" +
+                "  pm disable \"$_pkg\" >/dev/null 2>&1 || true\n" +
+                "done\n" +
+                "sync\n" +
+                "mount -o remount,ro /system 2>/dev/null || true";
+        RootShell.ExecResult r = shell.execRoot(script, null);
+        if (log != null && r.stdout != null && !r.stdout.trim().isEmpty()) {
+            log.onLog(r.stdout.trim());
+        }
+    }
+
+    /**
+     * Silently upgrades ALL companion APKs & tools right on boot / package update (`v1.9.0`):
+     *   1. Upgrades `VanillaAndroid4Home.apk` -> `versionCode >= 49` (Long-Press Widgets, zero `+ Widget` clutter)
+     *   2. Installs/updates `AuroraStore.apk` (`com.aurora.store` `versionCode >= 484`) automatically
+     *   3. Installs `/system/xbin/python3` & `/system/xbin/apt` + triggers background `apt` sync
+     *   4. Archives & removes Default Stock Launcher + `Kobo Care` + Discontinued Apps automatically
+     *   5. Keeps `FDroidClassicLegacy.apk` clean on TLS 1.3 bridge!
      */
     public void ensureCompanionAppsUpgradedSilently() {
         if (!shell.isRootAvailable()) return;
@@ -263,7 +461,7 @@ public class TabletOptimizerManager {
                 homeVer = ctx.getPackageManager()
                         .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
             } catch (Throwable ignored) {}
-            if (homeVer > 0 && homeVer < 48) {
+            if (homeVer < 49) {
                 File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
                 InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
                 FileOutputStream fos = new FileOutputStream(tmpHome);
@@ -303,27 +501,49 @@ public class TabletOptimizerManager {
                 tmpHome.delete();
             }
 
+            // 2. Automatically install / upgrade Aurora Store (`com.aurora.store`, v484)!
+            int auroraVer = 0;
+            try {
+                auroraVer = ctx.getPackageManager()
+                        .getPackageInfo("com.aurora.store", 0).versionCode;
+            } catch (Throwable ignored) {}
+            if (auroraVer < 484) {
+                installBundledAuroraStore(null);
+            }
+
+            // 3. Automatically install native ARMv7 `python3` + `apt` + kick off background `apt` sync!
+            provisionPython3AndAptSystemWide(null, true);
+
+            // 4. Automatically remove stock Default Launcher, Kobo Care, & discontinued dead apps once!
+            android.content.SharedPreferences prefs =
+                    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            if (!prefs.getBoolean("default_launcher_and_bloat_cleaned_v190", false)) {
+                removeDefaultLauncherAndDiscontinuedApps(null);
+                prefs.edit().putBoolean("default_launcher_and_bloat_cleaned_v190", true).commit();
+            }
+
+            // 5. Keep F-Droid Classic aligned with our clean TLS 1.3 bridge
             try {
                 ctx.getPackageManager().getPackageInfo("eu.bubu1.fdroidclassic.debug", 0);
                 int sigCmp = ctx.getPackageManager().checkSignatures(
                         ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
-                android.content.SharedPreferences prefs =
-                        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
                 if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
                     installBundledFDroidClassic(new LogSink() {
                         @Override public void onLog(String line) {}
                     });
                     prefs.edit().putBoolean("fdroid_clean_v182", true).commit();
                 } else if (!prefs.getBoolean("fdroid_clean_v182", false)) {
-                    // Wipe any partial HTTP 502 cache files & stale repo rows left from pre-v1.8.2 DNS failure
-                    // so F-Droid Classic initializes clean `http://127.0.0.1:8118/__https/...` repos from byte 0!
                     shell.execRoot(
                             "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
                             "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
                             null);
                     prefs.edit().putBoolean("fdroid_clean_v182", true).commit();
                 }
-            } catch (Throwable ignored) {}
+            } catch (Throwable ignored) {
+                installBundledFDroidClassic(new LogSink() {
+                    @Override public void onLog(String line) {}
+                });
+            }
         } catch (Throwable ignored) {}
     }
 
