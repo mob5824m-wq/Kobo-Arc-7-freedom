@@ -17,7 +17,7 @@ New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 # Copy local APKs first if user downloaded them alongside this .bat
 $ScriptFolder = $PSScriptRoot
 if (-not $ScriptFolder) { $ScriptFolder = (Get-Location).Path }
-foreach ($localName in @("Upgrade-My-Kobo-To-v2.3.0.apk", "KoboArc7Freedom.apk", "VLC.apk", "AuroraStore.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
+foreach ($localName in @("Upgrade-My-Kobo-To-v2.3.1.apk", "KoboArc7Freedom.apk", "VLC.apk", "AuroraStore.apk", "VanillaAndroid4Home.apk", "SHA256SUMS.txt")) {
     foreach ($candidateDir in @($ScriptFolder, (Join-Path $ScriptFolder "..\releases"))) {
         $cand = Join-Path $candidateDir $localName
         if (Test-Path -LiteralPath $cand) {
@@ -29,7 +29,7 @@ foreach ($localName in @("Upgrade-My-Kobo-To-v2.3.0.apk", "KoboArc7Freedom.apk",
 $RawBase = "https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 $ReleaseBase = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
 $RequiredFiles = @(
-    "Upgrade-My-Kobo-To-v2.3.0.apk",
+    "Upgrade-My-Kobo-To-v2.3.1.apk",
     "KoboArc7Freedom.apk",
     "VLC.apk",
     "AuroraStore.apk",
