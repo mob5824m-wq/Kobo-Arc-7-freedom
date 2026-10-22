@@ -1536,4 +1536,13 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    try:
+        main()
+    except BaseException:
+        tb = traceback.format_exc()
+        print(tb, file=sys.stderr, flush=True)
+        if os.environ.get("GITHUB_ACTIONS") == "true":
+            enc = tb.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+            print(f"::error title=verify-apks failure::{enc}", flush=True)
+        sys.exit(1)

@@ -62,7 +62,7 @@ def sha256_file(path: str) -> str:
 def ensure_android42_v1_signature(src_apk: str, dst_apk: str, zipalign: str, java: str, apksigner: str,
                                   keystore: str, ks_pass: str, ks_alias: str) -> None:
     chk = subprocess.run(
-        [java, "-jar", apksigner, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", src_apk],
+        [java, "-jar", apksigner, "verify", "--min-sdk-version", "9", "--max-sdk-version", "17", src_apk],
         capture_output=True, text=True,
     )
     aligned = src_apk + ".aligned"
@@ -92,13 +92,15 @@ def ensure_android42_v1_signature(src_apk: str, dst_apk: str, zipalign: str, jav
             "--ks-pass", f"pass:{ks_pass}",
             "--key-pass", f"pass:{ks_pass}",
             "--ks-key-alias", ks_alias,
-            "--min-sdk-version", "15",
+            "--min-sdk-version", "9",
             "--v1-signing-enabled", "true",
             "--v2-signing-enabled", "true",
             "--v3-signing-enabled", "true",
             "--out", dst_apk,
             aligned,
         ], check=True)
+        subprocess.run([zipalign, "-c", "4", dst_apk], check=True)
+        subprocess.run([java, "-jar", apksigner, "verify", "--min-sdk-version", "9", "--max-sdk-version", "17", dst_apk], check=True)
     finally:
         for p in (clean_path, aligned):
             if os.path.exists(p):
