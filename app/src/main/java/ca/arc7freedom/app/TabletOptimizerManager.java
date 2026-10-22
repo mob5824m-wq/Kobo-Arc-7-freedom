@@ -184,11 +184,15 @@ public class TabletOptimizerManager {
      * ======================================================================== */
 
     public boolean installBundledFDroidClassic(LogSink log) {
-        log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (Android 4.2 + Verified TLS 1.3 Bridge) ===");
-        // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway is live BEFORE F-Droid ever runs!
+        if (log != null) {
+            log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (`v1302` — Verified Non-Colliding Certs + TLS 1.3 Bridge) ===");
+        }
+        // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway + system CAs are synced BEFORE F-Droid ever runs!
         Arc7TlsGatewayService.ensureStarted(ctx);
         try {
-            new NetworkCertManager(ctx, shell).startBrowserGateway();
+            NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
+            ncm.ensureSystemCacertsAndLocalCaSynced();
+            ncm.startBrowserGateway();
         } catch (Throwable ignored) {}
 
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
@@ -208,9 +212,11 @@ public class TabletOptimizerManager {
                 total += r;
             }
             fos.flush();
-            log.onLog("Extracted patched TLS-1.3 F-Droid store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
+            if (log != null) {
+                log.onLog("Extracted patched TLS-1.3 F-Droid store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
+            }
         } catch (Throwable t) {
-            log.onLog("ERROR extracting bundled F-Droid Classic APK: " + t.getMessage());
+            if (log != null) log.onLog("ERROR extracting bundled F-Droid Classic APK: " + t.getMessage());
             return false;
         } finally {
             try { if (in != null) in.close(); } catch (Throwable ignored) {}
@@ -218,32 +224,51 @@ public class TabletOptimizerManager {
         }
 
         if (shell.isRootAvailable()) {
-            // If an earlier unpatched debug build of F-Droid Classic is installed (which cached
-            // defunct `bubu1.eu` / TLS-1.3-only `ftp.fau.de` URLs in SQLite and had a different signing key),
-            // cleanly uninstall it first so our patched TLS-1.3 bridge APK installs with clean repo URLs!
             boolean needCleanUninstall = false;
+            int prevVer = 0;
             try {
+                prevVer = ctx.getPackageManager()
+                        .getPackageInfo("eu.bubu1.fdroidclassic.debug", 0).versionCode;
                 int sigCmp = ctx.getPackageManager().checkSignatures(
                         ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
                 if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
                     needCleanUninstall = true;
                 }
             } catch (Throwable ignored) {}
-            if (needCleanUninstall) {
-                log.onLog("Upgrading old F-Droid Classic installation & clearing dead repository URLs...");
-                shell.execRoot("pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true", null);
+
+            // Stage in `/data/local/tmp/` (`0644`) so Android 4.2 multi-user FUSE mount namespaces never fail!
+            String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
+            String cmd = "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/fdroid_arc7_v1302.apk" +
+                    " && chmod 0644 /data/local/tmp/fdroid_arc7_v1302.apk\n" +
+                    (needCleanUninstall
+                            ? "pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true\n"
+                            : "") +
+                    "pm install -r /data/local/tmp/fdroid_arc7_v1302.apk 2>&1\n" +
+                    "rm -f /data/local/tmp/fdroid_arc7_v1302.apk 2>/dev/null || true\n";
+            if (log != null) {
+                log.onLog("Root detected — installing F-Droid Classic `v1302` cleanly via `/data/local/tmp/`...");
             }
-            log.onLog("Root detected — running silent `pm install -r` so Unknown Sources toggle isn't even needed...");
-            RootShell.ExecResult pm = shell.execRoot(
-                    "pm install -r " + RootShell.shellQuote(outApk.getAbsolutePath()), null);
-            log.onLog(pm.stdout.trim());
+            RootShell.ExecResult pm = shell.execRoot(cmd, null);
+            if (log != null) log.onLog(pm.stdout.trim());
             if (pm.stdout.contains("Success")) {
-                log.onLog("SUCCESS: F-Droid Classic (`v1.8.0` Patched TLS 1.3 Index Bridge) is installed & ready — pull to refresh in F-Droid for 4,000+ working apps!");
+                // If upgrading from `< 1302`, wipe stale colliding `CN=marcus-tux` SQLite DB once so
+                // `v1302`'s verified non-colliding certificates load cleanly on first open!
+                if (prevVer < 1302) {
+                    shell.execRoot(
+                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
+                            "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
+                            null);
+                }
+                if (log != null) {
+                    log.onLog("SUCCESS: F-Droid Classic (`v1302` — Verified Non-Colliding Certs + SHA-256 + SHA1-RSA APK Signer) is ready!");
+                }
                 return true;
             }
         }
 
-        log.onLog("Opening Android 4.2 Package Installer prompt (if an older F-Droid Classic is installed, uninstall it once first so fresh repo URLs load)...");
+        if (log != null) {
+            log.onLog("Opening Android 4.2 Package Installer prompt...");
+        }
         Intent prompt = new Intent(Intent.ACTION_VIEW);
         prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -253,15 +278,17 @@ public class TabletOptimizerManager {
 
     /**
      * Installs our native Android 4.2 (`minSdk=15`, `DEX 035`, `TLS 1.3`) **Aurora Store**
-     * (`com.aurora.store`, `v4.8.4-arc7`) cleanly via root `pm install -r` or PackageInstaller!
+     * (`com.aurora.store`, `v4.8.5-arc7`, `versionCode=485`) cleanly via `/data/local/tmp/` `pm install -r`!
      */
     public boolean installBundledAuroraStore(LogSink log) {
         if (log != null) {
-            log.onLog("=== Installing Bundled Aurora Store (`com.aurora.store` — Android 4.2 + TLS 1.3) ===");
+            log.onLog("=== Installing Bundled Aurora Store (`com.aurora.store` v4.8.5-arc7 — Verified Android 4.2 APKs + Auto JAR v1 Signer) ===");
         }
         Arc7TlsGatewayService.ensureStarted(ctx);
         try {
-            new NetworkCertManager(ctx, shell).startBrowserGateway();
+            NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
+            ncm.ensureSystemCacertsAndLocalCaSynced();
+            ncm.startBrowserGateway();
         } catch (Throwable ignored) {}
 
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
@@ -293,11 +320,17 @@ public class TabletOptimizerManager {
         }
 
         if (shell.isRootAvailable()) {
+            String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
             RootShell.ExecResult pm = shell.execRoot(
-                    "pm install -r " + RootShell.shellQuote(outApk.getAbsolutePath()), null);
+                    "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/aurora_arc7_v485.apk" +
+                    " && chmod 0644 /data/local/tmp/aurora_arc7_v485.apk" +
+                    " && (pm install -r /data/local/tmp/aurora_arc7_v485.apk 2>&1" +
+                    " || (pm uninstall com.aurora.store 2>/dev/null || true; pm install -r /data/local/tmp/aurora_arc7_v485.apk 2>&1))" +
+                    "; rm -f /data/local/tmp/aurora_arc7_v485.apk 2>/dev/null || true",
+                    null);
             if (log != null) log.onLog(pm.stdout.trim());
             if (pm.stdout.contains("Success")) {
-                if (log != null) log.onLog("SUCCESS: Aurora Store (`com.aurora.store`) installed!");
+                if (log != null) log.onLog("SUCCESS: Aurora Store (`com.aurora.store` v4.8.5-arc7) installed!");
                 return true;
             }
         }
@@ -501,13 +534,19 @@ public class TabletOptimizerManager {
                 tmpHome.delete();
             }
 
-            // 2. Automatically install / upgrade Aurora Store (`com.aurora.store`, v484)!
+            // 2. Automatically install / upgrade Aurora Store (`com.aurora.store`, v485)!
+            try {
+                NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
+                ncm.ensureSystemCacertsAndLocalCaSynced();
+                ncm.startBrowserGateway();
+            } catch (Throwable ignored) {}
+
             int auroraVer = 0;
             try {
                 auroraVer = ctx.getPackageManager()
                         .getPackageInfo("com.aurora.store", 0).versionCode;
             } catch (Throwable ignored) {}
-            if (auroraVer < 484) {
+            if (auroraVer < 485) {
                 installBundledAuroraStore(null);
             }
 
@@ -522,27 +561,26 @@ public class TabletOptimizerManager {
                 prefs.edit().putBoolean("default_launcher_and_bloat_cleaned_v190", true).commit();
             }
 
-            // 5. Keep F-Droid Classic aligned with our clean TLS 1.3 bridge
+            // 5. Automatically upgrade F-Droid Classic to `v1302` (non-colliding certs + SHA-256 + SHA1-RSA signer)
+            //    and wipe any stale `< 1302` colliding `CN=marcus-tux` SQLite DB!
             try {
-                ctx.getPackageManager().getPackageInfo("eu.bubu1.fdroidclassic.debug", 0);
+                int fdroidVer = ctx.getPackageManager()
+                        .getPackageInfo("eu.bubu1.fdroidclassic.debug", 0).versionCode;
                 int sigCmp = ctx.getPackageManager().checkSignatures(
                         ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
-                if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
-                    installBundledFDroidClassic(new LogSink() {
-                        @Override public void onLog(String line) {}
-                    });
-                    prefs.edit().putBoolean("fdroid_clean_v182", true).commit();
-                } else if (!prefs.getBoolean("fdroid_clean_v182", false)) {
+                if (fdroidVer < 1302 || sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
+                    installBundledFDroidClassic(null);
+                    prefs.edit().putBoolean("fdroid_clean_v1302", true).commit();
+                } else if (!prefs.getBoolean("fdroid_clean_v1302", false)) {
                     shell.execRoot(
                             "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
                             "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
                             null);
-                    prefs.edit().putBoolean("fdroid_clean_v182", true).commit();
+                    prefs.edit().putBoolean("fdroid_clean_v1302", true).commit();
                 }
             } catch (Throwable ignored) {
-                installBundledFDroidClassic(new LogSink() {
-                    @Override public void onLog(String line) {}
-                });
+                installBundledFDroidClassic(null);
+                prefs.edit().putBoolean("fdroid_clean_v1302", true).commit();
             }
         } catch (Throwable ignored) {}
     }

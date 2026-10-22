@@ -466,7 +466,7 @@ def generate_logo_banner():
         )
         d.text(
             (238, 124),
-            "ZERO-BRICK VERIFIED SUITE  v1.9.0   •   MT8125 & TEGRA 3",
+            "ZERO-BRICK VERIFIED SUITE  v1.9.1   •   MT8125 & TEGRA 3",
             fill=(134, 239, 172, 255),
             font=f_tag,
         )

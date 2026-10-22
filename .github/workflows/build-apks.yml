@@ -1,4 +1,4 @@
-name: Build, Verify & Deploy Kobo Arc 7 v1.9.0 OTA Portal
+name: Build, Verify & Deploy Kobo Arc 7 v1.9.1 OTA Portal
 
 on:
   push:
@@ -30,18 +30,18 @@ jobs:
       - name: Install Android API 17 (4.2.2) platform, Zig, Certifi & Androguard
         run: |
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
-          python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru
+          python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography
 
-      - name: Generate vector icons, build all 6 native ARMv7 binaries & sign all 4 v1.9.0 APKs
+      - name: Generate vector icons, build all 6 native ARMv7 binaries & sign all v1.9.1 APKs
         run: |
           chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           ./scripts/build-all.sh
 
-      - name: Run full v1.9.0 end-to-end verification suite
+      - name: Run full v1.9.1 end-to-end verification suite
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v1.9.0 APKs, static OTA web portals & launchers back to branch
+      - name: Commit refreshed signed v1.9.1 APKs, static OTA web portals & launchers back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
@@ -57,9 +57,11 @@ jobs:
             docs/Start-Kobo-WiFi-Server.sh \
             releases/index.html \
             releases/logo-banner.png \
+            releases/Upgrade-My-Kobo-To-v1.9.1.apk \
             releases/Upgrade-My-Kobo-To-v1.9.0.apk \
             releases/KoboArc7Freedom.apk \
             releases/AuroraStore.apk \
+            releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
             releases/Backup-Kobo-To-Laptop-ADB.bat \
             releases/Backup-Kobo-To-Laptop-ADB.sh \
@@ -70,18 +72,19 @@ jobs:
             app/src/main/assets/starter-apps/AuroraStore.apk \
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v1.9.0 APKs & OTA web installer portals [skip ci]"
+            git commit -m "chore: update pre-built signed v1.9.1 APKs & OTA web installer portals [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v1.9.0 APKs, Aurora Store, 1-Tap Upgrader & OTA launchers artifact
+      - name: Upload built v1.9.1 APKs, Aurora Store v4.8.5, F-Droid v1302, 1-Tap Upgrader & OTA launchers artifact
         uses: actions/upload-artifact@v4
         with:
           name: kobo-arc-7-freedom-apks
           path: |
-            releases/Upgrade-My-Kobo-To-v1.9.0.apk
+            releases/Upgrade-My-Kobo-To-v1.9.1.apk
             releases/KoboArc7Freedom.apk
             releases/AuroraStore.apk
+            releases/FDroidClassicLegacy.apk
             releases/VanillaAndroid4Home.apk
             releases/Backup-Kobo-To-Laptop-ADB.bat
             releases/Backup-Kobo-To-Laptop-ADB.sh
@@ -104,9 +107,11 @@ jobs:
           rm -rf _site && mkdir -p _site
           cp -rf docs/* docs/.nojekyll _site/
           cp -f \
+            releases/Upgrade-My-Kobo-To-v1.9.1.apk \
             releases/Upgrade-My-Kobo-To-v1.9.0.apk \
             releases/KoboArc7Freedom.apk \
             releases/AuroraStore.apk \
+            releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
             releases/SHA256SUMS.txt \
             _site/
@@ -120,40 +125,34 @@ jobs:
         with:
           path: _site
 
-      - name: Publish signed v1.9.0 APKs, Aurora Store, 1-Tap Upgrader & OTA tools to GitHub Releases
+      - name: Publish signed v1.9.1 APKs, Aurora Store v4.8.5, F-Droid v1302, 1-Tap Upgrader & OTA tools to GitHub Releases
         if: github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v1.9.0 (`ca.arc7freedom.app` + `Upgrade-My-Kobo-To-v1.9.0.apk` + `AuroraStore.apk` + `VanillaAndroid4Home.apk` v49)
+          ## Kobo Arc 7 Freedom v1.9.1 (`ca.arc7freedom.app` v191 + `Upgrade-My-Kobo-To-v1.9.1.apk` + `AuroraStore.apk` v4.8.5 + `FDroidClassicLegacy.apk` v1302)
 
-          ### Over-The-Air (OTA) Web Portal (Now Live & Fixed!):
-          - **Direct Cloud OTA Website:** **https://mob5824m-wq.github.io/Kobo-Arc-7-freedom/** (serves every `.apk` with direct `200 OK` Fastly CDN binary streaming — zero `302` S3 redirects!)
-          - **Local Home Wi-Fi OTA Server:** `Start-Kobo-WiFi-Server.bat` (Windows concurrent socket threadpool + `Range: bytes=` support) / `Start-Kobo-WiFi-Server.sh` (macOS/Linux `ThreadingHTTPServer`)
-
-          ### All 12 Upgrades in `v1.9.0`:
-          1. **Automatic Local Timezone + Atomic Clock Sync:** Automatically detects your real IANA timezone (`e.g. America/Toronto`) via 4 geo-timezone endpoints and sets both `AlarmManager.setTimeZone` + `persist.sys.timezone` alongside kernel UTC epoch (`settimeofday`) with zero UTC-offset bugs.
-          2. **Fixed Over-The-Air Rooting & Upgrade Website:** Enabled & deployed live GitHub Pages (`https://mob5824m-wq.github.io/Kobo-Arc-7-freedom/`) with direct `200 OK` `.apk` hosting + fixed multi-socket concurrent Windows/Mac/Linux local Wi-Fi OTA servers.
-          3. **Automatic Default Stock Launcher Removal:** Archives & uninstalls stock `Launcher2.apk` (`com.android.launcher`, `com.kobo.home`, `com.kobo.tapestry`) cleanly once `VanillaAndroid4Home` is active.
-          4. **Bundled & Auto-Installed Aurora Store (`com.aurora.store`):** Native Android 4.2 (`minSdk=15`, `DEX 035`) + TLS 1.3 Google Play Store client pre-bundled and auto-installed on every Kobo Arc 7.
-          5. **Smooth 60 fps Animations Across All Custom Apps:** Hardware-accelerated slide/fade activity transitions, spring touch feedback, animated tab/drawer switches, and `LayoutTransition` animations across all custom apps.
-          6. **Removed `Kobo Care` & Discontinued Preloads:** Archives & removes `Kobo Care`, `Pocket`, `Zinio`, `7digital`, `Rdio`, `Google+`, `Talk`/`Hangouts`, `Currents`/`Magazines`, `GoogleEars`, `Videos`, and `GenieWidget`.
-          7. **Long-Press Home Screen to Add Widgets (`VanillaAndroid4Home` v49):** Long-press anywhere on the Home Screen workspace to add widgets.
-          8. **Removed `+ Widget` Button & `"Tap + to add widgets"` Clutter:** Clean, uncluttered stock Android Home Screen.
-          9. **Full 12-Hour (`AM/PM`) Time Support:** 12-hour & 24-hour time support across Clock, Alarms, World Clocks, Nightstand, Wake Alert, Home Widget, and Launcher.
-          10. **14 Nostalgic Apple & Nostalgic Android Alarm Chimes:** Polyphonic Karplus-Strong & bell synthesis of *Marimba*, *Radar*, *Opening*, *Xylophone*, *Harp*, *Chimes*, *Sci-Fi*, *Helium*, *Oxygen*, *Pyxis*, *Cesium*, *Argon*, *Holo Pop*, plus *Classic Twin-Bell* with live preview.
-          11. **Individual Per-Alarm Volume (`0%–100%`):** Independent volume slider & audio level persisted per alarm.
-          12. **Automatic Native `python3` & `apt` Installation:** Static ARMv7 `python3` + `apt` (`apt update`, `apt install`, `apt search`) pre-installed in `/system/xbin/` + automatic background Alpine `armv7` CPython 3.12 + `pip3` sync in `/data/local/arc7linux`.
+          ### Critical Hardware Fixes in `v1.9.1`:
+          1. **Fixed Aurora Store APK `"Parse error: There is a problem parsing the package"` on Android 4.2.2:**
+             - Queries **F-Droid Archive + F-Droid Main `index-v1.jar`** (`maxSdkVersion >= 17 >= minSdkVersion`) and verified ARMv7/universal Android 4.2 releases instead of returning `minSdkVersion >= 21` / `DEX 038/039` / `arm64-only` APKs from IzzyOnDroid.
+             - Inspects every downloaded APK's binary `AndroidManifest.xml` (`minSdkVersion <= 17`), `classes*.dex` (`DEX 035`), and `lib/` ABIs (`armeabi-v7a` / `armeabi`) before install.
+             - Automatically adds a compliant **4-byte `zipalign`ed `SHA1-Digest` + `SHA1withRSA` JAR `v1` signature** whenever a downloaded APK is `v2/v3`-only or `SHA256withRSA`-signed (fixing AOSP Bug `#38321` across Aurora Store, F-Droid Classic, Arc7 Browser, and Wi-Fi File Drive!).
+             - Stages installs via world-readable `/data/local/tmp/` `pm install -r` to avoid Android 4.2 multi-user FUSE mount-namespace parse failures, and unwraps double-proxied `127.0.0.1:8118` URLs with widened `8 KB` URL buffers in `libarc7tls.so`.
+          2. **Fixed F-Droid Classic `"Signing certificate does not match!"` (`f-droid certificates invalid`) Error:**
+             - Fixed `default_repos` in `FDroidClassicLegacy.apk` (`versionCode = 1302`) where `str[462]` (`F-Droid Classic`) collided with `f-droid.org/repo` and overwrote F-Droid's `CN=Ciaran Gultnieks` (`43238D51...`) certificate with `CN=marcus-tux` (`5187CFD9...`) in SQLite on every first launch.
+             - Re-mapped all 7 repository entries cleanly without URL collisions, added genuine **PKCS#7 `SHA256withRSA` `index-v1.jar` verification** on Android 4.2 (`IndexUpdater.getSigningCertFromJar`), preserved `/data/local/arc7_tls_ca/` across app reinstalls so Zygote's trusted CA never drifts, and auto-cleared stale `< 1302` SQLite state on upgrade.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v1.9.0 >/dev/null 2>&1; then
-            gh release edit v1.9.0 --latest --title "Kobo Arc 7 Freedom v1.9.0 — Live OTA Portal, Auto Timezone, Aurora Store, Python 3 + apt, 12h & Chimes!" --notes-file /tmp/release-notes.md
-            gh release upload v1.9.0 \
+          if gh release view v1.9.1 >/dev/null 2>&1; then
+            gh release edit v1.9.1 --latest --title "Kobo Arc 7 Freedom v1.9.1 — Fixed Aurora Store APK Installs & Fixed F-Droid Certificates!" --notes-file /tmp/release-notes.md
+            gh release upload v1.9.1 \
+              releases/Upgrade-My-Kobo-To-v1.9.1.apk \
               releases/Upgrade-My-Kobo-To-v1.9.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/AuroraStore.apk \
+              releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
               releases/Backup-Kobo-To-Laptop-ADB.sh \
@@ -162,10 +161,12 @@ jobs:
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v1.9.0 \
+            gh release create v1.9.1 \
+              releases/Upgrade-My-Kobo-To-v1.9.1.apk \
               releases/Upgrade-My-Kobo-To-v1.9.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/AuroraStore.apk \
+              releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
               releases/Backup-Kobo-To-Laptop-ADB.sh \
@@ -174,7 +175,7 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v1.9.0 — Live OTA Portal, Auto Timezone, Aurora Store, Python 3 + apt, 12h & Chimes!" \
+              --title "Kobo Arc 7 Freedom v1.9.1 — Fixed Aurora Store APK Installs & Fixed F-Droid Certificates!" \
               --notes-file /tmp/release-notes.md
           fi
 

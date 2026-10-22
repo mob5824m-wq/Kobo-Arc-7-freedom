@@ -451,14 +451,22 @@ public class Arc7WifiDriveService extends Service {
     }
 
     private String remoteInstallApk(File apkFile) {
-        if (shell.isRootAvailable()) {
-            RootShell.ExecResult r = shell.execRoot("pm install -r " + RootShell.shellQuote(apkFile.getAbsolutePath()), null);
-            if (r.stdout.contains("Success")) {
-                return "SILENT ROOT INSTALL SUCCEEDED on tablet (" + apkFile.getName() + ")!";
-            }
+        Arc7ApkKit.ApkInspection info = Arc7ApkKit.inspectApk(apkFile);
+        if (!info.isCompatibleWithAndroid42()) {
+            return "APK NOT COMPATIBLE WITH ANDROID 4.2: " + info.errorReason;
         }
+        Arc7ApkKit.RootInstallOutcome out = null;
+        try {
+            out = Arc7ApkKit.stageAndInstallApk(this, apkFile, true);
+        } catch (Throwable ignored) {}
+        if (out != null && out.succeeded) {
+            return "SILENT ROOT INSTALL SUCCEEDED on tablet (" + apkFile.getName()
+                    + (!info.hasValidAndroid42V1Sig ? " — SHA1-RSA JAR v1 signature auto-repaired" : "") + ")!";
+        }
+        File target = (out != null && out.worldReadableFallbackApk != null && out.worldReadableFallbackApk.exists())
+                ? out.worldReadableFallbackApk : apkFile;
         Intent prompt = new Intent(Intent.ACTION_VIEW);
-        prompt.setDataAndType(Uri.fromFile(apkFile), "application/vnd.android.package-archive");
+        prompt.setDataAndType(Uri.fromFile(target), "application/vnd.android.package-archive");
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         startActivity(prompt);
         return "Opened Android PackageInstaller prompt on tablet screen (" + apkFile.getName() + ")!";

@@ -460,7 +460,7 @@ public class NetworkCertManager {
                 conn = (HttpURLConnection) new URL(endpoints[i]).openConnection(Proxy.NO_PROXY);
                 conn.setConnectTimeout(4500);
                 conn.setReadTimeout(5500);
-                conn.setRequestProperty("User-Agent", "Arc7Freedom/1.9.0");
+                conn.setRequestProperty("User-Agent", "Arc7Freedom/1.9.1");
                 if (conn.getResponseCode() == 200) {
                     BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "UTF-8"));
                     StringBuilder sb = new StringBuilder();
@@ -746,18 +746,168 @@ public class NetworkCertManager {
 
     public synchronized File ensureLocalUpgradeCaDir() {
         File caDir = new File(appContext.getFilesDir(), "local_tls13_ca");
+        caDir.mkdirs();
         File crt = new File(caDir, "local-ca.crt");
         File key = new File(caDir, "local-ca.key");
         if (crt.exists() && key.exists() && crt.length() > 200 && key.length() > 200) {
             return caDir;
         }
-        caDir.mkdirs();
+        // Recover persistent per-device Local CA across app reinstalls / upgrades so
+        // `/system/etc/security/cacerts/<hash>.0` stays 100% continuous across updates!
+        File persistDir = new File("/data/local/arc7_tls_ca");
+        if (shell != null && shell.isRootAvailable()) {
+            try {
+                RootShell.ExecResult rec = shell.execRoot(
+                        "if [ -f /data/local/arc7_tls_ca/local-ca.crt ] && [ -f /data/local/arc7_tls_ca/local-ca.key ]; then " +
+                        "  for _f in /data/local/arc7_tls_ca/*; do " +
+                        "    [ -f \"$_f\" ] && cat \"$_f\" > '" + caDir.getAbsolutePath() + "/'\"${_f##*/}\"; " +
+                        "  done; " +
+                        "  chmod 0644 '" + caDir.getAbsolutePath() + "'/* 2>/dev/null || true; " +
+                        "  echo RECOVERED; " +
+                        "fi",
+                        null);
+                if (rec.stdout.contains("RECOVERED") && crt.exists() && key.exists() && crt.length() > 200) {
+                    return caDir;
+                }
+            } catch (Throwable ignored) {}
+        }
         File tlsBin = shell.getTlsEngineBinary();
         shell.execCommandArray(new String[]{tlsBin.getAbsolutePath(), "gen-local-ca", caDir.getAbsolutePath()}, null);
+        if (shell != null && shell.isRootAvailable() && crt.exists() && key.exists()) {
+            try {
+                shell.execRoot(
+                        "mkdir -p '" + persistDir.getAbsolutePath() + "' && " +
+                        "for _f in '" + caDir.getAbsolutePath() + "'/*; do " +
+                        "  [ -f \"$_f\" ] && cat \"$_f\" > '" + persistDir.getAbsolutePath() + "/'\"${_f##*/}\"; " +
+                        "done && chmod 0700 '" + persistDir.getAbsolutePath() + "'",
+                        null);
+            } catch (Throwable ignored) {}
+        }
         return caDir;
     }
 
-    public static final String EXPECTED_GATEWAY_PING = "ARC7_TLS13_READY_V190";
+    /**
+     * Automatically ensures `/system/etc/security/cacerts/` AND `/data/misc/keychain/cacerts-added/`
+     * contain ALL 120 modern 2026 Root CAs (`ISRG Root X1`, `GTS Root R1`, `DigiCert G2`, etc.),
+     * ZERO expired pre-2026 certs (like `DST Root CA X3` which breaks Let's Encrypt on OpenSSL 1.0.1),
+     * AND the exact byte-matching `local-ca.<hash>.0` used by the running `127.0.0.1:8118` gateway.
+     */
+    public synchronized void ensureSystemCacertsAndLocalCaSynced() {
+        try {
+            ensureSystemCacertsAndLocalCaSynced(ensureLocalUpgradeCaDir());
+        } catch (Throwable ignored) {}
+    }
+
+    public synchronized void ensureSystemCacertsAndLocalCaSynced(File localCaDir) {
+        if (shell == null || !shell.isRootAvailable()) return;
+        try {
+            File hashedLocalCa = null;
+            if (localCaDir != null) {
+                File[] files = localCaDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        if (f.getName().endsWith(".0") && f.length() > 100) {
+                            hashedLocalCa = f;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            File sysDir = new File("/system/etc/security/cacerts");
+            boolean needModernBundle = !new File(sysDir, "6187b673.0").exists()
+                    || !new File(sysDir, "f013ecaf.0").exists()
+                    || !new File(sysDir, "c90bc37d.0").exists()
+                    || !new File(sysDir, "35105088.0").exists();
+            List<String> expiredNames = findExpiredSystemCertFilenames();
+            boolean needLocalCaSync = false;
+            if (hashedLocalCa != null) {
+                File installedLocal = new File(sysDir, hashedLocalCa.getName());
+                if (!installedLocal.exists() || installedLocal.length() != hashedLocalCa.length()) {
+                    needLocalCaSync = true;
+                } else {
+                    needLocalCaSync = !filesIdentical(hashedLocalCa, installedLocal);
+                }
+            }
+
+            if (!needModernBundle && expiredNames.isEmpty() && !needLocalCaSync) {
+                return;
+            }
+
+            File stageDir = new File(appContext.getFilesDir(), "cacerts_auto_sync");
+            deleteRecursive(stageDir);
+            stageDir.mkdirs();
+
+            if (needModernBundle || !expiredNames.isEmpty()) {
+                List<CertEntry> manifest = loadBundledManifest();
+                for (CertEntry entry : manifest) {
+                    copyAsset("cacerts/android-hashed/" + entry.filename, new File(stageDir, entry.filename));
+                }
+            }
+            if (hashedLocalCa != null) {
+                RootShell.copyFile(hashedLocalCa, new File(stageDir, hashedLocalCa.getName()));
+            }
+
+            StringBuilder quarantineCmd = new StringBuilder();
+            File quarantineDir = new File("/data/local/arc7_cacerts_quarantine");
+            for (String expName : expiredNames) {
+                quarantineCmd.append("if [ -f /system/etc/security/cacerts/").append(expName).append(" ]; then ")
+                        .append("mv /system/etc/security/cacerts/").append(expName).append(" '")
+                        .append(quarantineDir.getAbsolutePath()).append("/").append(expName)
+                        .append("' 2>/dev/null || rm -f /system/etc/security/cacerts/").append(expName)
+                        .append("; fi; ");
+            }
+
+            String cmd =
+                    RootShell.remountSystemRwCmd() + " && " +
+                    "mkdir -p /data/misc/keychain/cacerts-added '" + quarantineDir.getAbsolutePath() + "' && " +
+                    quarantineCmd.toString() +
+                    "for _cf in '" + stageDir.getAbsolutePath() + "'/*; do " +
+                    "  if [ -f \"$_cf\" ]; then " +
+                    "    _bn=\"${_cf##*/}\"; " +
+                    "    cat \"$_cf\" > \"/system/etc/security/cacerts/$_bn\"; " +
+                    "    cat \"$_cf\" > \"/data/misc/keychain/cacerts-added/$_bn\"; " +
+                    "  fi; " +
+                    "done && " +
+                    "chmod 0644 /system/etc/security/cacerts/* /data/misc/keychain/cacerts-added/* 2>/dev/null || true; " +
+                    "chown 0:0 /system/etc/security/cacerts/* 2>/dev/null || true; " +
+                    RootShell.remountSystemRoCmd();
+            shell.execRoot(cmd, null);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static boolean filesIdentical(File a, File b) {
+        FileInputStream fa = null;
+        FileInputStream fb = null;
+        try {
+            if (a.length() != b.length()) return false;
+            fa = new FileInputStream(a);
+            fb = new FileInputStream(b);
+            byte[] ba = new byte[4096];
+            byte[] bb = new byte[4096];
+            int na;
+            while ((na = fa.read(ba)) > 0) {
+                int off = 0;
+                while (off < na) {
+                    int nb = fb.read(bb, off, na - off);
+                    if (nb <= 0) return false;
+                    off += nb;
+                }
+                for (int i = 0; i < na; i++) {
+                    if (ba[i] != bb[i]) return false;
+                }
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        } finally {
+            try { if (fa != null) fa.close(); } catch (Throwable ignored) {}
+            try { if (fb != null) fb.close(); } catch (Throwable ignored) {}
+        }
+    }
+
+    public static final String EXPECTED_GATEWAY_PING = "ARC7_TLS13_READY_V191";
 
     public static String probeGatewayPing(int port) {
         Socket s = new Socket();
@@ -818,6 +968,7 @@ public class NetworkCertManager {
         if (isLocalProxyListening(DEFAULT_PROXY_PORT)) {
             String ping = probeGatewayPing(DEFAULT_PROXY_PORT);
             if (ping.contains(EXPECTED_GATEWAY_PING)) {
+                ensureSystemCacertsAndLocalCaSynced(ensureLocalUpgradeCaDir());
                 return true;
             }
             // Older daemon binary is holding port 8118 across an in-place APK update — hot-swap it now!
@@ -827,6 +978,7 @@ public class NetworkCertManager {
             File bundleFile = ensureCaBundleFile();
             File tlsBin = shell.getTlsEngineBinary();
             File localCaDir = ensureLocalUpgradeCaDir();
+            ensureSystemCacertsAndLocalCaSynced(localCaDir);
             File localCrt = new File(localCaDir, "local-ca.crt");
             File localKey = new File(localCaDir, "local-ca.key");
 

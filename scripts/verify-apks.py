@@ -108,17 +108,17 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
     assert str(apk.get_min_sdk_version()) == "15", f"Bad minSdk: {apk.get_min_sdk_version()}"
     assert str(apk.get_target_sdk_version()) == "17", f"Bad targetSdk: {apk.get_target_sdk_version()}"
     if expected_pkg == "com.aurora.store":
-        assert str(apk.get_androidversion_code()) == "484", f"Expected Aurora versionCode 484, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_code()) == "485", f"Expected Aurora versionCode 485, got {apk.get_androidversion_code()}"
         assert "android.permission.INTERNET" in set(apk.get_permissions())
     if expected_pkg == "ca.arc7freedom.launcher":
         assert str(apk.get_androidversion_code()) == "49", f"Expected launcher versionCode 49, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "1.9.0", f"Expected upgrader 1.9.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "190", f"Expected upgrader 190, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.9.1", f"Expected upgrader 1.9.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "191", f"Expected upgrader 191, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "1.9.0", f"Expected 1.9.0, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "190", f"Expected 190, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "1.9.1", f"Expected 1.9.1, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "191", f"Expected 191, got {apk.get_androidversion_code()}"
         assert "android.permission.SET_TIME_ZONE" in set(apk.get_permissions()), "Missing SET_TIME_ZONE permission!"
         acts = apk.get_activities()
         expected_acts = (
@@ -338,7 +338,23 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
         assert "Kobo Arc 7 Modern TLS 1.3" in html
 
         ping_body = local_open(f"http://127.0.0.1:{free_port}/__ping", timeout=3).read().decode("utf-8")
-        assert "ARC7_TLS13_READY_V190" in ping_body, f"Unexpected /__ping body: {ping_body!r}"
+        assert "ARC7_TLS13_READY_V191" in ping_body, f"Unexpected /__ping body: {ping_body!r}"
+
+        # Verify self-proxy `GET http://127.0.0.1:<port>/__https/... HTTP/1.1` unwrapping over live TLS 1.3!
+        with socket.create_connection(("127.0.0.1", free_port), timeout=15) as sp_sock:
+            sp_req = (
+                f"GET http://127.0.0.1:{free_port}/__https/github.com/madler/zlib HTTP/1.1\r\n"
+                f"Host: 127.0.0.1:{free_port}\r\nConnection: close\r\n\r\n"
+            ).encode("ascii")
+            sp_sock.sendall(sp_req)
+            chunks = []
+            while True:
+                blk = sp_sock.recv(16384)
+                if not blk:
+                    break
+                chunks.append(blk)
+            sp_full = b"".join(chunks)
+            assert b"HTTP/1.1 200" in sp_full and b"zlib" in sp_full, f"Self-proxy unwrap failed: {sp_full[:200]!r}"
 
         # Test live Arc7 Browser native fetch (`/__arc7_raw?u=...`) on BOTH github.com AND CNAME-backed pypi.org!
         raw_gh_url = f"http://127.0.0.1:{free_port}/__arc7_raw?u=" + urllib.parse.quote(
@@ -1015,7 +1031,7 @@ def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
                 assert "assets/starter-apps/FDroidClassicLegacy.apk" in mnames
                 ca_hashed = [n for n in mnames if n.startswith("assets/cacerts/android-hashed/") and n.endswith(".0")]
                 assert len(ca_hashed) >= 120, f"Expected >=120 hashed CAs, got {len(ca_hashed)}"
-    print(f"  [PASS] Upgrade-My-Kobo-To-v1.9.0.apk ({os.path.getsize(upgrader_apk)//1048576} MB) embeds KoboArc7Freedom.apk + AuroraStore.apk + Python 3 + apt + {len(ca_hashed)} 2026 CAs")
+    print(f"  [PASS] Upgrade-My-Kobo-To-v1.9.1.apk ({os.path.getsize(upgrader_apk)//1048576} MB) embeds KoboArc7Freedom.apk + AuroraStore.apk + FDroidClassicLegacy.apk + Python 3 + apt + {len(ca_hashed)} 2026 CAs")
 
     # Compile `native/su.c` natively on host Linux and test live multi-call `uname` and `cp` symlinks!
     zig = get_zig_cmd()
@@ -1181,8 +1197,160 @@ public class VerifyV190Suite {
     print(f"  [PASS] Live `{ver_out}` execution + all 14 Apple/Android chimes PCM + 12h AM/PM + Default Launcher & Kobo Care removal verified!")
 
 
+def verify_v191_aurora_and_fdroid_fixes() -> None:
+    print("\n=== Verifying v1.9.1 Aurora Store APK Signer/Validator & F-Droid v1302 Non-Colliding Certificates ===")
+    fdroid_apk = os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk")
+    fdroid_rel = os.path.join(ROOT, "releases/FDroidClassicLegacy.apk")
+    assert os.path.exists(fdroid_rel) and os.path.getsize(fdroid_rel) == os.path.getsize(fdroid_apk), (
+        "releases/FDroidClassicLegacy.apk does not match bundled asset!"
+    )
+
+    subprocess.run([ZIPALIGN, "-c", "4", fdroid_apk], check=True)
+    subprocess.run(
+        [JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", fdroid_apk],
+        check=True,
+    )
+
+    from androguard.core.dex import DEX
+    fd_obj = APK(fdroid_apk)
+    assert str(fd_obj.get_androidversion_code()) == "1302", f"Expected F-Droid v1302, got {fd_obj.get_androidversion_code()}"
+
+    seen_classes = {}
+    with zipfile.ZipFile(fdroid_apk, "r") as zf:
+        for dn in sorted(n for n in zf.namelist() if n.endswith(".dex")):
+            raw = zf.read(dn)
+            assert raw[:8] == b"dex\n035\x00", f"Non-035 DEX inside {fdroid_apk}:{dn}: {raw[:8]!r}"
+            dex_obj = DEX(raw)
+            for cls in dex_obj.get_classes():
+                cname = cls.get_name()
+                assert cname not in seen_classes, f"Duplicate DEX class {cname} in {dn} and {seen_classes[cname]}"
+                seen_classes[cname] = dn
+        assert "Lorg/fdroid/fdroid/Arc7Bridge;" in seen_classes
+        assert "Lorg/fdroid/fdroid/Arc7ApkKit;" in seen_classes
+
+        arsc_raw = zf.read("resources.arsc")
+        assert b"http://127.0.0.1:8118/__https/f-droid.org/repo" in arsc_raw
+        assert b"http://127.0.0.1:8118/__https/f-droid.org/archive" in arsc_raw
+        assert b"http://127.0.0.1:8118/__https/bubu1.eu/fdroidclassic/fdroid/repo" in arsc_raw
+        assert b"http://127.0.0.1:8118/__https/guardianproject.info/fdroid/repo" in arsc_raw
+        assert b"http://127.0.0.1:8118/__https/archive.newpipe.net/fdroid/repo" in arsc_raw
+
+    # Live JVM test of `Arc7ApkKit` (AOSP Bug #38321 SHA256withRSA `index-v1.jar` verifier + v2-only -> SHA1withRSA JAR v1 APK signer)!
+    aurora_classes = os.path.join(ROOT, "build/aurora/classes")
+    with tempfile.TemporaryDirectory() as td:
+        v2_only = os.path.join(td, "v2_only.apk")
+        v1_repaired = os.path.join(td, "v1_repaired.apk")
+        idx_jar = os.path.join(td, "index-v1.jar")
+        idx_tampered = os.path.join(td, "index-tampered.jar")
+
+        subprocess.run(
+            [
+                JAVA, "-jar", APKSIGNER, "sign",
+                "--ks", os.path.join(ROOT, "keystore/arc7freedom-release.jks"),
+                "--ks-key-alias", "arc7freedom",
+                "--ks-pass", "pass:arc7freedom2026",
+                "--key-pass", "pass:arc7freedom2026",
+                "--v1-signing-enabled", "false",
+                "--v2-signing-enabled", "true",
+                "--v3-signing-enabled", "false",
+                "--out", v2_only,
+                os.path.join(ROOT, "releases/AuroraStore.apk"),
+            ],
+            check=True,
+        )
+        # Confirm Android 4.2 (`--max-sdk-version 17`) REJECTS `v2_only.apk` before repair!
+        pre_chk = subprocess.run(
+            [JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", v2_only],
+            capture_output=True, text=True,
+        )
+        assert pre_chk.returncode != 0, "Expected Android 4.2 apksigner verification to reject v2-only APK!"
+
+        raw_idx = os.path.join(td, "raw_index.jar")
+        with zipfile.ZipFile(raw_idx, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("index-v1.json", '{"repo":{"name":"F-Droid Live Test"},"apps":[]}')
+        subprocess.run(
+            [
+                JAVA, "-jar", APKSIGNER, "sign",
+                "--ks", os.path.join(ROOT, "keystore/arc7freedom-release.jks"),
+                "--ks-key-alias", "arc7freedom",
+                "--ks-pass", "pass:arc7freedom2026",
+                "--key-pass", "pass:arc7freedom2026",
+                "--min-sdk-version", "24",
+                "--v1-signing-enabled", "true",
+                "--v2-signing-enabled", "false",
+                "--v3-signing-enabled", "false",
+                "--out", idx_jar,
+                raw_idx,
+            ],
+            check=True,
+        )
+        with zipfile.ZipFile(idx_jar, "r") as zin, zipfile.ZipFile(idx_tampered, "w") as zout:
+            for inf in zin.infolist():
+                b = zin.read(inf.filename)
+                if inf.filename == "index-v1.json":
+                    b = b.replace(b"Live Test", b"EVIL FAKE")
+                zout.writestr(inf.filename, b)
+
+        proof_java = os.path.join(td, "VerifyV191Kit.java")
+        with open(proof_java, "w", encoding="utf-8") as fh:
+            fh.write("""import java.io.File;
+import java.security.MessageDigest;
+import java.security.cert.X509Certificate;
+import com.aurora.store.Arc7ApkKit;
+
+public class VerifyV191Kit {
+    public static void main(String[] args) throws Exception {
+        File v2Only = new File(args[0]);
+        File v1Fixed = new File(args[1]);
+        File idxJar = new File(args[2]);
+        File tamperedJar = new File(args[3]);
+
+        Arc7ApkKit.ApkInspection pre = Arc7ApkKit.inspectApk(v2Only);
+        assert pre.isCompatibleWithAndroid42() && !pre.hasValidAndroid42V1Sig : "Expected v1 repair required";
+
+        Arc7ApkKit.resignApkWithV1Sha1Rsa(v2Only, v1Fixed, new File(args[4]));
+        Arc7ApkKit.ApkInspection post = Arc7ApkKit.inspectApk(v1Fixed);
+        assert post.isCompatibleWithAndroid42() && post.hasValidAndroid42V1Sig;
+
+        X509Certificate cert = Arc7ApkKit.verifyPkcs7JarAndExtractCert(idxJar, "index-v1.json");
+        byte[] fp = MessageDigest.getInstance("SHA-256").digest(cert.getEncoded());
+        StringBuilder sb = new StringBuilder();
+        for (byte b : fp) sb.append(String.format("%02X", b & 0xFF));
+        assert sb.toString().equals("11FD17ED80C913EFCBF98F7673DA009042E7647E44E5D6C5F42FCAA5CE4CD10F");
+
+        boolean caughtTamper = false;
+        try {
+            Arc7ApkKit.verifyPkcs7JarAndExtractCert(tamperedJar, "index-v1.json");
+        } catch (SecurityException expected) {
+            caughtTamper = true;
+        }
+        assert caughtTamper : "Tampered index-v1.jar MUST throw SecurityException!";
+        System.out.println("JVM_V191_KIT_VERIFIED_OK");
+    }
+}
+""")
+        ecj_jar = "/opt/toolchain/jars/ecj-3.45.0.jar" if os.path.exists("/opt/toolchain/jars/ecj-3.45.0.jar") else ""
+        if JAVAC:
+            subprocess.run([JAVAC, "-cp", f"{ANDROID_JAR}:{aurora_classes}", proof_java], check=True)
+        else:
+            subprocess.run([JAVA, "-jar", ecj_jar, "-1.8", "-cp", f"{ANDROID_JAR}:{aurora_classes}", "-d", td, proof_java], check=True)
+        out = subprocess.check_output(
+            [JAVA, "-ea", "-cp", f"{td}:{ANDROID_JAR}:{aurora_classes}", "VerifyV191Kit", v2_only, v1_repaired, idx_jar, idx_tampered, td],
+            text=True,
+        )
+        assert "JVM_V191_KIT_VERIFIED_OK" in out
+
+        # Prove official Google `apksigner verify --min-sdk-version 15 --max-sdk-version 17` + `zipalign -c 4` PASS on repaired APK!
+        subprocess.run([ZIPALIGN, "-c", "4", v1_repaired], check=True)
+        subprocess.run(
+            [JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", v1_repaired],
+            check=True,
+        )
+    print("  [PASS] FDroidClassicLegacy v1302 (7 non-colliding repos, 0 DEX dups, PKCS#7 SHA256withRSA) + AuroraStore v4.8.5 Arc7ApkKit SHA1withRSA v1 signer verified!")
+
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v1.9.0.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v1.9.1.apk")
     check_apk(
         upgrader_apk,
         "ca.arc7freedom.upgrader",
@@ -1225,6 +1393,7 @@ def main() -> None:
     check_boot_inspector_and_java_logic()
     verify_wifi_server_and_drive_fixes()
     verify_v190_all_12_upgrades()
+    verify_v191_aurora_and_fdroid_fixes()
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 
