@@ -583,6 +583,31 @@ def draw_ic_dictionary(c):
     c.line(0.45, 0.50, 0.57, 0.50, 0.045, (30, 64, 175, 255))
 
 
+def draw_ic_streamdeck(c):
+    c.rounded_tile((79, 70, 229), (30, 27, 75), (165, 180, 252))
+    palette = [
+        [(239, 68, 68, 255), (245, 158, 11, 255), (16, 185, 129, 255)],
+        [(56, 189, 248, 255), (168, 85, 247, 255), (236, 72, 153, 255)],
+        [(34, 197, 94, 255), (99, 102, 241, 255), (250, 204, 21, 255)],
+    ]
+    for r in range(3):
+        for col in range(3):
+            x0 = 0.18 + col * 0.225
+            y0 = 0.18 + r * 0.225
+            c.rect(x0, y0, x0 + 0.185, y0 + 0.185, palette[r][col], 0.04)
+            c.rect(x0 + 0.03, y0 + 0.03, x0 + 0.155, y0 + 0.075, (255, 255, 255, 110), 0.015)
+
+
+def draw_ic_vpn(c):
+    c.rounded_tile((6, 95, 70), (15, 23, 42), (52, 211, 153))
+    # Shield + Tailscale mesh nodes + encrypted keyhole
+    c.circle(0.50, 0.46, 0.28, (16, 185, 129, 235))
+    c.circle(0.50, 0.46, 0.21, (15, 23, 42, 245))
+    for nx, ny in ((0.39, 0.36), (0.50, 0.36), (0.61, 0.36), (0.39, 0.47), (0.50, 0.47), (0.61, 0.47), (0.50, 0.58)):
+        c.circle(nx, ny, 0.038, (110, 231, 183, 255))
+    c.rect(0.32, 0.72, 0.68, 0.81, (56, 189, 248, 255), 0.035)
+
+
 ALL_ICONS = [
     ("ic_launcher.png", draw_ic_launcher),
     ("ic_launcher_home.png", draw_ic_home),
@@ -624,6 +649,8 @@ ALL_ICONS = [
     ("ic_splitview.png", draw_ic_split),
     ("ic_dictionary.png", draw_ic_dictionary),
     ("ic_wiki.png", draw_ic_dictionary),
+    ("ic_streamdeck.png", draw_ic_streamdeck),
+    ("ic_vpn.png", draw_ic_vpn),
 ]
 
 
@@ -706,8 +733,8 @@ def draw_banner():
             cx += 6 * scale
 
     stamp_text("KOBO ARC 7 FREEDOM", 232, 54, 6, (248, 250, 252, 255))
-    stamp_text("VK BOOKS + PDF SCAN + WEATHER + RADIO + SHIELD V2.2", 234, 118, 3, (56, 189, 248, 255))
-    stamp_text("ZRAM BOOST + 2ND SCREEN + SPLIT VIEW + ARCADE + VLC", 234, 156, 2, (167, 243, 208, 255))
+    stamp_text("SCHOOL WIFI + TAILSCALE VPN + STREAM DECK V2.3", 234, 118, 3, (56, 189, 248, 255))
+    stamp_text("DRAG-DROP LAUNCHER + VK BOOKS + PDF + SHIELD + VLC", 234, 156, 2, (167, 243, 208, 255))
 
     write_rgba_png(os.path.join(ROOT, "releases", "logo-banner.png"), w, h, px)
 

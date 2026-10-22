@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.2.0
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.3.0
 
 on:
   push:
@@ -30,31 +30,35 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography
 
-      - name: Generate 37 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native binaries & sign all v2.2.0 APKs
+      - name: Generate 39 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.3.0 APKs
         run: |
-          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py tools/serve-over-wifi.sh
+          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.2.0 end-to-end verification suite
+      - name: Run full v2.3.0 end-to-end verification suite
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.2.0 APKs, bundled VLC.apk & host tools back to branch
+      - name: Commit refreshed signed v2.3.0 APKs, bundled VLC.apk & host tools back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk
+          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk releases/Upgrade-My-Kobo-To-v2.2.0.apk
           git add \
             releases/index.html \
             releases/logo-banner.png \
-            releases/Upgrade-My-Kobo-To-v2.2.0.apk \
+            releases/Upgrade-My-Kobo-To-v2.3.0.apk \
             releases/KoboArc7Freedom.apk \
             releases/VLC.apk \
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
+            releases/Start-PC-Stream-Deck.py \
+            releases/Start-PC-Stream-Deck.bat \
+            releases/Start-PC-Stream-Deck.sh \
+            releases/Start-PC-School-VPN-Relay.py \
             releases/Start-Chromebook-Wired-Internet.sh \
             releases/Start-Kobo-Second-Screen.py \
             releases/Backup-Kobo-To-Laptop-ADB.bat \
@@ -66,23 +70,31 @@ jobs:
             app/src/main/assets/starter-apps/AuroraStore.apk \
             app/src/main/assets/starter-apps/FDroidClassicLegacy.apk \
             app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh \
-            app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
+            app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py \
+            app/src/main/assets/chromebook/Start-PC-Stream-Deck.py \
+            app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat \
+            app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh \
+            app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.2.0 APKs, Launcher v52 & Second Screen tools [skip ci]"
+            git commit -m "chore: update pre-built signed v2.3.0 APKs, Launcher v53, VPN/Tailscale & Stream Deck tools [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v2.2.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & USB/Wi-Fi tools artifact
+      - name: Upload built v2.3.0 APKs, VLC Media Player, Aurora Store, F-Droid, Upgrader & Stream Deck / VPN tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.2.0-apks
+          name: kobo-arc-7-freedom-v2.3.0-apks
           path: |
-            releases/Upgrade-My-Kobo-To-v2.2.0.apk
+            releases/Upgrade-My-Kobo-To-v2.3.0.apk
             releases/KoboArc7Freedom.apk
             releases/VLC.apk
             releases/AuroraStore.apk
             releases/FDroidClassicLegacy.apk
             releases/VanillaAndroid4Home.apk
+            releases/Start-PC-Stream-Deck.py
+            releases/Start-PC-Stream-Deck.bat
+            releases/Start-PC-Stream-Deck.sh
+            releases/Start-PC-School-VPN-Relay.py
             releases/Start-Chromebook-Wired-Internet.sh
             releases/Start-Kobo-Second-Screen.py
             releases/Backup-Kobo-To-Laptop-ADB.bat
@@ -91,48 +103,47 @@ jobs:
             releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.2.0 APKs, VLC Media Player & Host Tools to GitHub Releases
-        if: github.event_name != 'pull_request'
+      - name: Publish signed v2.3.0 APKs, VLC Media Player & Host Tools to GitHub Releases
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.2.0 (`ca.arc7freedom.app` v220 + Launcher `v52` + `Upgrade-My-Kobo-To-v2.2.0.apk`)
+          ## Kobo Arc 7 Freedom v2.3.0 (`ca.arc7freedom.app` v230 + Launcher `v53` + `Upgrade-My-Kobo-To-v2.3.0.apk`)
 
-          ### New in `v2.2.0` — All 14 Major OS & App Suite Upgrades + Live `vk.com` Book Storefront:
-          1. **4-Source Free E-Book Storefront + `.FB2` / `.FB2.ZIP` / `.PDF` / `.EPUB` / `.CBZ` Reader (`Arc7 E-Reader`):**
-             - Built-in **`VK Books` (`vk.com`)** search & 1-tap download (`api.vk.com/method/docs.search` + OAuth login/token + zero-login public `vk.com` book finder + embedded `m.vk.com` TLS 1.3 WebView book download interceptor), **`Project Gutenberg` (`70,000+` books)**, **`Open Library`**, and **`Standard Ebooks`**, plus native **`.fb2` / `.fb2.zip`** XML + cover/image parser, bookmarks, reading progress `%`, and 4 reading themes (*Sepia*, *Daylight*, *AMOLED Dark*, *Forest Sage*)!
-          2. **Native Offline PDF Reader & Multi-Page Camera Document Scanner (`Arc7 PDF & Scanner`):**
-             - Offline PDF page extractor, chapter search & bookmarking + live Camera/Photo multi-page document scanner exporting crisp `%PDF-1.4` files to `/sdcard/Documents/Scans/`!
-          3. **Live `Open-Meteo` Weather App + Home Screen Weather Widget (`Arc7 Weather`):**
-             - Zero-API-key TLS 1.3 city search, current temperature, 24-hour strip, 7-day forecast, °C/°F toggle, offline cache, and live Home Screen AppWidget!
-          4. **30,000+ Live World Internet Radio, Podcast `.mp3` Downloader & Offline RSS Reader (`Arc7 Radio & Feeds`):**
-             - Screen-off TLS-relayed radio streaming, iTunes Podcast search + offline `.mp3` downloads, and RSS 2.0 / Atom offline feed reader!
-          5. **Studio 44.1 kHz Waveform Voice Recorder & Lossless WAV Trimmer (`Arc7 Recorder`):**
-             - 16-bit PCM `.wav` recording with true Android 4.2 Pause/Resume, live 60 fps waveform, and lossless `.wav` trimming!
-          6. **Zero-Ad 60 fps Offline Classic Games Pack (`Arc7 Arcade`):**
-             - **Chess vs 2-Ply AI**, **2048**, **Sudoku**, **Minesweeper**, and **Klondike Solitaire**!
-          7. **System-Wide `/etc/hosts` Ad/Tracker Blocker & Per-App Root Firewall (`Arc7 Shield`):**
-             - Pure `mksh`/`toolbox` hosts adblocker + live `StevenBlack/hosts` sync over TLS 1.3 + per-app UID `iptables` internet firewall!
-          8. **`+384 MB` Kernel `zRAM` / Swap Expander, Quad-Core CPU Profiles & Battery Doctor (`Arc7 Boost`).**
-          9. **Chromebook / PC / Mac Extended `1280×800` USB/Wi-Fi Second Screen + 12-Key Macro Deck (`Arc7 Second Screen` + `Start-Kobo-Second-Screen.py`).**
-          10. **Landscape Dual-Pane Split-Screen Multitasking (`Arc7 Split View` — Web, Books/PDF, Notes, Dict/Wiki & Calculator side-by-side).**
-          11. **Upgraded `VanillaAndroid4Home v52` (`3–5` Multi-Page Desktops, `4–7` Column Grid Density, Desktop & App Bar `@folder:` App Folders, 4-Digit App PIN Lock, and JSON Layout Backup/Restore).**
-          12. **Chromebook / LAN Wireless WebDAV + HTML5 Network Drive (`:8085`) & Remote LAN Share Browser with Direct `VLC` Streaming (`Arc7 Files`).**
-          13. **Offline English Lexicon + `Wiktionary` & Clean Reader `Wikipedia` with Offline Saved Articles (`Arc7 Dict & Wiki`).**
-          14. **Automatic Sunset-to-Sunrise Night Light (`20:00–07:00`), Auto-Charging Smart Bedside Dock & Smooth 30s Fade-Out Audio Sleep Timer.**
+          ### New in `v2.3.0` — School Wi-Fi Rescue, Native VPNs & Official Tailscale, PC Stream Deck Pro & Drag-and-Drop Launcher `v53`:
+          1. **Strict School Wi-Fi Rescue & Network Policy Bypass (`Arc7 Wi-Fi & VPN`):**
+             - Solves school Wi-Fi not showing up or failing to connect on Kobo Arc 7's 2.4 GHz `MT6628` + Android `4.2.2` radio!
+             - **Deep `WifiManager` + Root `wpa_cli` Air Scan Diagnostics:** Reveals **Hidden SSIDs** (`scan_ssid=1`), **802.1X WPA2-Enterprise / `eduroam`** networks (`PEAP` / `TTLS` / `MSCHAPv2` / `PAP`), **Channel `12–13` regulatory lockouts**, **WPA3-Transition** APs, and **5 GHz-only** school APs with actionable 1-tap fixes.
+             - **1-Tap WPA2-Enterprise (`PEAP`/`TTLS`/`MSCHAPv2`/`eduroam` + 2026 CA Bundle) & Hidden SSID Configurator** straight into `wpa_supplicant` (`wpa_cli` + `/data/misc/wifi/wpa_supplicant.conf`).
+             - **Per-Network Wi-Fi MAC Randomizer & Original MAC Restore**, **TLS 1.3 Captive Portal Login Browser**, **School HTTP Proxy Configurator**, **Port-443 Encrypted DNS-over-HTTPS (`DoH`)**, and **2-Way Chromebook USB / 2.4 GHz Hotspot Rescue**.
+          2. **Full Touch Drag-and-Drop App Icon Rearrangement (`VanillaAndroid4Home v53`):**
+             - Press-and-drag OR toggle **`Rearrange`** mode right from the Home Top Bar to freely place icons into **any open grid slot**, **swap icons**, **drop an icon onto another icon to create/append a Folder**, **drag across multi-page screen edges**, **drop onto the Top Action Bar** (*Unpin / Rename / Folder / App Info / Uninstall*), **swap App Bar slots in 2 taps**, and **reorder All Apps drawer icons in Custom Order**!
+          3. **Full `1280×800` LCD Stream Deck for Windows / macOS / Linux (`Arc7 Stream Deck` + `Start-PC-Stream-Deck.{py,bat,sh}`):**
+             - Turns the Kobo Arc 7 into an Elgato-style tactile LCD Stream Deck over **Home Wi-Fi (auto-discovery UDP `:18991`)**, **zero-lag USB (`adb forward tcp:18991 tcp:18991`)**, or **Tailscale `100.x.y.z` IP**!
+             - **`15` (`5×3`), `24` (`6×4`), `32` (`8×4` XL), and `6` (`3×2` Mega) glowing LCD key layouts**, **6 built-in profiles** (*OBS Studio*, *Media & Volume*, *Discord & Voice*, *Gaming & Macros*, *Coding & Productivity*, *Custom Deck*), **OBS WebSocket v5 (`:4455`) live integration**, **Momentary Hold Push-to-Talk**, **Stateful Mute/Live Toggles**, **Touch Volume Fader Strip**, **Live PC CPU / RAM / Volume Telemetry**, and **Live PC Browser Deck Studio (`http://127.0.0.1:18995`) + On-Tablet Key Editor**!
+          4. **Native System-Wide Android 4.2 VPN Engine & Official Tailscale (`Arc7VpnService` + `libarc7vpn.so` + `TailscaleManager`):**
+             - Native `/dev/tun` `android.net.VpnService` + static ARMv7 `libarc7vpn.so` (`tun2socks` TCP/UDP state machine + `SCM_RIGHTS` `protect(fd)` + Curve25519 + RFC 8484 DoH + BearSSL TLS) tunneling **every app on the tablet** across:
+               - **Official Upstream Tailscale** (`tailscaled` + `tailscale` ARMv7 userspace mesh + DERP TCP `443` relay + QR Auth Login + Auth Key + Exit Nodes + `100.64.0.0/10` MagicDNS)!
+               - **WireGuard (`.conf` import + on-device Curve25519 key generator)**, **OpenVPN (`.ovpn` import)**, **SOCKS5**, **HTTP CONNECT**, and **Port-443 TLS 1.3 Stealth VPN** (`Start-PC-School-VPN-Relay.py` home relay for strict firewalls blocking UDP)!
+               - **Root `iptables` Leak-Proof Kill Switch** + **System-Wide Encrypted DNS-over-HTTPS (`Cloudflare` / `Google` / `Quad9` / `Mullvad`)**!
+          5. **Includes 100% of `v1.7.0`–`v2.2.0` Features:** 4-Store E-Reader (`VK Books`, `Project Gutenberg`, `Open Library`, `Standard Ebooks`), PDF Viewer & Camera Scanner, Live `Open-Meteo` Weather, 30k World Radio + Podcasts + RSS, Studio WAV Recorder, Offline Arcade, `Arc7 Shield` AdBlocker, `+384 MB` `zRAM` Boost, Extended Second Screen, Split View, WebDAV Drive, 5 OS Skins, Bundled `VLC.apk`, `Aurora Store v4.8.5`, `F-Droid v1302`, `python3` + `apt`, & Anti-Brick Root Suite.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.2.0 >/dev/null 2>&1; then
-            gh release edit v2.2.0 --latest --title "Kobo Arc 7 Freedom v2.2.0 — VK + 4-Store E-Reader, PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost, Second Screen, Split View & Launcher v52" --notes-file /tmp/release-notes.md
-            gh release upload v2.2.0 \
-              releases/Upgrade-My-Kobo-To-v2.2.0.apk \
+          if gh release view v2.3.0 >/dev/null 2>&1; then
+            gh release edit v2.3.0 --latest --title "Kobo Arc 7 Freedom v2.3.0 — School Wi-Fi Rescue, Native VPNs & Official Tailscale, PC Stream Deck Pro & Drag-and-Drop Launcher v53" --notes-file /tmp/release-notes.md
+            gh release upload v2.3.0 \
+              releases/Upgrade-My-Kobo-To-v2.3.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/Start-PC-Stream-Deck.py \
+              releases/Start-PC-Stream-Deck.bat \
+              releases/Start-PC-Stream-Deck.sh \
+              releases/Start-PC-School-VPN-Relay.py \
               releases/Start-Chromebook-Wired-Internet.sh \
               releases/Start-Kobo-Second-Screen.py \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
@@ -142,13 +153,17 @@ jobs:
               releases/SHA256SUMS.txt \
               --clobber
           else
-            gh release create v2.2.0 \
-              releases/Upgrade-My-Kobo-To-v2.2.0.apk \
+            gh release create v2.3.0 \
+              releases/Upgrade-My-Kobo-To-v2.3.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/Start-PC-Stream-Deck.py \
+              releases/Start-PC-Stream-Deck.bat \
+              releases/Start-PC-Stream-Deck.sh \
+              releases/Start-PC-School-VPN-Relay.py \
               releases/Start-Chromebook-Wired-Internet.sh \
               releases/Start-Kobo-Second-Screen.py \
               releases/Backup-Kobo-To-Laptop-ADB.bat \
@@ -158,6 +173,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.2.0 — VK + 4-Store E-Reader, PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost, Second Screen, Split View & Launcher v52" \
+              --title "Kobo Arc 7 Freedom v2.3.0 — School Wi-Fi Rescue, Native VPNs & Official Tailscale, PC Stream Deck Pro & Drag-and-Drop Launcher v53" \
               --notes-file /tmp/release-notes.md
           fi

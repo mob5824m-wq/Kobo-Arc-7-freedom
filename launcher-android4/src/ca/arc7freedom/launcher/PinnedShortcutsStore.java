@@ -17,14 +17,16 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Persists multi-page Home Desktops (`3..5` pages), App Folders (`@folder:Name|pkg/cls;...`),
- * Desktop Grid Column Density (`4..7`), 4-Digit App PIN Lock, JSON Layout Backup & Restore,
+ * Persists multi-page Home Desktops (`3..5` pages), Free-Cell Drag & Drop Grid Slots (`@empty`),
+ * App Folders (`@folder:Name|pkg/cls;...`), Desktop Grid Column & Row Density (`4..7` cols, `2..5` rows),
+ * Custom All-Apps Drawer Order, 4-Digit App PIN Lock, JSON Layout Backup & Restore,
  * AND live Android Home Screen AppWidgets inside {@code SharedPreferences("vanilla_home_pages")}.
  */
 public final class PinnedShortcutsStore {
 
     private static final String PREFS = "vanilla_home_pages";
     public static final String FOLDER_PREFIX = "@folder:";
+    public static final String EMPTY_SLOT = "@empty";
 
     public static final class WidgetRecord {
         public final int appWidgetId;
@@ -38,7 +40,7 @@ public final class PinnedShortcutsStore {
 
     private PinnedShortcutsStore() {}
 
-    /* -------------------- Multi-Page Count & Grid Density (`v52`) -------------------- */
+    /* -------------------- Multi-Page Count & Grid Density (`v52`/`v53`) -------------------- */
 
     public static int getPageCount(Context ctx) {
         int n = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("page_count", 3);
@@ -60,7 +62,25 @@ public final class PinnedShortcutsStore {
                 .edit().putInt("desktop_columns", Math.max(4, Math.min(7, cols))).commit();
     }
 
-    /* -------------------- Desktop Shortcuts & App Folders -------------------- */
+    public static int getDesktopRows(Context ctx) {
+        int r = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("desktop_rows", 3);
+        return Math.max(2, Math.min(5, r));
+    }
+
+    public static void setDesktopRows(Context ctx, int rows) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putInt("desktop_rows", Math.max(2, Math.min(5, rows))).commit();
+    }
+
+    public static int getDesktopTotalCells(Context ctx) {
+        return getDesktopColumns(ctx) * getDesktopRows(ctx);
+    }
+
+    /* -------------------- Desktop Shortcuts, Free-Cell Grid & App Folders -------------------- */
+
+    public static boolean isEmptyToken(String token) {
+        return token == null || token.trim().isEmpty() || EMPTY_SLOT.equals(token.trim());
+    }
 
     public static boolean isFolderToken(String token) {
         return token != null && token.startsWith(FOLDER_PREFIX) && token.indexOf('|') > FOLDER_PREFIX.length();
@@ -101,13 +121,42 @@ public final class PinnedShortcutsStore {
         List<String> list = new ArrayList<String>();
         if (raw == null || raw.isEmpty()) return list;
         String[] parts = raw.split("\\n");
+        Set<String> seen = new LinkedHashSet<String>();
         for (int i = 0; i < parts.length; i++) {
             String p = parts[i].trim();
-            if (!p.isEmpty() && (p.contains("/") || isFolderToken(p)) && !list.contains(p)) {
+            if (EMPTY_SLOT.equals(p)) {
+                list.add(EMPTY_SLOT);
+            } else if (!p.isEmpty() && (p.contains("/") || isFolderToken(p)) && seen.add(p)) {
                 list.add(p);
             }
         }
         return list;
+    }
+
+    /**
+     * Loads a fixed-length desktop grid array of at least {@code totalCells} slots so users can
+     * drag and drop icons onto ANY empty cell `(row, col)` anywhere on the Home Screen!
+     */
+    public static List<String> loadPageGridSlots(Context ctx, int pageIndex, int totalCells) {
+        List<String> raw = loadPage(ctx, pageIndex);
+        int targetLen = Math.max(totalCells, raw.size());
+        List<String> out = new ArrayList<String>(targetLen);
+        for (int i = 0; i < targetLen; i++) {
+            if (i < raw.size() && !isEmptyToken(raw.get(i))) {
+                out.add(raw.get(i));
+            } else {
+                out.add(EMPTY_SLOT);
+            }
+        }
+        return out;
+    }
+
+    public static boolean hasAnyShortcut(Context ctx, int pageIndex) {
+        List<String> list = loadPage(ctx, pageIndex);
+        for (int i = 0; i < list.size(); i++) {
+            if (!isEmptyToken(list.get(i))) return true;
+        }
+        return false;
     }
 
     public static void addShortcut(Context ctx, int pageIndex, String pkg, String cls) {
@@ -116,10 +165,16 @@ public final class PinnedShortcutsStore {
 
     public static void addRawEntry(Context ctx, int pageIndex, String entry) {
         List<String> list = loadPage(ctx, pageIndex);
-        if (!list.contains(entry)) {
-            list.add(entry);
-            savePage(ctx, pageIndex, list);
+        if (list.contains(entry)) return;
+        for (int i = 0; i < list.size(); i++) {
+            if (isEmptyToken(list.get(i))) {
+                list.set(i, entry);
+                savePage(ctx, pageIndex, list);
+                return;
+            }
         }
+        list.add(entry);
+        savePage(ctx, pageIndex, list);
     }
 
     public static void removeShortcut(Context ctx, int pageIndex, String pkg, String cls) {
@@ -128,9 +183,103 @@ public final class PinnedShortcutsStore {
 
     public static void removeRawEntry(Context ctx, int pageIndex, String entry) {
         List<String> list = loadPage(ctx, pageIndex);
-        if (list.remove(entry)) {
-            savePage(ctx, pageIndex, list);
+        boolean changed = false;
+        for (int i = 0; i < list.size(); i++) {
+            if (entry.equals(list.get(i))) {
+                list.set(i, EMPTY_SLOT);
+                changed = true;
+            }
         }
+        if (changed) savePage(ctx, pageIndex, trimTrailingEmpty(list));
+    }
+
+    public static void clearSlotAt(Context ctx, int pageIndex, int slotIndex, int totalCells) {
+        List<String> slots = loadPageGridSlots(ctx, pageIndex, totalCells);
+        if (slotIndex >= 0 && slotIndex < slots.size()) {
+            slots.set(slotIndex, EMPTY_SLOT);
+            savePage(ctx, pageIndex, trimTrailingEmpty(slots));
+        }
+    }
+
+    /**
+     * Moves an icon onto an empty grid slot OR cleanly swaps two occupied grid slots on `pageIndex`.
+     */
+    public static void moveOrSwapDesktopSlot(Context ctx, int pageIndex, int fromSlot, int toSlot, int totalCells) {
+        int cap = Math.max(totalCells, Math.max(fromSlot, toSlot) + 1);
+        List<String> slots = loadPageGridSlots(ctx, pageIndex, cap);
+        if (fromSlot < 0 || toSlot < 0 || fromSlot >= slots.size() || toSlot >= slots.size() || fromSlot == toSlot) {
+            return;
+        }
+        String moving = slots.get(fromSlot);
+        String dest = slots.get(toSlot);
+        if (isEmptyToken(moving)) return;
+        slots.set(toSlot, moving);
+        slots.set(fromSlot, isEmptyToken(dest) ? EMPTY_SLOT : dest);
+        savePage(ctx, pageIndex, trimTrailingEmpty(slots));
+    }
+
+    /**
+     * Moves a slot from `fromPage` to the first open cell on `toPage` (for cross-page drag/move!).
+     */
+    public static boolean moveDesktopSlotToPage(Context ctx, int fromPage, int fromSlot, int toPage, int totalCells) {
+        if (fromPage == toPage) return false;
+        List<String> src = loadPageGridSlots(ctx, fromPage, totalCells);
+        if (fromSlot < 0 || fromSlot >= src.size()) return false;
+        String moving = src.get(fromSlot);
+        if (isEmptyToken(moving)) return false;
+        src.set(fromSlot, EMPTY_SLOT);
+        savePage(ctx, fromPage, trimTrailingEmpty(src));
+        addRawEntry(ctx, toPage, moving);
+        return true;
+    }
+
+    /**
+     * Merges `dragSlot` into `targetSlot` as an App Folder (`@folder:...`) right on the Desktop Grid!
+     */
+    public static boolean mergeDesktopSlotsIntoFolder(Context ctx, int pageIndex,
+                                                      int dragSlot, int targetSlot,
+                                                      String folderName, int totalCells) {
+        int cap = Math.max(totalCells, Math.max(dragSlot, targetSlot) + 1);
+        List<String> slots = loadPageGridSlots(ctx, pageIndex, cap);
+        if (dragSlot < 0 || targetSlot < 0 || dragSlot >= slots.size() || targetSlot >= slots.size()
+                || dragSlot == targetSlot) {
+            return false;
+        }
+        String dragged = slots.get(dragSlot);
+        String target = slots.get(targetSlot);
+        if (isEmptyToken(dragged) || isEmptyToken(target)) return false;
+
+        List<String> members = new ArrayList<String>();
+        String finalName = folderName;
+        if (isFolderToken(target)) {
+            if (finalName == null || finalName.trim().isEmpty()) finalName = parseFolderName(target);
+            members.addAll(parseFolderMembers(target));
+        } else {
+            members.add(target);
+        }
+        if (isFolderToken(dragged)) {
+            List<String> extra = parseFolderMembers(dragged);
+            for (int i = 0; i < extra.size(); i++) {
+                if (!members.contains(extra.get(i))) members.add(extra.get(i));
+            }
+        } else if (!members.contains(dragged)) {
+            members.add(dragged);
+        }
+        if (members.size() < 2) return false;
+
+        slots.set(dragSlot, EMPTY_SLOT);
+        slots.set(targetSlot, buildFolderToken(
+                (finalName == null || finalName.trim().isEmpty()) ? "Apps" : finalName, members));
+        savePage(ctx, pageIndex, trimTrailingEmpty(slots));
+        return true;
+    }
+
+    private static List<String> trimTrailingEmpty(List<String> in) {
+        List<String> copy = new ArrayList<String>(in);
+        while (!copy.isEmpty() && isEmptyToken(copy.get(copy.size() - 1))) {
+            copy.remove(copy.size() - 1);
+        }
+        return copy;
     }
 
     public static void savePage(Context ctx, int pageIndex, List<String> entries) {
@@ -143,6 +292,53 @@ public final class PinnedShortcutsStore {
                 .edit()
                 .putString("page_" + pageIndex, sb.toString())
                 .commit();
+    }
+
+    /* -------------------- Custom All-Apps Drawer Order (`v53`) -------------------- */
+
+    public static boolean isCustomDrawerSort(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("drawer_custom_sort", false);
+    }
+
+    public static void setCustomDrawerSort(Context ctx, boolean enabled) {
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean("drawer_custom_sort", enabled).commit();
+    }
+
+    public static List<String> loadDrawerOrder(Context ctx) {
+        String raw = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("drawer_order", "");
+        List<String> out = new ArrayList<String>();
+        if (raw == null || raw.isEmpty()) return out;
+        String[] parts = raw.split("\\n");
+        for (int i = 0; i < parts.length; i++) {
+            String p = parts[i].trim();
+            if (!p.isEmpty() && p.contains("/") && !out.contains(p)) out.add(p);
+        }
+        return out;
+    }
+
+    public static void saveDrawerOrder(Context ctx, List<String> componentKeys) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < componentKeys.size(); i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(componentKeys.get(i));
+        }
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("drawer_custom_sort", true)
+                .putString("drawer_order", sb.toString())
+                .commit();
+    }
+
+    public static void moveDrawerOrderItem(Context ctx, List<String> currentKeys, int fromIdx, int toIdx) {
+        if (fromIdx < 0 || toIdx < 0 || fromIdx >= currentKeys.size() || toIdx >= currentKeys.size()
+                || fromIdx == toIdx) {
+            return;
+        }
+        List<String> copy = new ArrayList<String>(currentKeys);
+        String item = copy.remove(fromIdx);
+        copy.add(toIdx, item);
+        saveDrawerOrder(ctx, copy);
     }
 
     /* -------------------- 4-Digit App PIN Lock -------------------- */
@@ -192,9 +388,11 @@ public final class PinnedShortcutsStore {
 
     public static File exportLayoutBackupJson(Context ctx) throws Exception {
         JSONObject root = new JSONObject();
-        root.put("version", 52);
+        root.put("version", 53);
         root.put("pageCount", getPageCount(ctx));
         root.put("desktopColumns", getDesktopColumns(ctx));
+        root.put("desktopRows", getDesktopRows(ctx));
+        root.put("customDrawerSort", isCustomDrawerSort(ctx));
         JSONArray pages = new JSONArray();
         for (int p = 0; p < 5; p++) {
             JSONArray arr = new JSONArray();
@@ -203,6 +401,11 @@ public final class PinnedShortcutsStore {
             pages.put(arr);
         }
         root.put("pages", pages);
+        JSONArray drawerArr = new JSONArray();
+        List<String> drawerItems = loadDrawerOrder(ctx);
+        for (int i = 0; i < drawerItems.size(); i++) drawerArr.put(drawerItems.get(i));
+        root.put("drawerOrder", drawerArr);
+
         JSONArray barItems = new JSONArray();
         AppBarConfigStore.Config bar = AppBarConfigStore.load(ctx);
         for (int i = 0; i < bar.items.size(); i++) barItems.put(bar.items.get(i));
@@ -229,6 +432,7 @@ public final class PinnedShortcutsStore {
         JSONObject root = new JSONObject(baos.toString("UTF-8"));
         setPageCount(ctx, root.optInt("pageCount", 3));
         setDesktopColumns(ctx, root.optInt("desktopColumns", 5));
+        setDesktopRows(ctx, root.optInt("desktopRows", 3));
         JSONArray pages = root.optJSONArray("pages");
         if (pages != null) {
             for (int p = 0; p < Math.min(5, pages.length()); p++) {
@@ -237,6 +441,13 @@ public final class PinnedShortcutsStore {
                 for (int i = 0; i < arr.length(); i++) list.add(arr.getString(i));
                 savePage(ctx, p, list);
             }
+        }
+        JSONArray drawerArr = root.optJSONArray("drawerOrder");
+        if (drawerArr != null && drawerArr.length() > 0) {
+            List<String> dlist = new ArrayList<String>();
+            for (int i = 0; i < drawerArr.length(); i++) dlist.add(drawerArr.getString(i));
+            saveDrawerOrder(ctx, dlist);
+            setCustomDrawerSort(ctx, root.optBoolean("customDrawerSort", true));
         }
         JSONArray barItems = root.optJSONArray("appBarItems");
         if (barItems != null) {

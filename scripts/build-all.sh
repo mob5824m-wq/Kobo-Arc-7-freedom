@@ -263,6 +263,70 @@ $ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
     -lpthread \
     -o build/native/armeabi-v7a/libarc7tls.so
 
+$ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
+    -DMBEDTLS_THREADING_C -DMBEDTLS_THREADING_PTHREAD \
+    -I"$MBEDTLS_DIR/include" -I"$BEARSSL_DIR/inc" \
+    native/arc7vpn.c \
+    build/mbedtls-arm/libmbedtls_all.a \
+    build/bearssl-arm/libbearssl_all.a \
+    -lpthread \
+    -o build/native/armeabi-v7a/libarc7vpn.so
+
+mkdir -p build/native/host build/bearssl-host build/mbedtls-host
+if [ ! -f build/mbedtls-host/libmbedtls_host.a ] || [ ! -f build/bearssl-host/libbearssl_host.a ]; then
+    "$PY_BIN" - "$MBEDTLS_DIR" "$BEARSSL_DIR" << 'PYEOF'
+import concurrent.futures, glob, os, subprocess, sys
+mbed, bear = sys.argv[1], sys.argv[2]
+zig = [sys.executable, "-m", "ziglang"]
+try:
+    import ziglang  # noqa
+except ImportError:
+    zig = ["zig"]
+if not os.path.exists("build/mbedtls-host/libmbedtls_host.a"):
+    msrcs = sorted(glob.glob(os.path.join(mbed, "library/*.c")))
+    def comp_mh(s):
+        o = os.path.join("build/mbedtls-host", os.path.basename(s)[:-2] + ".o")
+        subprocess.run(
+            zig + ["cc", "-target", "x86_64-linux-musl", "-Os",
+                   "-ffunction-sections", "-fdata-sections",
+                   "-DMBEDTLS_THREADING_C", "-DMBEDTLS_THREADING_PTHREAD",
+                   f"-I{mbed}/include", f"-I{mbed}/library", "-c", s, "-o", o],
+            check=True,
+        )
+        return o
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        mobjs = list(ex.map(comp_mh, msrcs))
+    subprocess.run(zig + ["ar", "rcs", "build/mbedtls-host/libmbedtls_host.a", *mobjs], check=True)
+if not os.path.exists("build/bearssl-host/libbearssl_host.a"):
+    bsrcs = sorted(
+        s for s in glob.glob(os.path.join(bear, "src/**/*.c"), recursive=True)
+        if not os.path.basename(s).startswith("ec_prime_i31_secp")
+    )
+    def comp_bh(idx_s):
+        idx, s = idx_s
+        o = os.path.join("build/bearssl-host", f"{idx:03d}_{os.path.basename(s)[:-2]}.o")
+        subprocess.run(
+            zig + ["cc", "-target", "x86_64-linux-musl", "-Os",
+                   "-ffunction-sections", "-fdata-sections",
+                   f"-I{bear}/inc", f"-I{bear}/src", "-c", s, "-o", o],
+            check=True,
+        )
+        return o
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+        bobjs = list(ex.map(comp_bh, enumerate(bsrcs)))
+    subprocess.run(zig + ["ar", "rcs", "build/bearssl-host/libbearssl_host.a", *bobjs], check=True)
+PYEOF
+fi
+$ZIG_CMD cc -target x86_64-linux-musl -Os -s -static -Wall -Wextra -Wno-unused-parameter \
+    -ffunction-sections -fdata-sections -Wl,--gc-sections \
+    -DMBEDTLS_THREADING_C -DMBEDTLS_THREADING_PTHREAD \
+    -I"$MBEDTLS_DIR/include" -I"$BEARSSL_DIR/inc" \
+    native/arc7vpn.c \
+    build/mbedtls-host/libmbedtls_host.a \
+    build/bearssl-host/libbearssl_host.a \
+    -lpthread \
+    -o build/native/host/arc7vpn
+
 POCKETPY_DIR="${POCKETPY_DIR:-/tmp/pocketpy-src}"
 if [ ! -d "$POCKETPY_DIR" ]; then
     git clone --depth 1 --branch v1.4.6 https://github.com/pocketpy/pocketpy.git "$POCKETPY_DIR"
@@ -409,9 +473,13 @@ cp -f releases/AuroraStore.apk app/src/main/assets/starter-apps/AuroraStore.apk
 mkdir -p app/src/main/assets/chromebook
 cp -f releases/Start-Chromebook-Wired-Internet.sh app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
 cp -f releases/Start-Kobo-Second-Screen.py app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
+cp -f releases/Start-PC-Stream-Deck.py app/src/main/assets/chromebook/Start-PC-Stream-Deck.py
+cp -f releases/Start-PC-Stream-Deck.bat app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat
+cp -f releases/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh
+cp -f releases/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.2.0 (VK + 4-Store E-Reader + FB2/PDF/Scanner + Weather + Radio/Podcasts/RSS + Recorder + Arcade + Shield + Boost + Second Screen + Split View + WebDAV Drive + Launcher v52)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.3.0 (School Wi-Fi Rescue + System-Wide VPN & Official Tailscale + PC Stream Deck + Drag-Drop Launcher v53 + VK 4-Store E-Reader + VLC)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -451,7 +519,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.2.0.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.3.0.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -475,7 +543,7 @@ compile_java_and_dex \
 
 (cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
-rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.apk releases/Upgrade-My-Kobo-To-v2.1.*.apk
+rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.apk releases/Upgrade-My-Kobo-To-v2.1.*.apk releases/Upgrade-My-Kobo-To-v2.2.*.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
     --ks-pass "pass:$KEYSTORE_PASS" \
@@ -485,22 +553,26 @@ rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.ap
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v2.2.0.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.3.0.apk \
     build/upgrader/aligned.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
 echo "==> [7/8] Generating local Wi-Fi portal & writing SHA256SUMS.txt..."
 rm -rf docs
 rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
-chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py tools/serve-over-wifi.sh
+chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v2.2.0.apk \
+    Upgrade-My-Kobo-To-v2.3.0.apk \
     KoboArc7Freedom.apk \
     VLC.apk \
     AuroraStore.apk \
     FDroidClassicLegacy.apk \
     VanillaAndroid4Home.apk \
+    Start-PC-Stream-Deck.py \
+    Start-PC-Stream-Deck.bat \
+    Start-PC-Stream-Deck.sh \
+    Start-PC-School-VPN-Relay.py \
     Start-Chromebook-Wired-Internet.sh \
     Start-Kobo-Second-Screen.py \
     Backup-Kobo-To-Laptop-ADB.bat \
@@ -509,12 +581,16 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-I
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v2.2.0.apk \
+    releases/Upgrade-My-Kobo-To-v2.3.0.apk \
     releases/KoboArc7Freedom.apk \
     releases/VLC.apk \
     releases/AuroraStore.apk \
     releases/FDroidClassicLegacy.apk \
     releases/VanillaAndroid4Home.apk \
+    releases/Start-PC-Stream-Deck.py \
+    releases/Start-PC-Stream-Deck.bat \
+    releases/Start-PC-Stream-Deck.sh \
+    releases/Start-PC-School-VPN-Relay.py \
     releases/Start-Chromebook-Wired-Internet.sh \
     releases/Start-Kobo-Second-Screen.py \
     releases/Backup-Kobo-To-Laptop-ADB.bat \

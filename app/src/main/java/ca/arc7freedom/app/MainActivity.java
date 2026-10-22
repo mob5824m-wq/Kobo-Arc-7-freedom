@@ -233,7 +233,7 @@ public class MainActivity extends Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Kobo Arc 7 Freedom  v2.2.0");
+        title.setText("Kobo Arc 7 Freedom  v2.3.0");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -628,6 +628,41 @@ public class MainActivity extends Activity {
 
         sysProxyCard.addView(spRow);
         page.addView(sysProxyCard, cardMargin());
+
+        // Card 1B: Strict School Wi-Fi Rescue, Native System-Wide VPN & Official Tailscale (`v2.3.0`)
+        LinearLayout schoolVpnCard = makeCard();
+        addCardHeader(schoolVpnCard, "Strict School Wi-Fi Rescue, System-Wide VPN & Official Tailscale",
+                "School Wi-Fi not showing up or refusing to connect? Scans 2.4 GHz / hidden / 802.1X WPA2-Enterprise "
+                + "(PEAP / TTLS / eduroam) / ch. 12–13 networks directly via `wpa_cli`, unlocks every channel, signs into "
+                + "TLS 1.3 captive portals, and tunnels ALL tablet traffic over Official Tailscale, WireGuard (.conf), "
+                + "OpenVPN (.ovpn), Port-443 TLS 1.3 Stealth VPN, or Encrypted DNS-over-HTTPS!");
+
+        LinearLayout svRow = new LinearLayout(this);
+        svRow.setOrientation(LinearLayout.HORIZONTAL);
+        svRow.setPadding(0, dp(10), 0, 0);
+
+        Button openSchoolVpnBtn = makePrimaryButton("Open School Wi-Fi, VPN & Tailscale");
+        openSchoolVpnBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, Arc7VpnActivity.class));
+            }
+        });
+        svRow.addView(openSchoolVpnBtn, new LinearLayout.LayoutParams(0, dp(46), 1.35f));
+
+        svRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
+
+        Button openStreamDeckQuickBtn = makeSecondaryButton("PC Stream Deck");
+        openStreamDeckQuickBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new Intent(MainActivity.this, Arc7StreamDeckActivity.class));
+            }
+        });
+        svRow.addView(openStreamDeckQuickBtn, new LinearLayout.LayoutParams(0, dp(46), 0.9f));
+
+        schoolVpnCard.addView(svRow);
+        page.addView(schoolVpnCard, cardMargin());
 
         // Card 2: Direct Modern TLS 1.3 Downloader + Local Browser Gateway
         LinearLayout dlCard = makeCard();
@@ -1051,10 +1086,28 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.2.0 OS App Suite + Customizable App Bar Studio
+        // Card 1: Complete v2.3.0 OS App Suite + Customizable App Bar Studio
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.2.0 Daily-Driver App & Media Suite",
-                "All 28 standalone isolated-task apps + VK / Gutenberg / Open Library / Standard Ebooks Storefront, PDF & Scanner, Weather, Radio & RSS, Recorder, Arcade, Shield, Boost, Second Screen & Split View!");
+        addCardHeader(packCard, "Complete Kobo Arc 7 Freedom v2.3.0 Daily-Driver App & Media Suite",
+                "Includes Strict School Wi-Fi Rescue + System-Wide VPN & Official Tailscale, 1280x800 PC Stream Deck Pro "
+                + "(OBS + Media + Discord + Custom Deck Studio), Drag-and-Drop Rearrangeable Launcher v53, 4-Store E-Reader "
+                + "(VK + Gutenberg + Open Library + Standard Ebooks), PDF Scanner, Weather, Radio/RSS, Arcade, Shield, Boost & VLC!");
+
+        addToolActionRow(packCard, "Open Arc7 Wi-Fi, VPN & Tailscale — Strict School Wi-Fi Rescue + System-Wide Tunnel",
+                "Connect to hidden / WPA2-Enterprise (PEAP/TTLS/eduroam) school Wi-Fi, bypass port blocks via Port-443 Stealth VPN + DoH, or join Official Tailscale / WireGuard / OpenVPN!",
+                "Wi-Fi & VPN", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7VpnActivity.class));
+                    }
+                });
+
+        addToolActionRow(packCard, "Open Arc7 Stream Deck — Full 1280x800 LCD Stream Deck for Windows / Mac / Linux",
+                "15/24/32/6-key tactile LCD grids over Wi-Fi, zero-lag USB ADB, or Tailscale with OBS WebSocket v5, Volume Faders, Push-to-Talk & Web Deck Studio!",
+                "Stream Deck", new View.OnClickListener() {
+                    @Override public void onClick(View v) {
+                        startActivity(new Intent(MainActivity.this, Arc7StreamDeckActivity.class));
+                    }
+                });
 
         addToolActionRow(packCard, "Open Arc7 E-Reader — VK Books + Gutenberg + Open Library + Standard Ebooks (.FB2/.PDF/.EPUB/.CBZ)",
                 "4-source free e-book storefront (`vk.com` OAuth + zero-login `vk.com` search/m.vk.com interceptor + Gutenberg + Open Library + Standard Ebooks) + `.fb2`/`.fb2.zip`/`.pdf`/`.epub`/`.cbz`!",

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="220"
-    android:versionName="2.2.0"
+    android:versionCode="230"
+    android:versionName="2.3.0"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -528,6 +528,53 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- 29. NEW `Arc7 Stream Deck` 1280x800 Full LCD Stream Deck Pro for PC / Mac / Linux (OWN TASK!) -->
+        <activity
+            android:name=".Arc7StreamDeckActivity"
+            android:label="Arc7 Stream Deck"
+            android:icon="@drawable/ic_streamdeck"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.streamdeck"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 30. NEW `Arc7 Wi-Fi & VPN` School Wi-Fi Rescue, Tailscale, WireGuard, OpenVPN & Stealth VPN (OWN TASK!) -->
+        <activity
+            android:name=".Arc7VpnActivity"
+            android:label="Arc7 Wi-Fi &amp; VPN"
+            android:icon="@drawable/ic_vpn"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.vpn"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:windowSoftInputMode="stateHidden|adjustResize"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/x-openvpn-profile" />
+            </intent-filter>
+        </activity>
+
+        <!-- Native Android 4.2 VpnService (`/dev/tun` + `libarc7vpn.so` + Official Tailscale + DoH) -->
+        <service
+            android:name=".Arc7VpnService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+        </service>
 
         <!-- Persistent Background Services -->
         <service android:name=".Arc7TlsGatewayService" android:exported="true" />

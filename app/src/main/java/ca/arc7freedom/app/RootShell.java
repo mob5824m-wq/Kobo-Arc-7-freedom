@@ -60,7 +60,7 @@ public class RootShell {
         String nativeDirPath = appContext.getApplicationInfo().nativeLibraryDir;
         String[] libs = new String[]{
                 "libarc7root.so", "libarc7su.so", "libarc7tool.so",
-                "libarc7tls.so", "libarc7py3.so", "libarc7apt.so"
+                "libarc7tls.so", "libarc7vpn.so", "libarc7py3.so", "libarc7apt.so"
         };
         for (String name : libs) {
             File src = new File(nativeDirPath, name);
@@ -258,6 +258,14 @@ public class RootShell {
             }
         }
         return primary;
+    }
+
+    public boolean isRooted() {
+        return isRootAvailable();
+    }
+
+    public ExecResult execRoot(String shellScript) {
+        return execRoot(shellScript, null);
     }
 
     private ExecResult executeWithMode(String su, int mode, String shellScript, LineListener listener) {

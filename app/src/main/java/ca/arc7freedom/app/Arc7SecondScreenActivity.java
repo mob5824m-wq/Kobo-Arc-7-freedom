@@ -67,6 +67,21 @@ public class Arc7SecondScreenActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(0xFF05080F);
 
+        LinearLayout hdrBtns = new LinearLayout(this);
+        hdrBtns.setOrientation(LinearLayout.HORIZONTAL);
+
+        Button launchProDeck = Arc7Skin.actionButton(this, "\uD83C\uDF9B Open Stream Deck Pro", 0xFF0284C7);
+        launchProDeck.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                startActivity(new android.content.Intent(Arc7SecondScreenActivity.this, Arc7StreamDeckActivity.class));
+            }
+        });
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.rightMargin = dp(6);
+        hdrBtns.addView(launchProDeck, dlp);
+
         Button switchMode = Arc7Skin.actionButton(this, "Switch: Macro Deck / Monitor", 0xFF7C3AED);
         switchMode.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -76,12 +91,13 @@ public class Arc7SecondScreenActivity extends Activity {
                 macroGrid.setVisibility(macroMode ? View.VISIBLE : View.GONE);
             }
         });
+        hdrBtns.addView(switchMode);
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_display,
                 "Arc7 Second Screen & Macro Deck",
                 "USB (`adb forward tcp:18900 tcp:18900`) or Wi-Fi `:18900` Extended Display + Touch Return",
-                switchMode));
+                hdrBtns));
 
         statusPill = new TextView(this);
         statusPill.setText("Listening on " + localIpHint() + ":" + PORT
