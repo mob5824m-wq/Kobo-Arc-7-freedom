@@ -41,7 +41,7 @@ import javax.net.ssl.TrustManagerFactory;
  *
  * Solves every layer that prevents stock 2013 Kobo Arc 7 tablets from connecting to
  * the internet or downloading Android ROMs / APKs in 2026:
- *   1. All 120 modern 2026 Mozilla Root CA certificates (`assets/cacerts/`) come
+ *   1. All 118 modern 2026 Mozilla Root CA certificates (`assets/cacerts/`) come
  *      PRE-DOWNLOADED inside `KoboArc7Freedom.apk` in exact Android `<subject_hash_old>.<n>`
  *      format (`6187b673.0` = ISRG Root X1 Let's Encrypt, `f013ecaf.0` = Google GTS R1,
  *      `c90bc37d.0` = DigiCert Global Root G2, `35105088.0` = USERTrust RSA, etc.).
@@ -226,7 +226,7 @@ public class NetworkCertManager {
     }
 
     /**
-     * Enables TLSv1.2 + all 120 pre-downloaded 2026 Root CAs across every Java
+     * Enables TLSv1.2 + all 118 pre-downloaded 2026 Root CAs across every Java
      * HttpsURLConnection inside this process (works even on Android 4.2 API 17!).
      */
     public void installProcessTls12TrustStore() throws Exception {
@@ -261,7 +261,7 @@ public class NetworkCertManager {
         File outDir = new File(downloadRoot, "KoboArc7-2026-CA-Certs");
         if (!outDir.exists()) outDir.mkdirs();
 
-        // 1. Full 120-CA bundle
+        // 1. Full 118-CA bundle
         copyAsset("cacerts/ca-bundle-2026.crt", new File(outDir, "ca-bundle-2026.crt"));
 
         // 2. Key standalone DER/PEM root certificates for Android's native Certificate Installer UI
@@ -300,7 +300,7 @@ public class NetworkCertManager {
      */
     public boolean installCertsAndFixNetwork(File backupStorageRoot, final ProgressListener listener) {
         try {
-            listener.onProgress(5, "Unpacking 120 pre-downloaded 2026 Root CA certificates...");
+            listener.onProgress(5, "Unpacking 118 pre-downloaded 2026 Root CA certificates...");
             File bundleFile = ensureCaBundleFile();
             List<CertEntry> manifest = loadBundledManifest();
             listener.onLog("Loaded " + manifest.size() + " pre-downloaded 2026 Root CAs from APK assets (" +
@@ -330,7 +330,7 @@ public class NetworkCertManager {
             listener.onProgress(35, "Syncing tablet clock (fixes 2013 dead-battery TLS errors)...");
             syncTabletClock(hasRoot, listener);
 
-            // Step 4: Install ALL 120 pre-downloaded 2026 Root CAs into /system/etc/security/cacerts/
+            // Step 4: Install ALL 118 pre-downloaded 2026 Root CAs into /system/etc/security/cacerts/
             if (hasRoot) {
                 listener.onProgress(55, "Installing all " + manifest.size() + " 2026 Root CAs into /system/etc/security/cacerts...");
                 File stageDir = new File(appContext.getFilesDir(), "cacerts_hashed_stage");
@@ -398,8 +398,8 @@ public class NetworkCertManager {
                 }
             } else {
                 listener.onProgress(60, "Enabling embedded 2026 Root CAs (unrooted mode)...");
-                listener.onLog("NOTE: Tablet is not rooted yet — enabled all 120 pre-downloaded 2026 CAs immediately inside Kobo Arc 7 Freedom's built-in TLS 1.3 Downloader & Local Browser Portal!");
-                listener.onLog("TIP: Tap Tab 1 ('ROOT') first and re-run this button to also install all 120 CAs permanently into /system/etc/security/cacerts/ for every system app!");
+                listener.onLog("NOTE: Tablet is not rooted yet — enabled all 118 pre-downloaded 2026 CAs immediately inside Kobo Arc 7 Freedom's built-in TLS 1.3 Downloader & Local Browser Portal!");
+                listener.onLog("TIP: Tap Tab 1 ('ROOT') first and re-run this button to also install all 118 CAs permanently into /system/etc/security/cacerts/ for every system app!");
             }
 
             // Refresh Java TLS 1.2 + 2026 CA trust store
@@ -426,10 +426,10 @@ public class NetworkCertManager {
                     }
             );
             if (testRes.exitCode == 0) {
-                listener.onProgress(100, "Internet, Clock & All 120 Modern 2026 Root CAs Verified Working!");
+                listener.onProgress(100, "Internet, Clock & All 118 Modern 2026 Root CAs Verified Working!");
                 listener.onLog("LIVE HTTPS VERIFIED WORKING! Negotiated modern TLS with verified 2026 CA chain.");
             } else {
-                listener.onProgress(100, "All 120 Pre-Downloaded 2026 Root CAs Installed Offline!");
+                listener.onProgress(100, "All 118 Pre-Downloaded 2026 Root CAs Installed Offline!");
                 listener.onLog("All 2026 CA certificates are installed offline & ready! Connect to Wi-Fi in Settings -> Wi-Fi to start downloading.");
             }
             return true;
@@ -672,7 +672,7 @@ public class NetworkCertManager {
 
     /**
      * Downloads any `https://` or `http://` URL (Android `.zip` ROM, `recovery.img`, `.apk`, etc.)
-     * using `libarc7tls.so` (modern TLS 1.3 + TLS 1.2 + our 120 pre-downloaded 2026 Root CAs).
+     * using `libarc7tls.so` (modern TLS 1.3 + TLS 1.2 + our 118 pre-downloaded 2026 Root CAs).
      * Automatically falls back with `--insecure-clock` ONLY if an unrooted tablet's battery clock
      * is stuck in 2013 and user declined setting Date & Time manually.
      */
@@ -693,7 +693,7 @@ public class NetworkCertManager {
 
             File bundleFile = ensureCaBundleFile();
             File tlsBin = shell.getTlsEngineBinary();
-            listener.onProgress(3, "Connecting via TLS 1.3 + 120 pre-downloaded 2026 CAs...");
+            listener.onProgress(3, "Connecting via TLS 1.3 + 118 pre-downloaded 2026 CAs...");
             listener.onLog("Downloading: " + url);
             listener.onLog("Destination: " + outFile.getAbsolutePath());
 
@@ -793,7 +793,7 @@ public class NetworkCertManager {
 
     /**
      * Automatically ensures `/system/etc/security/cacerts/` AND `/data/misc/keychain/cacerts-added/`
-     * contain ALL 120 modern 2026 Root CAs (`ISRG Root X1`, `GTS Root R1`, `DigiCert G2`, etc.),
+     * contain ALL 118 modern 2026 Root CAs (`ISRG Root X1`, `GTS Root R1`, `DigiCert G2`, etc.),
      * ZERO expired pre-2026 certs (like `DST Root CA X3` which breaks Let's Encrypt on OpenSSL 1.0.1),
      * AND the exact byte-matching `local-ca.<hash>.0` used by the running `127.0.0.1:8118` gateway.
      */

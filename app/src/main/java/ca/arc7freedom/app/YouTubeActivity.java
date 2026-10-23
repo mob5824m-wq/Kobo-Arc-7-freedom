@@ -249,8 +249,7 @@ public class YouTubeActivity extends Activity {
         ytmBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Arc7UiAnimator.startAnimated(YouTubeActivity.this,
-                        new Intent(YouTubeActivity.this, YouTubeMusicActivity.class));
+                openYouTubeMusicApp();
             }
         });
         topBar.addView(ytmBtn, marginRightLp(6));
@@ -511,7 +510,9 @@ public class YouTubeActivity extends Activity {
                     return true;
                 }
                 playerOverlayStatusTv.setVisibility(View.VISIBLE);
-                playerOverlayStatusTv.setText("Playback error (" + what + ", " + extra + ") — tap Morphe to try another Spoof Client.");
+                playerOverlayStatusTv.setText("Playback error (" + what + ", " + extra + ") — tap \u2728 Morphe to try another client"
+                        + (currentPlayback != null && currentPlayback.muxNote.length() > 0
+                        ? ("\nLast mux: " + currentPlayback.muxNote) : ""));
                 return true;
             }
         });
@@ -530,6 +531,26 @@ public class YouTubeActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleIncomingIntent(intent, false);
+    }
+
+
+    /**
+     * Opens the SEPARATE `ca.arc7freedom.ytmusic` app when it is installed (each app has its
+     * own task + icon in Settings -> Apps), falling back to the in-suite activity.
+     */
+    private void openYouTubeMusicApp() {
+        Intent i = new Intent(Intent.ACTION_MAIN);
+        i.addCategory(Intent.CATEGORY_LAUNCHER);
+        i.setComponent(new android.content.ComponentName(
+                "ca.arc7freedom.ytmusic", "ca.arc7freedom.app.YouTubeMusicActivity"));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(i);
+            return;
+        } catch (Throwable ignored) {}
+        try {
+            Arc7UiAnimator.startAnimated(this, new Intent(this, YouTubeMusicActivity.class));
+        } catch (Throwable ignored) {}
     }
 
     private void handleIncomingIntent(Intent intent, boolean loadDefaultFeedIfNone) {
@@ -798,8 +819,12 @@ public class YouTubeActivity extends Activity {
                             }
                             rydStatsTv.setText(rydLine.toString());
 
-                            if (!res.progressiveVideos.isEmpty()) {
+                            if (res.muxedLocally) {
+                                qualityBtn.setText("\uD83C\uDF9E " + res.muxNote + " (Morphe Mux)");
+                            } else if (!res.progressiveVideos.isEmpty()) {
                                 qualityBtn.setText("\uD83C\uDF9E " + res.progressiveVideos.get(0).label);
+                            } else if (!res.videoOnlyStreams.isEmpty()) {
+                                qualityBtn.setText("\uD83C\uDF9E " + res.videoOnlyStreams.get(0).label);
                             }
 
                             MorpheEngine.addOrToggleSavedItem(YouTubeActivity.this, "yt_history", toMediaItem(res), false);
@@ -809,6 +834,12 @@ public class YouTubeActivity extends Activity {
                                 renderFeedItems(res.relatedItems);
                             }
 
+                            if (res.localVideoProxyUrl == null || res.localVideoProxyUrl.length() == 0) {
+                                playerOverlayStatusTv.setVisibility(View.VISIBLE);
+                                playerOverlayStatusTv.setText("No playable H.264/AAC stream could be built for this video.\n"
+                                        + (res.muxNote.length() > 0 ? res.muxNote : "Try another Morphe client in the \u2728 menu."));
+                                return;
+                            }
                             videoView.setVideoURI(Uri.parse(res.localVideoProxyUrl));
                             videoView.requestFocus();
                         }
@@ -832,9 +863,10 @@ public class YouTubeActivity extends Activity {
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
 
-        String audioUrl = currentPlayback.localAudioProxyUrl.length() > 0
-                ? currentPlayback.localAudioProxyUrl
-                : currentPlayback.localVideoProxyUrl;
+        String audioUrl = MorpheEngine.ensureAudioOnlyUrl(this, currentPlayback);
+        if (audioUrl == null || audioUrl.length() == 0) {
+            audioUrl = currentPlayback.localVideoProxyUrl;
+        }
         Intent svc = new Intent(this, Arc7AudioService.class);
         svc.setAction(Arc7AudioService.ACTION_PLAY_STREAM);
         svc.putExtra(Arc7AudioService.EXTRA_STREAM_URL, audioUrl);
@@ -922,15 +954,24 @@ public class YouTubeActivity extends Activity {
         if (currentPlayback == null) return;
         final List<String> labels = new ArrayList<String>();
         final List<MorpheEngine.StreamVariant> variants = new ArrayList<MorpheEngine.StreamVariant>();
-        for (int i = 0; i < currentPlayback.progressiveVideos.size(); i++) {
-            MorpheEngine.StreamVariant sv = currentPlayback.progressiveVideos.get(i);
+        final List<Boolean> audioOnly = new ArrayList<Boolean>();
+        for (int i = 0; i < currentPlayback.videoOnlyStreams.size(); i++) {
+            MorpheEngine.StreamVariant sv = currentPlayback.videoOnlyStreams.get(i);
             labels.add("\uD83C\uDFAC Video: " + sv.label);
             variants.add(sv);
+            audioOnly.add(Boolean.FALSE);
+        }
+        for (int i = 0; i < currentPlayback.progressiveVideos.size(); i++) {
+            MorpheEngine.StreamVariant sv = currentPlayback.progressiveVideos.get(i);
+            labels.add("\uD83C\uDFAC Video: " + sv.label + " (muxed)");
+            variants.add(sv);
+            audioOnly.add(Boolean.FALSE);
         }
         for (int i = 0; i < currentPlayback.audioStreams.size(); i++) {
             MorpheEngine.StreamVariant sv = currentPlayback.audioStreams.get(i);
             labels.add("\uD83C\uDFA7 Audio Only: " + sv.label);
             variants.add(sv);
+            audioOnly.add(Boolean.TRUE);
         }
         if (labels.isEmpty()) return;
         new AlertDialog.Builder(this)
@@ -938,14 +979,32 @@ public class YouTubeActivity extends Activity {
                 .setItems(labels.toArray(new String[0]), new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {
-                        MorpheEngine.StreamVariant picked = variants.get(which);
-                        int curPos = videoView != null ? videoView.getCurrentPosition() : 0;
-                        String slotUrl = MorpheEngine.registerPlayableStreamSlot(
-                                YouTubeActivity.this, picked.directHttpsUrl, picked.userAgent, picked.mimeType);
-                        qualityBtn.setText("\uD83C\uDF9E " + picked.label);
-                        videoView.setVideoURI(Uri.parse(slotUrl));
-                        if (curPos > 1000) videoView.seekTo(curPos);
-                        videoView.start();
+                        final MorpheEngine.StreamVariant picked = variants.get(which);
+                        final boolean soundOnly = audioOnly.get(which).booleanValue();
+                        final int curPos = videoView != null ? videoView.getCurrentPosition() : 0;
+                        qualityBtn.setText("\uD83C\uDF9E Building " + picked.label + " ...");
+                        new Thread(new Runnable() {
+                            @Override
+                            public void run() {
+                                final String slotUrl = soundOnly
+                                        ? MorpheEngine.startAudioForVariant(YouTubeActivity.this, picked)
+                                        : MorpheEngine.startMuxForVariant(YouTubeActivity.this, currentPlayback, picked);
+                                ui.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (slotUrl == null || slotUrl.length() == 0) {
+                                            qualityBtn.setText("\uD83C\uDF9E Quality unavailable");
+                                            return;
+                                        }
+                                        qualityBtn.setText("\uD83C\uDF9E " + picked.label);
+                                        videoView.setVideoURI(Uri.parse(slotUrl));
+                                        videoView.requestFocus();
+                                        if (curPos > 1500) videoView.seekTo(curPos);
+                                        videoView.start();
+                                    }
+                                });
+                            }
+                        }).start();
                     }
                 })
                 .setNegativeButton("Cancel", null)
@@ -966,10 +1025,14 @@ public class YouTubeActivity extends Activity {
                         final MorpheEngine.StreamVariant target = audioOnly
                                 ? (!currentPlayback.audioStreams.isEmpty()
                                         ? currentPlayback.audioStreams.get(0)
-                                        : currentPlayback.progressiveVideos.get(0))
-                                : (!currentPlayback.progressiveVideos.isEmpty()
-                                        ? currentPlayback.progressiveVideos.get(0)
-                                        : currentPlayback.audioStreams.get(0));
+                                        : (!currentPlayback.progressiveVideos.isEmpty()
+                                                ? currentPlayback.progressiveVideos.get(0)
+                                                : currentPlayback.videoOnlyStreams.get(0)))
+                                : (!currentPlayback.videoOnlyStreams.isEmpty()
+                                        ? currentPlayback.videoOnlyStreams.get(0)
+                                        : (!currentPlayback.progressiveVideos.isEmpty()
+                                                ? currentPlayback.progressiveVideos.get(0)
+                                                : currentPlayback.audioStreams.get(0)));
                         Toast.makeText(YouTubeActivity.this, "Starting offline download...", Toast.LENGTH_SHORT).show();
                         new Thread(new Runnable() {
                             @Override

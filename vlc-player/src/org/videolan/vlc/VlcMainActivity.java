@@ -43,7 +43,7 @@ import java.util.Locale;
 
 /**
  * Hardware-accelerated Android 4.2 (`minSdkVersion=15`, `DEX 035`) VLC Media Player
- * (`org.videolan.vlc`, `versionCode=1` so official VideoLAN `VLC-Android-2.5.17-ARMv7.apk`
+ * (`org.videolan.vlc`, `versionCode=1` so official VideoLAN `VLC-Android-2.5.37-ARMv7.apk`
  * upgrades seamlessly in place!). Supports `.mp4`, `.mkv`, `.webm`, `.3gp`, `.avi`, `.mp3`,
  * `.ogg`, `.flac`, `.wav`, `.m4a`, external `.srt`/`.vtt` subtitles, aspect ratios, A-B loop,
  * brightness/volume gestures, and HTTP/HLS/RTSP network streams!

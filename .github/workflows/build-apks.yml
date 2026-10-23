@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.4.1
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.5.3
 
 on:
   push:
@@ -8,6 +8,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build-and-verify:
@@ -30,28 +34,30 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography qrcode
 
-      - name: Generate 44 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.4.1 APKs
+      - name: Generate 44 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.5.3 APKs
         run: |
           chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.4.1 end-to-end verification suite
+      - name: Run full v2.5.3 end-to-end verification suite
         run: python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.4.1 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
+      - name: Commit refreshed signed v2.5.3 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk releases/Upgrade-My-Kobo-To-v2.2.0.apk releases/Upgrade-My-Kobo-To-v2.3.0.apk releases/Upgrade-My-Kobo-To-v2.3.1.apk releases/Upgrade-My-Kobo-To-v2.4.0.apk
+          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk releases/Upgrade-My-Kobo-To-v2.2.0.apk releases/Upgrade-My-Kobo-To-v2.3.0.apk releases/Upgrade-My-Kobo-To-v2.3.1.apk releases/Upgrade-My-Kobo-To-v2.4.0.apk releases/Upgrade-My-Kobo-To-v2.4.1.apk
           git add \
             releases/index.html \
             releases/logo-banner.png \
             releases/icons \
-            releases/Upgrade-My-Kobo-To-v2.4.1.apk \
+            releases/Upgrade-My-Kobo-To-v2.5.3.apk \
             releases/KoboArc7Freedom.apk \
+            releases/YouTube.apk \
+            releases/YouTubeMusic.apk \
             releases/VLC.apk \
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
@@ -77,16 +83,18 @@ jobs:
             app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh \
             app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.4.1 APKs, Local Web Installer Image Fix, Morphe YouTube & YouTube Music, Launcher v55 & Official Tailscale Google Auth [skip ci]"
+            git commit -m "chore: update pre-built signed v2.5.3 APKs (playable 2026 DASH remux + standalone YouTube & YouTube Music apps) [skip ci]"
             git push origin HEAD
           fi
 
-      - name: Upload built v2.4.1 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
+      - name: Upload built v2.5.3 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.4.1-apks
+          name: kobo-arc-7-freedom-v2.5.3-apks
           path: |
-            releases/Upgrade-My-Kobo-To-v2.4.1.apk
+            releases/Upgrade-My-Kobo-To-v2.5.3.apk
+            releases/YouTube.apk
+            releases/YouTubeMusic.apk
             releases/KoboArc7Freedom.apk
             releases/VLC.apk
             releases/AuroraStore.apk
@@ -107,38 +115,75 @@ jobs:
             releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.4.1 APKs, Local Web Installer Assets, VLC Media Player & Host Tools to GitHub Releases
-        if: github.ref == 'refs/heads/main'
+      - name: Publish signed v2.5.3 APKs (suite + 27 standalone default apps + YouTube / YouTube Music) to GitHub Releases
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/arena/fdd69b2f-kobo-arc-7-freedom'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.4.1 — Fixed Local Web Installer Image Loading, YouTube & YouTube Music (Morphe Edition), Home Widget Removal Fix, Universal Audio Standby, Clean App Labels & Official Tailscale Google Sign-In
+          ## Kobo Arc 7 Freedom v2.5.3 — Tap-to-Turn E-Reader + Tailscale Sign-In That Opens Itself
 
-          ### New in `v2.4.1` — Local Web Installer Image & Zero-SSL Portal Fix:
-          - **Fixed Broken Images on Local Web Installer (`:8000` & `releases/index.html` & `:8080`):**
-            - Resolved `NameError` crash in `tools/serve-over-wifi.py` on `GET /logo-banner.png` AND added inline `image/*` MIME headers (`image/png`, `image/jpeg`, `image/svg+xml`, `image/webp`, `image/gif`, `image/x-icon`) without `Content-Disposition: attachment` across `tools/serve-over-wifi.py`, `Start-Kobo-WiFi-Server.bat`, `Start-Kobo-WiFi-Server.sh`, `releases/index.html` (`releases/icons/*.png`), and `Arc7WifiDriveService` (`:8080/logo.png`), with embedded base64 PNG fallbacks so images render cleanly even 100% offline.
-            - Updated `Browser` (`Arc7BrowserActivity`) so all plain `http://` pages & `<img>` subresources across every LAN / iPhone Hotspot (`172.20.10.x`) / Tailscale (`100.x.y.z`) / hostname:port address stream natively in WebKit without TLS-daemon interception.
+          ### 1. The E-Reader is a real page-turner now
+          - Tap the **right** side of the page (or swipe left) for the next page, the **left** side (or swipe right) for the previous one, and the **middle** to hide/show the toolbar for full-screen reading.
+          - Pages are screen-sized. A whole-book EPUB that used to be one endless scroll now turns page by page, and turning past the end of a chapter rolls into the next one (and back).
+          - `A+` / `A-` and the theme buttons re-flow the text but keep your exact place, the position is remembered per chapter, and the header shows `chapter/total · page/pages · %`.
+          - Wider text area (full 600 px instead of a 760 px column with 26 px gutters), no overflowing images/`pre`/tables, comic `.cbz` pages get the same left/right tap zones plus swipe, and the screen stays awake while reading.
 
-          ### All 6 Major Upgrades from `v2.4.0` Included:
-          1. **Fixed `YouTube` App (Morphe Edition for Android 4.2.2)** — Non-SABR InnerTube multi-client cascade + local `127.0.0.1:18977` `206` TLS 1.3 stream proxy + SponsorBlock + RYD + offline `.mp4`/`.m4a`.
-          2. **New Standalone `YouTube Music` App (Morphe Edition)** — AMOLED dark player, background M4A audio, SponsorBlock skip, synced LRC lyrics, queue/shuffle/repeat & 5-band equalizer.
-          3. **Fixed Home Screen Widget Removal (`VanillaAndroid4Home v55`)** — `InterceptingWidgetHostView.onInterceptTouchEvent` + 1-tap `✕ Remove` badge in `Rearrange` mode + Active Page Widget Manager.
-          4. **Universal Now Playing Notification + Clock Standby Display** — Live transport notifications + Clock Standby Now-Playing controls across all built-in & system players.
-          5. **Clean System App Names (`Arc7` Strictly Reserved for `Arc7 Freedom`)** — Clean standard labels on every standalone app, widget & launcher icon.
-          6. **Official Tailscale Authentication with Google Sign-In (`Wi-Fi & VPN`)** — `tailscale_1.78.1_arm.tgz` + standards-compliant ISO/IEC 18004 QR code + Google SSO.
+          ### 2. The Tailscale Google sign-in page now opens by itself
+          - The login link is captured for a full **30 s** window (was 12 s, which timed out just before the URL arrived on a cold start) and a link that shows up later is still opened automatically.
+          - `tailscaled` stdout is now drained into `tailscaled.log`; an unread pipe used to fill up and freeze the daemon, so the URL never came out at all.
+          - The page opens in a real browser first (Google OAuth refuses embedded WebViews) with Arc7 Browser (TLS 1.3 bridge) as the fallback, `/register/` Headscale links are recognised, and the screen gains **Copy Login Link**, **Retry Sign-In** and **tailscaled Diagnostics**.
+
+          ### 3. Every default app is now its own installable app
+          - Browser, Clock, Calculator, Notes, Files, PDF Reader, Weather, Radio, Photos, Camera, Calendar, Books, Music, Terminal, App Manager, Package Installer, USB Internet, Wallpapers, Games, Ad Blocker, System Boost, Second Screen, Split View, Wikipedia, Stream Deck, Voice Recorder and Wi-Fi & VPN now each ship as a **separate signed APK** in this release (`Browser.apk`, `Clock.apk`, `Calculator.apk`, ...).
+          - Own package id (`ca.arc7freedom.browser`, `ca.arc7freedom.clock`, ...), own icon/label, own task stack, own data folder and its own row in *Settings -> Apps*: install, update or uninstall any of them independently.
+          - The suite keeps a hidden `<activity-alias>` fallback and `SplitAppIconSync` disables it the moment the standalone app is installed, so the launcher never shows the same app twice.
+          - Install them all, or only the ones you want, from the OTA portal.
+
+          ### 4. The over-the-air installer website works again
+          - Download buttons are now plain `<a href>` links: the old inline `onclick='onStartDl(...)'` handlers were undefined on the static page (Android 4.2 Browser then swallowed the tap instead of starting the download).
+          - Root-absolute links, `/apps/<Name>.apk`, short `/dl/<key>` (e.g. `/dl/clock`) and `?file=Clock.apk` for easy typing on the tablet.
+          - New text-only `/lite` page (no CSS, images or JS) for the stock 2013 Browser.
+          - The 1-click `Start-Kobo-WiFi-Server.sh/.bat` launchers now start serving immediately and fetch the APKs in the background, so a slow or blocked GitHub connection can never leave you with an empty page.
+
+          ### 5. Alarms still support checking off specific days
+          - The alarm editor's old single `Repeat` cycle button is replaced by a **Sun · Mon · Tue · Wed · Thu · Fri · Sat** row of check-off buttons, a live `Repeat: Mon, Wed, Fri` summary, and one-tap `Every day` / `Weekdays` / `Weekends` / `One-time` presets.
+          - The exact day bitmask is persisted (`bit 0 = Sunday … bit 6 = Saturday`); `AlarmManager.set(RTC_WAKEUP, …)` only fires on the checked days, and alarm cards read `Every Mon` / `Mon, Wed, Fri`. No days checked = a one-time alarm.
+
+          ### 6. F-Droid no longer crashes right after a repo sync
+          - **Root cause:** the crash is in the code that runs once the index is already downloaded/verified. In `UpdateService.onHandleIntent()` the `notifyContentProviders()` (bytecode 648) and `performUpdateNotification()` (bytecode 678) calls sit *after the last `try` range* (ends at code unit 406), so any `RuntimeException`/`Error` there (`SQLiteException`, `IllegalArgumentException` from `App(Cursor)`, NPE in `NotificationCompat`, `OutOfMemoryError` on the ~4,000-app 2026 index) escaped the `IntentService` thread and killed the process — "syncs, then crashes".
+          - **Fix (patched F-Droid `v1304`):** both post-sync calls are retargeted (`invoke-direct/range` -> `invoke-static/range`) to `Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()`, which invoke the original private methods reflectively inside `catch (Throwable)` and append the trace to `files/arc7-last-crash.txt` — a broken refresh/notification no longer closes F-Droid; every in-sync catch handler is retyped to `java.lang.Throwable`; the binary manifest gains `android:largeHeap="true"`; `Arc7CrashGuard` logs any remaining hard crash to logcat; the `127.0.0.1:8118` bridge and icon downloader convert unchecked failures to `IOException`.
+          - Version code `1303 -> 1304` so the patched client upgrades in place.
+
+          ### 7. YouTube & YouTube Music still PLAY (not just metadata)
+          - **Root cause:** since 2026 YouTube returns an empty `formats` array to every working anonymous InnerTube client — only video-only H.264 + audio-only AAC DASH tracks (`adaptiveFormats` with `initRange`/`indexRange`) and HLS. The old code looked for a progressive muxed MP4, found none, handed `VideoView` an empty URL, and failed with `MediaPlayer error (1, -1004)`.
+          - **Fix:** a new on-device ISO-BMFF remuxer (`MorpheRemuxer`) merges the video-only and audio-only DASH tracks into one fragmented MP4 (two `trak`s, interleaved `moof`/`mdat`, rewritten `tkhd`/`tfhd`/`trex`/`mfhd`/`base_data_offset`), and `MorpheStreamServer` serves it from `127.0.0.1` with an exact `Content-Length` plus full `Range: bytes=...` / `206 Partial Content` support so Stagefright can start playback and seek.
+          - **Fixed InnerTube auth:** proper 2026 client cascade (`visionOS 1.04` -> `TVHTML5_SIMPLY 1.1` -> `Android VR 1.64` -> `Android Music 7.12`), each with its own `/youtubei/v1/visitor_id` visitor id (sharing one visitor id across clients raised the bot score and 403'd streams).
+          - Audio-only (YouTube Music background / screen-off) spools the AAC DASH track into a playable fragmented MP4 — no video download, ~90% less bandwidth.
+
+          ### 8. Custom apps are TRULY separate applications
+          - **`YouTube`** is its own APK/package: `ca.arc7freedom.youtube` (`releases/YouTube.apk`).
+          - **`YouTube Music`** is its own APK/package: `ca.arc7freedom.ytmusic` (`releases/YouTubeMusic.apk`).
+          - Each has its own launcher icon + label, own task stack, own data directory and own background services, appears separately under Settings -> Apps, can be updated or uninstalled independently, and cross-launches the other app instead of swapping activities inside one package.
+          - The suite (`ca.arc7freedom.app`) no longer advertises duplicate YouTube/YouTube Music launcher icons; the 1-Tap Upgrader and the silent companion updater install/refresh both standalone APKs.
+
+          ### Included from v2.4.1 and earlier
+          - Launcher v55 (effortless widget removal), universal Now Playing notification + Clock Standby, Tailscale Google sign-in, patched F-Droid v1304, VLC, Aurora Store, 118 2026 Root CAs, local Wi-Fi installer portal and the full v1.7.0-v2.4.1 app suite.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.4.1 >/dev/null 2>&1; then
-            gh release edit v2.4.1 --latest --title "Kobo Arc 7 Freedom v2.4.1 — Local Web Installer Image Fix, Morphe YouTube + YouTube Music, Widget Removal Fix, Standby Audio & Official Tailscale Google Auth" --notes-file /tmp/release-notes.md
-            gh release upload v2.4.1 \
-              releases/Upgrade-My-Kobo-To-v2.4.1.apk \
+          if gh release view v2.5.3 >/dev/null 2>&1; then
+            gh release edit v2.5.3 --latest --title "Kobo Arc 7 Freedom v2.5.3 — Tap-to-Turn E-Reader + Opening Tailscale Sign-In" --notes-file /tmp/release-notes.md
+            gh release upload v2.5.3 \
+              releases/Upgrade-My-Kobo-To-v2.5.3.apk \
               releases/KoboArc7Freedom.apk \
+              releases/YouTube.apk \
+              releases/YouTubeMusic.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/apps/*.apk \
               releases/logo-banner.png \
               releases/index.html \
               releases/Start-PC-Stream-Deck.py \
@@ -152,15 +197,25 @@ jobs:
               releases/Start-Kobo-WiFi-Server.bat \
               releases/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
-              --clobber
+              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.5.3 \
+              releases/Upgrade-My-Kobo-To-v2.5.3.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
+              releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
+              releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
+              releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.bat releases/Start-PC-Stream-Deck.sh \
+              releases/Start-PC-School-VPN-Relay.py releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py \
+              releases/Backup-Kobo-To-Laptop-ADB.bat releases/Backup-Kobo-To-Laptop-ADB.sh \
+              releases/Start-Kobo-WiFi-Server.bat releases/Start-Kobo-WiFi-Server.sh --clobber; }
           else
-            gh release create v2.4.1 \
-              releases/Upgrade-My-Kobo-To-v2.4.1.apk \
+            gh release create v2.5.3 \
+              releases/Upgrade-My-Kobo-To-v2.5.3.apk \
               releases/KoboArc7Freedom.apk \
+              releases/YouTube.apk \
+              releases/YouTubeMusic.apk \
               releases/VLC.apk \
               releases/AuroraStore.apk \
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
+              releases/apps/*.apk \
               releases/logo-banner.png \
               releases/index.html \
               releases/Start-PC-Stream-Deck.py \
@@ -176,6 +231,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.4.1 — Local Web Installer Image Fix, Morphe YouTube + YouTube Music, Widget Removal Fix, Standby Audio & Official Tailscale Google Auth" \
+              --title "Kobo Arc 7 Freedom v2.5.3 — Tap-to-Turn E-Reader + Opening Tailscale Sign-In" \
               --notes-file /tmp/release-notes.md
           fi

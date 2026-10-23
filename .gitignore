@@ -2,6 +2,8 @@
 /build/
 /**/build/
 /app/src/main/assets/starter-apps/VLC.apk
+/app/src/main/assets/starter-apps/YouTube.apk
+/app/src/main/assets/starter-apps/YouTubeMusic.apk
 .gradle/
 local.properties
 *.iml
@@ -11,3 +13,8 @@ __pycache__/
 *.pyc
 *.keystore.tmp
 Unselected files/
+*.idsig
+
+# Separately installable default apps (built by scripts/build-all.sh, published as
+# GitHub release assets + served from the Wi-Fi OTA portal — not committed to git).
+releases/apps/

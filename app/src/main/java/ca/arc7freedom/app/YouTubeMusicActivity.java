@@ -393,9 +393,7 @@ public class YouTubeMusicActivity extends Activity {
             public void onClick(View v) {
                 MorpheEngine.MediaItem cur = audioService != null ? audioService.getCurrentMorpheItem() : null;
                 if (cur != null && cur.videoId.length() >= 8) {
-                    Intent yt = new Intent(YouTubeMusicActivity.this, YouTubeActivity.class);
-                    yt.setData(android.net.Uri.parse("https://www.youtube.com/watch?v=" + cur.videoId));
-                    Arc7UiAnimator.startAnimated(YouTubeMusicActivity.this, yt);
+                    openYouTubeApp("https://www.youtube.com/watch?v=" + cur.videoId);
                 }
             }
         });
@@ -465,6 +463,27 @@ public class YouTubeMusicActivity extends Activity {
             }
         }
         performMusicSearch("top hits music 2026", "songs");
+    }
+
+
+    /**
+     * Opens the SEPARATE `ca.arc7freedom.youtube` app (own package/task/icon) with the current
+     * track, falling back to the in-suite activity.
+     */
+    private void openYouTubeApp(String watchUrl) {
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        i.setData(android.net.Uri.parse(watchUrl));
+        i.setComponent(new ComponentName("ca.arc7freedom.youtube", "ca.arc7freedom.app.YouTubeActivity"));
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(i);
+            return;
+        } catch (Throwable ignored) {}
+        try {
+            Intent fallback = new Intent(this, YouTubeActivity.class);
+            fallback.setData(android.net.Uri.parse(watchUrl));
+            Arc7UiAnimator.startAnimated(this, fallback);
+        } catch (Throwable ignored) {}
     }
 
     private void performMusicSearch(final String query, final String mode) {
@@ -738,7 +757,9 @@ public class YouTubeMusicActivity extends Activity {
                     MorpheEngine.ResolvedPlayback res =
                             MorpheEngine.resolveStreams(YouTubeMusicActivity.this, cur.videoId, true);
                     MorpheEngine.StreamVariant best = !res.audioStreams.isEmpty()
-                            ? res.audioStreams.get(0) : res.progressiveVideos.get(0);
+                            ? res.audioStreams.get(0)
+                            : (!res.progressiveVideos.isEmpty()
+                                    ? res.progressiveVideos.get(0) : res.videoOnlyStreams.get(0));
                     final File saved = MorpheEngine.downloadStreamOffline(
                             YouTubeMusicActivity.this, best, cur.title, true, null);
                     ui.post(new Runnable() {

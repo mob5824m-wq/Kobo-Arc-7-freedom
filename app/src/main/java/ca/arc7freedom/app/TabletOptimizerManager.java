@@ -186,7 +186,7 @@ public class TabletOptimizerManager {
 
     public boolean installBundledFDroidClassic(LogSink log) {
             if (log != null) {
-                log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (`v1303` — Android 4.2 SHA-256 JarUtils Fix + Verified Certs + TLS 1.3 Bridge) ===");
+                log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (`v1304` — Android 4.2 SHA-256 JarUtils Fix + largeHeap + Throwable Sync Catch + TLS 1.3 Bridge) ===");
             }
         // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway + system CAs are synced BEFORE F-Droid ever runs!
         Arc7TlsGatewayService.ensureStarted(ctx);
@@ -239,26 +239,26 @@ public class TabletOptimizerManager {
 
             // Stage in `/data/local/tmp/` (`0644`) so Android 4.2 multi-user FUSE mount namespaces never fail!
             String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
-            String cmd = "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/fdroid_arc7_v1303.apk" +
-                    " && chmod 0644 /data/local/tmp/fdroid_arc7_v1303.apk\n" +
+            String cmd = "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/fdroid_arc7_v1304.apk" +
+                    " && chmod 0644 /data/local/tmp/fdroid_arc7_v1304.apk\n" +
                     (needCleanUninstall
                             ? "pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true\n"
                             : "") +
-                    "_fd_pm=$(pm install -r /data/local/tmp/fdroid_arc7_v1303.apk 2>&1 || true)\n" +
+                    "_fd_pm=$(pm install -r /data/local/tmp/fdroid_arc7_v1304.apk 2>&1 || true)\n" +
                     "case \"$_fd_pm\" in\n" +
                     "  *Success*) echo \"$_fd_pm\" ;;\n" +
-                    "  *) pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true; pm install -r /data/local/tmp/fdroid_arc7_v1303.apk 2>&1 || true ;;\n" +
+                    "  *) pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true; pm install -r /data/local/tmp/fdroid_arc7_v1304.apk 2>&1 || true ;;\n" +
                     "esac\n" +
-                    "rm -f /data/local/tmp/fdroid_arc7_v1303.apk 2>/dev/null || true\n";
+                    "rm -f /data/local/tmp/fdroid_arc7_v1304.apk 2>/dev/null || true\n";
             if (log != null) {
-                log.onLog("Root detected — installing F-Droid Classic `v1303` cleanly via `/data/local/tmp/`...");
+                log.onLog("Root detected — installing F-Droid Classic `v1304` cleanly via `/data/local/tmp/`...");
             }
             RootShell.ExecResult pm = shell.execRoot(cmd, null);
             if (log != null) log.onLog(pm.stdout.trim());
             if (pm.stdout.contains("Success")) {
-                // If upgrading from `< 1303`, force-stop and wipe any corrupted pre-`v1303`
-                // repo/cache state once so `v1303` fetches & verifies 2026 `SHA-256` indexes cleanly!
-                if (prevVer < 1303) {
+                // If upgrading from `< 1304`, force-stop and wipe any corrupted pre-`v1304`
+                // repo/cache state once so `v1304` fetches & verifies 2026 `SHA-256` indexes cleanly!
+                if (prevVer < 1304) {
                     shell.execRoot(
                             "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
                             "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
@@ -270,7 +270,7 @@ public class TabletOptimizerManager {
                             null);
                 }
                 if (log != null) {
-                    log.onLog("SUCCESS: F-Droid Classic (`v1303` — Android 4.2 SHA-256 JarUtils Fix + Verified Certs + SHA1-RSA APK Signer) is ready!");
+                    log.onLog("SUCCESS: F-Droid Classic (`v1304` — Android 4.2 SHA-256 JarUtils Fix + largeHeap + Throwable Sync Catch + SHA1-RSA APK Signer) is ready!");
                 }
                 return true;
             }
@@ -554,6 +554,75 @@ public class TabletOptimizerManager {
      *   4. Archives & removes Default Stock Launcher + `Kobo Care` + Discontinued Apps automatically
      *   5. Keeps `FDroidClassicLegacy.apk` clean on TLS 1.3 bridge!
      */
+
+    /**
+     * Installs / upgrades the standalone, separately-packaged apps:
+     *   • `ca.arc7freedom.youtube`   (`releases/YouTube.apk`)
+     *   • `ca.arc7freedom.ytmusic`   (`releases/YouTubeMusic.apk`)
+     *
+     * They are genuinely separate applications (own package id, own launcher entry, own task
+     * stack, own data dir) instead of extra activities hidden inside the suite package.
+     */
+    public boolean installBundledStandaloneApps(LogSink log) {
+        boolean ok = installStandaloneApp(log, "ca.arc7freedom.youtube",
+                "starter-apps/YouTube.apk", "YouTube.apk", 250, "YouTube");
+        boolean ok2 = installStandaloneApp(log, "ca.arc7freedom.ytmusic",
+                "starter-apps/YouTubeMusic.apk", "YouTubeMusic.apk", 250, "YouTube Music");
+        return ok || ok2;
+    }
+
+    private boolean installStandaloneApp(LogSink log, String pkg, String asset,
+                                         String tmpName, int minVersion, String label) {
+        int installed = 0;
+        try {
+            installed = ctx.getPackageManager().getPackageInfo(pkg, 0).versionCode;
+        } catch (Throwable ignored) {}
+        if (installed >= minVersion) return true;
+
+        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
+        if (!outDir.exists()) outDir.mkdirs();
+        File outApk = new File(outDir, tmpName);
+        InputStream in = null;
+        FileOutputStream fos = null;
+        try {
+            in = ctx.getAssets().open(asset);
+            fos = new FileOutputStream(outApk);
+            byte[] buf = new byte[65536];
+            int r;
+            while ((r = in.read(buf)) > 0) fos.write(buf, 0, r);
+            fos.flush();
+        } catch (Throwable t) {
+            if (log != null) log.onLog("WARNING: standalone " + label + " asset missing: " + t.getMessage());
+            return false;
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
+        }
+
+        if (shell.isRootAvailable()) {
+            RootShell.ExecResult pm = shell.execRoot(
+                    "mkdir -p /data/local/tmp && cat " + RootShell.shellQuote(outApk.getAbsolutePath())
+                            + " > /data/local/tmp/" + tmpName + " && chmod 0644 /data/local/tmp/" + tmpName
+                            + " && (pm install -r /data/local/tmp/" + tmpName + " 2>&1"
+                            + " || (pm uninstall " + pkg + " 2>/dev/null || true; pm install -r /data/local/tmp/"
+                            + tmpName + " 2>&1))"
+                            + "; rm -f /data/local/tmp/" + tmpName + " 2>/dev/null || true",
+                    null);
+            if (log != null) log.onLog(pm.stdout.trim());
+            if (pm.stdout.contains("Success")) {
+                if (log != null) log.onLog("SUCCESS: separate " + label + " app (`" + pkg + "`) installed!");
+                return true;
+            }
+            return false;
+        }
+
+        Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
+        prompt.setData(Uri.fromFile(outApk));
+        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { ctx.startActivity(prompt); } catch (Throwable ignored) {}
+        return true;
+    }
+
     public void ensureCompanionAppsUpgradedSilently() {
         if (!shell.isRootAvailable()) return;
         try {
@@ -628,6 +697,9 @@ public class TabletOptimizerManager {
                 installBundledVlcMediaPlayer(null);
             }
 
+            // 2c. Install / upgrade the standalone `YouTube` & `YouTube Music` apps (own packages).
+            installBundledStandaloneApps(null);
+
             // 3. Automatically install native ARMv7 `python3` + `apt` + kick off background `apt` sync!
             provisionPython3AndAptSystemWide(null, true);
 
@@ -639,26 +711,26 @@ public class TabletOptimizerManager {
                 prefs.edit().putBoolean("default_launcher_and_bloat_cleaned_v190", true).commit();
             }
 
-            // 5. Automatically upgrade F-Droid Classic to `v1303` (Android 4.2 SHA-256 JarUtils fix +
+            // 5. Automatically upgrade F-Droid Classic to `v1304` (Android 4.2 SHA-256 JarUtils fix +
             //    pure-Java BER/DER PKCS#7 verifier + non-colliding certs + SHA1-RSA APK signer)!
             try {
                 int fdroidVer = ctx.getPackageManager()
                         .getPackageInfo("eu.bubu1.fdroidclassic.debug", 0).versionCode;
                 int sigCmp = ctx.getPackageManager().checkSignatures(
                         ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
-                if (fdroidVer < 1303 || sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
+                if (fdroidVer < 1304 || sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
                     installBundledFDroidClassic(null);
-                    prefs.edit().putBoolean("fdroid_clean_v1303", true).commit();
-                } else if (!prefs.getBoolean("fdroid_clean_v1303", false)) {
+                    prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
+                } else if (!prefs.getBoolean("fdroid_clean_v1304", false)) {
                     shell.execRoot(
                             "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
                             "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
                             null);
-                    prefs.edit().putBoolean("fdroid_clean_v1303", true).commit();
+                    prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
                 }
             } catch (Throwable ignored) {
                 installBundledFDroidClassic(null);
-                prefs.edit().putBoolean("fdroid_clean_v1303", true).commit();
+                prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
             }
         } catch (Throwable ignored) {}
     }

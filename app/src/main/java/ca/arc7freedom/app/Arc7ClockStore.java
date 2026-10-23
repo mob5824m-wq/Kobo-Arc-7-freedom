@@ -419,20 +419,39 @@ public class Arc7ClockStore {
         }
 
         public String describeRepeat() {
-            if (repeatMask == REPEAT_ONCE) return "One-time";
-            if (repeatMask == REPEAT_EVERY_DAY) return "Every day";
-            if (repeatMask == REPEAT_WEEKDAYS) return "Weekdays (Mon–Fri)";
-            if (repeatMask == REPEAT_WEEKENDS) return "Weekends (Sat–Sun)";
-            String[] names = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
-            StringBuilder sb = new StringBuilder();
-            for (int i = 0; i < 7; i++) {
-                if ((repeatMask & (1 << i)) != 0) {
-                    if (sb.length() > 0) sb.append(", ");
-                    sb.append(names[i]);
-                }
-            }
-            return sb.toString();
+            return describeRepeatMask(repeatMask);
         }
+    }
+
+    /**
+     * Human readable summary of an arbitrary Sun..Sat bitmask (`0` = one-time).
+     * Used by the per-day check-off alarm editor and the alarm list cards.
+     */
+    public static String describeRepeatMask(int mask) {
+        if (mask == REPEAT_ONCE) return "One-time";
+        if (mask == REPEAT_EVERY_DAY) return "Every day";
+        if (mask == REPEAT_WEEKDAYS) return "Weekdays (Mon–Fri)";
+        if (mask == REPEAT_WEEKENDS) return "Weekends (Sat–Sun)";
+        String[] names = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (int i = 0; i < 7; i++) {
+            if ((mask & (1 << i)) != 0) {
+                if (sb.length() > 0) sb.append(", ");
+                sb.append(names[i]);
+                count++;
+            }
+        }
+        if (count == 0) return "One-time";
+        if (count == 1) return "Every " + sb;
+        return sb.toString();
+    }
+
+    /** Full sentence used under the 7 day check-off buttons in the alarm editor. */
+    public static String describeAlarmDays(int mask) {
+        String shortForm = describeRepeatMask(mask);
+        if ("One-time".equals(shortForm)) return "Repeat: One-time only (next occurrence)";
+        return "Repeat: " + shortForm;
     }
 
     public static List<AlarmEntry> loadAlarms(Context ctx) {

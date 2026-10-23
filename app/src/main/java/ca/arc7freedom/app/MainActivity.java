@@ -101,6 +101,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Hide the suite's launcher alias for every default app whose standalone APK is installed,
+        // so the drawer / `Open with` chooser never shows the same app twice.
+        SplitAppIconSync.sync(this);
         rootShell = new RootShell(this);
         certManager = new NetworkCertManager(this, rootShell);
         backupManager = new BackupManager(this, rootShell);
@@ -131,7 +134,7 @@ public class MainActivity extends Activity {
             public void run() {
                 try {
                     certManager.startBrowserGateway();
-                    // Automatically install all 120 modern 2026 Root CAs + clean DNS + NTP clock sync
+                    // Automatically install all 118 modern 2026 Root CAs + clean DNS + NTP clock sync
                     // on rooted Kobo Arc 7 hardware if not yet populated in /system/etc/security/cacerts!
                     android.content.SharedPreferences bootPrefs = getSharedPreferences("arc7_boot_init", MODE_PRIVATE);
                     File sysCaProbe = new File("/system/etc/security/cacerts");
@@ -233,7 +236,7 @@ public class MainActivity extends Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Freedom  v2.4.1");
+        title.setText("Arc7 Freedom  v2.5.3");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -534,7 +537,7 @@ public class MainActivity extends Activity {
         // Card 1: Pre-Downloaded 2026 Root CA Bundle + One-Tap Internet Fix
         LinearLayout certCard = makeCard();
         addCardHeader(certCard, "Step 2 — Pre-Downloaded 2026 Network Certificates & Internet Fix",
-                "ALL 120 modern 2026 Mozilla Root CA certificates (Let's Encrypt ISRG Root X1/X2, Google GTS R1-R4, "
+                "ALL 118 modern 2026 Mozilla Root CA certificates (Let's Encrypt ISRG Root X1/X2, Google GTS R1-R4, "
                 + "DigiCert Global Root G2/G3, Cloudflare, USERTrust/Sectigo, Amazon) come PRE-DOWNLOADED offline inside "
                 + "this app! One tap installs them, removes expired 2013-2021 poison CAs (like DST Root CA X3), syncs your "
                 + "dead-battery clock via NTP, fixes DNS (1.1.1.1 / 8.8.8.8), and activates modern TLS 1.3.");
@@ -544,7 +547,7 @@ public class MainActivity extends Activity {
         certsStatusContainer.setPadding(0, dp(6), 0, dp(6));
         certCard.addView(certsStatusContainer);
 
-        Button fixAllBtn = makePrimaryButton("Install All 120 Pre-Downloaded Certs & Fix Internet Now");
+        Button fixAllBtn = makePrimaryButton("Install All 118 Pre-Downloaded Certs & Fix Internet Now");
         LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, dp(48));
         flp.topMargin = dp(8);
@@ -571,7 +574,7 @@ public class MainActivity extends Activity {
 
         subRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
 
-        Button viewCertsBtn = makeSecondaryButton("View All 120 Bundled CAs");
+        Button viewCertsBtn = makeSecondaryButton("View All 118 Bundled CAs");
         viewCertsBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -600,7 +603,7 @@ public class MainActivity extends Activity {
                 "System-Wide TLS 1.3 Upgrade Proxy for All Android 4.2 Apps (127.0.0.1:8118)",
                 "Android 4.2 apps from 2013 fail on modern websites that strictly require TLS 1.3 (X25519 / ECDSA). "
                 + "Generates a unique private per-device Root CA right on your tablet, verifies upstream servers "
-                + "strictly via Mbed-TLS 3.6 TLS 1.3 + our 120 2026 CAs, and upgrades EVERY app on your Kobo Arc 7!");
+                + "strictly via Mbed-TLS 3.6 TLS 1.3 + our 118 2026 CAs, and upgrades EVERY app on your Kobo Arc 7!");
 
         LinearLayout spRow = new LinearLayout(this);
         spRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -1086,10 +1089,10 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.4.1 OS App Suite + Morphe YouTube & YouTube Music + Official Tailscale Google Auth
+        // Card 1: Complete v2.5.3 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Arc7 Freedom v2.4.1 — Daily-Driver App & Media Suite",
-                "Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
+        addCardHeader(packCard, "Arc7 Freedom v2.5.3 — Daily-Driver App & Media Suite",
+                "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1304 sync-crash fix. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
                 + "Effortless Home Widget Removal (Launcher v55), Clean App Names, Official Tailscale Google Sign-In, "
                 + "Stream Deck Pro, 4-Store Books Reader, PDF Reader, Weather, Radio & Podcasts, Games, Ad Blocker, System Boost & VLC!");
 
@@ -2378,8 +2381,8 @@ public class MainActivity extends Activity {
         }
         final File volRoot = getSelectedVolumeRoot();
         taskRunning = true;
-        setProgressUi(true, 4, "Installing 120 pre-downloaded 2026 Root CAs & fixing internet...");
-        appendLog("=== Installing 120 Pre-Downloaded 2026 Root CAs & Fixing Network ===");
+        setProgressUi(true, 4, "Installing 118 pre-downloaded 2026 Root CAs & fixing internet...");
+        appendLog("=== Installing 118 Pre-Downloaded 2026 Root CAs & Fixing Network ===");
 
         new Thread(new Runnable() {
             @Override
@@ -2407,7 +2410,7 @@ public class MainActivity extends Activity {
                                             : "All " + ns.bundledCertCount + " pre-downloaded 2026 Root CA certificates are active right now "
                                               + "inside Kobo Arc 7 Freedom's built-in TLS 1.3 Downloader & Local Browser Portal (plus exported "
                                               + "to Download/KoboArc7-2026-CA-Certs/)!\n\n"
-                                              + "Tip: Tap Tab '1. ROOT' first and press this button again to also write all 120 CAs permanently into /system/etc/security/cacerts/.\n\n")
+                                              + "Tip: Tap Tab '1. ROOT' first and press this button again to also write all 118 CAs permanently into /system/etc/security/cacerts/.\n\n")
                                     + "You can now download any Android ROM (.zip), Recovery (.img), or App (.apk) directly below, "
                                     + "or tap 'Open TLS 1.3 Browser Portal' to browse any modern website!");
                         } else {

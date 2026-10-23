@@ -23,6 +23,9 @@ public class BootNetworkReceiver extends BroadcastReceiver {
     public void onReceive(final Context context, final Intent intent) {
         if (context == null || intent == null) return;
         final String action = intent.getAction() != null ? intent.getAction() : "";
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)) {
+            SplitAppIconSync.sync(context);
+        }
         if (action.startsWith("com.android.music.") || action.startsWith("org.videolan.vlc.")) {
             Arc7AudioService.ensureWatcherRunning(context);
             NowPlayingManager.onExternalMediaBroadcast(context, intent);

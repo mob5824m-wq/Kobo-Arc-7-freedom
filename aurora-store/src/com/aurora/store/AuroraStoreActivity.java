@@ -1427,7 +1427,7 @@ public class AuroraStoreActivity extends Activity {
                         + "GSF Device ID: " + (gsf.isEmpty() ? "Auto-assigned on Dispenser connect" : gsf) + "\n"
                         + "Dispenser Endpoint: " + disp + "\n"
                         + "Active Device Spoof: " + SPOOF_LABELS[spIdx % SPOOF_LABELS.length] + "\n"
-                        + "TLS Transport: Arc7 Native Mbed-TLS 3.6 (TLS 1.3 + 120 2026 Root CAs)"
+                        + "TLS Transport: Arc7 Native Mbed-TLS 3.6 (TLS 1.3 + 118 2026 Root CAs)"
         );
     }
 

@@ -531,36 +531,98 @@ public class Arc7ClockActivity extends Activity {
         labelEt.setInputType(InputType.TYPE_CLASS_TEXT);
         form.addView(labelEt);
 
-        final int[] repeatOptions = new int[]{
+        // ==================== PER-DAY REPEAT PICKER ====================
+        // Check off EXACTLY the days this alarm should ring: Sun..Sat (bit 0 = Sunday, bit 6 = Saturday).
+        // No day checked = one-time alarm. Every subset (Mon/Wed/Fri, Tue+Thu, ...) is supported.
+        final int[] dayMask = new int[]{
+                existing != null ? existing.repeatMask : Arc7ClockStore.REPEAT_EVERY_DAY
+        };
+        final String[] dayShortNames = new String[]{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
+        final Button[] dayButtons = new Button[7];
+
+        TextView dayHeader = new TextView(this);
+        dayHeader.setText("Repeat on these days (tap to toggle • no days = one-time)");
+        dayHeader.setTextColor(0xFFB0BEC5);
+        dayHeader.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        dayHeader.setTypeface(Typeface.DEFAULT_BOLD);
+        dayHeader.setPadding(dp(2), dp(12), dp(2), dp(2));
+        form.addView(dayHeader);
+
+        final TextView daySummary = new TextView(this);
+        daySummary.setTextColor(0xFF80DEEA);
+        daySummary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        daySummary.setTypeface(Typeface.DEFAULT_BOLD);
+        daySummary.setPadding(dp(2), dp(6), dp(2), 0);
+        form.addView(daySummary);
+
+        final Runnable renderDayPicker = new Runnable() {
+            @Override
+            public void run() {
+                for (int i = 0; i < 7; i++) {
+                    boolean on = (dayMask[0] & (1 << i)) != 0;
+                    dayButtons[i].setTextColor(on ? 0xFFFFFFFF : 0xFF90A4AE);
+                    styleButtonBg(dayButtons[i], on ? 0xFF00695C : 0xFF263238);
+                }
+                daySummary.setText(Arc7ClockStore.describeAlarmDays(dayMask[0]));
+            }
+        };
+
+        LinearLayout dayRow = new LinearLayout(this);
+        dayRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams dayRowLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
+        dayRowLp.topMargin = dp(4);
+        for (int i = 0; i < 7; i++) {
+            final int dayBit = i;
+            Button dayBtn = makeButton(dayShortNames[i], 0xFF263238);
+            dayBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+            dayBtn.setPadding(0, 0, 0, 0);
+            dayBtn.setMinWidth(0);
+            dayBtn.setMinimumWidth(0);
+            dayBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    dayMask[0] ^= (1 << dayBit);
+                    renderDayPicker.run();
+                }
+            });
+            dayButtons[i] = dayBtn;
+            LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(0, dp(42), 1f);
+            dlp.setMargins(dp(2), 0, dp(2), 0);
+            dayRow.addView(dayBtn, dlp);
+        }
+        form.addView(dayRow, dayRowLp);
+
+        // One-tap shortcuts that simply set the day checkboxes above
+        LinearLayout presetRow = new LinearLayout(this);
+        presetRow.setOrientation(LinearLayout.HORIZONTAL);
+        final int[] presetMasks = new int[]{
                 Arc7ClockStore.REPEAT_EVERY_DAY,
                 Arc7ClockStore.REPEAT_WEEKDAYS,
                 Arc7ClockStore.REPEAT_WEEKENDS,
                 Arc7ClockStore.REPEAT_ONCE
         };
-        final String[] repeatNames = new String[]{
-                "Repeat: Every Day",
-                "Repeat: Weekdays (Mon–Fri)",
-                "Repeat: Weekends (Sat–Sun)",
-                "Repeat: One-Time Only"
-        };
-        final int[] chosenIdx = new int[]{0};
-        if (existing != null) {
-            for (int i = 0; i < repeatOptions.length; i++) {
-                if (repeatOptions[i] == existing.repeatMask) chosenIdx[0] = i;
-            }
+        final String[] presetNames = new String[]{"Every day", "Weekdays", "Weekends", "One-time"};
+        for (int i = 0; i < presetMasks.length; i++) {
+            final int presetMask = presetMasks[i];
+            Button presetBtn = makeButton(presetNames[i], 0xFF37474F);
+            presetBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+            presetBtn.setPadding(0, 0, 0, 0);
+            presetBtn.setMinWidth(0);
+            presetBtn.setMinimumWidth(0);
+            presetBtn.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    dayMask[0] = presetMask;
+                    renderDayPicker.run();
+                }
+            });
+            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+            plp.setMargins(dp(2), dp(8), dp(2), 0);
+            presetRow.addView(presetBtn, plp);
         }
-        final Button repeatCycleBtn = makeButton(repeatNames[chosenIdx[0]], 0xFF00695C);
-        repeatCycleBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                chosenIdx[0] = (chosenIdx[0] + 1) % repeatOptions.length;
-                repeatCycleBtn.setText(repeatNames[chosenIdx[0]]);
-            }
-        });
-        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(42));
-        rlp.topMargin = dp(8);
-        form.addView(repeatCycleBtn, rlp);
+        form.addView(presetRow);
+        renderDayPicker.run();
 
         // Nostalgic Apple & Android Alarm Chime Selector + Live Preview!
         final int[] selectedChimeIdx = new int[]{
@@ -688,7 +750,7 @@ public class Arc7ClockActivity extends Activity {
                         target.minute = tp.getCurrentMinute();
                         String lbl = labelEt.getText().toString().trim();
                         target.label = lbl.isEmpty() ? "Alarm" : lbl;
-                        target.repeatMask = repeatOptions[chosenIdx[0]];
+                        target.repeatMask = dayMask[0];
                         target.chimeId = allIds[selectedChimeIdx[0]];
                         target.volumePercent = chosenVolPct[0];
                         target.enabled = true;

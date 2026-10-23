@@ -2156,15 +2156,15 @@ public class VanillaHomeActivity extends Activity {
             return makeBuiltinSlot(token, "YouTube", R.drawable.ic_youtube, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeActivity")) openDrawer();
+                    if (!launchYouTubeApp()) openDrawer();
                 }
             });
         }
         if ("@ytmusic".equals(token)) {
-            return makeBuiltinSlot(token, "YT Music", R.drawable.ic_ytmusic, new View.OnClickListener() {
+            return makeBuiltinSlot(token, "YouTube Music", R.drawable.ic_ytmusic, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeMusicActivity")) openDrawer();
+                    if (!launchYouTubeMusicApp()) openDrawer();
                 }
             });
         }
@@ -3290,6 +3290,22 @@ public class VanillaHomeActivity extends Activity {
         cb.setOnCheckedChangeListener(listener);
         parent.addView(cb, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+    }
+
+    /**
+     * Prefers the standalone `ca.arc7freedom.youtube` package (its own app, its own task and
+     * its own icon in Settings -> Apps) and falls back to the in-suite activity for tablets
+     * that have not been upgraded yet.
+     */
+    private boolean launchYouTubeApp() {
+        return launchExplicitOrPackage("ca.arc7freedom.youtube", "ca.arc7freedom.app.YouTubeActivity")
+                || launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeActivity");
+    }
+
+    /** Prefers the standalone `ca.arc7freedom.ytmusic` package, with in-suite fallback. */
+    private boolean launchYouTubeMusicApp() {
+        return launchExplicitOrPackage("ca.arc7freedom.ytmusic", "ca.arc7freedom.app.YouTubeMusicActivity")
+                || launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeMusicActivity");
     }
 
     private boolean launchExplicitOrPackage(String pkg, String cls) {

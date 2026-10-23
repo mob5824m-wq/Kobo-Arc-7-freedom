@@ -43,7 +43,7 @@ import java.util.zip.ZipInputStream;
  *   2. `KoboArc7Freedom v1.8.1` (`versionCode = 181`, permanent release certificate)
  *   3. `VanillaAndroid4Home v4.2.8` (`versionCode = 48`, Home Widgets + isolated tasks)
  *   4. `FDroidClassicLegacy v1.8.1` (instant HTTP-to-TLS-1.3 `/__https/` repository bridge)
- *   5. All 120 modern 2026 Root CA `.0` certificates in `/system/etc/security/cacerts/`
+ *   5. All 118 modern 2026 Root CA `.0` certificates in `/system/etc/security/cacerts/`
  */
 public class UpgraderActivity extends Activity {
 
@@ -85,14 +85,14 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v2.4.1 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v2.5.3 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap v2.4.1 upgrade (Morphe YouTube + YouTube Music + Widget Removal Fix Launcher v55 + Standby Audio + Official Tailscale Google Auth + Fixed F-Droid v1303 + VLC + 120 2026 Root CAs)...");
+        statusSub.setText("Preparing 1-tap v2.5.3 upgrade (playable 2026 DASH streams + separate YouTube / YouTube Music apps + Launcher v55 + Standby Audio + Tailscale Google Auth + F-Droid v1304 + VLC + 118 2026 Root CAs)...");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
@@ -109,7 +109,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v2.4.1 Upgrade Again");
+        actionBtn.setText("Run v2.5.3 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -126,7 +126,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v2.4.1 ->");
+        launchBtn.setText("Open Freedom v2.5.3 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -279,8 +279,8 @@ public class UpgraderActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    uiProgress(10, "Unpacking v2.4.1 APKs, Morphe YouTube & YouTube Music, Launcher v55 (Widget Removal Fix), Official Tailscale Google Auth, F-Droid v1303, VLC, Aurora Store v4.8.5, Python 3, apt & 120 2026 Root CAs...");
-                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v2.4.1 ===");
+                    uiProgress(10, "Unpacking v2.5.3 APKs, separate YouTube & YouTube Music apps, Launcher v55, Tailscale Google Auth, F-Droid v1304, VLC, Aurora Store v4.8.5, Python 3, apt & 118 2026 Root CAs...");
+                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v2.5.3 ===");
 
                     File appFiles = getFilesDir();
                     makeWorldReadableDir(appFiles != null ? appFiles.getParentFile() : null);
@@ -299,7 +299,7 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         mainIn.close();
                     }
-                    uiLog("[1/7] Unpacked KoboArc7Freedom v2.4.1 (" + (mainApk.length() / 1024) + " KB)");
+                    uiLog("[1/7] Unpacked KoboArc7Freedom v2.5.3 (" + (mainApk.length() / 1024) + " KB)");
 
                     File suNew = new File(stageDir, "su_new");
                     File pyNew = new File(stageDir, "py3_new");
@@ -308,6 +308,8 @@ public class UpgraderActivity extends Activity {
                     File auroraApk = new File(stageDir, "AuroraStore.apk");
                     File fdroidApk = new File(stageDir, "FDroidClassicLegacy.apk");
                     File vlcApk = new File(stageDir, "VLC.apk");
+                    File youtubeApk = new File(stageDir, "YouTube.apk");
+                    File ytMusicApk = new File(stageDir, "YouTubeMusic.apk");
                     int caCount = 0;
 
                     InputStream zipRaw = getAssets().open("KoboArc7Freedom.apk");
@@ -330,6 +332,10 @@ public class UpgraderActivity extends Activity {
                                 writeStreamToWorldFile(zis, fdroidApk, false);
                             } else if ("assets/starter-apps/VLC.apk".equals(name)) {
                                 writeStreamToWorldFile(zis, vlcApk, false);
+                            } else if ("assets/starter-apps/YouTube.apk".equals(name)) {
+                                writeStreamToWorldFile(zis, youtubeApk, false);
+                            } else if ("assets/starter-apps/YouTubeMusic.apk".equals(name)) {
+                                writeStreamToWorldFile(zis, ytMusicApk, false);
                             } else if (name.startsWith("assets/cacerts/android-hashed/")
                                     && !ze.isDirectory() && name.endsWith(".0")) {
                                 String base = new File(name).getName();
@@ -366,7 +372,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("fi\n");
                     sh.append("echo \"STEP_A_SU_APPLETS=OK (uname: $(/sbin/uname -sr 2>/dev/null))\"\n");
 
-                    // Step B: Install all 120 modern 2026 Root CAs into `/system/etc/security/cacerts/` via pure `cat`!
+                    // Step B: Install all 118 modern 2026 Root CAs into `/system/etc/security/cacerts/` via pure `cat`!
                     sh.append("mkdir -p /data/misc/keychain/cacerts-added\n");
                     sh.append("for _cf in '").append(caDir.getAbsolutePath()).append("'/*.0; do\n");
                     sh.append("  if [ -f \"$_cf\" ]; then\n");
@@ -399,6 +405,8 @@ public class UpgraderActivity extends Activity {
                     sh.append("cat '").append(auroraApk.getAbsolutePath()).append("' > /data/local/tmp/AuroraStore.apk && chmod 0644 /data/local/tmp/AuroraStore.apk\n");
                     sh.append("cat '").append(fdroidApk.getAbsolutePath()).append("' > /data/local/tmp/FDroidClassicLegacy.apk && chmod 0644 /data/local/tmp/FDroidClassicLegacy.apk\n");
                     sh.append("if [ -s '").append(vlcApk.getAbsolutePath()).append("' ]; then cat '").append(vlcApk.getAbsolutePath()).append("' > /data/local/tmp/VLC.apk && chmod 0644 /data/local/tmp/VLC.apk; fi\n");
+                    sh.append("if [ -s '").append(youtubeApk.getAbsolutePath()).append("' ]; then cat '").append(youtubeApk.getAbsolutePath()).append("' > /data/local/tmp/YouTube.apk && chmod 0644 /data/local/tmp/YouTube.apk; fi\n");
+                    sh.append("if [ -s '").append(ytMusicApk.getAbsolutePath()).append("' ]; then cat '").append(ytMusicApk.getAbsolutePath()).append("' > /data/local/tmp/YouTubeMusic.apk && chmod 0644 /data/local/tmp/YouTubeMusic.apk; fi\n");
 
                     // Preserve any existing local TLS 1.3 CA keypair across reinstalls so Zygote's in-RAM CA stays valid!
                     sh.append("mkdir -p /data/local/arc7_tls_ca && chmod 0755 /data/local/arc7_tls_ca\n");
@@ -473,6 +481,19 @@ public class UpgraderActivity extends Activity {
                     sh.append("    ;;\n");
                     sh.append("esac\n");
 
+                    // Step G1: Install the TRULY SEPARATE standalone `YouTube` & `YouTube Music` apps
+                    // (`ca.arc7freedom.youtube` / `ca.arc7freedom.ytmusic` — own icons, own tasks, own data)!
+                    sh.append("for _pair in 'YouTube.apk:ca.arc7freedom.youtube' 'YouTubeMusic.apk:ca.arc7freedom.ytmusic'; do\n");
+                    sh.append("  _file=\"${_pair%%:*}\"; _pkg=\"${_pair##*:}\"\n");
+                    sh.append("  if [ -s \"/data/local/tmp/$_file\" ]; then\n");
+                    sh.append("    _pm_split=$(pm install -r \"/data/local/tmp/$_file\" 2>&1 || true)\n");
+                    sh.append("    case \"$_pm_split\" in\n");
+                    sh.append("      *Success*) echo \"STEP_SPLIT_INPLACE=$_pkg:$_pm_split\" ;;\n");
+                    sh.append("      *) pm uninstall \"$_pkg\" 2>/dev/null || true; _pm_split=$(pm install -r \"/data/local/tmp/$_file\" 2>&1 || true); echo \"STEP_SPLIT_CLEAN=$_pkg:$_pm_split\" ;;\n");
+                    sh.append("    esac\n");
+                    sh.append("  fi\n");
+                    sh.append("done\n");
+
                     // Step G2: Install Bundled VLC Media Player (`org.videolan.vlc`) automatically!
                     sh.append("if [ -s /data/local/tmp/VLC.apk ]; then\n");
                     sh.append("  _pm_vlc=$(pm install -r /data/local/tmp/VLC.apk 2>&1 || true)\n");
@@ -515,7 +536,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("sync\n");
                     sh.append("mount -o remount,ro /system 2>/dev/null || true\n");
                     sh.append("mount -o remount,ro / 2>/dev/null || true\n");
-                    sh.append("rm -f /data/local/tmp/KoboArc7Freedom.apk /data/local/tmp/VanillaAndroid4Home.apk /data/local/tmp/AuroraStore.apk /data/local/tmp/FDroidClassicLegacy.apk /data/local/tmp/VLC.apk /data/local/tmp/VanillaHome.prev.apk\n");
+                    sh.append("rm -f /data/local/tmp/KoboArc7Freedom.apk /data/local/tmp/VanillaAndroid4Home.apk /data/local/tmp/AuroraStore.apk /data/local/tmp/FDroidClassicLegacy.apk /data/local/tmp/VLC.apk /data/local/tmp/YouTube.apk /data/local/tmp/YouTubeMusic.apk /data/local/tmp/VanillaHome.prev.apk\n");
                     sh.append("echo 'ARC7_UPGRADE_OK'\n");
 
                     File scriptFile = new File(stageDir, "run_upgrade.sh");
@@ -536,12 +557,12 @@ public class UpgraderActivity extends Activity {
                     }
 
                     if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v2.4.1 + Morphe YouTube & YouTube Music + Launcher v55 + Official Tailscale Google Auth + F-Droid v1303 + VLC ready!");
-                        uiLog("[7/7] SUCCESS! Launching Kobo Arc 7 Freedom v2.4.1 now...");
+                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v2.5.3 + separate YouTube & YouTube Music apps + Launcher v55 + Tailscale Google Auth + F-Droid v1304 + VLC ready!");
+                        uiLog("[7/7] SUCCESS! Launching Kobo Arc 7 Freedom v2.5.3 now...");
                         ui.post(new Runnable() {
                             @Override
                             public void run() {
-                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v2.4.1!");
+                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v2.5.3!");
                                 launchBtn.setVisibility(View.VISIBLE);
                                 actionBtn.setEnabled(true);
                             }
@@ -554,7 +575,7 @@ public class UpgraderActivity extends Activity {
                         }, 900);
                     } else {
                         // Tablet not yet rooted at all -> export to Download and open standard PackageInstaller
-                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v2.4.1.apk");
+                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v2.5.3.apk");
                         if (dl.getParentFile() != null) dl.getParentFile().mkdirs();
                         InputStream in2 = getAssets().open("KoboArc7Freedom.apk");
                         try {

@@ -1335,6 +1335,8 @@ public final class Arc7Skin {
             if (c.contains("installer")) return R.drawable.ic_apk_installer;
             return R.drawable.ic_launcher;
         }
+        if ("ca.arc7freedom.youtube".equals(p)) return R.drawable.ic_youtube;
+        if ("ca.arc7freedom.ytmusic".equals(p)) return R.drawable.ic_ytmusic;
         if ("ca.arc7freedom.launcher".equals(p)) return R.drawable.ic_launcher_home;
         if ("org.videolan.vlc".equals(p) || p.contains("videolan")) return R.drawable.ic_vlc;
         if ("com.aurora.store".equals(p) || p.contains("vending") || p.contains("aurora")) return R.drawable.ic_aurora;

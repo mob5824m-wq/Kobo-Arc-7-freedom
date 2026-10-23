@@ -27,7 +27,9 @@ Verifies:
 import concurrent.futures
 import glob
 import os
+import re
 import shutil
+import signal
 import socket
 import struct
 import subprocess
@@ -114,11 +116,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "55", f"Expected launcher versionCode 55, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.4.1", f"Expected upgrader 2.4.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "241", f"Expected upgrader 241, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.3", f"Expected upgrader 2.5.3, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "253", f"Expected upgrader 252, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.4.1", f"Expected 2.4.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "241", f"Expected 241, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.3", f"Expected 2.5.3, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "253", f"Expected 252, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1130,7 +1132,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 time.sleep(0.05)
         rel_imgs = [t.get("src", "") for t in _extract_img_tags(rel_body)]
         assert len(rel_imgs) >= 8 and "./logo-banner.png" in rel_imgs
-        assert "./Upgrade-My-Kobo-To-v2.4.1.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
+        assert "./Upgrade-My-Kobo-To-v2.5.3.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
         for isrc in rel_imgs:
             assert not isrc.startswith("https://"), f"releases/index.html has non-local HTTPS img: {isrc}"
             ci = http.client.HTTPConnection("127.0.0.1", 18894, timeout=5)
@@ -1153,7 +1155,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
         os.makedirs(iso_files, exist_ok=True)
         # Pre-seed placeholder APKs >= 128B EXCEPT `logo-banner.png` so we ALSO prove offline PNG fallback!
         for seed_name in (
-            "Upgrade-My-Kobo-To-v2.4.1.apk",
+            "Upgrade-My-Kobo-To-v2.5.3.apk",
             "KoboArc7Freedom.apk",
             "VLC.apk",
             "AuroraStore.apk",
@@ -1169,6 +1171,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            start_new_session=True,
         )
         try:
             sh_body = ""
@@ -1198,7 +1201,12 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 Image.open(io.BytesIO(b_sh)).verify()
             print(f"  [PASS] Standalone `Start-Kobo-WiFi-Server.sh` (isolated outside repo, even offline): HTTP 200 inline PNG banner decoded cleanly!")
         finally:
-            sh_proc.terminate()
+            # Kill the whole process group: the .sh hands off to a `python3` child, which would
+            # otherwise keep :18893 bound and make every later verification run fail.
+            try:
+                os.killpg(os.getpgid(sh_proc.pid), signal.SIGKILL)
+            except Exception:
+                sh_proc.terminate()
             sh_proc.wait(timeout=5)
 
     # Verify Arc7WifiDriveService `:8080` serves `/logo.png` + `image/png` + clean notification label AND Browser handles all local IP/port URLs!
@@ -1226,7 +1234,12 @@ def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
                 assert "assets/starter-apps/VLC.apk" in mnames
                 assert "assets/chromebook/Start-Chromebook-Wired-Internet.sh" in mnames
                 ca_hashed = [n for n in mnames if n.startswith("assets/cacerts/android-hashed/") and n.endswith(".0")]
-                assert len(ca_hashed) >= 120, f"Expected >=120 hashed CAs, got {len(ca_hashed)}"
+                ca_manifest = mzf.read("assets/cacerts/manifest.tsv").decode("utf-8", "replace").splitlines()[0]
+                declared_cas = int(re.search(r"count=(\d+)", ca_manifest).group(1))
+                assert len(ca_hashed) == declared_cas, (
+                    f"Bundled hashed CAs ({len(ca_hashed)}) disagree with manifest.tsv ({declared_cas})"
+                )
+                assert len(ca_hashed) >= 110, f"Expected >=110 hashed CAs, got {len(ca_hashed)}"
     print(f"  [PASS] Upgrade-My-Kobo-To-v2.0.0.apk ({os.path.getsize(upgrader_apk)//1048576} MB) embeds KoboArc7Freedom.apk + VLC.apk + AuroraStore.apk + FDroidClassicLegacy.apk + Python 3 + apt + {len(ca_hashed)} 2026 CAs")
 
     # Compile `native/su.c` natively on host Linux and test live multi-call `uname` and `cp` symlinks!
@@ -1255,7 +1268,6 @@ def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
     print(f"  [PASS] Multi-call `su` native `uname -a` ({u_sr!r}) & `cp -f ... cacerts/` verified live!")
 
     # Verify ZERO Java source files invoke missing Kobo Android 4.2 toolbox applets (`uname`, `grep`, `cp -`, `printf `)
-    import re
     banned_patterns = [
         re.compile(r"(?<!/sbin/)(?<!/xbin/)\buname\s+-"),
         re.compile(r"\bgrep\s+"),
@@ -1398,7 +1410,7 @@ public class VerifyV190Suite {
 
 
 def verify_v191_aurora_and_fdroid_fixes() -> None:
-    print("\n=== Verifying v2.3.1 Aurora Store APK Signer & F-Droid v1303 Android 4.2 SHA-256 `Incorrect signature` Fix ===")
+    print("\n=== Verifying Aurora Store APK Signer & F-Droid v1304 Android 4.2 SHA-256 + crash stability fixes ===")
     fdroid_apk = os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk")
     fdroid_rel = os.path.join(ROOT, "releases/FDroidClassicLegacy.apk")
     assert os.path.exists(fdroid_rel) and os.path.getsize(fdroid_rel) == os.path.getsize(fdroid_apk), (
@@ -1413,7 +1425,7 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
 
     from androguard.core.dex import DEX
     fd_obj = APK(fdroid_apk)
-    assert str(fd_obj.get_androidversion_code()) == "1303", f"Expected F-Droid v1303, got {fd_obj.get_androidversion_code()}"
+    assert str(fd_obj.get_androidversion_code()) == "1304", f"Expected F-Droid v1304, got {fd_obj.get_androidversion_code()}"
 
     seen_classes = {}
     verified_indexv1_noverify = False
@@ -1657,7 +1669,7 @@ public class VerifyV191Kit {
             [JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", v1_repaired],
             check=True,
         )
-    print("  [PASS] FDroidClassicLegacy v1303 (`verify=false` bytecode + 4096-bit RSA CMS/BER/DER SHA-256 verifier + 7 non-colliding repos) + AuroraStore v4.8.5 verified!")
+    print("  [PASS] FDroidClassicLegacy v1304 (`verify=false` + largeHeap + Throwable catch + 4096-bit RSA CMS/BER/DER SHA-256 verifier + 7 non-colliding repos) + AuroraStore v4.8.5 verified!")
 
 
 def verify_v200_all_11_upgrades() -> None:
@@ -1666,7 +1678,12 @@ def verify_v200_all_11_upgrades() -> None:
     vlc_rel = os.path.join(ROOT, "releases/VLC.apk")
     vlc_asset = os.path.join(ROOT, "app/src/main/assets/starter-apps/VLC.apk")
     assert os.path.isfile(vlc_rel) and os.path.isfile(vlc_asset)
-    assert os.path.getsize(vlc_rel) == os.path.getsize(vlc_asset) and os.path.getsize(vlc_rel) > 25000
+    assert os.path.getsize(vlc_rel) == os.path.getsize(vlc_asset)
+    assert os.path.getsize(vlc_rel) > 5 * 1024 * 1024, (
+        "releases/VLC.apk is only "
+        f"{os.path.getsize(vlc_rel) // 1024} KB - that is the tiny offline fallback player, not the "
+        "real official VideoLAN ARMv7 build (scripts/fetch-vlc-apk.py could not reach any mirror)"
+    )
     subprocess.run([ZIPALIGN, "-c", "4", vlc_rel], check=True)
     subprocess.run([JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "9", "--max-sdk-version", "17", vlc_rel], check=True)
     v_apk = APK(vlc_rel)
@@ -3096,6 +3113,20 @@ public class TestV240Live {
         if (!"https://login.tailscale.com/a/7f9e2b4c81d0a3".equals(parsedAuth)) {
             throw new AssertionError("Tailscale AuthURL extraction failed: " + parsedAuth);
         }
+        // v2.5.3: trailing punctuation stripped + self-hosted Headscale /register/ links recognised.
+        String dotted = TailscaleManager.extractAuthUrlFromText(
+                "visit https://login.tailscale.com/a/abc.def123.");
+        if (!"https://login.tailscale.com/a/abc.def123".equals(dotted)) {
+            throw new AssertionError("Trailing dot not trimmed from AuthURL: " + dotted);
+        }
+        String headscale = TailscaleManager.extractAuthUrlFromText(
+                "headscale: https://hs.example.com/register/abc123xyz");
+        if (!"https://hs.example.com/register/abc123xyz".equals(headscale)) {
+            throw new AssertionError("Headscale /register/ AuthURL not recognised: " + headscale);
+        }
+        if (!TailscaleManager.extractAuthUrlFromText("no url here").isEmpty()) {
+            throw new AssertionError("False-positive AuthURL detected");
+        }
 
         // 3. Emit QR matrix for official Tailscale Google Sign-In URL!
         boolean[][] qr = QrCodeEncoder.encodeMatrix(parsedAuth);
@@ -3149,9 +3180,517 @@ public class TestV240Live {
         gv_srv.close()
 
 
+
+def verify_v253_reader_paging_and_tailscale_login(main_apk: str) -> None:
+    """Tap-to-turn e-reader pages + the Tailscale sign-in page opening by itself."""
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.3: tap-to-turn reader pages + Tailscale sign-in page that opens itself ===")
+
+    reader_src = open(os.path.join(
+        ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7EbookReaderActivity.java"), encoding="utf-8").read()
+    for needle in ("arc7NextPage", "arc7PrevPage", "arc7GotoRatio", "arc7ctl:",
+                   "toggleReadingChrome", "ComicPageView", "FLAG_KEEP_SCREEN_ON",
+                   "ReaderWebViewClient", "injectReaderChrome"):
+        assert needle in reader_src, f"Reader is missing {needle}"
+    assert "ws.setJavaScriptEnabled(true)" in reader_src, "Reader must enable JS for the paging runtime"
+    assert ".addJavascriptInterface(" not in reader_src, (
+        "Reader must not expose an addJavascriptInterface bridge (Android 4.2 JS-bridge RCE)"
+    )
+    assert "tap" in reader_src.lower() and "0.30" in reader_src and "0.70" in reader_src
+    print("  [PASS] Reader exposes left/middle/right tap zones, screen-sized page turning and "
+          "ratio-preserving font/theme changes (no JS bridge)")
+
+    ts_src = open(os.path.join(
+        ROOT, "app/src/main/java/ca/arc7freedom/app/TailscaleManager.java"), encoding="utf-8").read()
+    for needle in ("openLoginPage", "drainToLog", "REGISTER_URL_REGEX", "readTail",
+                   "diagnostics", "queryAuthUrlFromStatus", "isAuthenticatedFromStatus"):
+        assert needle in ts_src, f"TailscaleManager is missing {needle}"
+    assert "appendLog" in ts_src and "192 * 1024" in ts_src
+    assert "for (int i = 0; i < 40; i++)" in ts_src, "Login-URL capture window must be 30 s, not 12 s"
+
+    vpn_src = open(os.path.join(
+        ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7VpnActivity.java"), encoding="utf-8").read()
+    assert "autoOpenLoginPage" in vpn_src, "VPN screen never auto-opens the sign-in page"
+    assert "watchForOfficialSignInAsync" in vpn_src
+    assert "renderLoginPendingCard" in vpn_src
+    assert "waitForGoogleCompletionAsync" not in vpn_src
+    print("  [PASS] Tailscale: daemon stdout drained (no wedged tailscaled), 30 s auth-URL window, "
+          "late URLs auto-open, login page launched in a real browser with an Arc7 Browser fallback")
+
+    # The paging runtime is executed for real: node scripts/test-reader-paging.js drives the exact
+    # JS that ships inside the APK against a headless DOM stub.
+    node = shutil.which("node") or shutil.which("nodejs")
+    assert node, "node is required to execute the injected e-reader paging runtime"
+    r = subprocess.run([node, os.path.join(ROOT, "scripts/test-reader-paging.js")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, f"E-reader paging runtime test failed:\n{r.stdout}\n{r.stderr}"
+    assert "ALL E-READER PAGING CHECKS PASSED" in r.stdout
+    print("  [PASS] Live JS run: 1-screen page turns, atend/atstart chapter rollover, exact ratio "
+          "restore, and left/middle/right tap zones all behave")
+
+    # And the strings really are inside the shipped DEX.
+    with zipfile.ZipFile(main_apk) as zf:
+        dex = DEX(zf.read("classes.dex"))
+    # javac folds constant string concatenation into one literal, so the runtime lives inside a
+    # single (very long) DEX string — search the joined pool, not for equal items.
+    dex_blob = "\n".join(dex.get_strings())
+    for needle in ("arc7ctl:", "arc7NextPage", "arc7GotoRatio", "injectReaderChrome",
+                   "openLoginPage", "tailscaled.log", "arc7GotoBottom"):
+        assert needle in dex_blob, f"Missing v2.5.3 string in suite DEX: {needle}"
+    print("  [PASS] Paging runtime + Tailscale login launcher are present in the compiled suite DEX")
+
+
+def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
+    """Every built-in app ships as its own signed APK, and the OTA portal really delivers them."""
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.3: one installable APK per default app + working OTA download portal ===")
+    ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+    tsv = os.path.join(ROOT, "split-apps", "apps.tsv")
+    assert os.path.isfile(tsv), "split-apps/apps.tsv missing — run scripts/gen-split-apps.py"
+    rows = [ln.rstrip("\n").split("\t") for ln in open(tsv, encoding="utf-8") if ln.strip()]
+    assert len(rows) >= 27, f"Expected >=27 separately installable apps, got {len(rows)}"
+
+    apps_dir = os.path.join(ROOT, "releases", "apps")
+    seen_pkgs = set()
+    launchers = {}
+    for key, fname, label, _desc in rows:
+        path = os.path.join(apps_dir, fname)
+        assert os.path.isfile(path), f"Missing built split app {fname} — run scripts/build-all.sh"
+
+        r = subprocess.run([ZIPALIGN, "-c", "4", path], capture_output=True, text=True)
+        assert r.returncode == 0, f"zipalign failed on {fname}"
+        r = subprocess.run(
+            [JAVA, "-jar", APKSIGNER, "verify", "--print-certs", "--min-sdk-version", "15",
+             "--max-sdk-version", "17", path],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0 and PERMANENT_CERT_SHA256 in r.stdout.lower(), (
+            f"{fname} is not signed with the permanent release certificate"
+        )
+
+        obj = APK(path)
+        pkg = obj.get_package()
+        assert pkg == f"ca.arc7freedom.{key}", f"{fname}: package {pkg} != ca.arc7freedom.{key}"
+        assert pkg not in seen_pkgs, f"Duplicate package {pkg}"
+        seen_pkgs.add(pkg)
+        assert str(obj.get_androidversion_code()) == "253", f"{fname}: versionCode is not 252"
+        assert str(obj.get_min_sdk_version()) == "15" and str(obj.get_target_sdk_version()) == "17"
+
+        xml = obj.get_android_manifest_xml()
+        acts = xml.findall(".//activity")
+        with_launcher = [
+            a for a in acts
+            if "android.intent.category.LAUNCHER" in
+            [c.get(ANDROID_NS + "name") for f in a.findall("intent-filter")
+             for c in f.findall("category")]
+        ]
+        assert len(with_launcher) == 1, f"{fname}: expected exactly 1 launcher activity, got {len(with_launcher)}"
+        launchers[pkg] = with_launcher[0].get(ANDROID_NS + "name")
+        with zipfile.ZipFile(path) as zf:
+            assert zf.read("classes.dex")[:8] == b"dex\n035\x00", f"{fname}: not DEX 035 (Dalvik 4.2)"
+    print(f"  [PASS] {len(rows)} separately installable default apps: unique ca.arc7freedom.* packages, "
+          "one launcher each, DEX 035, v1+v2+v3 signed")
+
+    # The suite must not advertise a second icon for any app that now ships on its own: every
+    # launcher entry moved to a generated <activity-alias>, which SplitAppIconSync disables
+    # once the standalone package is installed.
+    suite = APK(main_apk)
+    suite_xml = suite.get_android_manifest_xml()
+    aliases = suite_xml.findall(".//activity-alias")
+    assert len(aliases) >= 27, f"Suite only has {len(aliases)} split-app launcher aliases"
+    suite_launcher_acts = [
+        a for a in suite_xml.findall(".//activity")
+        if "android.intent.category.LAUNCHER" in
+        [c.get(ANDROID_NS + "name") for f in a.findall("intent-filter") for c in f.findall("category")]
+    ]
+    assert [a.get(ANDROID_NS + "name") for a in suite_launcher_acts] == [".MainActivity"], (
+        f"Suite still exposes duplicate launcher icons: {[a.get(ANDROID_NS + 'name') for a in suite_launcher_acts]}"
+    )
+    with zipfile.ZipFile(main_apk) as zf:
+        dex = DEX(zf.read("classes.dex"))
+        dex_strings = set(dex.get_strings())
+        methods = {m.get_name() for c in dex.get_classes() for m in c.get_methods()}
+    for needle in ("ca.arc7freedom.browser", "ca.arc7freedom.clock", "ca.arc7freedom.calculator"):
+        assert needle in dex_strings, f"Suite has no SplitApps entry for {needle}"
+    assert {"sync", "setAliasEnabled", "isInstalled"} <= methods, (
+        "SplitAppIconSync is missing from the suite DEX"
+    )
+    print(f"  [PASS] Suite keeps 1 real launcher entry + {len(aliases)} auto-disabled activity aliases "
+          "(SplitAppIconSync: no duplicate icons once a standalone app is installed)")
+
+    # ---- SHA256SUMS must cover the 27 split APKs too ----
+    sums = {}
+    for line in open(os.path.join(ROOT, "releases", "SHA256SUMS.txt"), encoding="utf-8"):
+        if line.strip():
+            h, name = line.split(None, 1)
+            sums[name.strip()] = h
+    for _key, fname, _label, _desc in rows:
+        assert fname in sums, f"releases/SHA256SUMS.txt has no checksum for {fname}"
+    print(f"  [PASS] SHA256SUMS.txt covers all {len(rows)} standalone app APKs")
+
+    # ---- OTA portal: no JavaScript-dependent download buttons, every link resolves ----
+    idx_path = os.path.join(ROOT, "releases", "index.html")
+    html_body = open(idx_path, encoding="utf-8").read()
+    assert "onStartDl(" not in html_body, (
+        "OTA portal still wires download buttons to inline JavaScript — Android 4.2 Browser may not navigate"
+    )
+    assert "onclick='onStartDl" not in html_body
+    release_base = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
+    for _key, fname, _label, _desc in rows:
+        quoted = urllib.parse.quote(fname)
+        assert (f"{release_base}/{quoted}" in html_body) or (f"./apps/{quoted}" in html_body), (
+            f"OTA portal does not link {fname}"
+        )
+    for needed in ("Upgrade-My-Kobo-To-v2.5.3.apk", "KoboArc7Freedom.apk"):
+        assert f"./{needed}" in html_body, f"OTA portal missing {needed}"
+
+    # Live server routes: `/lite`, `/dl/<key>`, `/apps/<Name>.apk`, `?file=`
+    portal_src = open(os.path.join(ROOT, "tools", "serve-over-wifi.py"), encoding="utf-8").read()
+    for route in ('"/lite"', '"/dl/"', '"/apps/"', '"file"'):
+        assert route in portal_src, f"Wi-Fi OTA server missing route {route}"
+    print("  [PASS] OTA portal: pure <a href> downloads (no inline JS), 27 app links, "
+          "/lite text mode, /dl/<key>, /apps/<Name>.apk and ?file= routing")
+
+
+def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) -> None:
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.3: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
+    ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+    # 1. The suite must NOT expose YouTube / YouTube Music launcher icons any more.
+    app = APK(main_apk)
+    mxml = app.get_android_manifest_xml()
+    launcher_acts = []
+    for act in mxml.findall(".//activity"):
+        cats = [c.get(ANDROID_NS + "name") for c in act.findall(".//category")]
+        if "android.intent.category.LAUNCHER" in cats:
+            launcher_acts.append(act.get(ANDROID_NS + "name"))
+    assert ".YouTubeActivity" not in launcher_acts, (
+        f"YouTube still advertises a duplicate launcher icon inside the suite: {launcher_acts}")
+    assert ".YouTubeMusicActivity" not in launcher_acts, (
+        f"YouTube Music still advertises a duplicate launcher icon inside the suite: {launcher_acts}")
+    print("  [PASS] Suite declares no duplicate YouTube / YouTube Music LAUNCHER icons")
+
+    # 2. Both standalone APKs: own package, own label, own launcher entry, own services, signed.
+    expected = {
+        "releases/YouTube.apk": ("ca.arc7freedom.youtube", "YouTube",
+                                 "ca.arc7freedom.app.YouTubeActivity"),
+        "releases/YouTubeMusic.apk": ("ca.arc7freedom.ytmusic", "YouTube Music",
+                                      "ca.arc7freedom.app.YouTubeMusicActivity"),
+    }
+    for rel, (pkg, label, act) in expected.items():
+        path = os.path.join(ROOT, rel)
+        assert os.path.isfile(path), f"Missing standalone app {rel} — run scripts/build-all.sh"
+        r = subprocess.run([ZIPALIGN, "-c", "4", path], capture_output=True, text=True)
+        assert r.returncode == 0, f"zipalign failed on {rel}: {r.stderr}"
+        r = subprocess.run(
+            [JAVA, "-jar", APKSIGNER, "verify", "--verbose", "--print-certs",
+             "--min-sdk-version", "15", path],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0, f"apksigner failed on {rel}: {r.stdout}\n{r.stderr}"
+        assert "Verified using v1 scheme (JAR signing): true" in r.stdout, f"{rel} lacks v1 signing!"
+        assert PERMANENT_CERT_SHA256 in r.stdout.lower(), f"{rel} not signed with release cert!"
+        obj = APK(path)
+        assert obj.get_package() == pkg, f"{rel}: package {obj.get_package()} != {pkg}"
+        assert str(obj.get_min_sdk_version()) == "15" and str(obj.get_target_sdk_version()) == "17"
+        xml = obj.get_android_manifest_xml()
+        app_el = xml.find("application")
+        assert app_el is not None and app_el.get(ANDROID_NS + "label") == label, \
+            f"{rel}: <application> label is not '{label}'"
+        assert act in obj.get_activities(), f"{rel}: missing activity {act}"
+        acts = xml.findall(".//activity")
+        has_launcher = any(
+            "android.intent.category.LAUNCHER" in [c.get(ANDROID_NS + "name") for c in a.findall(".//category")]
+            for a in acts
+        )
+        assert has_launcher, f"{rel}: no LAUNCHER intent-filter (would not appear in the app drawer)"
+        services = obj.get_services()
+        for svc in ("ca.arc7freedom.app.Arc7TlsGatewayService", "ca.arc7freedom.app.Arc7AudioService"):
+            assert svc in services, f"{rel}: missing separate background service {svc}"
+        with zipfile.ZipFile(path, "r") as zf:
+            names = set(zf.namelist())
+            assert zf.read("classes.dex")[:8] == b"dex\n035\x00", f"{rel}: not Dalvik DEX 035"
+            assert "assets/cacerts/ca-bundle-2026.crt" in names, f"{rel}: missing offline 2026 CA bundle"
+            assert "lib/armeabi-v7a/libarc7tls.so" in names, f"{rel}: missing TLS 1.3 engine"
+            assert zf.getinfo("lib/armeabi-v7a/libarc7tls.so").compress_type == zipfile.ZIP_STORED
+        print(f"  [PASS] {rel}: separate package {pkg}, label '{label}', own services, "
+              f"v1+v2+v3 signed, DEX 035, CA bundle + TLS 1.3 engine")
+
+    # 3. 2026 InnerTube client cascade + DASH remux engine present in the suite DEX.
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        dex = DEX(zf.read("classes.dex"))
+        strings = set(dex.get_strings())
+    for needle in (
+        "visionos.youtube/1.04",     # 2026 anonymous client UA
+        "26.6.0.23O770",             # visionOS osVersion
+        "youtubei.googleapis.com",   # host used by the visionOS / TV players
+        "visitor_id",                # per-client visitorData endpoint
+        "X-Goog-Api-Format-Version", # required for the 2026 player response
+        "MorpheRemuxer",             # DASH -> merged fMP4 engine
+        "MorpheStreamServer",        # local Range server for Stagefright
+        "Content-Range",
+        "Accept-Ranges",
+        "1.64.34",
+        "7.12.52",
+    ):
+        assert any(needle in v for v in strings), f"Missing critical v2.5.3 streaming string: {needle!r}"
+    print("  [PASS] DEX contains the 2026 InnerTube cascade + DASH remux + local Range server")
+
+    # 4. The upgrader carries both standalone APKs inside its embedded suite APK.
+    with zipfile.ZipFile(upgrader_apk, "r") as zf:
+        embedded = zf.read("assets/KoboArc7Freedom.apk")
+    with tempfile.NamedTemporaryFile(suffix=".apk") as tf:
+        tf.write(embedded)
+        tf.flush()
+        with zipfile.ZipFile(tf.name, "r") as z2:
+            nested = set(z2.namelist())
+            for asset in ("assets/starter-apps/YouTube.apk", "assets/starter-apps/YouTubeMusic.apk"):
+                assert asset in nested, f"Upgrader's embedded suite is missing {asset}"
+    print("  [PASS] Upgrader installs both standalone apps automatically")
+
+    # 5. Live host-JVM proof of the remuxer + Range server.
+    env = dict(os.environ)
+    env["JAVAC"] = JAVAC
+    env["JAVA"] = JAVA
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-morphe-remux.py")],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, f"Morphe remux JVM suite failed:\n{r.stdout}\n{r.stderr}"
+    print("  [PASS] Live JVM DASH remux + strict Range/206 server test passed")
+
+def _axml_has_large_heap(raw: bytes) -> bool:
+    """Parses binary AndroidManifest.xml and returns True when <application android:largeHeap="true"> is present."""
+    import struct as _struct
+    assert _struct.unpack_from("<H", raw, 0)[0] == 0x0003, "not an AXML manifest"
+
+    def _read_utf8_len(buf, pos):
+        b0 = buf[pos]
+        pos += 1
+        if b0 & 0x80:
+            return ((b0 & 0x7F) << 8) | buf[pos], pos + 1
+        return b0, pos
+
+    total = _struct.unpack_from("<I", raw, 4)[0]
+    pos = _struct.unpack_from("<H", raw, 2)[0]
+    strings = []
+    rmap = []
+    while pos < total:
+        ctype, chdr, csize = _struct.unpack_from("<HHI", raw, pos)
+        if ctype == 0x0001:
+            _t, sp_hdr, _sz, str_count, _style_count, flags, strings_start, _styles_start = _struct.unpack_from(
+                "<HHIIIIII", raw, pos
+            )
+            is_utf8 = bool(flags & (1 << 8))
+            offsets = _struct.unpack_from(f"<{str_count}I", raw, pos + sp_hdr)
+            base = pos + strings_start
+            for off in offsets:
+                p = base + off
+                if is_utf8:
+                    _, p = _read_utf8_len(raw, p)
+                    n, p = _read_utf8_len(raw, p)
+                    strings.append(raw[p : p + n].decode("utf-8", errors="replace"))
+                else:
+                    n = _struct.unpack_from("<H", raw, p)[0]
+                    p += 2
+                    if n & 0x8000:
+                        n2 = _struct.unpack_from("<H", raw, p)[0]
+                        p += 2
+                        n = ((n & 0x7FFF) << 16) | n2
+                    strings.append(raw[p : p + 2 * n].decode("utf-16-le", errors="replace"))
+        elif ctype == 0x0180:
+            count = (csize - chdr) // 4
+            rmap = list(_struct.unpack_from(f"<{count}I", raw, pos + chdr))
+        elif ctype == 0x0102:
+            _ns, name_idx = _struct.unpack_from("<II", raw, pos + 16)
+            if name_idx < len(strings) and strings[name_idx] == "application":
+                attr_start, attr_size, attr_count = _struct.unpack_from("<HHH", raw, pos + 24)
+                ap = pos + 16 + attr_start
+                for _i in range(attr_count):
+                    _ans, anm, _rawv = _struct.unpack_from("<III", raw, ap)
+                    _vsz, _r0, dtype, data = _struct.unpack_from("<HBBI", raw, ap + 12)
+                    if anm < len(rmap) and rmap[anm] == 0x0101035A and dtype == 0x12 and data != 0:
+                        return True
+                    ap += attr_size
+        pos += csize
+    return False
+
+
+def _update_service_handlers_are_throwable(raw_dex: bytes) -> bool:
+    """True when every catch handler in UpdateService.onHandleIntent is java.lang.Throwable."""
+    import struct as _struct
+
+    def uleb(buf, p):
+        r = 0
+        shift = 0
+        while True:
+            b = buf[p]
+            p += 1
+            r |= (b & 0x7F) << shift
+            if not b & 0x80:
+                return r, p
+            shift += 7
+
+    def sleb(buf, p):
+        r = 0
+        shift = 0
+        while True:
+            b = buf[p]
+            p += 1
+            r |= (b & 0x7F) << shift
+            shift += 7
+            if not b & 0x80:
+                if b & 0x40:
+                    r |= -(1 << shift)
+                return r, p
+
+    string_ids_off = _struct.unpack_from("<I", raw_dex, 60)[0]
+    type_ids_off = _struct.unpack_from("<I", raw_dex, 68)[0]
+    method_ids_off = _struct.unpack_from("<I", raw_dex, 92)[0]
+    class_defs_size, class_defs_off = _struct.unpack_from("<II", raw_dex, 96)
+
+    def get_str(i):
+        off = _struct.unpack_from("<I", raw_dex, string_ids_off + 4 * i)[0]
+        p = off
+        while raw_dex[p] & 0x80:
+            p += 1
+        p += 1
+        return raw_dex[p : raw_dex.index(0, p)].decode("utf-8", errors="replace")
+
+    def get_type(i):
+        return get_str(_struct.unpack_from("<I", raw_dex, type_ids_off + 4 * i)[0])
+
+    type_count = _struct.unpack_from("<I", raw_dex, 64)[0]
+    types = [get_type(i) for i in range(type_count)]
+    if "Ljava/lang/Throwable;" not in types:
+        return False
+    throwable_idx = types.index("Ljava/lang/Throwable;")
+
+    for i in range(class_defs_size):
+        cls_idx, _acc, _sup, _ifaces, _src, _ann, cdata, _stat = _struct.unpack_from(
+            "<IIIIIIII", raw_dex, class_defs_off + i * 32
+        )
+        if get_type(cls_idx) != "Lorg/fdroid/fdroid/UpdateService;" or cdata == 0:
+            continue
+        p = cdata
+        sf, p = uleb(raw_dex, p)
+        inf, p = uleb(raw_dex, p)
+        dm, p = uleb(raw_dex, p)
+        vm, p = uleb(raw_dex, p)
+        for _ in range(sf + inf):
+            _, p = uleb(raw_dex, p)
+            _, p = uleb(raw_dex, p)
+        for count in (dm, vm):
+            midx = 0
+            for _ in range(count):
+                d, p = uleb(raw_dex, p)
+                _, p = uleb(raw_dex, p)
+                code_off, p = uleb(raw_dex, p)
+                midx += d
+                _c, _proto, nidx = _struct.unpack_from("<HHI", raw_dex, method_ids_off + midx * 8)
+                if get_str(nidx) != "onHandleIntent":
+                    continue
+                insns = _struct.unpack_from("<I", raw_dex, code_off + 12)[0]
+                tries = _struct.unpack_from("<H", raw_dex, code_off + 6)[0]
+                tries_off = code_off + 16 + insns * 2 + (2 if insns % 2 else 0)
+                handlers_off = tries_off + tries * 8
+                handler_count, hp = uleb(raw_dex, handlers_off)
+                seen_throwable = 0
+                for _h in range(handler_count):
+                    size, hp = sleb(raw_dex, hp)
+                    for _e in range(abs(size)):
+                        tidx, hp = uleb(raw_dex, hp)
+                        _addr, hp = uleb(raw_dex, hp)
+                        if tidx == throwable_idx:
+                            seen_throwable += 1
+                        elif types[tidx] != "Lorg/fdroid/fdroid/IndexUpdater$UpdateException;":
+                            return False
+                    if size <= 0:
+                        _addr, hp = uleb(raw_dex, hp)
+                return seen_throwable > 0
+    return False
+
+
+def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str,
+                                                fdroid_apk: str) -> None:
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.3: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
+    ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+    app = APK(main_apk)
+    assert str(app.get_androidversion_name()) == "2.5.3", f"Expected suite 2.5.3, got {app.get_androidversion_name()}"
+    assert str(app.get_androidversion_code()) == "253", f"Expected suite 252, got {app.get_androidversion_code()}"
+
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        dex = DEX(zf.read("classes.dex"))
+        strings = set(dex.get_strings())
+        method_names = {
+            m.get_name()
+            for c in dex.get_classes()
+            for m in c.get_methods()
+        }
+    for needle in (
+        "Repeat on these days (tap to toggle • no days = one-time)",
+        "Every day",
+        "Weekdays",
+        "Weekends",
+        "One-time",
+        "Repeat: ",
+        "Every ",
+    ):
+        assert needle in strings, f"Missing per-day alarm picker string {needle!r}"
+    for name in ("describeAlarmDays", "describeRepeatMask", "showEditAlarmDialog"):
+        assert name in method_names, f"Missing alarm day-picker method {name}"
+    print("  [PASS] Alarm editor exposes Sun..Sat check-off buttons + Every day / Weekdays / Weekends / One-time presets")
+
+    fd_obj = APK(fdroid_apk)
+    assert str(fd_obj.get_androidversion_code()) == "1304", f"Expected F-Droid 1304, got {fd_obj.get_androidversion_code()}"
+    with zipfile.ZipFile(fdroid_apk, "r") as zf:
+        manifest_raw = zf.read("AndroidManifest.xml")
+        dex1 = zf.read("classes.dex")
+    fd_dex = DEX(dex1)
+    dex_strings = set(fd_dex.get_strings())
+    fd_methods = {m.get_name() for c in fd_dex.get_classes() for m in c.get_methods()}
+    assert _axml_has_large_heap(manifest_raw), "F-Droid manifest is missing android:largeHeap=\"true\"!"
+    assert _update_service_handlers_are_throwable(dex1), (
+        "UpdateService.onHandleIntent still catches only java.lang.Exception — OutOfMemoryError would crash the app!"
+    )
+    for needle in ("arc7-last-crash.txt", "Arc7CrashGuard", "installCrashGuard"):
+        assert needle in dex_strings, f"Missing F-Droid crash guard string {needle!r}"
+    for name in ("safeNotifyContentProviders", "safePerformUpdateNotification", "logCaught"):
+        assert name in fd_methods, f"Missing F-Droid post-sync guard method {name!r}"
+
+    # Both post-sync calls in `onHandleIntent` sit AFTER the last try range of that method, so
+    # they must be retargeted to the `Arc7Bridge.safe*` reflective Throwable guards.
+    post_sync_calls = ""
+    for cls in fd_dex.get_classes():
+        if cls.get_name() != "Lorg/fdroid/fdroid/UpdateService;":
+            continue
+        for meth in cls.get_methods():
+            if meth.get_name() != "onHandleIntent":
+                continue
+            for ins in meth.get_code().get_bc().get_instructions():
+                try:
+                    post_sync_calls += str(ins.get_output()) + "\n"
+                except Exception:
+                    continue
+    for wrapper in ("safeNotifyContentProviders", "safePerformUpdateNotification"):
+        assert wrapper in post_sync_calls, (
+            f"UpdateService.onHandleIntent still calls the unguarded {wrapper.replace('safe','')}() "
+            "outside every try range — the post-sync crash is not fixed!"
+        )
+    print("  [PASS] F-Droid v1304: largeHeap=true, Throwable catch in UpdateService, crash guard writing "
+          "arc7-last-crash.txt + post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
+
+    up_obj = APK(upgrader_apk)
+    assert str(up_obj.get_androidversion_name()) == "2.5.3", f"Expected upgrader 2.5.3, got {up_obj.get_androidversion_name()}"
+    assert str(up_obj.get_androidversion_code()) == "253", f"Expected upgrader 252, got {up_obj.get_androidversion_code()}"
+    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.3.apk is 2.5.3 / 253")
+
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.4.1.apk")
-    for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0"):
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk")
+    for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
         assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
             f"Stale {stale_ver} upgrader APK left in releases/!"
         )
@@ -3205,6 +3744,14 @@ def main() -> None:
     verify_v220_all_14_upgrades_plus_vk(main_apk, home_apk)
     verify_v230_native_vpn_streamdeck_and_relay(main_apk)
     verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
+    verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
+    verify_v253_split_apps_and_ota_portal(main_apk)
+    verify_v253_reader_paging_and_tailscale_login(main_apk)
+    verify_v251_alarm_days_and_fdroid_stability(
+        main_apk,
+        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk"),
+        os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"),
+    )
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

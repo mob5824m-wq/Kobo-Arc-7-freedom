@@ -5,7 +5,7 @@ ARMv7 (`armeabi-v7a`, `minSdkVersion <= 17`, `DEX 035`, `SHA1withRSA` JAR v1 sig
 for Kobo Arc 7 / Arc 7HD (Android 4.2.2 Jelly Bean, API 17).
 
 1. Primary path (online CI / connected workstation):
-   Downloads official VideoLAN `VLC-Android-2.5.17-ARMv7.apk` (verified exact official
+   Downloads official VideoLAN `VLC-Android-2.5.37-ARMv7.apk` (verified exact official
    VideoLAN SHA-256 `4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789`,
    `minSdkVersion=9`, `DEX 035`, full FFmpeg/libVLC hardware + NEON codec suite for
    `.mkv`, `.mp4`, `.avi`, `.webm`, `.mp3`, `.flac`, `.ogg`, HLS, RTSP & SMB!) from
@@ -34,15 +34,35 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 OFFICIAL_VLC_MIRRORS = [
     (
-        "https://mirrors.ocf.berkeley.edu/videolan-ftp/vlc-android/2.5.17/VLC-Android-2.5.17-ARMv7.apk",
+        "https://mirrors.ocf.berkeley.edu/videolan-ftp/vlc-android/2.5.37/VLC-Android-2.5.37-ARMv7.apk",
         "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
     ),
     (
-        "https://mirror.fcix.net/videolan-ftp/vlc-android/2.5.17/VLC-Android-2.5.17-ARMv7.apk",
+        "https://mirror.fcix.net/videolan-ftp/vlc-android/2.5.37/VLC-Android-2.5.37-ARMv7.apk",
         "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
     ),
     (
-        "https://mirror.lstn.net/videolan/vlc-android/2.5.17/VLC-Android-2.5.17-ARMv7.apk",
+        "https://mirror.lstn.net/videolan/vlc-android/2.5.37/VLC-Android-2.5.37-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    # VideoLAN reorganised/retired the 2.5.37 directory on some mirrors (a CI run could then
+    # only fall back to the tiny in-repo player and published a 25 KB "VLC.apk"). These are
+    # the canonical VideoLAN download hosts, plus our own published v2.4.1 release asset,
+    # which is the exact upstream file (same SHA-256) and always reachable from Actions.
+    (
+        "https://get.videolan.org/vlc-android/2.5.37/VLC-Android-2.5.37-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    (
+        "https://download.videolan.org/pub/videolan/vlc-android/2.5.37/VLC-Android-2.5.37-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    (
+        "https://ftp.nluug.nl/pub/videolan/vlc-android/2.5.37/VLC-Android-2.5.37-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    (
+        "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/download/v2.4.1/VLC.apk",
         "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
     ),
 ]
@@ -142,7 +162,7 @@ def main() -> int:
             shutil.copy2(dst_asset, dst_release)
             return 0
 
-    # 2. Try fetching official VideoLAN `VLC-Android-2.5.17-ARMv7.apk` across verified HTTPS mirrors
+    # 2. Try fetching official VideoLAN `VLC-Android-2.5.37-ARMv7.apk` across verified HTTPS mirrors
     tmp_dl = "/tmp/vlc-upstream-armv7.apk.part"
     for url, expected_sha256 in OFFICIAL_VLC_MIRRORS:
         try:
