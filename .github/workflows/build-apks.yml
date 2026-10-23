@@ -62,8 +62,6 @@ jobs:
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
-            releases/apps/*.apk \
-            releases/apps/SHA256SUMS.txt \
             releases/Start-PC-Stream-Deck.py \
             releases/Start-PC-Stream-Deck.bat \
             releases/Start-PC-Stream-Deck.sh \
