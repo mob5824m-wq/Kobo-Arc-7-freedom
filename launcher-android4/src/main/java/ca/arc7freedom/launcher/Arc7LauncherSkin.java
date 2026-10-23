@@ -24,9 +24,9 @@ import java.util.Properties;
  * Custom Arc7 OS Skin + Complete Default System App Icon Pack Reskinner inside
  * `VanillaAndroid4Home.apk` (`v50`).
  *
- * Replaces EVERY outdated 2012 stock Android 4.2 / Kobo icon on the Home Screen,
- * Glass Dock, and All-Apps Drawer with our high-DPI custom squircle icon pack AND
- * wraps any third-party store APK in a matching glass squircle tile!
+ * Applies the Arc7 icon pack to unrelated legacy system apps and wraps third-party APKs in
+ * a matching glass squircle tile. Standalone Arc7 apps and legacy apps with a similar new
+ * replacement keep their own/original logos so users can tell the two apps apart.
  */
 public final class Arc7LauncherSkin {
 
@@ -127,9 +127,32 @@ public final class Arc7LauncherSkin {
         clearCache();
     }
 
+    /**
+     * Standalone Arc7 apps keep the exact launcher logo declared in their own APK. Likewise,
+     * stock apps that have a similar Arc7 replacement keep their OEM icon so both entries stay
+     * recognizable (for example, the factory Camera and the new Camera app must not look alike).
+     */
+    public static boolean shouldPreserveOriginalAppIcon(String pkg, String cls) {
+        String p = pkg == null ? "" : pkg.toLowerCase(Locale.US);
+        String c = cls == null ? "" : cls.toLowerCase(Locale.US);
+        if (p.startsWith("ca.arc7freedom.") && !"ca.arc7freedom.app".equals(p)) return true;
+        if (p.startsWith("ca.arc7freedom.")) return false;
+        return hasArc7ReplacementTwin(p) || hasArc7ReplacementTwin(c);
+    }
+
+    private static boolean hasArc7ReplacementTwin(String value) {
+        return value.contains("camera") || value.contains("calendar") || value.contains("calculator")
+                || value.contains("browser") || value.contains("gallery") || value.contains("photos")
+                || value.contains("deskclock") || value.contains("alarmclock") || value.contains("clock")
+                || value.contains("music") || value.contains("recorder") || value.contains("filemanager")
+                || value.contains("documentsui") || value.contains("packageinstaller")
+                || value.contains("pdf") || value.contains("ebook") || value.contains("reader");
+    }
+
     public static int resolveCustomIconRes(String pkg, String cls) {
         String p = pkg == null ? "" : pkg.toLowerCase(Locale.US);
         String c = cls == null ? "" : cls.toLowerCase(Locale.US);
+        if (shouldPreserveOriginalAppIcon(p, c)) return 0;
 
         if ("ca.arc7freedom.app".equals(p)) {
             if (c.contains("youtubemusic")) return R.drawable.ic_ytmusic;
@@ -191,6 +214,9 @@ public final class Arc7LauncherSkin {
     }
 
     public static Drawable reskinAppIcon(Context ctx, String pkg, String cls, Drawable systemFallback) {
+        if (systemFallback != null && shouldPreserveOriginalAppIcon(pkg, cls)) {
+            return systemFallback;
+        }
         String key = currentSkinId(ctx) + ":" + pkg + "/" + cls;
         Drawable cached = ICON_CACHE.get(key);
         if (cached != null) return cached;

@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -39,11 +40,14 @@ import java.util.Locale;
  */
 public class Arc7AppManagerActivity extends Activity {
 
+    private static final int REQUEST_UNINSTALL = 0xA741;
+
     private static class AppEntry {
         String label;
         String pkg;
         String sourceApk;
         boolean systemApp;
+        boolean updatedSystemApp;
         boolean enabled;
     }
 
@@ -123,6 +127,20 @@ public class Arc7AppManagerActivity extends Activity {
         reloadPackagesAsync();
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_UNINSTALL) {
+            Toast.makeText(this, "Refreshing installed apps…", Toast.LENGTH_SHORT).show();
+            ui.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    reloadPackagesAsync();
+                }
+            }, 500L);
+        }
+    }
+
     private void reloadPackagesAsync() {
         countLabel.setText("Scanning installed Android 4.2 packages...");
         new Thread(new Runnable() {
@@ -138,6 +156,7 @@ public class Arc7AppManagerActivity extends Activity {
                     e.pkg = ai.packageName;
                     e.sourceApk = ai.sourceDir;
                     e.systemApp = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                    e.updatedSystemApp = (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
                     e.enabled = ai.enabled;
                     built.add(e);
                 }
@@ -214,16 +233,24 @@ public class Arc7AppManagerActivity extends Activity {
             lp.bottomMargin = dp(6);
             listContainer.addView(row, lp);
         }
-        countLabel.setText("Showing " + shown + " package(s) — tap 'Manage' to Export APK Backup, Freeze/Unfreeze, Launch, or Clear Data.");
+        countLabel.setText("Showing " + shown + " package(s) — Manage apps to Uninstall, Export APK Backup, Freeze/Unfreeze, Launch, or Clear Data.");
     }
 
     private void showManageDialog(final AppEntry app) {
         final String freezeLabel = app.enabled ? "Freeze Background App (`pm disable`)" : "Unfreeze App (`pm enable`)";
+        final String uninstallBlockReason = getUninstallBlockReason(app);
+        final boolean canUninstall = uninstallBlockReason == null;
+        final String uninstallLabel = canUninstall
+                ? (app.updatedSystemApp ? "Remove System App Updates" : "Uninstall App")
+                : (app.systemApp && !app.updatedSystemApp
+                    ? "Uninstall unavailable (preinstalled app)"
+                    : "Uninstall blocked (Android safety)" );
         String[] actions = new String[]{
             "Launch App Now",
             "Export .APK Backup to Storage (`APK-Backups/`)",
             freezeLabel,
-            "Clear App Data & Cache (`pm clear`)"
+            "Clear App Data & Cache (`pm clear`)",
+            uninstallLabel
         };
         new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
                 .setTitle(app.label + " (" + app.pkg + ")")
@@ -240,11 +267,70 @@ public class Arc7AppManagerActivity extends Activity {
                             toggleFreezeApp(app);
                         } else if (which == 3) {
                             runRootPkgCmd("pm clear " + app.pkg, "Cleared app data for " + app.label);
+                        } else if (which == 4) {
+                            if (canUninstall) {
+                                confirmUninstall(app);
+                            } else {
+                                new AlertDialog.Builder(Arc7AppManagerActivity.this, AlertDialog.THEME_HOLO_DARK)
+                                        .setTitle("App cannot be uninstalled")
+                                        .setMessage(uninstallBlockReason)
+                                        .setPositiveButton("OK", null)
+                                        .show();
+                            }
                         }
                     }
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    private String getUninstallBlockReason(AppEntry app) {
+        if (app == null || app.pkg == null) return "The selected package name is invalid.";
+        if (app.systemApp && !app.updatedSystemApp) {
+            return "This is a preinstalled system app. Android does not allow removing its system image from App Manager. "
+                    + "Use Freeze / Unfreeze if you want to disable it safely.";
+        }
+        if (isCriticalUninstallPackage(app.pkg)) {
+            return "The currently running App Manager, Android essentials/device drivers, Package Installer, and the only Home launcher "
+                    + "are protected to prevent a boot or navigation failure.";
+        }
+        return null;
+    }
+
+    private void confirmUninstall(final AppEntry app) {
+        new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
+                .setTitle((app.updatedSystemApp ? "Remove updates for " : "Uninstall ") + app.label + "?")
+                .setMessage("Android will show its package confirmation next. "
+                        + (app.updatedSystemApp
+                            ? "This removes the installed update and restores the factory version."
+                            : "Uninstalling removes the app and its private data. Export an APK backup first if you may want it later."))
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton(app.updatedSystemApp ? "Remove Updates" : "Continue", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface dialog, int which) {
+                        launchUninstaller(app);
+                    }
+                })
+                .show();
+    }
+
+    private void launchUninstaller(final AppEntry app) {
+        Intent uninstall = new Intent(Intent.ACTION_UNINSTALL_PACKAGE);
+        uninstall.setData(Uri.fromParts("package", app.pkg, null));
+        uninstall.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+        if (uninstall.resolveActivity(getPackageManager()) == null) {
+            uninstall.setAction(Intent.ACTION_DELETE);
+        }
+        if (uninstall.resolveActivity(getPackageManager()) == null) {
+            Toast.makeText(this, "Android Package Installer is unavailable; no app was removed.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        try {
+            startActivityForResult(uninstall, REQUEST_UNINSTALL);
+        } catch (RuntimeException e) {
+            Toast.makeText(this, "Could not open Android's uninstall confirmation: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
     }
 
     private void exportApkBackup(final AppEntry app) {
@@ -285,6 +371,38 @@ public class Arc7AppManagerActivity extends Activity {
     }
 
     /**
+     * Blocks uninstall requests that could remove Android's package installer, system UI,
+     * hardware services, providers, keyboard, or the only enabled Home launcher. Other Arc7
+     * standalone apps remain uninstallable like any other user-installed package.
+     */
+    private boolean isCriticalUninstallPackage(String pkg) {
+        if (pkg == null) return true;
+        String p = pkg.toLowerCase(Locale.US);
+        String runningPackage = getPackageName();
+        if (runningPackage != null && p.equals(runningPackage.toLowerCase(Locale.US))) {
+            return true;
+        }
+        if (p.equals("android")
+                || p.equals("com.android.systemui")
+                || p.equals("com.android.settings")
+                || p.equals("com.android.packageinstaller")
+                || p.equals("com.android.defcontainer")
+                || p.equals("com.android.keychain")
+                || p.equals("com.android.certinstaller")
+                || p.equals("com.android.shell")
+                || p.equals("com.android.phone")
+                || p.equals("com.android.bluetooth")
+                || p.equals("com.android.nfc")
+                || p.startsWith("com.android.providers.")
+                || p.startsWith("com.android.inputmethod")
+                || p.startsWith("com.mediatek")
+                || p.startsWith("com.nvidia")) {
+            return true;
+        }
+        return isOnlyEnabledHomeLauncher(pkg);
+    }
+
+    /**
      * Prevents users from accidentally soft-bricking Android 4.2 by disabling core system_server,
      * SystemUI, Settings, PackageInstaller, InputMethod keyboard, hardware HALs, or the last Home launcher!
      */
@@ -310,21 +428,23 @@ public class Arc7AppManagerActivity extends Activity {
             return true;
         }
         /* Never allow freezing the ONLY active CATEGORY_HOME launcher on the tablet! */
+        return isOnlyEnabledHomeLauncher(pkg);
+    }
+
+    private boolean isOnlyEnabledHomeLauncher(String pkg) {
         Intent home = new Intent(Intent.ACTION_MAIN);
         home.addCategory(Intent.CATEGORY_HOME);
         List<android.content.pm.ResolveInfo> homes = getPackageManager().queryIntentActivities(home, 0);
-        if (homes != null) {
-            boolean isHome = false;
-            int enabledHomeCount = 0;
-            for (android.content.pm.ResolveInfo ri : homes) {
-                if (ri.activityInfo != null && ri.activityInfo.applicationInfo.enabled) {
-                    enabledHomeCount++;
-                    if (pkg.equals(ri.activityInfo.packageName)) isHome = true;
-                }
+        if (homes == null) return false;
+        boolean isHome = false;
+        int enabledHomeCount = 0;
+        for (android.content.pm.ResolveInfo ri : homes) {
+            if (ri.activityInfo != null && ri.activityInfo.applicationInfo.enabled) {
+                enabledHomeCount++;
+                if (pkg.equals(ri.activityInfo.packageName)) isHome = true;
             }
-            if (isHome && enabledHomeCount <= 1) return true;
         }
-        return false;
+        return isHome && enabledHomeCount <= 1;
     }
 
     private void trimAllCaches() {

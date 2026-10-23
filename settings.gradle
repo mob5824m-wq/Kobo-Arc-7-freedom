@@ -1,3 +1,8 @@
 rootProject.name = "KoboArc7Freedom"
-include ":launcher-android4"
+
+// Every installable Android application has a conventional <module>/src/main layout.
 include ":app"
+include ":launcher-android4"
+include ":aurora-store"
+include ":vlc-player"
+include ":upgrader"

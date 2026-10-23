@@ -541,6 +541,17 @@
             </intent-filter>
         </receiver>
 
+        <!-- Re-hide suite fallback icons immediately when their standalone APK is added/removed. -->
+        <receiver android:name=".SplitAppPackageReceiver" android:enabled="true" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.PACKAGE_ADDED" />
+                <action android:name="android.intent.action.PACKAGE_REMOVED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
+
         <!-- Scheduled Alarm & Calendar Trigger Receiver -->
         <receiver android:name=".Arc7AlarmReceiver" android:exported="true" />
 

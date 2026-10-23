@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v1.8.0 — Reproducible Full Native + Dalvik (DEX 035) Build
+# Kobo Arc 7 Freedom v2.5.3 — Reproducible Android 4.2.2 (API 17 / DEX 035) release build
 #
-# Builds BOTH signed Android 4.2.2 (API 17 / minSdk 15) APKs + Patched F-Droid:
-#   1. Pre-packages all 118 modern 2026 Mozilla Root CA certificates offline
-#      into `app/src/main/assets/cacerts/` (`<subject_hash_old>.<idx>` + bundle)
-#   2. Patches `FDroidClassicLegacy.apk` binary `resources.arsc` (`default_repos`
-#      -> `http://127.0.0.1:8118/__https/...` + `F-Droid Archive` enabled) &
-#      signs with `arc7freedom.jks` (`v1+v2+v3` valid at API 14/15/17!)
-#   3. Cross-compiles all 4 static ARMv7 EABI5 native binaries:
-#        - `libarc7su.so`   (Setuid + daemon fallback `su`)
-#        - `libarc7root.so` (Multi-stage Linux 3.4 ARMv7 kernel root engine)
-#        - `libarc7tool.so` (Streaming zlib + FIPS-180-4 SHA-256 partition tool)
-#        - `libarc7tls.so`  (BearSSL TLS 1.0–1.2 local server + Mbed-TLS 3.6 LTS
-#                            TLS 1.3 upstream + `/__https/` F-Droid bridge + NTP)
-#   4. Builds & v1/v2/v3 signs `releases/VanillaAndroid4Home.apk` (v48 Widgets)
-#      & `releases/KoboArc7Freedom.apk` (`v1.8.0`, code `180`) + `SHA256SUMS.txt`
+# `scripts/build-all.sh` builds and signs the complete release set:
+#   1. Generates the offline CA bundle, app icons, split-app manifests, and patched F-Droid APK.
+#   2. Cross-compiles the static ARMv7 root, TLS, VPN, Python, apt, and partition utilities.
+#   3. Builds Home, Aurora Store, VLC fallback, YouTube, YouTube Music, 27 default-app APKs,
+#      Arc7 Freedom, and the 1-tap upgrader with the permanent v1/v2/v3 release certificate.
+#   4. Generates the local Wi-Fi release portal and `releases/SHA256SUMS.txt`.
+#
+# Android modules use the conventional `src/main/AndroidManifest.xml`, `src/main/java/`, and
+# `src/main/res/` layout. Keep the file paths here in sync with that layout.
 # ==============================================================================
 set -euo pipefail
 
@@ -520,10 +515,10 @@ build_default_split_apps() {
 
 echo "==> [3/8] Building standalone Stock Android 4.2 Home Launcher v49 (Long-Press Widgets) & Aurora Store (com.aurora.store)..."
 rm -rf build/launcher && mkdir -p build/launcher/{res_compiled,gen,classes,dex}
-"$AAPT2" compile --dir launcher-android4/res -o build/launcher/res_compiled/res.zip
+"$AAPT2" compile --dir launcher-android4/src/main/res -o build/launcher/res_compiled/res.zip
 "$AAPT2" link \
     -I "$ANDROID_JAR" \
-    --manifest launcher-android4/AndroidManifest.xml \
+    --manifest launcher-android4/src/main/AndroidManifest.xml \
     --java build/launcher/gen \
     --min-sdk-version 15 \
     --target-sdk-version 17 \
@@ -535,7 +530,7 @@ compile_java_and_dex \
     build/launcher/classes \
     build/launcher/dex \
     build/launcher/gen/ca/arc7freedom/launcher/R.java \
-    launcher-android4/src/ca/arc7freedom/launcher/*.java
+    launcher-android4/src/main/java/ca/arc7freedom/launcher/*.java
 
 (cd build/launcher/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/launcher/unsigned.apk build/launcher/aligned.apk
@@ -552,10 +547,10 @@ compile_java_and_dex \
     build/launcher/aligned.apk
 
 rm -rf build/aurora && mkdir -p build/aurora/{res_compiled,gen,classes,dex}
-"$AAPT2" compile --dir aurora-store/res -o build/aurora/res_compiled/res.zip
+"$AAPT2" compile --dir aurora-store/src/main/res -o build/aurora/res_compiled/res.zip
 "$AAPT2" link \
     -I "$ANDROID_JAR" \
-    --manifest aurora-store/AndroidManifest.xml \
+    --manifest aurora-store/src/main/AndroidManifest.xml \
     --java build/aurora/gen \
     --min-sdk-version 15 \
     --target-sdk-version 17 \
@@ -567,7 +562,7 @@ compile_java_and_dex \
     build/aurora/classes \
     build/aurora/dex \
     build/aurora/gen/com/aurora/store/R.java \
-    aurora-store/src/com/aurora/store/*.java
+    aurora-store/src/main/java/com/aurora/store/*.java
 
 (cd build/aurora/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/aurora/unsigned.apk build/aurora/aligned.apk
@@ -595,10 +590,10 @@ echo "==> [3c/9] Building 27 separately installable default apps (releases/apps/
 build_default_split_apps
 
 mkdir -p app/src/main/assets/starter-apps
-cp -f app/src/main/res/drawable-mdpi/ic_vlc.png vlc-player/res/drawable-mdpi/ic_vlc.png
-cp -f app/src/main/res/drawable-hdpi/ic_vlc.png vlc-player/res/drawable-hdpi/ic_vlc.png
-cp -f app/src/main/res/drawable-xhdpi/ic_vlc.png vlc-player/res/drawable-xhdpi/ic_vlc.png
-cp -f app/src/main/res/drawable-xxhdpi/ic_vlc.png vlc-player/res/drawable-xxhdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-mdpi/ic_vlc.png vlc-player/src/main/res/drawable-mdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-hdpi/ic_vlc.png vlc-player/src/main/res/drawable-hdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-xhdpi/ic_vlc.png vlc-player/src/main/res/drawable-xhdpi/ic_vlc.png
+cp -f app/src/main/res/drawable-xxhdpi/ic_vlc.png vlc-player/src/main/res/drawable-xxhdpi/ic_vlc.png
 set +e
 "$PY_BIN" scripts/fetch-vlc-apk.py \
     "app/src/main/assets/starter-apps/VLC.apk" \
@@ -613,10 +608,10 @@ VLC_RC=$?
 set -e
 if [ "$VLC_RC" -ne 0 ]; then
     rm -rf build/vlc && mkdir -p build/vlc/{res_compiled,gen,classes,dex}
-    "$AAPT2" compile --dir vlc-player/res -o build/vlc/res_compiled/res.zip
+    "$AAPT2" compile --dir vlc-player/src/main/res -o build/vlc/res_compiled/res.zip
     "$AAPT2" link \
         -I "$ANDROID_JAR" \
-        --manifest vlc-player/AndroidManifest.xml \
+        --manifest vlc-player/src/main/AndroidManifest.xml \
         --java build/vlc/gen \
         --min-sdk-version 15 \
         --target-sdk-version 17 \
@@ -627,7 +622,7 @@ if [ "$VLC_RC" -ne 0 ]; then
         build/vlc/classes \
         build/vlc/dex \
         build/vlc/gen/org/videolan/vlc/R.java \
-        vlc-player/src/org/videolan/vlc/*.java
+        vlc-player/src/main/java/org/videolan/vlc/*.java
     (cd build/vlc/dex && zip -qj ../unsigned.apk classes.dex)
     "$ZIPALIGN" -f -p 4 build/vlc/unsigned.apk build/vlc/aligned.apk
     "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \

@@ -809,7 +809,7 @@ def patch_app_init_installed_apk_safe(raw_dex: bytes) -> bytes:
 def build_fdroid_patch_sources(src_dir: str, repo_root: str) -> list:
     """
     Generates type-exact Java sources for:
-      - `org.fdroid.fdroid.Arc7ApkKit` (adapted from `aurora-store/src/com/aurora/store/Arc7ApkKit.java`)
+      - `org.fdroid.fdroid.Arc7ApkKit` (adapted from `aurora-store/src/main/java/com/aurora/store/Arc7ApkKit.java`)
       - `org.fdroid.fdroid.Arc7Bridge`
       - `info.guardianproject.netcipher.NetCipher`
       - `com.nostra13.universalimageloader.core.download.BaseImageDownloader`
@@ -936,7 +936,7 @@ public class DefaultInstaller {
     ]
 
     # 2. Reuse our proven, Google-apksigner & zipalign verified `Arc7ApkKit.java` in package `org.fdroid.fdroid`
-    with open(os.path.join(repo_root, "aurora-store/src/com/aurora/store/Arc7ApkKit.java"), "r", encoding="utf-8") as fh:
+    with open(os.path.join(repo_root, "aurora-store/src/main/java/com/aurora/store/Arc7ApkKit.java"), "r", encoding="utf-8") as fh:
         kit_src = fh.read().replace("package com.aurora.store;", "package org.fdroid.fdroid;", 1)
 
     impl_files = [

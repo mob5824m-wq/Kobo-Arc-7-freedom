@@ -31,9 +31,10 @@
    their **own signed APK** (`releases/apps/*.apk`, published as `Browser.apk`, `Clock.apk`, …).
    Each has its own package id (`ca.arc7freedom.browser`, `ca.arc7freedom.clock`, …), launcher
    icon/label, task stack, data directory and row in *Settings → Apps* — install, update or
-   uninstall any of them on its own. The suite keeps a hidden `<activity-alias>` fallback and
-   `SplitAppIconSync` turns it off the moment the standalone app is installed, so you never see
-   two identical icons.
+   uninstall any of them on its own. Standalone apps retain their declared names and logos; similar
+   stock apps keep their original icon. The suite keeps a hidden `<activity-alias>` fallback and
+   `SplitAppPackageReceiver` + `SplitAppIconSync` update it immediately on standalone install/removal,
+   so duplicate Camera or other twin entries do not linger until reboot.
 4. **The over-the-air installer website works again.** Download buttons are plain
    `<a href>` links now — the old `onclick='onStartDl(...)'` handlers were undefined on the
    static page, so taps on a 4.2 Browser could do nothing at all. Links are root-absolute,
@@ -86,6 +87,8 @@ Since `v2.5.0` (still included):
      `tkhd` / `tfhd` / `trex` / `mfhd` / `base_data_offset` / `trun` offsets.
    * `MorpheStreamServer` serves it from `127.0.0.1` with an **exact `Content-Length`** and full
      `Range: bytes=…` → `206 Partial Content` support, so Stagefright starts instantly and can seek.
+   * Foreground resolution is bounded and reports the active YouTube client/mirror; the stream opens
+     before recommendations, SponsorBlock and dislike metadata load in the background.
    * Correct **2026 client cascade**: `visionOS 1.04` → `TVHTML5_SIMPLY 1.1` → `Android VR 1.64`
      → `Android Music 7.12` → `Android Creator 26.10`, each with its **own**
      `/youtubei/v1/visitor_id` visitor id (sharing one id across clients raised the bot score and
@@ -104,6 +107,33 @@ Everything from `v2.4.1` and earlier is still included: Launcher `v55` with effo
 removal, universal Now Playing notification + Clock Standby, Official Tailscale Google sign-in,
 patched F-Droid `v1304`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
 Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
+
+## App Manager & Repository Layout
+
+- **Uninstall from App Manager:** open an app's **Manage** menu and select **Uninstall App**;
+  Android's own Package Installer asks for final confirmation. User-installed apps and updated
+  system apps are supported. The running App Manager itself, core Android services, the package
+  installer, device drivers, and the only enabled Home launcher are protected. Preinstalled system
+  apps can still be safely frozen or unfrozen, but their system-image APKs are not deleted.
+- **Consistent Android module layout:** each installable project uses the standard
+  `src/main/AndroidManifest.xml`, `src/main/java/`, and `src/main/res/` structure:
+
+  ```text
+  app/                 main Arc7 Freedom application and shared app code
+  launcher-android4/   Home launcher
+  aurora-store/        Aurora Store client
+  vlc-player/          local VLC-compatible player fallback
+  upgrader/            1-tap system updater
+  split-apps/          generated per-app manifests + apps.tsv build index
+  native/              ARMv7 native source
+  scripts/             build, generation, patching, and verification tools
+  tools/               user-facing host utilities and installer servers
+  releases/            intentionally tracked release APKs, portal, and host tools
+  ```
+
+  All five full Android modules are declared in `settings.gradle`. `scripts/build-all.sh`
+  remains the reproducible signed release build; it reads from these standard module paths and
+  writes release outputs to `releases/`.
 
 ---
 
@@ -189,7 +219,7 @@ signed with the permanent release certificate
 6. **Official Tailscale Auth with Google Sign-In (`TailscaleManager` + `QrCodeEncoder` + `Arc7VpnActivity`):**
    - Official Linux `3.4.5`-safe `tailscale_1.78.1_arm.tgz` + 100% standards-compliant **ISO/IEC 18004 Reed-Solomon QR code** for real `https://login.tailscale.com/a/...` Google OAuth sessions + 1-tap on-tablet Google Sign-In + live `BackendState` polling that activates `Arc7VpnService` automatically as soon as Google login finishes.
 - **PC Stream Deck, School VPN Relay, USB & Home Wi-Fi Companion Scripts:**
-  - **Windows / macOS / Linux PC Stream Deck Server + Live Web Studio (`:18991` / `:18995`):** **[`Start-PC-Stream-Deck.py`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-Stream-Deck.py)** | **[`Start-PC-Stream-Deck.bat`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-Stream-Deck.bat)** | **[`Start-PC-Stream-Deck.sh`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-Stream-Deck.sh)**
+  - **Windows / macOS / Linux PC Stream Deck Server + Live Web Studio (`:18991` / `:18995`):** USB ADB uses a separate host bridge (`:18992` → Kobo `:18991`) so it cannot collide with the Wi-Fi listener. **[`Start-PC-Stream-Deck.py`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-Stream-Deck.py)** | **[`Start-PC-Stream-Deck.bat`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-Stream-Deck.bat)** | **[`Start-PC-Stream-Deck.sh`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-Stream-Deck.sh)**
   - **Personal Port-443 TLS 1.3 Stealth School VPN Home Relay:** **[`Start-PC-School-VPN-Relay.py`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-PC-School-VPN-Relay.py)**
   - **Chromebook / PC / Mac Extended `1280×800` Second Screen & Macro Deck Sender:** **[`Start-Kobo-Second-Screen.py`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-Kobo-Second-Screen.py)**
   - **Chromebook / Linux Wired USB Internet Bridge:** **[`Start-Chromebook-Wired-Internet.sh`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Start-Chromebook-Wired-Internet.sh)**
@@ -208,7 +238,7 @@ signed with the permanent release certificate
 2. **Touch Drag-and-Drop App Icon Rearrangement (`VanillaAndroid4Home v53`):**
    - Long-press & drag (or tap **`Rearrange`** on the Home Top Bar) to move any app icon freely into **any grid slot on any desktop page**, **swap positions**, **drop onto another icon to create/add to a Folder**, **drag across multi-page edges**, **drop onto the Top Action Bar** (*Unpin / Rename / Folder / App Info / Uninstall*), **swap App Bar slots**, and **custom-sort the All Apps drawer**!
 3. **Full `1280×800` LCD Stream Deck for Windows / macOS / Linux (`Arc7 Stream Deck` + `Start-PC-Stream-Deck.{py,bat,sh}`):**
-   - `15` (`5×3`), `24` (`6×4`), `32` (`8×4` XL), and `6` (`3×2` Mega) glowing LCD key layouts over **Wi-Fi LAN**, **zero-lag USB (`adb forward`)**, or **Tailscale IP**, featuring **OBS WebSocket v5 (`:4455`)** scene/record/stream/mute controls, **Media & Touch Volume Faders**, **Momentary Push-to-Talk**, **Live PC CPU / RAM / Volume telemetry**, and **Live PC Browser Deck Studio (`:18995`)**!
+   - `15` (`5×3`), `24` (`6×4`), `32` (`8×4` XL), and `6` (`3×2` Mega) glowing LCD key layouts over **Wi-Fi LAN**, **USB ADB** (host `:18992` → Kobo `:18991`), or **Tailscale IP**, featuring **OBS WebSocket v5 (`:4455`)** scene/record/stream/mute controls, **Media & Touch Volume Faders**, **Momentary Push-to-Talk**, **Live PC CPU / RAM / Volume telemetry**, and **Live PC Browser Deck Studio (`:18995`)**!
 4. **System-Wide Android 4.2 VPNs & Official Tailscale (`Arc7VpnService` + `libarc7vpn.so` + `TailscaleManager`):**
    - Full `/dev/tun` `android.net.VpnService` + static ARMv7 `libarc7vpn.so` tunneling every app on the tablet across **Official Upstream Tailscale** (`tailscaled` + `tailscale` ARMv7 mesh + DERP TCP `443` + QR Login + Exit Nodes + `100.64.0.0/10` MagicDNS), **WireGuard (`.conf` + on-device Curve25519 keygen)**, **OpenVPN (`.ovpn`)**, **SOCKS5 / HTTP CONNECT / Port-443 TLS 1.3 Stealth VPN**, **Encrypted DoH**, and **Root `iptables` Kill Switch**!
 
@@ -222,8 +252,8 @@ signed with the permanent release certificate
    - Read `.pdf` textbooks/manuals offline OR scan multi-page documents straight from the Kobo camera to `%PDF-1.4` files in `/sdcard/Documents/Scans/`.
 3. **Live `Open-Meteo` Weather App + Home Screen Weather Widget (`Arc7 Weather`):**
    - Zero-API-key TLS 1.3 city search, current conditions, 24-hour strip, 7-day forecast, °C/°F toggle, offline cache, and Home Screen AppWidget.
-4. **30,000+ Live World Internet Radio, Podcast `.mp3` Downloader & Offline RSS Reader (`Arc7 Radio & Feeds`):**
-   - Screen-off TLS-relayed world radio streaming, Podcast search & offline `.mp3` downloads, and RSS 2.0 / Atom offline feed reader.
+4. **Live Radio-Browser, Podcast `.mp3` Downloader & Offline RSS Reader (`Radio & Podcasts`):**
+   - Top-voted and searched stations come from the Radio-Browser directory (`radio-browser.info`), with HTTPS streams relayed through the TLS 1.3 gateway for screen-off playback; includes Podcast search/downloads and an RSS 2.0 / Atom offline reader.
 5. **Studio 44.1 kHz Waveform Voice Recorder & Lossless WAV Trimmer (`Arc7 Recorder`):**
    - 16-bit PCM `.wav` recording with Android 4.2 Pause/Resume, live 60 fps waveform, and lossless `.wav` sample trimming.
 6. **Zero-Ad 60 fps Offline Classic Games Suite (`Arc7 Arcade`):**
@@ -231,7 +261,7 @@ signed with the permanent release certificate
 7. **System-Wide `/etc/hosts` Ad/Tracker Blocker & Per-App Root Firewall (`Arc7 Shield`):**
    - Pure `mksh`/`toolbox` hosts adblocker + live `StevenBlack/hosts` sync over TLS 1.3 + per-app UID `iptables` firewall.
 8. **`+384 MB` Kernel `zRAM`/Swap Expander, Quad-Core CPU Profiles & Battery Doctor (`Arc7 Boost`).**
-9. **Chromebook / PC / Mac Extended `1280×800` USB/Wi-Fi Second Screen + 12-Key Macro Deck (`Arc7 Second Screen` + `Start-Kobo-Second-Screen.py`).**
+9. **Chromebook / PC / Mac Extended `1280×800` USB/Wi-Fi Second Screen + 12-Key Macro Deck (`Arc7 Second Screen` + `Start-Kobo-Second-Screen.py`).** The screen stream stays connected without Linux `xdotool`; install `xdotool` to enable PC clicks and keyboard macros.
 10. **Landscape Dual-Pane Split-Screen Multitasking (`Arc7 Split View` — Web, Books/PDF, Notes, Dict/Wiki & Calculator side-by-side).**
 11. **Upgraded `VanillaAndroid4Home v52` (`3–5` Multi-Page Desktops, `4–7` Column Grid Density, Desktop & App Bar `@folder:` App Folders, 4-Digit App PIN Lock, and JSON Layout Backup/Restore).**
 12. **Wireless WebDAV + HTML5 Network Drive (`:8085`) & Remote LAN Share Browser with Direct `VLC` Streaming (`Arc7 Files`).**

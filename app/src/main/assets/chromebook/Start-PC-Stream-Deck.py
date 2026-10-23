@@ -9,7 +9,7 @@ Zero third-party dependencies! Uses ONLY the Python 3 Standard Library across:
 
 Connects seamlessly with your Kobo Arc 7 (`Arc7 Stream Deck`) in ALL 3 ways:
   1. Wi-Fi LAN Auto-Discovery (UDP + TCP port 18991 — automatic zero-config!)
-  2. USB Cable (`adb forward tcp:18991 tcp:18991` — automatic when ADB is present!)
+  2. USB Cable (`adb forward tcp:18992 tcp:18991` — separate host bridge port, automatic when ADB is present!)
   3. Remote Tailscale Mesh (`100.x.y.z:18991`)
 
 Live Browser Key Designer UI:  http://127.0.0.1:18995
@@ -31,6 +31,8 @@ import time
 import webbrowser
 
 STREAM_DECK_PORT = 18991
+ADB_FORWARD_PORT = 18992
+ANDROID_STREAM_DECK_PORT = 18991
 STUDIO_HTTP_PORT = 18995
 OBS_WS_HOST = os.environ.get("OBS_HOST", "127.0.0.1")
 OBS_WS_PORT = int(os.environ.get("OBS_PORT", "4455"))
@@ -155,7 +157,7 @@ def set_system_volume(percent: int) -> None:
 
 def obs_send_request(request_type: str, request_data=None) -> bool:
     try:
-        sock = socket.create_connection((OBS_WS_HOST, OBS_WS_PORT), timeout=0.65)
+        sock = socket.create_connection((OBS_WS_HOST, OBS_WS_PORT), timeout=2.5)
         key = base64.b64encode(os.urandom(16)).decode("ascii")
         hs = (
             f"GET / HTTP/1.1\r\nHost: {OBS_WS_HOST}:{OBS_WS_PORT}\r\n"
@@ -170,17 +172,30 @@ def obs_send_request(request_type: str, request_data=None) -> bool:
                 sock.close()
                 return False
             hdr += chunk
+        header_end = hdr.index(b"\r\n\r\n") + 4
+        pending = bytearray(hdr[header_end:])
+
+        def recv_exact(size):
+            data = bytearray()
+            if pending:
+                take = min(size, len(pending))
+                data.extend(pending[:take])
+                del pending[:take]
+            while len(data) < size:
+                chunk = sock.recv(size - len(data))
+                if not chunk:
+                    raise ConnectionError("OBS WebSocket closed mid-frame")
+                data.extend(chunk)
+            return bytes(data)
 
         def ws_recv_json():
-            b0, b1 = sock.recv(2)
+            _b0, b1 = recv_exact(2)
             ln = b1 & 0x7F
             if ln == 126:
-                ln = struct.unpack("!H", sock.recv(2))[0]
+                ln = struct.unpack("!H", recv_exact(2))[0]
             elif ln == 127:
-                ln = struct.unpack("!Q", sock.recv(8))[0]
-            data = b""
-            while len(data) < ln:
-                data += sock.recv(ln - len(data))
+                ln = struct.unpack("!Q", recv_exact(8))[0]
+            data = recv_exact(ln)
             return json.loads(data.decode("utf-8"))
 
         def ws_send_json(obj):
@@ -433,22 +448,88 @@ def udp_discovery_responder(port: int) -> None:
             time.sleep(0.5)
 
 
-def adb_usb_bridge_loop(port: int) -> None:
+def adb_usb_bridge_loop(server_port: int, device_port: int = ANDROID_STREAM_DECK_PORT,
+                        forward_port: int = ADB_FORWARD_PORT) -> None:
+    """Bridge the Kobo's inbound USB socket without colliding with the PC TCP listener.
+
+    ADB's local side defaults to 18992 (separate from the PC Wi-Fi server on 18991);
+    the remote/device side remains the Android app's ServerSocket on 18991.
+    """
+    last_status = ""
+
+    def report_status(message: str) -> None:
+        nonlocal last_status
+        if message != last_status:
+            add_log(message)
+            last_status = message
+
     while True:
-        if shutil.which("adb"):
-            try:
-                out = subprocess.check_output(["adb", "devices"], stderr=subprocess.DEVNULL, text=True)
-                lines = [l for l in out.splitlines()[1:] if "\tdevice" in l]
-                if lines and not ACTIVE_CLIENTS:
-                    subprocess.run(["adb", "forward", f"tcp:{port}", f"tcp:{port}"],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    try:
-                        s = socket.create_connection(("127.0.0.1", port), timeout=1.2)
-                        threading.Thread(target=handle_kobo_client, args=(s, ("USB-ADB", port)), daemon=True).start()
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+        adb = shutil.which("adb")
+        if not adb:
+            report_status("USB-ADB bridge waiting: adb is not installed or not on PATH")
+            time.sleep(4.0)
+            continue
+        try:
+            result = subprocess.run(
+                [adb, "devices"], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, check=False, timeout=4.0,
+            )
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "adb devices failed").strip()
+                report_status("USB-ADB bridge waiting: " + detail)
+                time.sleep(4.0)
+                continue
+            device_ids = []
+            for line in result.stdout.splitlines()[1:]:
+                fields = line.split()
+                if len(fields) >= 2 and fields[1] == "device":
+                    device_ids.append(fields[0])
+
+            if not device_ids:
+                report_status("USB-ADB bridge waiting: connect and authorize the Kobo over USB")
+            else:
+                with ACTIVE_CLIENTS_LOCK:
+                    client_connected = bool(ACTIVE_CLIENTS)
+                if client_connected:
+                    report_status("USB-ADB bridge ready; Kobo Stream Deck is connected")
+                else:
+                    serial = device_ids[0]
+                    if len(device_ids) > 1:
+                        report_status("USB-ADB found multiple devices; using " + serial)
+                    remove_args = [adb, "-s", serial, "forward", "--remove", f"tcp:{forward_port}"]
+                    subprocess.run(remove_args, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, check=False, timeout=4.0)
+                    forward_result = subprocess.run(
+                        [adb, "-s", serial, "forward", f"tcp:{forward_port}", f"tcp:{device_port}"],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                        text=True, check=False, timeout=4.0,
+                    )
+                    if forward_result.returncode != 0:
+                        detail = (forward_result.stderr or forward_result.stdout or "could not create ADB forward").strip()
+                        report_status("USB-ADB bridge failed: " + detail)
+                    else:
+                        try:
+                            conn = socket.create_connection(("127.0.0.1", forward_port), timeout=5.0)
+                            conn.settimeout(None)
+                            with ACTIVE_CLIENTS_LOCK:
+                                client_connected = bool(ACTIVE_CLIENTS)
+                            if client_connected:
+                                conn.close()
+                            else:
+                                threading.Thread(
+                                    target=handle_kobo_client,
+                                    args=(conn, ("USB-ADB " + serial, forward_port)),
+                                    daemon=True,
+                                ).start()
+                                report_status("USB-ADB connected; PC server :" + str(server_port)
+                                              + ", host bridge :" + str(forward_port)
+                                              + " → Kobo :" + str(device_port))
+                        except OSError as exc:
+                            report_status("USB-ADB bridge waiting for Stream Deck on the Kobo: " + str(exc))
+        except (OSError, subprocess.SubprocessError) as exc:
+            report_status("USB-ADB bridge waiting: " + str(exc))
+        except Exception as exc:
+            report_status("USB-ADB bridge error: " + str(exc))
         time.sleep(3.5)
 
 
@@ -464,7 +545,7 @@ input,select{background:#090d16;color:#fff;border:1px solid #334155;border-radiu
 pre{background:#05080f;padding:12px;border-radius:10px;color:#67e8f9;max-height:240px;overflow:auto;font-size:12px}
 </style></head><body><div class="wrap">
 <div class="card"><h1>🎛 Arc7 Stream Deck Studio (PC Host)</h1>
-<p>Connected Kobo devices auto-sync over <b>Wi-Fi LAN (18991)</b>, <b>USB Cable (ADB)</b>, or <b>Tailscale</b>.</p>
+<p>Connected Kobo devices auto-sync over <b>Wi-Fi LAN (18991)</b>, <b>USB ADB (host 18992 → device 18991)</b>, or <b>Tailscale</b>.</p>
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 <input id="cmd" value="HOTKEY CTRL+SHIFT+M" style="flex:1" placeholder="HOTKEY CTRL+SHIFT+M | MEDIA PLAY_PAUSE | OBS_SCENE Live"/>
 <button onclick="fetch('/api/test',{method:'POST',body:document.getElementById('cmd').value}).then(()=>load())">▶ Test Action on PC</button>
@@ -519,18 +600,34 @@ class StudioHandler(http.server.BaseHTTPRequestHandler):
 def start_stream_deck_host(tcp_port: int = STREAM_DECK_PORT, web_port: int = STUDIO_HTTP_PORT, block: bool = True, enable_adb: bool = True):
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind(("0.0.0.0", tcp_port))
+    try:
+        srv.bind(("0.0.0.0", tcp_port))
+    except OSError as exc:
+        srv.close()
+        raise OSError(
+            f"Cannot listen on Stream Deck TCP port {tcp_port}: {exc}. "
+            "Close another copy of the Stream Deck host or choose a free --port."
+        )
     srv.listen(8)
 
     threading.Thread(target=udp_discovery_responder, args=(tcp_port,), daemon=True).start()
+    adb_forward_port = ADB_FORWARD_PORT
+    while adb_forward_port in (tcp_port, web_port):
+        adb_forward_port += 1
     if enable_adb:
-        threading.Thread(target=adb_usb_bridge_loop, args=(tcp_port,), daemon=True).start()
+        threading.Thread(
+            target=adb_usb_bridge_loop,
+            args=(tcp_port, ANDROID_STREAM_DECK_PORT, adb_forward_port),
+            daemon=True,
+        ).start()
 
     if web_port > 0:
         httpd = http.server.ThreadingHTTPServer(("127.0.0.1", web_port), StudioHandler)
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
 
-    add_log(f"Arc7 Stream Deck PC Server ready on TCP/UDP :{tcp_port}  |  Studio UI: http://127.0.0.1:{web_port}")
+    usb_note = (f"  |  USB ADB host :{adb_forward_port} → device :{ANDROID_STREAM_DECK_PORT}"
+                if enable_adb else "  |  USB ADB bridge disabled")
+    add_log(f"Arc7 Stream Deck PC Server ready on TCP/UDP :{tcp_port}{usb_note}  |  Studio UI: http://127.0.0.1:{web_port}")
 
     def accept_loop():
         while True:
