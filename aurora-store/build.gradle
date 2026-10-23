@@ -1,0 +1,19 @@
+apply plugin: "com.android.application"
+
+android {
+    namespace "com.aurora.store"
+    compileSdkVersion 19
+
+    defaultConfig {
+        applicationId "com.aurora.store"
+        minSdkVersion 15
+        targetSdkVersion 17
+        versionCode 485
+        versionName "4.8.5"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+}

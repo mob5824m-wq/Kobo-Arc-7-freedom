@@ -1398,8 +1398,8 @@ public class MainActivity extends Activity {
                     }
                 });
 
-        addToolActionRow(packCard, "Open App Manager — Freeze Bloat, Export APKs & Trim Caches",
-                "Inspect every installed app, export `.apk` backups to MicroSD, freeze background drainers, or clear caches.",
+        addToolActionRow(packCard, "Open App Manager — Uninstall Apps, Freeze Bloat & Export APKs",
+                "Inspect installed apps, uninstall user apps through Android's confirmation screen, back up APKs to MicroSD, freeze background drainers, or clear data.",
                 "App Manager", new View.OnClickListener() {
                     @Override public void onClick(View v) {
                         startActivity(new Intent(MainActivity.this, Arc7AppManagerActivity.class));

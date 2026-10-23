@@ -8,18 +8,11 @@ android {
         applicationId "ca.arc7freedom.launcher"
         minSdkVersion 15
         targetSdkVersion 17
-        versionCode 42
-        versionName "4.2.2-vanilla"
+        versionCode 55
+        versionName "5.5.0"
     }
 
-    sourceSets {
-        main {
-            manifest.srcFile "AndroidManifest.xml"
-            java.srcDirs = ["src"]
-            res.srcDirs = ["res"]
-        }
-    }
-
+    // Uses the Android Gradle Plugin's conventional src/main/{AndroidManifest.xml,java,res} layout.
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_7
         targetCompatibility JavaVersion.VERSION_1_7

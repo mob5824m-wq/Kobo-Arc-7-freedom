@@ -4,7 +4,7 @@ Generates ALL custom Kobo Arc 7 OS Skin vector assets & Reskinned System App Ico
   1. High-resolution project logo banner (`releases/logo-banner.png`, 960x240 — NO `docs/`!)
   2. Header emblem drawable (`app/src/main/res/drawable-xhdpi/arc7_logo_header.png`, 96x96)
   3. 28 crisp 2x-SSAA multi-DPI (`mdpi`=48, `hdpi`=72, `xhdpi`=96, `xxhdpi`=144) squircle
-     icons generated into BOTH `app/src/main/res/drawable-*/` AND `launcher-android4/res/drawable-*/`
+     icons generated into BOTH `app/src/main/res/drawable-*/` AND `launcher-android4/src/main/res/drawable-*/`
      reskinning EVERY built-in app AND EVERY default Android 4.2 / Kobo system app:
        - ic_launcher.png        (Kobo Arc 7 Freedom Control Center — Unlocked Cyan Shield)
        - ic_launcher_home.png   (Arc7 Home Launcher — Glass House + Dock Dots)
@@ -778,11 +778,11 @@ def main():
             fn(c)
             rgba = c.downsample()
             write_rgba_png(os.path.join(ROOT, f"app/src/main/res/drawable-{folder}/{fname}"), size, size, rgba)
-            write_rgba_png(os.path.join(ROOT, f"launcher-android4/res/drawable-{folder}/{fname}"), size, size, rgba)
+            write_rgba_png(os.path.join(ROOT, f"launcher-android4/src/main/res/drawable-{folder}/{fname}"), size, size, rgba)
             if fname == "ic_apk_installer.png":
                 write_rgba_png(os.path.join(ROOT, f"upgrader/src/main/res/drawable-{folder}/ic_launcher.png"), size, size, rgba)
             if fname == "ic_aurora.png":
-                write_rgba_png(os.path.join(ROOT, f"aurora-store/res/drawable-{folder}/ic_launcher.png"), size, size, rgba)
+                write_rgba_png(os.path.join(ROOT, f"aurora-store/src/main/res/drawable-{folder}/ic_launcher.png"), size, size, rgba)
 
     hdr = Canvas(96)
     draw_ic_launcher(hdr)

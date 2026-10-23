@@ -1,0 +1,36 @@
+apply plugin: "com.android.application"
+
+android {
+    namespace "ca.arc7freedom.upgrader"
+    compileSdkVersion 19
+
+    defaultConfig {
+        applicationId "ca.arc7freedom.upgrader"
+        minSdkVersion 15
+        targetSdkVersion 17
+        versionCode 253
+        versionName "2.5.3"
+    }
+
+    sourceSets {
+        main.assets.srcDir "$buildDir/generated/release-assets"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+}
+
+// Keep the single large payload out of source control duplication while making the Gradle
+// module buildable. The reproducible release build still stages the same APK itself.
+def stageUpgradePayload = tasks.register("stageUpgradePayload", Copy) {
+    from("${rootProject.projectDir}/releases/KoboArc7Freedom.apk")
+    into("${buildDir}/generated/release-assets")
+}
+
+tasks.configureEach { task ->
+    if (task.name.startsWith("merge") && task.name.endsWith("Assets")) {
+        task.dependsOn(stageUpgradePayload)
+    }
+}

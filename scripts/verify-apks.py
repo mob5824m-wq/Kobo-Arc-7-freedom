@@ -1276,7 +1276,7 @@ def verify_upgrader_and_multicall_su(upgrader_apk: str, main_apk: str) -> None:
     ]
     for jpath in sorted(
         glob.glob(os.path.join(ROOT, "app/src/main/java/**/*.java"), recursive=True)
-        + glob.glob(os.path.join(ROOT, "launcher/src/main/java/**/*.java"), recursive=True)
+        + glob.glob(os.path.join(ROOT, "launcher-android4/src/main/java/**/*.java"), recursive=True)
     ):
         txt = open(jpath, "r", encoding="utf-8").read()
         for lineno, line in enumerate(txt.splitlines(), 1):
@@ -1293,7 +1293,7 @@ def verify_v190_all_12_upgrades() -> None:
 
     # 1. Verify ZERO `+ Widget` or `"Tap + to add widgets"` strings remain anywhere in `VanillaHomeActivity.java` OR `classes.dex`!
     launcher_java_code = "\n".join(
-        ln for ln in open(os.path.join(ROOT, "launcher-android4/src/ca/arc7freedom/launcher/VanillaHomeActivity.java"), "r", encoding="utf-8").read().splitlines()
+        ln for ln in open(os.path.join(ROOT, "launcher-android4/src/main/java/ca/arc7freedom/launcher/VanillaHomeActivity.java"), "r", encoding="utf-8").read().splitlines()
         if not ln.strip().startswith(("//", "*"))
     )
     for forbidden in ("+ Widget", "Tap + to add", "Tap + Widget"):
@@ -3353,6 +3353,76 @@ def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
           "/lite text mode, /dl/<key>, /apps/<Name>.apk and ?file= routing")
 
 
+def verify_repository_layout_and_app_manager(main_apk: str) -> None:
+    """Canonical Android module paths and a working, safety-checked app uninstall flow."""
+    from androguard.core.dex import DEX
+
+    print("\n=== Verifying canonical Android module layout + App Manager uninstall flow ===")
+    modules = {
+        "app": "ca/arc7freedom/app",
+        "launcher-android4": "ca/arc7freedom/launcher",
+        "aurora-store": "com/aurora/store",
+        "vlc-player": "org/videolan/vlc",
+        "upgrader": "ca/arc7freedom/upgrader",
+    }
+    settings = open(os.path.join(ROOT, "settings.gradle"), encoding="utf-8").read()
+    for module, java_path in modules.items():
+        module_root = os.path.join(ROOT, module)
+        expected = (
+            os.path.join(module_root, "build.gradle"),
+            os.path.join(module_root, "src", "main", "AndroidManifest.xml"),
+            os.path.join(module_root, "src", "main", "java", java_path),
+            os.path.join(module_root, "src", "main", "res"),
+        )
+        for path in expected:
+            assert os.path.exists(path), f"Android module {module} is missing canonical path: {path}"
+        assert f'include ":{module}"' in settings, f"Gradle settings do not include module {module}"
+
+    legacy_paths = (
+        "launcher-android4/AndroidManifest.xml", "launcher-android4/res", "launcher-android4/src/ca",
+        "aurora-store/AndroidManifest.xml", "aurora-store/res", "aurora-store/src/com",
+        "vlc-player/AndroidManifest.xml", "vlc-player/res", "vlc-player/src/org",
+    )
+    for rel in legacy_paths:
+        assert not os.path.exists(os.path.join(ROOT, rel)), f"Legacy nonstandard module path remains: {rel}"
+
+    manager_path = os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7AppManagerActivity.java")
+    manager_src = open(manager_path, encoding="utf-8").read()
+    for needle in (
+        "Uninstall App", "Remove System App Updates", "Intent.ACTION_UNINSTALL_PACKAGE",
+        "Intent.ACTION_DELETE", "Intent.EXTRA_RETURN_RESULT", "startActivityForResult(uninstall, REQUEST_UNINSTALL)",
+        "ApplicationInfo.FLAG_UPDATED_SYSTEM_APP", "getUninstallBlockReason", "isCriticalUninstallPackage",
+        "isOnlyEnabledHomeLauncher", "onActivityResult", "reloadPackagesAsync()",
+    ):
+        assert needle in manager_src, f"App Manager uninstall flow is missing {needle!r}"
+    uninstall_guard = manager_src.split("private boolean isCriticalUninstallPackage", 1)[1].split(
+        "private boolean isCriticalBootEssentialPackage", 1)[0]
+    assert "ca.arc7freedom." not in uninstall_guard, (
+        "Uninstall safety guard must allow removing nonessential standalone Arc7 apps"
+    )
+    assert "pm uninstall" not in manager_src, (
+        "App Manager should use Android's confirmed package-uninstall UI, not silently remove packages as root"
+    )
+
+    expected_strings = (
+        "Uninstall App", "Remove System App Updates", "App cannot be uninstalled",
+        "Android will show its package confirmation next.",
+    )
+    for apk_path in (
+        main_apk,
+        os.path.join(ROOT, "releases/apps/App-Manager.apk"),
+    ):
+        assert os.path.isfile(apk_path), f"Missing compiled App Manager APK: {apk_path}"
+        with zipfile.ZipFile(apk_path, "r") as zf:
+            dex = DEX(zf.read("classes.dex"))
+        dex_strings = set(dex.get_strings())
+        dex_blob = "\n".join(dex_strings)
+        for needle in expected_strings:
+            assert needle in dex_blob, f"Compiled App Manager APK is missing UI string {needle!r}: {apk_path}"
+    print("  [PASS] All five apps use src/main; App Manager requests Android's uninstall confirmation, "
+          "refreshes the list, and protects core packages + the last Home launcher")
+
+
 def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) -> None:
     from androguard.core.dex import DEX
     print("\n=== Verifying v2.5.3: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
@@ -3746,6 +3816,7 @@ def main() -> None:
     verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
     verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
     verify_v253_split_apps_and_ota_portal(main_apk)
+    verify_repository_layout_and_app_manager(main_apk)
     verify_v253_reader_paging_and_tailscale_login(main_apk)
     verify_v251_alarm_days_and_fdroid_stability(
         main_apk,

@@ -1,0 +1,19 @@
+apply plugin: "com.android.application"
+
+android {
+    namespace "org.videolan.vlc"
+    compileSdkVersion 19
+
+    defaultConfig {
+        applicationId "org.videolan.vlc"
+        minSdkVersion 15
+        targetSdkVersion 17
+        versionCode 1
+        versionName "3.0-arc7"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+}

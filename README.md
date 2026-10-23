@@ -105,6 +105,33 @@ removal, universal Now Playing notification + Clock Standby, Official Tailscale 
 patched F-Droid `v1304`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
 Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
+## App Manager & Repository Layout
+
+- **Uninstall from App Manager:** open an app's **Manage** menu and select **Uninstall App**;
+  Android's own Package Installer asks for final confirmation. User-installed apps and updated
+  system apps are supported. Core Android services, the package installer, device drivers, and
+  the only enabled Home launcher are protected. Preinstalled system apps can still be safely
+  frozen or unfrozen, but their system-image APKs are not deleted.
+- **Consistent Android module layout:** each installable project uses the standard
+  `src/main/AndroidManifest.xml`, `src/main/java/`, and `src/main/res/` structure:
+
+  ```text
+  app/                 main Arc7 Freedom application and shared app code
+  launcher-android4/   Home launcher
+  aurora-store/        Aurora Store client
+  vlc-player/          local VLC-compatible player fallback
+  upgrader/            1-tap system updater
+  split-apps/          generated per-app manifests + apps.tsv build index
+  native/              ARMv7 native source
+  scripts/             build, generation, patching, and verification tools
+  tools/               user-facing host utilities and installer servers
+  releases/            intentionally tracked release APKs, portal, and host tools
+  ```
+
+  All five full Android modules are declared in `settings.gradle`. `scripts/build-all.sh`
+  remains the reproducible signed release build; it reads from these standard module paths and
+  writes release outputs to `releases/`.
+
 ---
 
 ## Direct Zero-Redirect `v2.5.3` Downloads (GitHub Releases + Raw CDN)
