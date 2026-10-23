@@ -173,7 +173,6 @@ jobs:
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
-              releases/apps/SHA256SUMS.txt \
               releases/logo-banner.png \
               releases/index.html \
               releases/Start-PC-Stream-Deck.py \
@@ -187,7 +186,14 @@ jobs:
               releases/Start-Kobo-WiFi-Server.bat \
               releases/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
-              --clobber
+              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.5.2 \
+              releases/Upgrade-My-Kobo-To-v2.5.2.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
+              releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
+              releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
+              releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.bat releases/Start-PC-Stream-Deck.sh \
+              releases/Start-PC-School-VPN-Relay.py releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py \
+              releases/Backup-Kobo-To-Laptop-ADB.bat releases/Backup-Kobo-To-Laptop-ADB.sh \
+              releases/Start-Kobo-WiFi-Server.bat releases/Start-Kobo-WiFi-Server.sh --clobber; }
           else
             gh release create v2.5.2 \
               releases/Upgrade-My-Kobo-To-v2.5.2.apk \
@@ -199,7 +205,6 @@ jobs:
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
-              releases/apps/SHA256SUMS.txt \
               releases/logo-banner.png \
               releases/index.html \
               releases/Start-PC-Stream-Deck.py \

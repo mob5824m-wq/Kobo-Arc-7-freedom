@@ -759,6 +759,28 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-I
     Start-Kobo-WiFi-Server.bat \
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 (cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
+# Fold the 27 standalone-app hashes into the top-level checksum file so a single
+# releases/latest/download/SHA256SUMS.txt verifies the whole release.
+(cd releases/apps && sha256sum *.apk) >> releases/SHA256SUMS.txt
+python3 - <<'PYCHECK'
+import hashlib, os
+root = "releases"
+sums = {}
+for line in open(os.path.join(root, "SHA256SUMS.txt"), encoding="utf-8"):
+    h, name = line.split(None, 1)
+    sums[name.strip()] = h
+bad = []
+for name in sorted(os.listdir(os.path.join(root, "apps"))):
+    if not name.endswith(".apk"):
+        continue
+    h = hashlib.sha256(open(os.path.join(root, "apps", name), "rb").read()).hexdigest()
+    if sums.get(name) != h:
+        bad.append(name)
+if bad:
+    raise SystemExit(f"checksum mismatch for {bad}")
+print(f"Verified {len(sums)} release checksums (incl. 27 standalone apps)")
+PYCHECK
+
 cat releases/SHA256SUMS.txt
 ls -lh \
     releases/Upgrade-My-Kobo-To-v2.5.2.apk \

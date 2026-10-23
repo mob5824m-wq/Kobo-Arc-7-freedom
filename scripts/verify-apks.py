@@ -3241,6 +3241,16 @@ def verify_v252_split_apps_and_ota_portal(main_apk: str) -> None:
     print(f"  [PASS] Suite keeps 1 real launcher entry + {len(aliases)} auto-disabled activity aliases "
           "(SplitAppIconSync: no duplicate icons once a standalone app is installed)")
 
+    # ---- SHA256SUMS must cover the 27 split APKs too ----
+    sums = {}
+    for line in open(os.path.join(ROOT, "releases", "SHA256SUMS.txt"), encoding="utf-8"):
+        if line.strip():
+            h, name = line.split(None, 1)
+            sums[name.strip()] = h
+    for _key, fname, _label, _desc in rows:
+        assert fname in sums, f"releases/SHA256SUMS.txt has no checksum for {fname}"
+    print(f"  [PASS] SHA256SUMS.txt covers all {len(rows)} standalone app APKs")
+
     # ---- OTA portal: no JavaScript-dependent download buttons, every link resolves ----
     idx_path = os.path.join(ROOT, "releases", "index.html")
     html_body = open(idx_path, encoding="utf-8").read()
