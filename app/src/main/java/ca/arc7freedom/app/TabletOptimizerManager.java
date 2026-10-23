@@ -554,6 +554,75 @@ public class TabletOptimizerManager {
      *   4. Archives & removes Default Stock Launcher + `Kobo Care` + Discontinued Apps automatically
      *   5. Keeps `FDroidClassicLegacy.apk` clean on TLS 1.3 bridge!
      */
+
+    /**
+     * Installs / upgrades the standalone, separately-packaged apps:
+     *   • `ca.arc7freedom.youtube`   (`releases/YouTube.apk`)
+     *   • `ca.arc7freedom.ytmusic`   (`releases/YouTubeMusic.apk`)
+     *
+     * They are genuinely separate applications (own package id, own launcher entry, own task
+     * stack, own data dir) instead of extra activities hidden inside the suite package.
+     */
+    public boolean installBundledStandaloneApps(LogSink log) {
+        boolean ok = installStandaloneApp(log, "ca.arc7freedom.youtube",
+                "starter-apps/YouTube.apk", "YouTube.apk", 250, "YouTube");
+        boolean ok2 = installStandaloneApp(log, "ca.arc7freedom.ytmusic",
+                "starter-apps/YouTubeMusic.apk", "YouTubeMusic.apk", 250, "YouTube Music");
+        return ok || ok2;
+    }
+
+    private boolean installStandaloneApp(LogSink log, String pkg, String asset,
+                                         String tmpName, int minVersion, String label) {
+        int installed = 0;
+        try {
+            installed = ctx.getPackageManager().getPackageInfo(pkg, 0).versionCode;
+        } catch (Throwable ignored) {}
+        if (installed >= minVersion) return true;
+
+        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
+        if (!outDir.exists()) outDir.mkdirs();
+        File outApk = new File(outDir, tmpName);
+        InputStream in = null;
+        FileOutputStream fos = null;
+        try {
+            in = ctx.getAssets().open(asset);
+            fos = new FileOutputStream(outApk);
+            byte[] buf = new byte[65536];
+            int r;
+            while ((r = in.read(buf)) > 0) fos.write(buf, 0, r);
+            fos.flush();
+        } catch (Throwable t) {
+            if (log != null) log.onLog("WARNING: standalone " + label + " asset missing: " + t.getMessage());
+            return false;
+        } finally {
+            try { if (in != null) in.close(); } catch (Throwable ignored) {}
+            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
+        }
+
+        if (shell.isRootAvailable()) {
+            RootShell.ExecResult pm = shell.execRoot(
+                    "mkdir -p /data/local/tmp && cat " + RootShell.shellQuote(outApk.getAbsolutePath())
+                            + " > /data/local/tmp/" + tmpName + " && chmod 0644 /data/local/tmp/" + tmpName
+                            + " && (pm install -r /data/local/tmp/" + tmpName + " 2>&1"
+                            + " || (pm uninstall " + pkg + " 2>/dev/null || true; pm install -r /data/local/tmp/"
+                            + tmpName + " 2>&1))"
+                            + "; rm -f /data/local/tmp/" + tmpName + " 2>/dev/null || true",
+                    null);
+            if (log != null) log.onLog(pm.stdout.trim());
+            if (pm.stdout.contains("Success")) {
+                if (log != null) log.onLog("SUCCESS: separate " + label + " app (`" + pkg + "`) installed!");
+                return true;
+            }
+            return false;
+        }
+
+        Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
+        prompt.setData(Uri.fromFile(outApk));
+        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { ctx.startActivity(prompt); } catch (Throwable ignored) {}
+        return true;
+    }
+
     public void ensureCompanionAppsUpgradedSilently() {
         if (!shell.isRootAvailable()) return;
         try {
@@ -627,6 +696,9 @@ public class TabletOptimizerManager {
             if (!vlcInstalled) {
                 installBundledVlcMediaPlayer(null);
             }
+
+            // 2c. Install / upgrade the standalone `YouTube` & `YouTube Music` apps (own packages).
+            installBundledStandaloneApps(null);
 
             // 3. Automatically install native ARMv7 `python3` + `apt` + kick off background `apt` sync!
             provisionPython3AndAptSystemWide(null, true);

@@ -2,6 +2,8 @@
 /build/
 /**/build/
 /app/src/main/assets/starter-apps/VLC.apk
+/app/src/main/assets/starter-apps/YouTube.apk
+/app/src/main/assets/starter-apps/YouTubeMusic.apk
 .gradle/
 local.properties
 *.iml
@@ -11,3 +13,4 @@ __pycache__/
 *.pyc
 *.keystore.tmp
 Unselected files/
+*.idsig

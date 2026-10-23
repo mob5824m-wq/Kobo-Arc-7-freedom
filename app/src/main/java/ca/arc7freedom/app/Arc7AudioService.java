@@ -526,8 +526,15 @@ public class Arc7AudioService extends Service {
                         }
                     }
                     resolvingMorpheTrack = false;
+                    String playable = res.localAudioProxyUrl;
+                    if (playable == null || playable.length() == 0) {
+                        playable = res.localVideoProxyUrl;
+                    }
+                    if (playable == null || playable.length() == 0) {
+                        throw new Exception("No playable stream" + (res.muxNote.length() > 0 ? " (" + res.muxNote + ")" : ""));
+                    }
                     playPreparedDataSource(
-                            res.localAudioProxyUrl,
+                            playable,
                             item.title,
                             item.author,
                             activeSourceApp,
@@ -622,7 +629,7 @@ public class Arc7AudioService extends Service {
                 cm.ensureCaBundleFile();
                 cm.startBrowserGateway();
                 int port = NetworkCertManager.BROWSER_GATEWAY_PORT;
-                effectiveUrl = "http://127.0.0.1:" + port + "/__arc7_raw?url="
+                effectiveUrl = "http://127.0.0.1:" + port + "/__arc7_raw?u="
                         + URLEncoder.encode(streamUrl, "UTF-8");
             }
         } catch (Throwable ignored) {}

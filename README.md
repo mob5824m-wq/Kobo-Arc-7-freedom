@@ -1,23 +1,86 @@
-# Arc7 Freedom (`ca.arc7freedom.app` — `v2.4.1`)
+# Arc7 Freedom (`v2.5.0` — playable YouTube / YouTube Music + truly separate apps)
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
-**Complete Daily-Driver Android 4.2 OS & App Ecosystem (`v2.4.1`, `versionCode=241` + Fixed Local Web Installer Image Loading + Fixed `FDroidClassicLegacy v1303` + Home Launcher `v55`): Fixed Local Wi-Fi Web Installer Images (`serve-over-wifi.py`, `Start-Kobo-WiFi-Server.bat`, `Start-Kobo-WiFi-Server.sh`, `releases/index.html`, `:8080` Wireless Drive & Native `http://` WebKit Image Streaming), Standalone Morphe `YouTube` App (2026 Non-SABR InnerTube + `127.0.0.1` `206` Range-Capable TLS 1.3 Stream Proxy Fixing `MediaPlayer error (1, -1004)` + SponsorBlock + Return YouTube Dislike + Offline `.mp4`/`.m4a` Downloads), Standalone Morphe `YouTube Music` App (AMOLED Dark + Background M4A Audio + Synced Lyrics + Queue/Shuffle/Repeat + 5-Band Equalizer), Effortless Home Screen Widget Removal (`InterceptingWidgetHostView.onInterceptTouchEvent` + 1-Tap `✕ Remove` Badges in `Rearrange` Mode + Active Page Widget Manager), System-Wide Universal Audio Notification Bar + Live Clock Standby Now-Playing Display & Transport Controls (`YouTube Music`, `YouTube`, `Music`, `Radio & Podcasts`, `Voice Recorder`, & `VLC`), Clean System App Labels (Only `Arc7 Freedom` Carries `Arc7`; All Other Apps Named Cleanly: `YouTube`, `YouTube Music`, `Browser`, `Clock`, `Books`, `Music`, `Files`, `Notes`, `Wi-Fi & VPN`, `Home`, etc.), Official Tailscale Auth with Google Sign-In (`accounts.google.com` -> `login.tailscale.com/a/...` via `ISO/IEC 18004` Scannable QR Code + Linux `3.4.5`-Safe `tailscale_1.78.1_arm.tgz` + Live `BackendState` Auto-VPN), plus Full `v2.3.1`–`v1.7.0` Suite.**
+**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.0`
+(`versionCode=250`).**
+
+`v2.5.0` fixes the two things that were still broken on real hardware:
+
+1. **YouTube & YouTube Music actually play now.** Since 2026 YouTube answers every working
+   anonymous InnerTube client with an **empty `formats` array** — only video-only H.264 and
+   audio-only AAC **DASH** tracks (`adaptiveFormats` + `initRange`/`indexRange`) and HLS are
+   returned. The old code searched for a progressive muxed MP4, found nothing, handed
+   `VideoView` an empty URL and died with `MediaPlayer error (1, -1004)` — metadata loaded,
+   playback never started.
+   * New on-device **ISO-BMFF remuxer** (`MorpheRemuxer`) merges the video-only and audio-only
+     DASH tracks into **one fragmented MP4**: two `trak`s, interleaved `moof`/`mdat`, rewritten
+     `tkhd` / `tfhd` / `trex` / `mfhd` / `base_data_offset` / `trun` offsets.
+   * `MorpheStreamServer` serves it from `127.0.0.1` with an **exact `Content-Length`** and full
+     `Range: bytes=…` → `206 Partial Content` support, so Stagefright starts instantly and can seek.
+   * Correct **2026 client cascade**: `visionOS 1.04` → `TVHTML5_SIMPLY 1.1` → `Android VR 1.64`
+     → `Android Music 7.12` → `Android Creator 26.10`, each with its **own**
+     `/youtubei/v1/visitor_id` visitor id (sharing one id across clients raised the bot score and
+     403'd every stream) and the `X-Goog-Api-Format-Version: 2` header.
+   * Audio-only playback (YouTube Music background / screen-off) spools the AAC `mp4a` DASH track
+     into a playable fragmented MP4 — no video downloaded, ~90 % less bandwidth.
+2. **Custom apps are genuinely separate applications.** `YouTube` and `YouTube Music` are now
+   their **own installable APKs with their own package ids** — `ca.arc7freedom.youtube`
+   (`releases/YouTube.apk`) and `ca.arc7freedom.ytmusic` (`releases/YouTubeMusic.apk`). Each has
+   its own launcher icon/label, task stack, data directory and background services, appears
+   separately under *Settings → Apps*, can be updated or uninstalled on its own, and cross-launches
+   the other app. The suite no longer shows duplicate YouTube / YouTube Music icons; the 1-Tap
+   Upgrader and the silent companion updater install and refresh both standalone APKs.
+
+Everything from `v2.4.1` and earlier is still included: Launcher `v55` with effortless widget
+removal, universal Now Playing notification + Clock Standby, Official Tailscale Google sign-in,
+patched F-Droid `v1303`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
+Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ---
 
-## Direct Zero-Redirect `v2.4.1` Downloads (GitHub Releases + Raw CDN)
+## Direct Zero-Redirect `v2.5.0` Downloads (GitHub Releases + Raw CDN)
 
-All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3** signed with permanent release certificate [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks) (`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
+All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3**
+signed with the permanent release certificate
+[`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks)
+(`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
 
-- **Latest GitHub Release (`v2.4.1`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
+- **Latest GitHub Release (`v2.5.0`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
 - **Direct APK & Tool Streams:**
-  - **[`Upgrade-My-Kobo-To-v2.4.1.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.4.1.apk)** — 1-Tap OTA Root & Full `v2.4.1` Upgrader (`versionCode=241`, installs `Arc7 Freedom` `v2.4.1`, Morphe `YouTube` & `YouTube Music`, Launcher `v55`, Fixed F-Droid `v1303`, Official Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt`, & 120 2026 CAs)
-  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & 33-App Daily-Driver Suite (`Arc7 Freedom` `v2.4.1`, `versionCode=241`)
+  - **[`Upgrade-My-Kobo-To-v2.5.0.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.0.apk)** — 1-Tap OTA Root & Full `v2.5.0` Upgrader (`versionCode=250`; installs `Arc7 Freedom` `v2.5.0`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1303`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 120 2026 CAs)
+  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.0`, `versionCode=250`)
+  - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=250`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
+  - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=250`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
   - **[`VLC.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VLC.apk)** — Standalone Android 4.2 ARMv7 **VLC Media Player** (`org.videolan.vlc`, also pre-bundled inside `KoboArc7Freedom.apk`)
-  - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS Store Client with Binary APK Validator & Auto `SHA1withRSA` JAR `v1` Signer (`v4.8.5`)
-  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1303`) with Complete Android 4.2 `SHA-256` `Incorrect signature` Fix, Pure-Java BER/DER PKCS#7 Verifier, Non-Colliding Certs & TLS 1.3 Bridge
-  - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)** — Custom-Skinned **Home** Launcher (`v54`) with Effortless Widget Removal (`onInterceptTouchEvent` Long-Press + 1-Tap `✕ Remove` Badges in `Rearrange` Mode), Touch Drag-and-Drop Icons, Multi-Page Desktops, Multi-Edge App Bar, 5 Skins & 44 High-DPI Icons
+  - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS store client with binary APK validator & auto `SHA1withRSA` JAR `v1` signer (`v4.8.5`)
+  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1303`) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
+  - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)** — Custom-skinned **Home** launcher (`v55`) with effortless widget removal, drag-and-drop icons, multi-page desktops, multi-edge app bar, 5 skins & 44 high-DPI icons
+
+---
+
+## What's New in `v2.5.0`
+
+1. **`YouTube` — playable 2026 streams (`MorpheRemuxer` + `MorpheStreamServer` + `MorpheEngine`):**
+   - Empty-`formats` DASH handling, video-only `avc1` + audio-only `mp4a` merge into one seekable
+     fragmented MP4, exact-length local `206` server, H.264-only codec filter for the MT8125
+     decoder, 1080p/720p/480p/360p/240p/144p quality picker that re-muxes on the fly, plus the
+     existing SponsorBlock auto-skip, Return YouTube Dislike, comments, background audio and
+     offline `.mp4` downloads.
+2. **`YouTube Music` — real background audio:** audio-only DASH spool (no video download),
+   AMOLED player, synced LRC lyrics, queue/shuffle/repeat, 5-band equalizer + bass boost, sleep
+   timer, liked songs and offline `.m4a` downloads.
+3. **Truly separate apps (`split-apps/`):**
+   - New reusable `build_standalone_app()` build step produces signed `YouTube.apk`
+     (`ca.arc7freedom.youtube`) and `YouTubeMusic.apk` (`ca.arc7freedom.ytmusic`) from their own
+     manifests, with their own icons, labels, tasks, services and data directories.
+   - The suite keeps only compatibility/deep-link entries (no duplicate launcher icons); the
+     launcher, 1-Tap Upgrader and silent updater all prefer the standalone packages with a
+     graceful in-suite fallback.
+4. **Verification:** new `verify_v250_streaming_and_standalone_apps()` gate (package ids, labels,
+   launcher filters, v1+v2+v3 signatures, embedded CA bundle + TLS engine, 2026 InnerTube strings,
+   upgrader nesting) and a host-JVM suite `scripts/test-morphe-remux.py` that proves the remuxer
+   and the strict Range/`206` server byte-for-byte.
 
 ---
 

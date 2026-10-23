@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="241"
-    android:versionName="2.4.1"
+    android:versionCode="250"
+    android:versionName="2.5.0"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -62,7 +62,12 @@
             </intent-filter>
         </activity>
 
-        <!-- 2. Standalone Morphe `YouTube` App (2026 InnerTube + Ad-Free + SponsorBlock + RYD + Local Range Proxy — OWN TASK!) -->
+        <!-- 2. `YouTube` deep-link/compat entry.
+             The REAL user-facing app now ships as its own package `ca.arc7freedom.youtube`
+             (`releases/YouTube.apk`) with its own icon, task and data directory, so it shows
+             up in Settings -> Apps as a genuinely separate application. This activity is kept
+             only as an in-suite fallback + for `youtube.com` deep links, hence no LAUNCHER
+             category here (otherwise the tablet would show two YouTube icons). -->
         <activity
             android:name=".YouTubeActivity"
             android:label="YouTube"
@@ -72,10 +77,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -89,7 +90,8 @@
             </intent-filter>
         </activity>
 
-        <!-- 3. Standalone Morphe `YouTube Music` App (AMOLED Dark + Background Audio + Lyrics + EQ + Queue — OWN TASK!) -->
+        <!-- 3. `YouTube Music` deep-link/compat entry.
+             Ships as its own package `ca.arc7freedom.ytmusic` (`releases/YouTubeMusic.apk`). -->
         <activity
             android:name=".YouTubeMusicActivity"
             android:label="YouTube Music"
@@ -99,10 +101,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />

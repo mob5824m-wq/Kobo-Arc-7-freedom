@@ -114,11 +114,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "55", f"Expected launcher versionCode 55, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.4.1", f"Expected upgrader 2.4.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "241", f"Expected upgrader 241, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.0", f"Expected upgrader 2.5.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "250", f"Expected upgrader 250, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.4.1", f"Expected 2.4.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "241", f"Expected 241, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.0", f"Expected 2.5.0, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "250", f"Expected 250, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1130,7 +1130,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 time.sleep(0.05)
         rel_imgs = [t.get("src", "") for t in _extract_img_tags(rel_body)]
         assert len(rel_imgs) >= 8 and "./logo-banner.png" in rel_imgs
-        assert "./Upgrade-My-Kobo-To-v2.4.1.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
+        assert "./Upgrade-My-Kobo-To-v2.5.0.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
         for isrc in rel_imgs:
             assert not isrc.startswith("https://"), f"releases/index.html has non-local HTTPS img: {isrc}"
             ci = http.client.HTTPConnection("127.0.0.1", 18894, timeout=5)
@@ -1153,7 +1153,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
         os.makedirs(iso_files, exist_ok=True)
         # Pre-seed placeholder APKs >= 128B EXCEPT `logo-banner.png` so we ALSO prove offline PNG fallback!
         for seed_name in (
-            "Upgrade-My-Kobo-To-v2.4.1.apk",
+            "Upgrade-My-Kobo-To-v2.5.0.apk",
             "KoboArc7Freedom.apk",
             "VLC.apk",
             "AuroraStore.apk",
@@ -3149,9 +3149,116 @@ public class TestV240Live {
         gv_srv.close()
 
 
+
+def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) -> None:
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.0: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
+    ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+    # 1. The suite must NOT expose YouTube / YouTube Music launcher icons any more.
+    app = APK(main_apk)
+    mxml = app.get_android_manifest_xml()
+    launcher_acts = []
+    for act in mxml.findall(".//activity"):
+        cats = [c.get(ANDROID_NS + "name") for c in act.findall(".//category")]
+        if "android.intent.category.LAUNCHER" in cats:
+            launcher_acts.append(act.get(ANDROID_NS + "name"))
+    assert ".YouTubeActivity" not in launcher_acts, (
+        f"YouTube still advertises a duplicate launcher icon inside the suite: {launcher_acts}")
+    assert ".YouTubeMusicActivity" not in launcher_acts, (
+        f"YouTube Music still advertises a duplicate launcher icon inside the suite: {launcher_acts}")
+    print("  [PASS] Suite declares no duplicate YouTube / YouTube Music LAUNCHER icons")
+
+    # 2. Both standalone APKs: own package, own label, own launcher entry, own services, signed.
+    expected = {
+        "releases/YouTube.apk": ("ca.arc7freedom.youtube", "YouTube",
+                                 "ca.arc7freedom.app.YouTubeActivity"),
+        "releases/YouTubeMusic.apk": ("ca.arc7freedom.ytmusic", "YouTube Music",
+                                      "ca.arc7freedom.app.YouTubeMusicActivity"),
+    }
+    for rel, (pkg, label, act) in expected.items():
+        path = os.path.join(ROOT, rel)
+        assert os.path.isfile(path), f"Missing standalone app {rel} — run scripts/build-all.sh"
+        r = subprocess.run([ZIPALIGN, "-c", "4", path], capture_output=True, text=True)
+        assert r.returncode == 0, f"zipalign failed on {rel}: {r.stderr}"
+        r = subprocess.run(
+            [JAVA, "-jar", APKSIGNER, "verify", "--verbose", "--print-certs",
+             "--min-sdk-version", "15", path],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0, f"apksigner failed on {rel}: {r.stdout}\n{r.stderr}"
+        assert "Verified using v1 scheme (JAR signing): true" in r.stdout, f"{rel} lacks v1 signing!"
+        assert PERMANENT_CERT_SHA256 in r.stdout.lower(), f"{rel} not signed with release cert!"
+        obj = APK(path)
+        assert obj.get_package() == pkg, f"{rel}: package {obj.get_package()} != {pkg}"
+        assert str(obj.get_min_sdk_version()) == "15" and str(obj.get_target_sdk_version()) == "17"
+        xml = obj.get_android_manifest_xml()
+        app_el = xml.find("application")
+        assert app_el is not None and app_el.get(ANDROID_NS + "label") == label, \
+            f"{rel}: <application> label is not '{label}'"
+        assert act in obj.get_activities(), f"{rel}: missing activity {act}"
+        acts = xml.findall(".//activity")
+        has_launcher = any(
+            "android.intent.category.LAUNCHER" in [c.get(ANDROID_NS + "name") for c in a.findall(".//category")]
+            for a in acts
+        )
+        assert has_launcher, f"{rel}: no LAUNCHER intent-filter (would not appear in the app drawer)"
+        services = obj.get_services()
+        for svc in ("ca.arc7freedom.app.Arc7TlsGatewayService", "ca.arc7freedom.app.Arc7AudioService"):
+            assert svc in services, f"{rel}: missing separate background service {svc}"
+        with zipfile.ZipFile(path, "r") as zf:
+            names = set(zf.namelist())
+            assert zf.read("classes.dex")[:8] == b"dex\n035\x00", f"{rel}: not Dalvik DEX 035"
+            assert "assets/cacerts/ca-bundle-2026.crt" in names, f"{rel}: missing offline 2026 CA bundle"
+            assert "lib/armeabi-v7a/libarc7tls.so" in names, f"{rel}: missing TLS 1.3 engine"
+            assert zf.getinfo("lib/armeabi-v7a/libarc7tls.so").compress_type == zipfile.ZIP_STORED
+        print(f"  [PASS] {rel}: separate package {pkg}, label '{label}', own services, "
+              f"v1+v2+v3 signed, DEX 035, CA bundle + TLS 1.3 engine")
+
+    # 3. 2026 InnerTube client cascade + DASH remux engine present in the suite DEX.
+    with zipfile.ZipFile(main_apk, "r") as zf:
+        dex = DEX(zf.read("classes.dex"))
+        strings = set(dex.get_strings())
+    for needle in (
+        "visionos.youtube/1.04",     # 2026 anonymous client UA
+        "26.6.0.23O770",             # visionOS osVersion
+        "youtubei.googleapis.com",   # host used by the visionOS / TV players
+        "visitor_id",                # per-client visitorData endpoint
+        "X-Goog-Api-Format-Version", # required for the 2026 player response
+        "MorpheRemuxer",             # DASH -> merged fMP4 engine
+        "MorpheStreamServer",        # local Range server for Stagefright
+        "Content-Range",
+        "Accept-Ranges",
+        "1.64.34",
+        "7.12.52",
+    ):
+        assert any(needle in v for v in strings), f"Missing critical v2.5.0 streaming string: {needle!r}"
+    print("  [PASS] DEX contains the 2026 InnerTube cascade + DASH remux + local Range server")
+
+    # 4. The upgrader carries both standalone APKs inside its embedded suite APK.
+    with zipfile.ZipFile(upgrader_apk, "r") as zf:
+        embedded = zf.read("assets/KoboArc7Freedom.apk")
+    with tempfile.NamedTemporaryFile(suffix=".apk") as tf:
+        tf.write(embedded)
+        tf.flush()
+        with zipfile.ZipFile(tf.name, "r") as z2:
+            nested = set(z2.namelist())
+            for asset in ("assets/starter-apps/YouTube.apk", "assets/starter-apps/YouTubeMusic.apk"):
+                assert asset in nested, f"Upgrader's embedded suite is missing {asset}"
+    print("  [PASS] Upgrader installs both standalone apps automatically")
+
+    # 5. Live host-JVM proof of the remuxer + Range server.
+    env = dict(os.environ)
+    env["JAVAC"] = JAVAC
+    env["JAVA"] = JAVA
+    r = subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-morphe-remux.py")],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, f"Morphe remux JVM suite failed:\n{r.stdout}\n{r.stderr}"
+    print("  [PASS] Live JVM DASH remux + strict Range/206 server test passed")
+
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.4.1.apk")
-    for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0"):
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.0.apk")
+    for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
         assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
             f"Stale {stale_ver} upgrader APK left in releases/!"
         )
@@ -3205,6 +3312,7 @@ def main() -> None:
     verify_v220_all_14_upgrades_plus_vk(main_apk, home_apk)
     verify_v230_native_vpn_streamdeck_and_relay(main_apk)
     verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
+    verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

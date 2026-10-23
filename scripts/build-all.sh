@@ -354,6 +354,74 @@ $ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
 
 cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
+
+# ------------------------------------------------------------------------------
+# Standalone "truly separate app" builder (v2.5.0)
+#
+# Every custom app that used to be just an extra <activity> inside the suite package is now
+# built as its OWN signed APK with its own package id, launcher label/icon and task stack:
+#   releases/YouTube.apk        -> ca.arc7freedom.youtube
+#   releases/YouTubeMusic.apk   -> ca.arc7freedom.ytmusic
+#
+# The Java classes stay in `ca.arc7freedom.app` (shared engine), so `--custom-package`
+# keeps the generated `R` class where every source file expects it.
+# ------------------------------------------------------------------------------
+build_standalone_app() {
+    local key="$1" manifest="$2" out_apk="$3"
+    local work="build/split-$key"
+    rm -rf "$work"
+    mkdir -p "$work/res_compiled" "$work/gen" "$work/classes" "$work/dex" \
+             "$work/assets/cacerts" "$work/stage/lib/armeabi-v7a" "$work/stage/lib/armeabi"
+
+    cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/" 2>/dev/null || true
+    cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/" 2>/dev/null || true
+    if [ -d app/src/main/assets/cacerts/android-hashed ]; then
+        mkdir -p "$work/assets/cacerts/android-hashed"
+        cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
+    fi
+
+    "$AAPT2" compile --dir app/src/main/res -o "$work/res_compiled/res.zip"
+    "$AAPT2" link \
+        -I "$ANDROID_JAR" \
+        --manifest "$manifest" \
+        --custom-package ca.arc7freedom.app \
+        -A "$work/assets" \
+        --java "$work/gen" \
+        --min-sdk-version 15 \
+        --target-sdk-version 17 \
+        --no-compile-sdk-metadata \
+        -o "$work/unsigned.apk" \
+        "$work/res_compiled/res.zip"
+
+    compile_java_and_dex \
+        "$work/classes" \
+        "$work/dex" \
+        "$work/gen/ca/arc7freedom/app/R.java" \
+        app/src/main/java/ca/arc7freedom/app/*.java
+
+    cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/" 2>/dev/null || true
+    cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/" 2>/dev/null || true
+
+    (cd "$work/dex" && zip -qj ../unsigned.apk classes.dex)
+    if [ -d "$work/stage/lib" ]; then
+        (cd "$work/stage" && zip -qr -0 ../unsigned.apk lib 2>/dev/null || true)
+    fi
+
+    "$ZIPALIGN" -f -p 4 "$work/unsigned.apk" "$work/aligned.apk"
+    "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
+        --ks "$KEYSTORE_PATH" \
+        --ks-pass "pass:$KEYSTORE_PASS" \
+        --key-pass "pass:$KEYSTORE_PASS" \
+        --ks-key-alias "$KEYSTORE_ALIAS" \
+        --min-sdk-version 15 \
+        --v1-signing-enabled true \
+        --v2-signing-enabled true \
+        --v3-signing-enabled true \
+        --out "$out_apk" \
+        "$work/aligned.apk"
+    ls -lh "$out_apk"
+}
+
 echo "==> [3/8] Building standalone Stock Android 4.2 Home Launcher v49 (Long-Press Widgets) & Aurora Store (com.aurora.store)..."
 rm -rf build/launcher && mkdir -p build/launcher/{res_compiled,gen,classes,dex}
 "$AAPT2" compile --dir launcher-android4/res -o build/launcher/res_compiled/res.zip
@@ -419,6 +487,13 @@ compile_java_and_dex \
     --out releases/AuroraStore.apk \
     build/aurora/aligned.apk
 
+echo "==> [3b/8] Building TRULY SEPARATE standalone apps (ca.arc7freedom.youtube & ca.arc7freedom.ytmusic)..."
+build_standalone_app "youtube" "split-apps/youtube/AndroidManifest.xml" "releases/YouTube.apk"
+build_standalone_app "ytmusic" "split-apps/ytmusic/AndroidManifest.xml" "releases/YouTubeMusic.apk"
+mkdir -p app/src/main/assets/starter-apps
+cp -f releases/YouTube.apk app/src/main/assets/starter-apps/YouTube.apk
+cp -f releases/YouTubeMusic.apk app/src/main/assets/starter-apps/YouTubeMusic.apk
+
 mkdir -p app/src/main/assets/starter-apps
 cp -f app/src/main/res/drawable-mdpi/ic_vlc.png vlc-player/res/drawable-mdpi/ic_vlc.png
 cp -f app/src/main/res/drawable-hdpi/ic_vlc.png vlc-player/res/drawable-hdpi/ic_vlc.png
@@ -479,7 +554,7 @@ cp -f releases/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-S
 cp -f releases/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.4.1 (Fixed Local Web Installer Images + Morphe YouTube & YouTube Music + Widget Removal Fix + Standby Now-Playing + Official Tailscale Google Auth + Fixed F-Droid v1303 + Launcher v55 + VLC)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.0 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1303 + Launcher v55 + VLC)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -519,7 +594,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.4.1.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.0.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -543,7 +618,7 @@ compile_java_and_dex \
 
 (cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
-rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.apk releases/Upgrade-My-Kobo-To-v2.1.*.apk releases/Upgrade-My-Kobo-To-v2.2.*.apk releases/Upgrade-My-Kobo-To-v2.3.*.apk releases/Upgrade-My-Kobo-To-v2.4.0.apk releases/Upgrade-My-Kobo-To-v2.4.1.apk
+rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.apk releases/Upgrade-My-Kobo-To-v2.1.*.apk releases/Upgrade-My-Kobo-To-v2.2.*.apk releases/Upgrade-My-Kobo-To-v2.3.*.apk releases/Upgrade-My-Kobo-To-v2.4.*.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
     --ks-pass "pass:$KEYSTORE_PASS" \
@@ -553,7 +628,7 @@ rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.ap
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v2.4.1.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.5.0.apk \
     build/upgrader/aligned.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
@@ -563,8 +638,10 @@ rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v2.4.1.apk \
+    Upgrade-My-Kobo-To-v2.5.0.apk \
     KoboArc7Freedom.apk \
+    YouTube.apk \
+    YouTubeMusic.apk \
     VLC.apk \
     AuroraStore.apk \
     FDroidClassicLegacy.apk \
@@ -583,8 +660,10 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-I
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v2.4.1.apk \
+    releases/Upgrade-My-Kobo-To-v2.5.0.apk \
     releases/KoboArc7Freedom.apk \
+    releases/YouTube.apk \
+    releases/YouTubeMusic.apk \
     releases/VLC.apk \
     releases/AuroraStore.apk \
     releases/FDroidClassicLegacy.apk \
