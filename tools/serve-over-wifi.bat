@@ -27,6 +27,7 @@ foreach ($localName in @("logo-banner.png", "Upgrade-My-Kobo-To-v2.5.2.apk", "Ko
 }
 
 $RawBase = "https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
+$RawBranchBase = "https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/arena/fdd69b2f-kobo-arc-7-freedom/releases"
 $ReleaseBase = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
 $RequiredFiles = @(
     "logo-banner.png",
@@ -59,7 +60,7 @@ foreach ($f in $RequiredFiles) {
     if (-not (Test-Path -LiteralPath $dst) -or ((Get-Item -LiteralPath $dst).Length -lt 128)) {
         Write-Host "==> Downloading $f ..." -ForegroundColor Cyan
         $ok = $false
-        foreach ($base in @($RawBase, $ReleaseBase)) {
+        foreach ($base in @($RawBase, $ReleaseBase, $RawBranchBase)) {
             try {
                 Invoke-WebRequest -UseBasicParsing -Uri "$base/$f" -OutFile $dst -TimeoutSec 120
                 if ((Test-Path -LiteralPath $dst) -and ((Get-Item -LiteralPath $dst).Length -gt 128)) {

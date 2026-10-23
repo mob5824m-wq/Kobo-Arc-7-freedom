@@ -18,6 +18,9 @@ SERVE_DIR="${SCRIPT_DIR}/Kobo-WiFi-Files"
 mkdir -p "${SERVE_DIR}"
 
 RAW_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
+# Some releases are published from a feature branch before they land on `main`; try that too so
+# a freshly built v2.5.2 tree is reachable even if the GitHub release is not published yet.
+RAW_BRANCH_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/arena/fdd69b2f-kobo-arc-7-freedom/releases"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
 
 # Main suite files (+ the separately installable YouTube / YouTube Music apps).
@@ -32,6 +35,7 @@ for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.5.2.apk KoboArc7Freedom.apk Y
         echo "==> Downloading ${ASSET}..."
         curl -fL --connect-timeout 5 --progress-bar "${RAW_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
             || curl -fL --connect-timeout 5 --progress-bar "${RELEASE_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
+            || curl -fL --connect-timeout 5 --progress-bar "${RAW_BRANCH_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
             || true
     fi
 done
