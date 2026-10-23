@@ -1157,24 +1157,26 @@ public class Arc7EbookReaderActivity extends Activity {
             } catch (Throwable ignored) {}
             return true;
         }
+        // Never load content from inside shouldOverrideUrlLoading(): post it so the WebView is not
+        // re-entered while it is still dispatching the `arc7ctl:` navigation.
         if ("next".equals(body)) {
-            turnPage(1);
+            readerWebView.post(new Runnable() { @Override public void run() { turnPage(1); } });
             return true;
         }
         if ("prev".equals(body)) {
-            turnPage(-1);
+            readerWebView.post(new Runnable() { @Override public void run() { turnPage(-1); } });
             return true;
         }
         if ("atend".equals(body)) {
-            advanceToNextChapter();
+            readerWebView.post(new Runnable() { @Override public void run() { advanceToNextChapter(); } });
             return true;
         }
         if ("atstart".equals(body)) {
-            retreatToPreviousChapter();
+            readerWebView.post(new Runnable() { @Override public void run() { retreatToPreviousChapter(); } });
             return true;
         }
         if ("chrome".equals(body)) {
-            toggleReadingChrome();
+            readerWebView.post(new Runnable() { @Override public void run() { toggleReadingChrome(); } });
             return true;
         }
         return true;
