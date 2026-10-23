@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-and-verify:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
@@ -111,13 +115,13 @@ jobs:
             releases/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.5.2 APKs (suite + standalone YouTube / YouTube Music) to GitHub Releases
-        if: github.ref == 'refs/heads/main'
+      - name: Publish signed v2.5.2 APKs (suite + 27 standalone default apps + YouTube / YouTube Music) to GitHub Releases
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/arena/fdd69b2f-kobo-arc-7-freedom'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.5.2 — Per-Day Alarm Check-Off & F-Droid Sync-Crash Fix
+          ## Kobo Arc 7 Freedom v2.5.2 — Separate Apps for Everything + Working OTA Portal
 
           ### 1. Alarms now support checking off specific days
           - The alarm editor's old single `Repeat` cycle button is replaced by a **Sun · Mon · Tue · Wed · Thu · Fri · Sat** row of check-off buttons, a live `Repeat: Mon, Wed, Fri` summary, and one-tap `Every day` / `Weekdays` / `Weekends` / `One-time` presets.
@@ -158,7 +162,7 @@ jobs:
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
           if gh release view v2.5.2 >/dev/null 2>&1; then
-            gh release edit v2.5.2 --latest --title "Kobo Arc 7 Freedom v2.5.2 — Per-Day Alarms & F-Droid Sync Crash Fix" --notes-file /tmp/release-notes.md
+            gh release edit v2.5.2 --latest --title "Kobo Arc 7 Freedom v2.5.2 — Separate Apps + Working OTA Portal" --notes-file /tmp/release-notes.md
             gh release upload v2.5.2 \
               releases/Upgrade-My-Kobo-To-v2.5.2.apk \
               releases/KoboArc7Freedom.apk \
@@ -211,6 +215,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.5.2 — Per-Day Alarms & F-Droid Sync Crash Fix" \
+              --title "Kobo Arc 7 Freedom v2.5.2 — Separate Apps + Working OTA Portal" \
               --notes-file /tmp/release-notes.md
           fi
