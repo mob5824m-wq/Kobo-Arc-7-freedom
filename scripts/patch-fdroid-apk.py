@@ -38,7 +38,7 @@ import tempfile
 import zipfile
 import zlib
 
-TARGET_FDROID_VERSION_CODE = 1303
+TARGET_FDROID_VERSION_CODE = 1304
 
 
 def _read_utf8_len(buf: bytes, pos: int):
@@ -109,6 +109,259 @@ def patch_manifest_version_code(axml: bytes, new_version_code: int) -> bytes:
 
     assert patched, "Failed to locate android:versionCode (0x0101021b) in AndroidManifest.xml"
     return bytes(buf)
+
+
+# `android.R.attr.largeHeap` (API 11+) — needed so the huge 2026 `index-v1.json`
+# (4,000+ apps x ~10,000 APK versions) parses inside a 4.2.2 Dalvik heap instead of
+# throwing `OutOfMemoryError` (an `Error`, not an `Exception`, so `UpdateService`'s
+# `catch (Exception)` never sees it and the whole app process dies right after sync).
+LARGE_HEAP_ATTR_ID = 0x0101035A
+
+
+def _axml_encode_uleb(n: int) -> bytes:
+    out = bytearray()
+    while True:
+        b = n & 0x7F
+        n >>= 7
+        if n:
+            out.append(b | 0x80)
+        else:
+            out.append(b)
+            return bytes(out)
+
+
+def _axml_read_string_pool(axml: bytes, pos: int):
+    sp_type, sp_hdr, sp_size, str_count, style_count, flags, strings_start, styles_start = struct.unpack_from(
+        "<HHIIIIII", axml, pos
+    )
+    assert sp_type == 0x0001 and sp_hdr == 28, f"Unexpected AXML StringPool: {sp_type:#x}/{sp_hdr}"
+    is_utf8 = bool(flags & (1 << 8))
+    offsets = struct.unpack_from(f"<{str_count}I", axml, pos + sp_hdr)
+    base = pos + strings_start
+    strings = []
+    for off in offsets:
+        p = base + off
+        if is_utf8:
+            _, p = _read_utf8_len(axml, p)
+            n, p = _read_utf8_len(axml, p)
+            strings.append(axml[p : p + n].decode("utf-8", errors="surrogateescape"))
+        else:
+            n, p = _read_utf16_len(axml, p)
+            strings.append(axml[p : p + 2 * n].decode("utf-16-le", errors="surrogatepass"))
+    return strings, is_utf8, flags
+
+
+def _axml_build_string_pool(strings, is_utf8: bool, flags: int) -> bytes:
+    data = bytearray()
+    offsets = []
+    for text in strings:
+        offsets.append(len(data))
+        if is_utf8:
+            raw = text.encode("utf-8", errors="surrogateescape")
+            u16_len = len(text.encode("utf-16-le", errors="surrogatepass")) // 2
+            data.extend(_encode_utf8_len(u16_len))
+            data.extend(_encode_utf8_len(len(raw)))
+            data.extend(raw)
+            data.append(0)
+        else:
+            raw = text.encode("utf-16-le", errors="surrogatepass")
+            data.extend(_encode_utf16_len(len(raw) // 2))
+            data.extend(raw)
+            data.extend(b"\x00\x00")
+        while len(data) % 4:
+            data.append(0)
+    count = len(strings)
+    header_size = 28
+    strings_start = header_size + 4 * count
+    header = struct.pack(
+        "<HHIIIIII", 0x0001, header_size, strings_start + len(data), count, 0, flags & ~0x1, strings_start, 0
+    )
+    return header + b"".join(struct.pack("<I", o) for o in offsets) + bytes(data)
+
+
+def patch_manifest_add_large_heap(axml: bytes) -> bytes:
+    """
+    Adds `android:largeHeap="true"` to the binary `<application>` element.
+
+    The 2026 f-droid.org + f-droid.org/archive `index-v1.json` payloads are parsed by
+    `IndexV1Updater.parseApps()` / `parsePackages()` fully into memory (an `App[]` plus a
+    `Map<String, List<Apk>>`).  On Android 4.2.2 that exceeds the default 48 MB Dalvik
+    heap and raises `OutOfMemoryError` — which `UpdateService.onHandleIntent()`'s
+    `catch (Exception)` cannot catch, so the process dies immediately after the download
+    finishes ("syncs then crashes").  `largeHeap` lifts the per-app heap ceiling.
+    """
+    assert struct.unpack_from("<H", axml, 0)[0] == 0x0003, "Invalid binary AndroidManifest.xml"
+    total = struct.unpack_from("<I", axml, 4)[0]
+    header_size = struct.unpack_from("<H", axml, 2)[0]
+
+    pos = header_size
+    chunks = []
+    pool_pos = pool_size = None
+    map_pos = map_size = None
+    app_pos = app_size = None
+    strings = None
+    is_utf8 = False
+    flags = 0
+    rmap = None
+    while pos < total:
+        ctype, chdr, csize = struct.unpack_from("<HHI", axml, pos)
+        chunks.append((ctype, chdr, pos, csize))
+        if ctype == 0x0001:
+            strings, is_utf8, flags = _axml_read_string_pool(axml, pos)
+            pool_pos, pool_size = pos, csize
+        elif ctype == 0x0180:
+            count = (csize - chdr) // 4
+            rmap = list(struct.unpack_from(f"<{count}I", axml, pos + chdr))
+            map_pos, map_size = pos, csize
+        elif ctype == 0x0102:
+            _ns, name_idx = struct.unpack_from("<II", axml, pos + 16)
+            if strings[name_idx] == "application":
+                app_pos, app_size = pos, csize
+        pos += csize
+
+    assert pool_pos is not None and map_pos is not None and strings is not None
+    assert app_pos is not None, "Could not locate <application> in AndroidManifest.xml"
+
+    if "largeHeap" in strings:
+        name_idx = strings.index("largeHeap")
+    else:
+        # Appending at the end keeps every existing string index (attributes, element
+        # names, resource map) valid; extra resource-map slots below it are zero-filled.
+        strings.append("largeHeap")
+        name_idx = len(strings) - 1
+
+    new_rmap = list(rmap) + [0] * (name_idx - len(rmap) + 1)
+    new_rmap[name_idx] = LARGE_HEAP_ATTR_ID
+
+    attr_start, attr_size, attr_count = struct.unpack_from("<HHH", axml, app_pos + 24)
+    assert attr_size == 20, f"Unexpected AXML attribute size {attr_size}"
+    ns_idx, elem_name_idx = struct.unpack_from("<II", axml, app_pos + 16)
+
+    # If a previous build already injected the attribute, only make sure its id is right.
+    existing = None
+    for i in range(attr_count):
+        ap = app_pos + 16 + attr_start + i * attr_size
+        _ans, anm, _raw = struct.unpack_from("<III", axml, ap)
+        if anm < len(rmap) and rmap[anm] == LARGE_HEAP_ATTR_ID:
+            existing = i
+            break
+    if existing is not None and len(rmap) >= len(strings):
+        return axml
+
+    # `android:largeHeap="true"` => typed Res_value {size=8, res0=0, TYPE_INT_BOOLEAN, 0xFFFFFFFF}
+    new_attr = struct.pack("<IIIHBBI", ns_idx, name_idx, 0xFFFFFFFF, 8, 0, 0x12, 0xFFFFFFFF)
+    new_app = bytearray(axml[app_pos : app_pos + app_size])
+    insert_at = 16 + attr_start + attr_count * attr_size
+    new_app[insert_at:insert_at] = new_attr
+    struct.pack_into("<H", new_app, 28, attr_count + 1)
+    struct.pack_into("<I", new_app, 4, app_size + len(new_attr))
+
+    new_pool = _axml_build_string_pool(strings, is_utf8, flags)
+    new_map = struct.pack("<HHI", 0x0180, 8, len(new_rmap) * 4 + 8)
+    new_map += b"".join(struct.pack("<I", v) for v in new_rmap)
+
+    out = bytearray(struct.pack("<HHI", 0x0003, header_size, 0))
+    for ctype, _chdr, cpos, csize in chunks:
+        if cpos == pool_pos:
+            out += new_pool
+        elif cpos == map_pos:
+            out += new_map
+        elif cpos == app_pos:
+            out += new_app
+        else:
+            out += axml[cpos : cpos + csize]
+    struct.pack_into("<I", out, 4, len(out))
+    assert struct.unpack_from("<I", out, 4)[0] == len(out)
+    return bytes(out)
+
+
+def patch_update_service_catch_throwable(raw_dex: bytes) -> bytes:
+    """
+    Retypes every `catch (java.lang.Exception)` handler in
+    `UpdateService.onHandleIntent(Intent)` to `java.lang.Throwable`.
+
+    `OutOfMemoryError` / `VerifyError` / `NoClassDefFoundError` are `java.lang.Error`s,
+    not `Exception`s, so Android 4.2.2's 48 MB heap limit previously killed F-Droid
+    right after the repo download finished.  With `Throwable` the service reports a clean
+    "error updating repository" status instead of force-closing the whole app.
+
+    Both `Ljava/lang/Exception;` and `Ljava/lang/Throwable;` encode as 2-byte ULEB type
+    indices here, so this is a length-preserving in-place patch.
+    """
+    buf = bytearray(raw_dex)
+    string_ids_size, string_ids_off = struct.unpack_from("<II", buf, 56)
+    type_ids_size, type_ids_off = struct.unpack_from("<II", buf, 64)
+
+    def get_str(sidx: int) -> str:
+        soff = struct.unpack_from("<I", buf, string_ids_off + sidx * 4)[0]
+        p = soff
+        while buf[p] & 0x80:
+            p += 1
+        p += 1
+        end = buf.index(0, p)
+        return bytes(buf[p:end]).decode("utf-8", errors="replace")
+
+    types = [
+        get_str(struct.unpack_from("<I", buf, type_ids_off + t * 4)[0]) for t in range(type_ids_size)
+    ]
+    if "Ljava/lang/Exception;" not in types or "Ljava/lang/Throwable;" not in types:
+        return raw_dex
+    exception_idx = types.index("Ljava/lang/Exception;")
+    throwable_idx = types.index("Ljava/lang/Throwable;")
+    if len(_axml_encode_uleb(exception_idx)) != len(_axml_encode_uleb(throwable_idx)):
+        return raw_dex
+
+    code_off = _find_method_code_off(
+        buf, "Lorg/fdroid/fdroid/UpdateService;", "onHandleIntent", "(Landroid/content/Intent;)V"
+    )
+    insns_size = struct.unpack_from("<I", buf, code_off + 12)[0]
+    tries_size = struct.unpack_from("<H", buf, code_off + 6)[0]
+    if tries_size == 0:
+        return raw_dex
+
+    tries_off = code_off + 16 + insns_size * 2
+    if insns_size % 2:
+        tries_off += 2
+    handlers_off = tries_off + tries_size * 8
+    handler_count, hp = _read_uleb128(buf, handlers_off)
+
+    def read_sleb(p: int):
+        result = 0
+        shift = 0
+        while True:
+            b = buf[p]
+            p += 1
+            result |= (b & 0x7F) << shift
+            shift += 7
+            if (b & 0x80) == 0:
+                if b & 0x40:
+                    result |= -(1 << shift)
+                return result, p
+
+    patched = 0
+
+    seen_throwable = 0
+    for _ in range(handler_count):
+        size, hp = read_sleb(hp)
+        is_catch_all = size <= 0
+        entries = abs(size)
+        for _e in range(entries):
+            type_pos = hp
+            type_idx, hp = _read_uleb128(buf, hp)
+            _addr, hp = _read_uleb128(buf, hp)
+            if type_idx == exception_idx:
+                encoded = _axml_encode_uleb(throwable_idx)
+                buf[type_pos : type_pos + len(encoded)] = encoded
+                patched += 1
+            elif type_idx == throwable_idx:
+                seen_throwable += 1
+        if is_catch_all:
+            _addr, hp = _read_uleb128(buf, hp)
+
+    if patched == 0 and seen_throwable > 0:
+        return raw_dex
+    assert patched > 0, "UpdateService.onHandleIntent has no java.lang.Exception catch handler to retype!"
+    return _rehash_dex(buf)
 
 
 def patch_arsc_bytes(arsc: bytes):
@@ -330,6 +583,73 @@ def _read_uleb128(buf: bytes, pos: int):
         if (b & 0x80) == 0:
             return result, pos
         shift += 7
+
+
+def patch_update_service_safe_post_sync(raw_dex: bytes) -> bytes:
+    """
+    Retargets the two post-sync calls of `UpdateService.onHandleIntent(Intent)` —
+    `notifyContentProviders()` and `performUpdateNotification()` — to
+    `Arc7Bridge.safeNotifyContentProviders(Object)` / `safePerformUpdateNotification(Object)`.
+
+    Both call sites (address 648 and 678 in the original bytecode) sit AFTER the last
+    `try` range of `onHandleIntent` (which ends at code unit 406), so *any* unchecked
+    exception they raised escaped the service thread and force-closed F-Droid the moment
+    the repo sync finished — the exact "syncs then crashes" symptom.  The wrappers run the
+    original private methods reflectively and append the stack trace to
+    `files/arc7-last-crash.txt` instead of dying.
+
+    `invoke-direct/range {v22}` (0x76) and `invoke-static/range {v22}` (0x77) are both
+    3-code-unit (6-byte) instructions, so this is a length-preserving patch: only the
+    opcode and the 16-bit method index change.
+    """
+    buf = bytearray(raw_dex)
+    method_ids_size, _cds, _cdo, _get_type, get_method = _dex_lookup_tables(buf)
+
+    def find_method(cls: str, name: str, proto: str) -> int:
+        for idx in range(method_ids_size):
+            c, n, pr = get_method(idx)
+            if c == cls and n == name and pr == proto:
+                return idx
+        raise AssertionError(f"Method {cls}->{name}{proto} missing from classes.dex")
+
+    retargets = (
+        ("notifyContentProviders", "safeNotifyContentProviders"),
+        ("performUpdateNotification", "safePerformUpdateNotification"),
+    )
+    code_off = _find_method_code_off(
+        buf, "Lorg/fdroid/fdroid/UpdateService;", "onHandleIntent", "(Landroid/content/Intent;)V"
+    )
+    insns_size = struct.unpack_from("<I", buf, code_off + 12)[0]
+    insns_off = code_off + 16
+    end = insns_off + insns_size * 2
+
+    patched = 0
+    for src_name, wrapper in retargets:
+        src_idx = find_method("Lorg/fdroid/fdroid/UpdateService;", src_name, "()V")
+        dst_idx = find_method("Lorg/fdroid/fdroid/Arc7Bridge;", wrapper, "(Ljava/lang/Object;)V")
+        direct = bytes([0x76, 0x01]) + struct.pack("<H", src_idx) + struct.pack("<H", 22)
+        guarded = bytes([0x77, 0x01]) + struct.pack("<H", dst_idx) + struct.pack("<H", 22)
+        if buf.find(guarded, insns_off, end) >= 0:
+            # Already retargeted by a previous patch run — stay idempotent.
+            patched += 1
+            continue
+        found = 0
+        pos = insns_off
+        while True:
+            hit = buf.find(direct, pos, end)
+            if hit < 0:
+                break
+            if (hit - insns_off) % 2:
+                pos = hit + 1
+                continue
+            buf[hit] = 0x77  # invoke-static/range {v22}
+            struct.pack_into("<H", buf, hit + 2, dst_idx)
+            found += 1
+            pos = hit + len(direct)
+        assert found == 1, f"Expected exactly one {src_name}() call in onHandleIntent, found {found}"
+        patched += found
+    assert patched == 2
+    return _rehash_dex(buf)
 
 
 def _dex_lookup_tables(buf: bytearray):
@@ -629,12 +949,18 @@ import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
+import android.util.Log;
 import org.fdroid.fdroid.data.Apk;
 import org.fdroid.fdroid.installer.DefaultInstaller;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.net.HttpURLConnection;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.net.Proxy;
 import java.net.URL;
 import java.security.MessageDigest;
@@ -643,6 +969,7 @@ import java.security.cert.X509Certificate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashSet;
 import java.util.List;
@@ -671,7 +998,11 @@ public final class Arc7Bridge {
     private static final ThreadLocal<Context> CURRENT_CTX = new ThreadLocal<Context>();
     private static volatile Context LAST_APP_CTX = null;
     private static final AtomicBoolean DB_SANITIZED = new AtomicBoolean(false);
+    private static final AtomicBoolean CRASH_GUARD_INSTALLED = new AtomicBoolean(false);
     private static final Pattern ABI_PATTERN = Pattern.compile("^lib/([a-z0-9-]+)/.*");
+
+    /** Written by {@link #installCrashGuard(Context)} for every uncaught exception. */
+    public static final String CRASH_LOG_NAME = "arc7-last-crash.txt";
 
     private Arc7Bridge() {}
 
@@ -681,7 +1012,121 @@ public final class Arc7Bridge {
             if (appCtx == null) appCtx = ctx;
             CURRENT_CTX.set(appCtx);
             LAST_APP_CTX = appCtx;
+            installCrashGuard(appCtx);
             sanitizeExistingRepoDbOnce(appCtx);
+        }
+    }
+
+    /**
+     * Installs a process-wide uncaught exception handler the first time a repo sync starts.
+     * Any hard crash after that (including `OutOfMemoryError`, which Android 4.2.2's
+     * `UpdateService catch (Exception)` cannot see) is written to
+     * `files/arc7-last-crash.txt` — readable from the Kobo Arc 7 Freedom app via root —
+     * and mirrored to logcat before the previous handler runs.
+     */
+    public static void installCrashGuard(final Context ctx) {
+        if (ctx == null || !CRASH_GUARD_INSTALLED.compareAndSet(false, true)) return;
+        try {
+            final Context appCtx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
+            final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+                @Override
+                public void uncaughtException(Thread thread, Throwable error) {
+                    try {
+                        writeCrashLog(appCtx, thread, error);
+                    } catch (Throwable ignored) {
+                    }
+                    if (previous != null) previous.uncaughtException(thread, error);
+                }
+            });
+        } catch (Throwable ignored) {
+        }
+    }
+
+    public static File crashLogFile(Context ctx) {
+        if (ctx == null) return null;
+        return new File(ctx.getFilesDir(), CRASH_LOG_NAME);
+    }
+
+    private static void writeCrashLog(Context ctx, Thread thread, Throwable error) {
+        StringWriter sw = new StringWriter();
+        error.printStackTrace(new PrintWriter(sw));
+        String text = "F-Droid Classic Android 4.2 crash " + new Date().toString()
+                + "\\nthread: " + thread.getName() + "\\n" + sw.toString();
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(new File(ctx.getFilesDir(), CRASH_LOG_NAME));
+            out.write(text.getBytes("UTF-8"));
+            out.flush();
+        } catch (Throwable ignored) {
+        } finally {
+            if (out != null) {
+                try { out.close(); } catch (Throwable ignored) {}
+            }
+        }
+        Log.e("Arc7CrashGuard", text);
+    }
+
+    /**
+     * Runs `UpdateService.notifyContentProviders()` from `onHandleIntent()` through a
+     * `Throwable` guard.  The call site after the repo sync lives OUTSIDE every
+     * `try` range of `onHandleIntent`, so any `RuntimeException` thrown there (a
+     * `SQLiteException` on an old database, an `IllegalArgumentException` from
+     * `App(Cursor)` / `checkCursorPosition()`, a `NullPointerException` inside
+     * `NotificationCompat`, …) used to kill the whole F-Droid process the instant the
+     * sync finished — exactly the "syncs then crashes" report.
+     *
+     * `patch_update_service_safe_post_sync()` retargets both post-sync calls to these
+     * wrappers, so a broken notification / refresh step now only loses the toast/refresh
+     * while F-Droid stays open, and the full stack trace is appended to
+     * `files/arc7-last-crash.txt`.
+     */
+    public static void safeNotifyContentProviders(Object service) {
+        invokeServiceMethod(service, "notifyContentProviders");
+    }
+
+    public static void safePerformUpdateNotification(Object service) {
+        invokeServiceMethod(service, "performUpdateNotification");
+    }
+
+    private static void invokeServiceMethod(Object service, String methodName) {
+        if (service == null) return;
+        try {
+            Method method = service.getClass().getDeclaredMethod(methodName);
+            method.setAccessible(true);
+            method.invoke(service);
+        } catch (Throwable error) {
+            Throwable cause = error;
+            if (error instanceof InvocationTargetException
+                    && ((InvocationTargetException) error).getCause() != null) {
+                cause = ((InvocationTargetException) error).getCause();
+            }
+            logCaught("UpdateService." + methodName, cause);
+        }
+    }
+
+    /** Appends a caught-but-non-fatal `Throwable` to `files/arc7-last-crash.txt` + logcat. */
+    public static void logCaught(String where, Throwable error) {
+        StringWriter sw = new StringWriter();
+        sw.write("F-Droid Classic Android 4.2 caught error in " + where + " at "
+                + new Date().toString() + "\\n");
+        if (error != null) {
+            error.printStackTrace(new PrintWriter(sw));
+        }
+        String text = sw.toString();
+        Log.e("Arc7CrashGuard", text);
+        Context ctx = LAST_APP_CTX;
+        if (ctx == null) return;
+        FileOutputStream out = null;
+        try {
+            out = new FileOutputStream(new File(ctx.getFilesDir(), CRASH_LOG_NAME), true);
+            out.write(text.getBytes("UTF-8"));
+            out.flush();
+        } catch (Throwable ignored) {
+        } finally {
+            if (out != null) {
+                try { out.close(); } catch (Throwable ignored) {}
+            }
         }
     }
 
@@ -724,18 +1169,21 @@ public final class Arc7Bridge {
     }
 
     public static HttpURLConnection openConnection(URL url, Proxy explicitProxy) throws IOException {
+        if (url == null) throw new IOException("Null URL passed to F-Droid HTTP bridge");
         String s = url.toString();
         String rewritten = rewriteUrlString(s);
         URL target = rewritten.equals(s) ? url : new URL(rewritten);
         String ts = target.toString();
-        if (ts.startsWith("http://127.0.0.1:") || ts.startsWith("http://localhost:")) {
-            HttpURLConnection conn = (HttpURLConnection) target.openConnection(Proxy.NO_PROXY);
-            conn.setInstanceFollowRedirects(true);
-            return conn;
+        if (!ts.startsWith("http://") && !ts.startsWith("https://")) {
+            throw new IOException("Unsupported scheme for F-Droid HTTP bridge: " + ts);
         }
-        HttpURLConnection conn = explicitProxy != null
-                ? (HttpURLConnection) target.openConnection(explicitProxy)
-                : (HttpURLConnection) target.openConnection();
+        java.net.URLConnection raw = (ts.startsWith("http://127.0.0.1:") || ts.startsWith("http://localhost:"))
+                ? target.openConnection(Proxy.NO_PROXY)
+                : (explicitProxy != null ? target.openConnection(explicitProxy) : target.openConnection());
+        if (!(raw instanceof HttpURLConnection)) {
+            throw new IOException("Non-HTTP connection for " + ts);
+        }
+        HttpURLConnection conn = (HttpURLConnection) raw;
         conn.setInstanceFollowRedirects(true);
         return conn;
     }
@@ -1139,11 +1587,20 @@ public class BaseImageDownloader implements ImageDownloader {
     }
 
     protected HttpURLConnection createConnection(String url, Object extra) throws IOException {
-        String encodedUrl = Uri.encode(url, ALLOWED_URI_CHARS);
-        HttpURLConnection conn = Arc7Bridge.openConnection(new URL(encodedUrl), null);
-        conn.setConnectTimeout(connectTimeout);
-        conn.setReadTimeout(readTimeout);
-        return conn;
+        try {
+            String encodedUrl = Uri.encode(url, ALLOWED_URI_CHARS);
+            HttpURLConnection conn = Arc7Bridge.openConnection(new URL(encodedUrl), null);
+            conn.setConnectTimeout(connectTimeout);
+            conn.setReadTimeout(readTimeout);
+            return conn;
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Throwable t) {
+            // UIL only ever catches IOException; convert any unchecked bridge failure
+            // (ClassCastException / IllegalArgumentException / ...) so icon loading can
+            // never force-close F-Droid on Android 4.2.
+            throw new IOException("Image connection failed: " + t);
+        }
     }
 
     protected InputStream getStreamFromFile(String imageUri, Object extra) throws IOException {
@@ -1581,8 +2038,10 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
     }
 
     with zipfile.ZipFile(apk_path, "r") as zf_in, tempfile.TemporaryDirectory() as tmp:
-        manifest_patched = patch_manifest_version_code(
-            zf_in.read("AndroidManifest.xml"), TARGET_FDROID_VERSION_CODE
+        manifest_patched = patch_manifest_add_large_heap(
+            patch_manifest_version_code(
+                zf_in.read("AndroidManifest.xml"), TARGET_FDROID_VERSION_CODE
+            )
         )
         arsc_patched, fixed_repos = patch_arsc_bytes(zf_in.read("resources.arsc"))
 
@@ -1594,6 +2053,11 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
             patch_app_init_installed_apk_safe(dex1_merged),
             tmp, "dex1_verified", java_bin,
         )
+        dex1_clean = canonicalize_stripped_dex(
+            patch_update_service_catch_throwable(dex1_clean),
+            tmp, "dex1_throwable", java_bin,
+        )
+        dex1_clean = patch_update_service_safe_post_sync(dex1_clean)
         dex4_clean = canonicalize_stripped_dex(
             patch_indexv1_jarfile_noverify(
                 strip_classes_from_dex(zf_in.read("classes4.dex"), all_managed_classes)

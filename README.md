@@ -1,11 +1,45 @@
-# Arc7 Freedom (`v2.5.0` — playable YouTube / YouTube Music + truly separate apps)
+# Arc7 Freedom (`v2.5.1` — per-day alarm check-off + F-Droid sync-crash fix)
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
-**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.0`
-(`versionCode=250`).**
+**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.1`
+(`versionCode=251`).**
 
-`v2.5.0` fixes the two things that were still broken on real hardware:
+`v2.5.1` fixes the two things reported on the tablet:
+
+1. **Alarms can now be set for specific days.** The alarm editor shows a **Sun · Mon · Tue · Wed ·
+   Thu · Fri · Sat** row of check-off buttons (plus `Every day` / `Weekdays` / `Weekends` /
+   `One-time` shortcuts). Any subset is saved as the alarm's day bitmask — e.g. Mon+Wed+Fri — and
+   `AlarmManager` only fires on the checked days. Alarm cards show `Every Mon`, `Mon, Wed, Fri`,
+   etc., and leaving every day unchecked gives a one-time alarm.
+2. **F-Droid no longer crashes right after a sync.** The crash happened in the code that runs
+   *after* the index has already been downloaded, verified and stored. In
+   `org.fdroid.fdroid.UpdateService.onHandleIntent(Intent)` those calls —
+   `notifyContentProviders()` (refresh the app list) and `performUpdateNotification()` (query
+   `AppProvider.getCanUpdateUri()` with `Schema.AppMetadataTable.Cols.ALL` and build the
+   "updates available" notification) — sit at bytecode offsets **648** and **678**, i.e. *after
+   the method's last `try` range* (which ends at code unit `406`). Any `RuntimeException`
+   thrown there (`SQLiteException` on a stale database, `IllegalArgumentException` from
+   `App(Cursor)` / `checkCursorPosition()`, NPE inside `NotificationCompat`, an
+   `OutOfMemoryError` from the 2026 ≈4,000-app index, …) therefore escaped the `IntentService`
+   worker thread, killed the process and looked exactly like "syncs, then crashes".
+   Patched **F-Droid `v1304`** now:
+   * retargets both post-sync call sites (`invoke-direct/range` → `invoke-static/range`) to
+     **`Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()`**, which run
+     the original private methods reflectively inside a `catch (Throwable)` — a broken refresh or
+     notification step now only loses that step while F-Droid stays open;
+   * appends every caught `Throwable` **plus** every uncaught crash to
+     `files/arc7-last-crash.txt` (tag `Arc7CrashGuard`, mirrored to logcat) via the
+     `installCrashGuard()` uncaught-exception handler installed at the first sync;
+   * retypes **every `UpdateService.onHandleIntent()` catch handler to `java.lang.Throwable`**, so
+     anything thrown *inside* the sync itself becomes a clean *"error updating repository"*
+     status instead of a force-close;
+   * declares **`android:largeHeap="true"`** in its binary `AndroidManifest.xml` (the upstream
+     debug manifest ships without it), lifting the per-app Dalvik heap ceiling for index parsing;
+   * hardens the `127.0.0.1:8118` TLS bridge / icon downloader so no unchecked exception
+     (`ClassCastException`, bad URL scheme, …) can escape into UIL or F-Droid.
+
+Since `v2.5.0`:
 
 1. **YouTube & YouTube Music actually play now.** Since 2026 YouTube answers every working
    anonymous InnerTube client with an **empty `formats` array** — only video-only H.264 and
@@ -34,32 +68,52 @@
 
 Everything from `v2.4.1` and earlier is still included: Launcher `v55` with effortless widget
 removal, universal Now Playing notification + Clock Standby, Official Tailscale Google sign-in,
-patched F-Droid `v1303`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
+patched F-Droid `v1304`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
 Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ---
 
-## Direct Zero-Redirect `v2.5.0` Downloads (GitHub Releases + Raw CDN)
+## Direct Zero-Redirect `v2.5.1` Downloads (GitHub Releases + Raw CDN)
 
 All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3**
 signed with the permanent release certificate
 [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks)
 (`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
 
-- **Latest GitHub Release (`v2.5.0`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
+- **Latest GitHub Release (`v2.5.1`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
 - **Direct APK & Tool Streams:**
-  - **[`Upgrade-My-Kobo-To-v2.5.0.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.0.apk)** — 1-Tap OTA Root & Full `v2.5.0` Upgrader (`versionCode=250`; installs `Arc7 Freedom` `v2.5.0`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1303`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 120 2026 CAs)
-  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.0`, `versionCode=250`)
-  - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=250`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
-  - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=250`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
+  - **[`Upgrade-My-Kobo-To-v2.5.1.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.1.apk)** — 1-Tap OTA Root & Full `v2.5.1` Upgrader (`versionCode=251`; installs `Arc7 Freedom` `v2.5.1`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1304`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 118 2026 CAs)
+  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.1`, `versionCode=251`)
+  - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=251`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
+  - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=251`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
   - **[`VLC.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VLC.apk)** — Standalone Android 4.2 ARMv7 **VLC Media Player** (`org.videolan.vlc`, also pre-bundled inside `KoboArc7Freedom.apk`)
   - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS store client with binary APK validator & auto `SHA1withRSA` JAR `v1` signer (`v4.8.5`)
-  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1303`) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
+  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1304`, largeHeap + Throwable-catch sync stability) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
   - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)** — Custom-skinned **Home** launcher (`v55`) with effortless widget removal, drag-and-drop icons, multi-page desktops, multi-edge app bar, 5 skins & 44 high-DPI icons
 
 ---
 
-## What's New in `v2.5.0`
+## What's New in `v2.5.1`
+
+1. **Per-day alarm check-off (`Arc7ClockActivity` + `Arc7ClockStore`):**
+   - The `Repeat` cycle button is gone; the alarm editor now has seven toggle buttons
+     (`Sun … Sat`) that light up when checked, a live `Repeat: Mon, Wed, Fri` summary, and
+     one-tap presets (`Every day`, `Weekdays`, `Weekends`, `One-time`).
+   - `repeatMask` (bit 0 = Sunday … bit 6 = Saturday) is persisted exactly as checked, so
+     `computeNextTriggerMillis()` / `AlarmManager.set(RTC_WAKEUP, …)` already honour any subset.
+   - `Arc7ClockStore.describeRepeatMask()` / `describeAlarmDays()` render single-day alarms as
+     `Every Mon` and the alarm list keeps showing the full day summary.
+2. **F-Droid `v1304` sync stability:** the two post-sync calls of
+   `UpdateService.onHandleIntent()` (`notifyContentProviders()` @648, `performUpdateNotification()`
+   @678 — both outside every `try` range) are retargeted to
+   `Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()` reflective
+   `Throwable` guards, so a failing refresh/notification no longer force-closes the app; all
+   in-sync handlers are retyped `Exception → Throwable`, the binary manifest gains
+   `largeHeap="true"`, an `Arc7CrashGuard` uncaught-exception handler appends every stack trace to
+   `files/arc7-last-crash.txt`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types
+   instead of throwing. Version code bumped `1303 → 1304` so the new build upgrades in place.
+
+## What's New in `v2.5.0` (still included)
 
 1. **`YouTube` — playable 2026 streams (`MorpheRemuxer` + `MorpheStreamServer` + `MorpheEngine`):**
    - Empty-`formats` DASH handling, video-only `avc1` + audio-only `mp4a` merge into one seekable

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v2.4.1 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
+# Kobo Arc 7 Freedom v2.5.1 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
 #
 # Concurrent HTTP/1.1 + inline PNG/JPEG/SVG image serving + `Range: bytes=...`
 # (`206 Partial Content`) + instant TLS ClientHello reject so Kobo's Browser &
@@ -19,14 +19,14 @@ mkdir -p "${SERVE_DIR}"
 
 RAW_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.4.1.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.5.1.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
     if [ -f "${SCRIPT_DIR}/${ASSET}" ] && [ ! -s "${SERVE_DIR}/${ASSET}" ]; then
         cp -f "${SCRIPT_DIR}/${ASSET}" "${SERVE_DIR}/${ASSET}"
     fi
     if [ ! -s "${SERVE_DIR}/${ASSET}" ]; then
         echo "==> Downloading ${ASSET}..."
-        curl -fL --progress-bar "${RAW_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
-            || curl -fL --progress-bar "${RELEASE_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
+        curl -fL --connect-timeout 5 --progress-bar "${RAW_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
+            || curl -fL --connect-timeout 5 --progress-bar "${RELEASE_BASE}/${ASSET}" -o "${SERVE_DIR}/${ASSET}" \
             || true
     fi
 done
@@ -35,7 +35,7 @@ if [ -f "${SCRIPT_DIR}/serve-over-wifi.py" ]; then
     ARC7_SERVE_DIR="${SERVE_DIR}" exec python3 "${SCRIPT_DIR}/serve-over-wifi.py" "$@"
 fi
 
-python3 - "${SERVE_DIR}" "${1:-8000}" << 'PYEOF'
+exec python3 - "${SERVE_DIR}" "${1:-8000}" << 'PYEOF'
 import base64, html, http.server, os, re, socket, subprocess, sys, urllib.parse, zlib, struct
 
 SERVE_DIR = sys.argv[1]
@@ -104,7 +104,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 items.append(f"<a class='sub' href='./raw/{urllib.parse.quote(f)}'>Alternate Direct Stream ({html.escape(f)})</a>")
         return (
             "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>Kobo Arc 7 Freedom v2.4.1 — Local Wi-Fi Installer</title>"
+            "<title>Kobo Arc 7 Freedom v2.5.1 — Local Wi-Fi Installer</title>"
             "<style>body{font-family:sans-serif;background:#0e1319;color:#f8fafc;padding:20px;}"
             ".card{background:#161e28;border:1px solid #2b394b;border-radius:10px;padding:20px;max-width:660px;margin:auto;}"
             "h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;"
@@ -114,9 +114,9 @@ class H(http.server.BaseHTTPRequestHandler):
             "<div style='text-align:center;max-width:660px;margin:0 auto 14px auto;'>"
             "<img src='./logo-banner.png' alt='Kobo Arc 7 Freedom' style='max-width:100%;max-height:112px;border-radius:10px;'>"
             "</div><div class='card'>"
-            "<h1>Kobo Arc 7 Freedom v2.4.1 — Wi-Fi OTA Rooting &amp; Installer</h1>"
+            "<h1>Kobo Arc 7 Freedom v2.5.1 — Wi-Fi OTA Rooting &amp; Installer</h1>"
             "<p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b> on your tablet.<br>"
-            "2. Tap <b>Upgrade-My-Kobo-To-v2.4.1.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
+            "2. Tap <b>Upgrade-My-Kobo-To-v2.5.1.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
             "3. Swipe down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>"
             + "".join(items) + "</div></body></html>"
         ).encode("utf-8")
@@ -227,7 +227,7 @@ class Srv(http.server.ThreadingHTTPServer):
 
 srv = Srv(("0.0.0.0", PORT), H)
 print("=" * 70)
-print("  Kobo Arc 7 Freedom v2.4.1 — Wi-Fi OTA Rooting & Installer LIVE!")
+print("  Kobo Arc 7 Freedom v2.5.1 — Wi-Fi OTA Rooting & Installer LIVE!")
 print("  Open Browser on your Kobo Arc 7 and type:")
 for ip in get_ips():
     print(f"\n      http://{ip}:{PORT}")

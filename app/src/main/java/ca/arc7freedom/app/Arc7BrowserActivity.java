@@ -60,7 +60,7 @@ import java.util.zip.GZIPInputStream;
  * Architecture & Real-Hardware Fixes (`v1.6.1`):
  *  - Completely removes the buggy `Lite` mode toggle & destructive HTML/CSS regex stripping.
  *  - Runs a single persistent multithreaded native `libarc7tls.so` daemon on `127.0.0.1:18119`
- *    with all 120 modern 2026 Root CAs parsed ONCE in C memory (eliminating per-resource
+ *    with all 118 modern 2026 Root CAs parsed ONCE in C memory (eliminating per-resource
  *    `fork()/exec()` + 380 ms X.509 PEM re-parsing stalls across CSS/JS/images!).
  *  - Transparently decompresses HTTP `Content-Encoding: gzip` (`0x1F 0x8B`) streams via
  *    `GZIPInputStream` so compressed modern sites never render raw binary gibberish.
@@ -600,7 +600,7 @@ public class Arc7BrowserActivity extends Activity {
                 + "</style></head><body>"
                 + "<div class='box'>"
                 + "<h2>Browser</h2>"
-                + "<p>Modern TLS 1.3 + 120 Bundled 2026 Root Certificates — Search the web or open any HTTPS or local site.</p>"
+                + "<p>Modern TLS 1.3 + 118 Bundled 2026 Root Certificates — Search the web or open any HTTPS or local site.</p>"
                 + "<form action='https://html.duckduckgo.com/html/' method='get'>"
                 + "<input type='text' name='q' placeholder='Search DuckDuckGo...'>"
                 + "<button type='submit'>Search</button>"

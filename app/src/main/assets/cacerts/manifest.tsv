@@ -1,4 +1,4 @@
-# certifi=2026.10.19 count=120
+# certifi=2026.10.23 count=118
 89c02a45.0	C = GB, ST = Greater Manchester, L = Salford, O = COMODO CA Limited, CN = COMODO ECC Certification Authority	Jan 18 23:59:59 2038 GMT
 60afe812.0	C = HU, L = Budapest, O = NetLock Kft., OU = Tan\C3\BAs\C3\ADtv\C3\A1nykiad\C3\B3k (Certification Services), CN = NetLock Arany (Class Gold) F\C5\91tan\C3\BAs\C3\ADtv\C3\A1ny	Dec  6 15:08:21 2028 GMT
 e8651083.0	C = HU, L = Budapest, O = Microsec Ltd., CN = Microsec e-Szigno Root CA 2009, emailAddress = info@e-szigno.hu	Dec 30 11:30:18 2029 GMT
@@ -58,8 +58,6 @@ ab59055e.0	C = CN, O = "GUANG DONG CERTIFICATE AUTHORITY CO.,LTD.", CN = GDCA Tr
 da7377f6.0	C = CN, O = UniTrust, CN = UCA Extended Validation Root	Dec 31 00:00:00 2038 GMT
 302904dd.0	C = FR, O = Dhimyotis, OU = 0002 48146308100036, CN = Certigna Root CA	Oct  1 08:32:27 2033 GMT
 f459871d.0	C = IN, OU = emSign PKI, O = eMudhra Technologies Limited, CN = emSign Root CA - G1	Feb 18 18:30:00 2043 GMT
-dbff3a01.0	C = US, OU = emSign PKI, O = eMudhra Inc, CN = emSign Root CA - C1	Feb 18 18:30:00 2043 GMT
-869fbf79.0	C = US, OU = emSign PKI, O = eMudhra Inc, CN = emSign ECC Root CA - C3	Feb 18 18:30:00 2043 GMT
 bd43e1dd.0	C = HK, ST = Hong Kong, L = Hong Kong, O = Hongkong Post, CN = Hongkong Post Root CA 3	Jun  3 02:29:46 2042 GMT
 01419da9.0	C = US, O = Microsoft Corporation, CN = Microsoft ECC Root Certificate Authority 2017	Jul 18 23:16:04 2042 GMT
 9591a472.0	C = US, O = Microsoft Corporation, CN = Microsoft RSA Root Certificate Authority 2017	Jul 18 23:00:23 2042 GMT
