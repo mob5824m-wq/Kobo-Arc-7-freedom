@@ -2184,6 +2184,19 @@ public class VerifyV220Suite {
                 false);
         assert rss.size() == 1 && rss.get(0).title.contains("Kobo v2.2");
 
+        // Radio-Browser API parsing: resolved HTTPS URLs, country label, invalid schemes, and duplicate UUIDs.
+        String radioJson = "[{\\\"stationuuid\\\":\\\"radio-1\\\",\\\"name\\\":\\\"Kitchener FM\\\","
+                + "\\\"countrycode\\\":\\\"CA\\\",\\\"url_resolved\\\":\\\"https://stream.example/radio.mp3\\\"},"
+                + "{\\\"stationuuid\\\":\\\"radio-1\\\",\\\"name\\\":\\\"Duplicate\\\",\\\"url\\\":\\\"http://duplicate.example/stream\\\"},"
+                + "{\\\"stationuuid\\\":\\\"radio-2\\\",\\\"name\\\":\\\"Unsafe\\\",\\\"url\\\":\\\"file:///etc/passwd\\\"}]";
+        List<Arc7RadioRssActivity.RadioStation> directoryStations =
+                Arc7RadioRssActivity.parseRadioBrowserStations(radioJson);
+        assert directoryStations.size() == 1
+                && "Kitchener FM".equals(directoryStations.get(0).name)
+                && "CA".equals(directoryStations.get(0).countryCode)
+                && "https://stream.example/radio.mp3".equals(directoryStations.get(0).streamUrl)
+                && directoryStations.get(0).displayName().contains("(CA)");
+
         // 5. Studio WAV Header + Lossless WAV Trimmer
         File wavIn = new File(dir, "in.wav");
         RandomAccessFile raf = new RandomAccessFile(wavIn, "rw");
@@ -2680,13 +2693,24 @@ def verify_v230_native_vpn_streamdeck_and_relay(main_apk: str) -> None:
                 conn.sendall(bytes([0x81, 126]) + struct.pack("!H", n) + raw)
 
         def ws_recv_text(conn: socket.socket) -> str:
-            b0, b1 = conn.recv(2)
+            def recv_exact(size: int) -> bytes:
+                data = bytearray()
+                while len(data) < size:
+                    chunk = conn.recv(size - len(data))
+                    if not chunk:
+                        raise ConnectionError("OBS WebSocket closed mid-frame")
+                    data.extend(chunk)
+                return bytes(data)
+
+            _b0, b1 = recv_exact(2)
             masked = (b1 & 0x80) != 0
             length = b1 & 0x7F
             if length == 126:
-                length = struct.unpack("!H", conn.recv(2))[0]
-            mask = conn.recv(4) if masked else b""
-            data = bytearray(conn.recv(length))
+                length = struct.unpack("!H", recv_exact(2))[0]
+            elif length == 127:
+                length = struct.unpack("!Q", recv_exact(8))[0]
+            mask = recv_exact(4) if masked else b""
+            data = bytearray(recv_exact(length))
             if masked:
                 for i in range(len(data)):
                     data[i] ^= mask[i % 4]
@@ -3319,6 +3343,23 @@ def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
     print(f"  [PASS] Suite keeps 1 real launcher entry + {len(aliases)} auto-disabled activity aliases "
           "(SplitAppIconSync: no duplicate icons once a standalone app is installed)")
 
+    # Package broadcasts immediately resync alias visibility on standalone install/uninstall,
+    # rather than waiting for a reboot or the suite to be reopened.
+    package_receiver = next((r for r in suite_xml.findall(".//receiver")
+                             if r.get(ANDROID_NS + "name") == ".SplitAppPackageReceiver"), None)
+    assert package_receiver is not None, "Suite manifest is missing SplitAppPackageReceiver"
+    receiver_actions = {
+        a.get(ANDROID_NS + "name")
+        for a in package_receiver.findall(".//action")
+    }
+    assert {"android.intent.action.PACKAGE_ADDED", "android.intent.action.PACKAGE_REMOVED",
+            "android.intent.action.PACKAGE_REPLACED", "android.intent.action.PACKAGE_FULLY_REMOVED"} <= receiver_actions, (
+        f"SplitAppPackageReceiver misses package-change actions: {receiver_actions}"
+    )
+    assert "ca.arc7freedom.app.SplitAppPackageReceiver" in suite.get_receivers(), (
+        "Compiled suite APK is missing the package-change receiver"
+    )
+
     # ---- SHA256SUMS must cover the 27 split APKs too ----
     sums = {}
     for line in open(os.path.join(ROOT, "releases", "SHA256SUMS.txt"), encoding="utf-8"):
@@ -3400,13 +3441,19 @@ def verify_repository_layout_and_app_manager(main_apk: str) -> None:
     assert "ca.arc7freedom." not in uninstall_guard, (
         "Uninstall safety guard must allow removing nonessential standalone Arc7 apps"
     )
+    assert "getPackageName()" in uninstall_guard and "runningPackage.toLowerCase(Locale.US)" in uninstall_guard, (
+        "App Manager must protect its own running package from confirmed uninstall"
+    )
+    assert "currently running App Manager" in manager_src, (
+        "App Manager's uninstall-block explanation should mention its self-protection"
+    )
     assert "pm uninstall" not in manager_src, (
         "App Manager should use Android's confirmed package-uninstall UI, not silently remove packages as root"
     )
 
     expected_strings = (
         "Uninstall App", "Remove System App Updates", "App cannot be uninstalled",
-        "Android will show its package confirmation next.",
+        "Android will show its package confirmation next.", "currently running App Manager",
     )
     for apk_path in (
         main_apk,
@@ -3758,6 +3805,98 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
     print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.3.apk is 2.5.3 / 253")
 
 
+def verify_requested_runtime_hardening() -> None:
+    """Regression checks for package icons, live radio lookup, PC tools, and bounded YouTube resolution."""
+    print("\n=== Verifying uninstall self-protection, original app logos, Radio-Browser, PC clients, and YouTube progress ===")
+
+    # Install/remove broadcasts keep suite fallback aliases synchronized immediately.
+    manifest = open(os.path.join(ROOT, "app/src/main/AndroidManifest.xml"), encoding="utf-8").read()
+    receiver = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/SplitAppPackageReceiver.java"), encoding="utf-8").read()
+    assert ".SplitAppPackageReceiver" in manifest and "android:scheme=\"package\"" in manifest
+    for action in ("PACKAGE_ADDED", "PACKAGE_REMOVED", "PACKAGE_REPLACED", "PACKAGE_FULLY_REMOVED"):
+        assert "android.intent.action." + action in manifest and "Intent.ACTION_PACKAGE_" in receiver
+    assert "SplitAppIconSync.sync(context)" in receiver and "EXTRA_REPLACING" in receiver
+
+    # The generated standalone Camera keeps its app name/logo; both suite and App Manager skin paths
+    # preserve those icons and the stock Camera's icon so the two Camera entries remain distinct.
+    camera_manifest = open(os.path.join(ROOT, "split-apps/camera/AndroidManifest.xml"), encoding="utf-8").read()
+    assert 'android:label="Camera"' in camera_manifest and 'android:icon="@drawable/ic_camera"' in camera_manifest
+    for rel in (
+        "launcher-android4/src/main/java/ca/arc7freedom/launcher/Arc7LauncherSkin.java",
+        "app/src/main/java/ca/arc7freedom/app/Arc7Skin.java",
+    ):
+        source = open(os.path.join(ROOT, rel), encoding="utf-8").read()
+        assert "shouldPreserveOriginalAppIcon" in source and "hasArc7ReplacementTwin" in source, rel
+        assert "ca.arc7freedom." in source and "camera" in source.lower(), rel
+    launcher_skin = open(os.path.join(ROOT, "launcher-android4/src/main/java/ca/arc7freedom/launcher/Arc7LauncherSkin.java"), encoding="utf-8").read()
+    assert "return systemFallback" in launcher_skin and "return 0;" in launcher_skin
+    app_skin = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7Skin.java"), encoding="utf-8").read()
+    assert "return fallback" in app_skin
+
+    # Radio station buttons are always directory data, not an embedded hardcoded station list.
+    radio = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7RadioRssActivity.java"), encoding="utf-8").read()
+    assert "PRESET_STATIONS" not in radio
+    for needle in (
+        "http://www.radio-browser.info/", "/json/stations/topvote/20",
+        "/json/stations/byname/", "fetchStringViaTls13", "url_resolved",
+        "countrycode", "RADIO_BROWSER_API_HOSTS",
+    ):
+        assert needle in radio, f"Radio-Browser integration is missing {needle!r}"
+
+    # The missing xdotool case is exercised with a fake socket and a forced-empty PATH lookup.
+    import contextlib
+    import importlib.util
+    import io as io_module
+    screen_path = os.path.join(ROOT, "releases/Start-Kobo-Second-Screen.py")
+    screen_spec = importlib.util.spec_from_file_location("arc7_second_screen_test", screen_path)
+    screen_module = importlib.util.module_from_spec(screen_spec)
+    screen_spec.loader.exec_module(screen_module)
+    original_which = screen_module.shutil.which
+    screen_module.shutil.which = lambda name: None if name == "xdotool" else original_which(name)
+    screen_module._INPUT_WARNING_SHOWN = False
+
+    class _FakeEventSocket:
+        def __init__(self):
+            self.chunks = [b"TOUCH 1.2 -0.2 0\nMACRO MEDIA_PLAY_PAUSE\n", b""]
+
+        def recv(self, _size):
+            return self.chunks.pop(0) if self.chunks else b""
+
+    captured = io_module.StringIO()
+    with contextlib.redirect_stdout(captured):
+        screen_module.handle_incoming_events(_FakeEventSocket(), (1280, 800))
+    screen_module.shutil.which = original_which
+    assert "xdotool was not found on PATH" in captured.getvalue()
+    assert captured.getvalue().count("Desktop clicks/keys are disabled") == 1
+
+    # The PC ADB forwarding port is distinct from its Wi-Fi listener, and failures are visible.
+    pc_deck = open(os.path.join(ROOT, "releases/Start-PC-Stream-Deck.py"), encoding="utf-8").read()
+    android_deck = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7StreamDeckActivity.java"), encoding="utf-8").read()
+    assert "ADB_FORWARD_PORT = 18992" in pc_deck and "STREAM_DECK_PORT = 18991" in pc_deck
+    assert 'f"tcp:{forward_port}"' in pc_deck and 'f"tcp:{device_port}"' in pc_deck
+    assert 'socket.create_connection(("127.0.0.1", forward_port), timeout=5.0)' in pc_deck
+    assert "timeout=2.5" in pc_deck and "def recv_exact(size)" in pc_deck, (
+        "OBS WebSocket client should tolerate slow/fragmented responses"
+    )
+    for needle in ("AUTO_CONNECT_TIMEOUT_MS = 5000", "AUTO_DISCOVERY_TIMEOUT_MS = 1600",
+                   "reportConnectionDiagnostic", "connectionError(t)"):
+        assert needle in android_deck, f"Stream Deck connection recovery is missing {needle!r}"
+
+    # Foreground playback has bounded direct/cloud attempts, emits UI progress, and no longer waits
+    # for SponsorBlock/recommendation APIs before opening the playable stream.
+    morphe = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/MorpheEngine.java"), encoding="utf-8").read()
+    youtube = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/YouTubeActivity.java"), encoding="utf-8").read()
+    for needle in ("QUICK_DIRECT_CLIENT_ATTEMPTS = 3", "QUICK_VISITOR_TIMEOUT_MS = 1600",
+                   "QUICK_PLAYER_TIMEOUT_MS = 6500", "QUICK_CLOUD_TIMEOUT_MS = 3000",
+                   "ResolutionProgressListener", "enrichPlaybackMetadata"):
+        assert needle in morphe, f"Bounded YouTube resolution is missing {needle!r}"
+    assert "Resolving video: YouTube client" in morphe and "Trying video mirror" in morphe
+    assert "loadPlaybackMetadataAsync(res, videoId)" in youtube
+    assert "MorpheEngine.ResolutionProgressListener" in youtube
+    print("  [PASS] Standalone logos + immediate alias sync, Radio-Browser catalog, missing-xdotool safety, "
+          "separate ADB bridge port, and fast/progress-reporting YouTube playback verified")
+
+
 def main() -> None:
     upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
@@ -3817,6 +3956,7 @@ def main() -> None:
     verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
     verify_v253_split_apps_and_ota_portal(main_apk)
     verify_repository_layout_and_app_manager(main_apk)
+    verify_requested_runtime_hardening()
     verify_v253_reader_paging_and_tailscale_login(main_apk)
     verify_v251_alarm_days_and_fdroid_stability(
         main_apk,

@@ -88,6 +88,7 @@ public class YouTubeActivity extends Activity {
     private final List<MorpheEngine.MediaItem> currentFeed = new ArrayList<MorpheEngine.MediaItem>();
     private int currentFeedIdx = -1;
     private MorpheEngine.ResolvedPlayback currentPlayback = null;
+    private volatile String activeResolutionVideoId = "";
     private boolean userScrubbing = false;
     private boolean isFullscreen = false;
     private boolean handedOffToBackgroundAudio = false;
@@ -142,16 +143,18 @@ public class YouTubeActivity extends Activity {
                     // Real-time SponsorBlock segment auto-skip!
                     if (playing && MorpheEngine.isSponsorBlockEnabled(YouTubeActivity.this)) {
                         float sec = pos / 1000f;
-                        for (int i = 0; i < currentPlayback.skipSegments.size(); i++) {
-                            MorpheEngine.SkipSegment seg = currentPlayback.skipSegments.get(i);
-                            if (sec >= seg.startSec && sec < seg.endSec - 0.7f) {
-                                int jumpMs = (int) (seg.endSec * 1000f);
-                                videoView.seekTo(jumpMs);
-                                Toast.makeText(YouTubeActivity.this,
-                                        "\u23ED SponsorBlock skipped " + seg.category
-                                                + " (" + Math.round(seg.endSec - seg.startSec) + "s)",
-                                        Toast.LENGTH_SHORT).show();
-                                break;
+                        synchronized (currentPlayback.skipSegments) {
+                            for (int i = 0; i < currentPlayback.skipSegments.size(); i++) {
+                                MorpheEngine.SkipSegment seg = currentPlayback.skipSegments.get(i);
+                                if (sec >= seg.startSec && sec < seg.endSec - 0.7f) {
+                                    int jumpMs = (int) (seg.endSec * 1000f);
+                                    videoView.seekTo(jumpMs);
+                                    Toast.makeText(YouTubeActivity.this,
+                                            "\u23ED SponsorBlock skipped " + seg.category
+                                                    + " (" + Math.round(seg.endSec - seg.startSec) + "s)",
+                                            Toast.LENGTH_SHORT).show();
+                                    break;
+                                }
                             }
                         }
                     }
@@ -778,13 +781,14 @@ public class YouTubeActivity extends Activity {
 
     private void playVideoById(final String videoId, final String initialTitle, final String initialAuthor) {
         handedOffToBackgroundAudio = false;
+        activeResolutionVideoId = videoId;
         // Pause background music service so streams never overlap!
         Intent pauseBg = new Intent(this, Arc7AudioService.class);
         pauseBg.setAction(Arc7AudioService.ACTION_STOP_DISMISS);
         startService(pauseBg);
 
         playerOverlayStatusTv.setVisibility(View.VISIBLE);
-        playerOverlayStatusTv.setText("Resolving ad-free Morphe H.264 stream + SponsorBlock...");
+        playerOverlayStatusTv.setText("Connecting to YouTube playback services...");
         videoTitleTv.setText(initialTitle);
         videoChannelTv.setText(initialAuthor);
         rydStatsTv.setText("");
@@ -793,31 +797,33 @@ public class YouTubeActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    final MorpheEngine.ResolvedPlayback res =
-                            MorpheEngine.resolveStreams(YouTubeActivity.this, videoId, false);
+                    final MorpheEngine.ResolvedPlayback res = MorpheEngine.resolveStreams(
+                            YouTubeActivity.this, videoId, false,
+                            new MorpheEngine.ResolutionProgressListener() {
+                                @Override
+                                public void onProgress(final String message) {
+                                    ui.post(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if (alive && videoId.equals(activeResolutionVideoId)) {
+                                                playerOverlayStatusTv.setVisibility(View.VISIBLE);
+                                                playerOverlayStatusTv.setText(message);
+                                            }
+                                        }
+                                    });
+                                }
+                            });
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
-                            if (!alive) return;
+                            if (!alive || !videoId.equals(activeResolutionVideoId)) return;
                             currentPlayback = res;
                             videoTitleTv.setText(res.title);
-                            String views = res.viewCount.length() > 0 ? formatNumberString(res.viewCount) + " views  \u2022  " : "";
+                            String views = res.viewCount.length() > 0
+                                    ? formatNumberString(res.viewCount) + " views  \u2022  " : "";
                             videoChannelTv.setText(res.author + "  \u2022  " + views
                                     + "Morphe Client: " + res.spoofClientUsed + " (tap channel to browse)");
-
-                            StringBuilder rydLine = new StringBuilder();
-                            if (res.likesCount >= 0L) {
-                                rydLine.append("\uD83D\uDC4D ").append(NumberFormat.getInstance(Locale.US).format(res.likesCount));
-                            }
-                            if (res.dislikesCount >= 0L) {
-                                if (rydLine.length() > 0) rydLine.append("    ");
-                                rydLine.append("\uD83D\uDC4E ").append(NumberFormat.getInstance(Locale.US).format(res.dislikesCount));
-                            }
-                            if (!res.skipSegments.isEmpty()) {
-                                if (rydLine.length() > 0) rydLine.append("    \u2022    ");
-                                rydLine.append("\u23ED ").append(res.skipSegments.size()).append(" SponsorBlock segments ready");
-                            }
-                            rydStatsTv.setText(rydLine.toString());
+                            updatePlaybackMetadataViews(res);
 
                             if (res.muxedLocally) {
                                 qualityBtn.setText("\uD83C\uDF9E " + res.muxNote + " (Morphe Mux)");
@@ -829,11 +835,6 @@ public class YouTubeActivity extends Activity {
 
                             MorpheEngine.addOrToggleSavedItem(YouTubeActivity.this, "yt_history", toMediaItem(res), false);
 
-                            if (!res.relatedItems.isEmpty() && currentFeed.isEmpty()) {
-                                feedHeaderTv.setText("Up Next");
-                                renderFeedItems(res.relatedItems);
-                            }
-
                             if (res.localVideoProxyUrl == null || res.localVideoProxyUrl.length() == 0) {
                                 playerOverlayStatusTv.setVisibility(View.VISIBLE);
                                 playerOverlayStatusTv.setText("No playable H.264/AAC stream could be built for this video.\n"
@@ -842,19 +843,61 @@ public class YouTubeActivity extends Activity {
                             }
                             videoView.setVideoURI(Uri.parse(res.localVideoProxyUrl));
                             videoView.requestFocus();
+                            loadPlaybackMetadataAsync(res, videoId);
                         }
                     });
                 } catch (final Throwable t) {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
+                            if (!alive || !videoId.equals(activeResolutionVideoId)) return;
                             playerOverlayStatusTv.setVisibility(View.VISIBLE);
                             playerOverlayStatusTv.setText("Could not load stream: " + t.getMessage());
                         }
                     });
                 }
             }
-        }).start();
+        }, "Arc7-YouTube-Resolve").start();
+    }
+
+    private void updatePlaybackMetadataViews(MorpheEngine.ResolvedPlayback res) {
+        StringBuilder rydLine = new StringBuilder();
+        if (res.likesCount >= 0L) {
+            rydLine.append("\uD83D\uDC4D ").append(NumberFormat.getInstance(Locale.US).format(res.likesCount));
+        }
+        if (res.dislikesCount >= 0L) {
+            if (rydLine.length() > 0) rydLine.append("    ");
+            rydLine.append("\uD83D\uDC4E ").append(NumberFormat.getInstance(Locale.US).format(res.dislikesCount));
+        }
+        int segmentCount;
+        synchronized (res.skipSegments) { segmentCount = res.skipSegments.size(); }
+        if (segmentCount > 0) {
+            if (rydLine.length() > 0) rydLine.append("    \u2022    ");
+            rydLine.append("\u23ED ").append(segmentCount).append(" SponsorBlock segments ready");
+        }
+        rydStatsTv.setText(rydLine.toString());
+
+        if (!res.relatedItems.isEmpty() && currentFeed.isEmpty()) {
+            feedHeaderTv.setText("Up Next");
+            renderFeedItems(res.relatedItems);
+        }
+    }
+
+    private void loadPlaybackMetadataAsync(final MorpheEngine.ResolvedPlayback res, final String videoId) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                MorpheEngine.enrichPlaybackMetadata(YouTubeActivity.this, res);
+                ui.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (alive && currentPlayback == res && videoId.equals(activeResolutionVideoId)) {
+                            updatePlaybackMetadataViews(res);
+                        }
+                    }
+                });
+            }
+        }, "Arc7-YouTube-Metadata").start();
     }
 
     private void switchCurrentToBackgroundAudio(boolean closeForegroundVideo) {

@@ -1303,9 +1303,28 @@ public final class Arc7Skin {
 
     /* ==================== Full System App Icon Pack Reskinner ==================== */
 
+    /** Preserve the declared icons of separate Arc7 apps and original logos for matching stock apps. */
+    public static boolean shouldPreserveOriginalAppIcon(String pkg, String cls) {
+        String p = pkg == null ? "" : pkg.toLowerCase(Locale.US);
+        String c = cls == null ? "" : cls.toLowerCase(Locale.US);
+        if (p.startsWith("ca.arc7freedom.") && !"ca.arc7freedom.app".equals(p)) return true;
+        if (p.startsWith("ca.arc7freedom.")) return false;
+        return hasArc7ReplacementTwin(p) || hasArc7ReplacementTwin(c);
+    }
+
+    private static boolean hasArc7ReplacementTwin(String value) {
+        return value.contains("camera") || value.contains("calendar") || value.contains("calculator")
+                || value.contains("browser") || value.contains("gallery") || value.contains("photos")
+                || value.contains("deskclock") || value.contains("alarmclock") || value.contains("clock")
+                || value.contains("music") || value.contains("recorder") || value.contains("filemanager")
+                || value.contains("documentsui") || value.contains("packageinstaller")
+                || value.contains("pdf") || value.contains("ebook") || value.contains("reader");
+    }
+
     public static int resolveReskinnedDrawableRes(String pkg, String cls) {
         String p = pkg == null ? "" : pkg.toLowerCase(Locale.US);
         String c = cls == null ? "" : cls.toLowerCase(Locale.US);
+        if (shouldPreserveOriginalAppIcon(p, c)) return 0;
 
         if ("ca.arc7freedom.app".equals(p)) {
             if (c.contains("pdf")) return R.drawable.ic_pdf;
@@ -1363,6 +1382,7 @@ public final class Arc7Skin {
     }
 
     public static Drawable loadReskinnedAppIcon(Context ctx, String pkg, String cls, Drawable fallback) {
+        if (fallback != null && shouldPreserveOriginalAppIcon(pkg, cls)) return fallback;
         int customRes = resolveReskinnedDrawableRes(pkg, cls);
         if (customRes != 0) {
             return ctx.getResources().getDrawable(customRes);

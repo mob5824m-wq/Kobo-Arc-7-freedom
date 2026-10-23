@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Environment;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -42,6 +43,13 @@ public final class MorpheEngine {
 
     public static final String PREFS = "morphe_settings_v250";
     public static final int STREAM_PROXY_PORT = 18977;
+
+    private static final int QUICK_DIRECT_CLIENT_ATTEMPTS = 3;
+    private static final int QUICK_VISITOR_TIMEOUT_MS = 1600;
+    private static final int QUICK_PLAYER_TIMEOUT_MS = 6500;
+    private static final int QUICK_CLOUD_TIMEOUT_MS = 3000;
+    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 4;
+    private static final long QUICK_DIRECT_BUDGET_MS = 21000L;
 
     // User-selectable Morphe Spoof Stream Client modes (`0 = Auto Best Stream`)
     public static final String[] SPOOF_CLIENT_LABELS = new String[]{
@@ -114,6 +122,10 @@ public final class MorpheEngine {
 
     private static volatile String cachedVisitorData = "";
     private static volatile long visitorFetchedMs = 0L;
+
+    public interface ResolutionProgressListener {
+        void onProgress(String message);
+    }
 
     public static final class MediaItem {
         public String videoId = "";
@@ -583,6 +595,10 @@ public final class MorpheEngine {
      * `clientName/clientVersion`.
      */
     private static String ensureClientVisitorData(Context ctx, String[] spec) {
+        return ensureClientVisitorData(ctx, spec, 9000);
+    }
+
+    private static String ensureClientVisitorData(Context ctx, String[] spec, int timeoutMs) {
         String cacheKey = "vd_" + spec[2] + "_" + spec[3].replace('.', '_');
         String cached = "";
         long cachedAt = 0L;
@@ -605,7 +621,7 @@ public final class MorpheEngine {
             JSONObject payload = new JSONObject();
             payload.put("context", buildClientContext(spec, null, false));
             Map<String, String> hdrs = clientHeaders(spec, host, null);
-            String raw = requestHttpsString(ctx, "POST", endpoint, payload.toString(), hdrs, 9000);
+            String raw = requestHttpsString(ctx, "POST", endpoint, payload.toString(), hdrs, Math.max(1, timeoutMs));
             JSONObject resp = new JSONObject(raw);
             JSONObject rc = resp.optJSONObject("responseContext");
             String vd = rc != null ? rc.optString("visitorData", "") : "";
@@ -1027,6 +1043,20 @@ public final class MorpheEngine {
     /* ==================== 6. Multi-Client Stream Spoofer + Cloud Failover ==================== */
 
     public static ResolvedPlayback resolveStreams(Context ctx, String videoId, boolean preferMusicClient) throws Exception {
+        return resolveStreamsInternal(ctx, videoId, preferMusicClient, null, false);
+    }
+
+    /** Faster, progress-reporting resolver for foreground playback. Metadata is fetched separately
+     * so SponsorBlock/recommendation servers cannot hold the video behind the resolving overlay. */
+    public static ResolvedPlayback resolveStreams(Context ctx, String videoId, boolean preferMusicClient,
+                                                   ResolutionProgressListener listener) throws Exception {
+        return resolveStreamsInternal(ctx, videoId, preferMusicClient, listener, true);
+    }
+
+    private static ResolvedPlayback resolveStreamsInternal(Context ctx, String videoId,
+                                                            boolean preferMusicClient,
+                                                            ResolutionProgressListener listener,
+                                                            boolean quick) throws Exception {
         ensureStreamProxyStarted(ctx);
         if (ctx != null) {
             try { MorpheStreamServer.setCacheDir(ctx.getCacheDir()); } catch (Throwable ignored) {}
@@ -1046,11 +1076,36 @@ public final class MorpheEngine {
 
         ResolvedPlayback resolved = null;
         StringBuilder failures = new StringBuilder();
+        long directDeadline = quick ? System.currentTimeMillis() + QUICK_DIRECT_BUDGET_MS : Long.MAX_VALUE;
+        int directAttempts = 0;
+        int directLimit = quick ? Math.min(QUICK_DIRECT_CLIENT_ATTEMPTS, order.size()) : order.size();
         for (int idx = 0; idx < order.size() && resolved == null; idx++) {
+            if (quick && directAttempts >= directLimit) break;
+            long remaining = quick ? directDeadline - System.currentTimeMillis() : Long.MAX_VALUE;
+            if (quick && remaining <= 0L) break;
+
             String[] spec = CLIENT_SPECS[order.get(idx).intValue()];
+            directAttempts++;
+            if (quick) {
+                reportResolutionProgress(listener, "Resolving video: YouTube client " + directAttempts
+                        + "/" + directLimit + " (" + spec[0] + ")...");
+            }
             try {
-                String vd = ensureClientVisitorData(ctx, spec);
-                ResolvedPlayback attempt = fetchPlayerWithClientSpec(ctx, videoId, spec, vd);
+                int visitorTimeout = quick
+                        ? (int) Math.max(1L, Math.min((long) QUICK_VISITOR_TIMEOUT_MS, remaining))
+                        : 9000;
+                String vd = quick
+                        ? ensureClientVisitorData(ctx, spec, visitorTimeout)
+                        : ensureClientVisitorData(ctx, spec);
+                remaining = quick ? directDeadline - System.currentTimeMillis() : Long.MAX_VALUE;
+                if (quick && remaining <= 0L) {
+                    failures.append(spec[0]).append(":time-budget ");
+                    break;
+                }
+                int playerTimeout = quick
+                        ? (int) Math.max(1L, Math.min((long) QUICK_PLAYER_TIMEOUT_MS, remaining))
+                        : 15000;
+                ResolvedPlayback attempt = fetchPlayerWithClientSpec(ctx, videoId, spec, vd, playerTimeout);
                 if (attempt != null && attempt.hasAnyStream()) {
                     resolved = attempt;
                 } else {
@@ -1062,16 +1117,36 @@ public final class MorpheEngine {
         }
 
         if (resolved == null) {
-            resolved = fetchPlayerFromCloudInstances(ctx, videoId);
+            if (quick) reportResolutionProgress(listener, "Direct clients unavailable; trying video mirrors...");
+            resolved = quick
+                    ? fetchPlayerFromCloudInstances(ctx, videoId, QUICK_CLOUD_TIMEOUT_MS,
+                            QUICK_CLOUD_ENDPOINT_ATTEMPTS, listener)
+                    : fetchPlayerFromCloudInstances(ctx, videoId);
         }
         if (resolved == null) {
             throw new Exception("No playable H.264/AAC stream for " + videoId
                     + " (" + failures.toString().trim() + ")");
         }
 
+        reportResolutionProgress(listener, "Stream found; preparing Android playback...");
         bindLocalPlayback(ctx, resolved, preferMusicClient);
-        enrichWithNextSponsorBlockAndDislikes(ctx, resolved);
+        if (quick) {
+            reportResolutionProgress(listener, "Stream ready; opening player...");
+        } else {
+            enrichWithNextSponsorBlockAndDislikes(ctx, resolved);
+        }
         return resolved;
+    }
+
+    private static void reportResolutionProgress(ResolutionProgressListener listener, String message) {
+        Log.i("MorpheEngine", message);
+        if (listener != null) {
+            try { listener.onProgress(message); } catch (Throwable ignored) {}
+        }
+    }
+
+    public static void enrichPlaybackMetadata(Context ctx, ResolvedPlayback playback) {
+        if (playback != null) enrichWithNextSponsorBlockAndDislikes(ctx, playback);
     }
 
     /**
@@ -1288,6 +1363,14 @@ public final class MorpheEngine {
                                                               String videoId,
                                                               String[] spec,
                                                               String visitorData) throws Exception {
+        return fetchPlayerWithClientSpec(ctx, videoId, spec, visitorData, 15000);
+    }
+
+    private static ResolvedPlayback fetchPlayerWithClientSpec(Context ctx,
+                                                              String videoId,
+                                                              String[] spec,
+                                                              String visitorData,
+                                                              int timeoutMs) throws Exception {
         String host = spec[13].length() > 0 ? spec[13] : "https://www.youtube.com";
         JSONObject payload = new JSONObject();
         payload.put("context", buildClientContext(spec, visitorData, true));
@@ -1302,7 +1385,7 @@ public final class MorpheEngine {
         // a rotating `t=` token; `www.youtube.com` only answers that shape for TV clients.
         String url = host + "/youtubei/v1/player?prettyPrint=false&t=" + randomToken(11)
                 + "&id=" + Uri.encode(videoId);
-        String raw = requestHttpsString(ctx, "POST", url, payload.toString(), hdrs, 15000);
+        String raw = requestHttpsString(ctx, "POST", url, payload.toString(), hdrs, Math.max(1, timeoutMs));
         return parseInnerTubePlayerResponse(new JSONObject(raw), videoId, spec[0], spec[4]);
     }
 
@@ -1478,14 +1561,23 @@ public final class MorpheEngine {
     }
 
     private static ResolvedPlayback fetchPlayerFromCloudInstances(Context ctx, String videoId) {
+        return fetchPlayerFromCloudInstances(ctx, videoId, 10000, PIPED_INSTANCES.length + INVIDIOUS_INSTANCES.length, null);
+    }
+
+    private static ResolvedPlayback fetchPlayerFromCloudInstances(Context ctx, String videoId,
+                                                                  int timeoutMs, int maxAttempts,
+                                                                  ResolutionProgressListener listener) {
         Map<String, String> hdrs = new LinkedHashMap<String, String>();
         hdrs.put("User-Agent", WEB_UA);
+        int attempts = 0;
 
         // Tier A: Public Piped API instances
-        for (int i = 0; i < PIPED_INSTANCES.length; i++) {
+        for (int i = 0; i < PIPED_INSTANCES.length && attempts < maxAttempts; i++) {
+            attempts++;
+            reportResolutionProgress(listener, "Trying video mirror " + attempts + "/" + maxAttempts + " (Piped)...");
             try {
                 String raw = requestHttpsString(ctx, "GET",
-                        PIPED_INSTANCES[i] + "/streams/" + Uri.encode(videoId), null, hdrs, 10000);
+                        PIPED_INSTANCES[i] + "/streams/" + Uri.encode(videoId), null, hdrs, timeoutMs);
                 JSONObject j = new JSONObject(raw);
                 ResolvedPlayback out = new ResolvedPlayback();
                 out.videoId = videoId;
@@ -1537,10 +1629,12 @@ public final class MorpheEngine {
         }
 
         // Tier B: Public Invidious API instances
-        for (int i = 0; i < INVIDIOUS_INSTANCES.length; i++) {
+        for (int i = 0; i < INVIDIOUS_INSTANCES.length && attempts < maxAttempts; i++) {
+            attempts++;
+            reportResolutionProgress(listener, "Trying video mirror " + attempts + "/" + maxAttempts + " (Invidious)...");
             try {
                 String raw = requestHttpsString(ctx, "GET",
-                        INVIDIOUS_INSTANCES[i] + "/api/v1/videos/" + Uri.encode(videoId), null, hdrs, 10000);
+                        INVIDIOUS_INSTANCES[i] + "/api/v1/videos/" + Uri.encode(videoId), null, hdrs, timeoutMs);
                 JSONObject j = new JSONObject(raw);
                 ResolvedPlayback out = new ResolvedPlayback();
                 out.videoId = videoId;
@@ -1658,7 +1752,9 @@ public final class MorpheEngine {
                 String sbUrl = "https://sponsor.ajay.app/api/skipSegments?videoID=" + Uri.encode(out.videoId)
                         + "&categories=%5B%22sponsor%22,%22selfpromo%22,%22interaction%22,%22music_offtopic%22%5D";
                 String sbRaw = requestHttpsString(ctx, "GET", sbUrl, null, hdrs, 4500);
-                out.skipSegments.addAll(parseSponsorBlockSegments(sbRaw));
+                synchronized (out.skipSegments) {
+                    out.skipSegments.addAll(parseSponsorBlockSegments(sbRaw));
+                }
             } catch (Throwable ignored) {}
         }
 

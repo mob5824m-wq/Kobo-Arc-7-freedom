@@ -57,12 +57,15 @@ import java.util.Locale;
  *   - Supports Tap Macros (`MACRO`), Momentary Hold Push-to-Talk (`KEY_DOWN` / `KEY_UP`),
  *     Stateful Glow Toggles (`TOGGLE`), OBS WebSocket v5 (`OBS_*`), App/URL Launch (`OPEN`),
  *     Text Snippet Typing (`TEXT`), Shell Commands (`RUN`), and Live PC Master Volume Fader (`VOL_SET`)!
- *   - Works over Wi-Fi LAN (`UDP/TCP :18991` auto-discovery), Zero-Lag USB (`adb forward tcp:18991 tcp:18991`),
+ *   - Works over Wi-Fi LAN (`UDP/TCP :18991` auto-discovery), USB ADB (PC host :18992 → Kobo :18991),
  *     AND Remote Tailscale Mesh (`100.x.y.z:18991`)!
  */
 public class Arc7StreamDeckActivity extends Activity {
 
     public static final int STREAM_DECK_PORT = 18991;
+    private static final int AUTO_DISCOVERY_TIMEOUT_MS = 1600;
+    private static final int AUTO_CONNECT_TIMEOUT_MS = 5000;
+    private static final long AUTO_RETRY_DELAY_MS = 2500L;
     private static final String PREFS = "arc7_stream_deck";
 
     public static final class DeckKey {
@@ -150,6 +153,8 @@ public class Arc7StreamDeckActivity extends Activity {
     private volatile OutputStream activeOut = null;
     private ServerSocket usbOrReverseServer = null;
     private String pcHostIp = "";
+    private volatile String lastConnectionDiagnostic = "";
+    private volatile long lastConnectionDiagnosticAt = 0L;
 
     private int dp(int v) { return Arc7Skin.dp(this, v); }
 
@@ -742,7 +747,7 @@ public class Arc7StreamDeckActivity extends Activity {
                 + "     Start-PC-Stream-Deck.bat   (or: python3 Start-PC-Stream-Deck.py)\n\n"
                 + "2. Works automatically in ALL 3 modes:\n"
                 + "   \u2022 Wi-Fi LAN Auto-Discovery (UDP + TCP port 18991)\n"
-                + "   \u2022 Zero-Lag USB Cable: plug Kobo into PC (works offline / at school!)\n"
+                + "   \u2022 USB ADB: plug in and authorize Kobo (PC forwards host :18992 to tablet :18991)\n"
                 + "   \u2022 Remote Tailscale IP (`100.x.y.z`): control your home PC from anywhere!\n\n"
                 + "Optional manual PC IP or Tailscale IP (`100.x.y.z`):");
         guide.setTextColor(0xFFE2E8F0);
@@ -828,9 +833,12 @@ public class Arc7StreamDeckActivity extends Activity {
                         Socket s = usbOrReverseServer.accept();
                         attachConnectedSocket(s, "USB / Direct");
                     }
-                } catch (Throwable ignored) {}
+                } catch (Throwable t) {
+                    reportConnectionDiagnostic("Could not open Kobo USB bridge port " + STREAM_DECK_PORT
+                            + ": " + connectionError(t));
+                }
             }
-        }).start();
+        }, "Arc7-StreamDeck-UsbServer").start();
     }
 
     private void startAutoDiscoveryAndClientLoop() {
@@ -840,21 +848,58 @@ public class Arc7StreamDeckActivity extends Activity {
                 while (running) {
                     if (activeSocket == null || activeSocket.isClosed()) {
                         String target = pcHostIp;
-                        if (target == null || target.isEmpty()) {
-                            target = discoverPcViaUdpBroadcast();
-                        }
-                        if (target != null && !target.isEmpty() && !target.equals(localWifiIp())) {
+                        boolean autoDiscover = target == null || target.trim().length() == 0;
+                        if (autoDiscover) target = discoverPcViaUdpBroadcast();
+                        if (target != null && !target.trim().isEmpty() && !target.equals(localWifiIp())) {
+                            Socket s = null;
                             try {
-                                Socket s = new Socket();
-                                s.connect(new InetSocketAddress(target, STREAM_DECK_PORT), 2200);
+                                s = new Socket();
+                                s.setTcpNoDelay(true);
+                                s.setKeepAlive(true);
+                                s.connect(new InetSocketAddress(target, STREAM_DECK_PORT), AUTO_CONNECT_TIMEOUT_MS);
                                 attachConnectedSocket(s, target);
-                            } catch (Throwable ignored) {}
+                                s = null; // attachConnectedSocket owns this socket now
+                            } catch (Throwable t) {
+                                if (s != null) try { s.close(); } catch (Throwable ignored) {}
+                                reportConnectionDiagnostic("Cannot reach " + target + ":" + STREAM_DECK_PORT
+                                        + " (" + connectionError(t) + "). Check the PC host and firewall.");
+                            }
+                        } else if (autoDiscover) {
+                            reportConnectionDiagnostic("No PC found. Run the host tool; check Wi-Fi/firewall or USB ADB.");
+                        } else if (target != null && target.equals(localWifiIp())) {
+                            reportConnectionDiagnostic("The saved PC address matches this Kobo's IP; enter the PC address.");
                         }
                     }
-                    try { Thread.sleep(2200L); } catch (InterruptedException ignored) {}
+                    try { Thread.sleep(AUTO_RETRY_DELAY_MS); } catch (InterruptedException ignored) {}
                 }
             }
-        }).start();
+        }, "Arc7-StreamDeck-Connect").start();
+    }
+
+    private String connectionError(Throwable t) {
+        if (t == null) return "unknown connection error";
+        String message = t.getMessage();
+        if (message == null || message.trim().length() == 0) return t.getClass().getSimpleName();
+        return message;
+    }
+
+    private void reportConnectionDiagnostic(final String message) {
+        long now = System.currentTimeMillis();
+        if (message == null || (message.equals(lastConnectionDiagnostic)
+                && now - lastConnectionDiagnosticAt < 15000L)) return;
+        lastConnectionDiagnostic = message;
+        lastConnectionDiagnosticAt = now;
+        ui.post(new Runnable() {
+            @Override
+            public void run() {
+                if (!running || (activeSocket != null && !activeSocket.isClosed())) return;
+                if (connBadgeView != null) {
+                    connBadgeView.setText("\u25CF WAITING FOR PC");
+                    connBadgeView.setTextColor(0xFFFBBF24);
+                }
+                if (telemetryView != null) telemetryView.setText("   " + message);
+            }
+        });
     }
 
     private String discoverPcViaUdpBroadcast() {
@@ -862,7 +907,7 @@ public class Arc7StreamDeckActivity extends Activity {
         try {
             ds = new DatagramSocket();
             ds.setBroadcast(true);
-            ds.setSoTimeout(900);
+            ds.setSoTimeout(AUTO_DISCOVERY_TIMEOUT_MS);
             byte[] probe = "ARC7_STREAMDECK_DISCOVER_V1".getBytes("UTF-8");
             DatagramPacket pkt = new DatagramPacket(
                     probe, probe.length, InetAddress.getByName("255.255.255.255"), STREAM_DECK_PORT);
@@ -965,6 +1010,8 @@ public class Arc7StreamDeckActivity extends Activity {
         try { if (activeSocket != null) activeSocket.close(); } catch (Throwable ignored) {}
         activeSocket = null;
         activeOut = null;
+        lastConnectionDiagnostic = "";
+        lastConnectionDiagnosticAt = 0L;
         ui.post(new Runnable() {
             @Override
             public void run() {

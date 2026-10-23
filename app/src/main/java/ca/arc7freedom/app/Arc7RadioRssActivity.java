@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
@@ -32,13 +33,16 @@ import java.io.File;
 import java.io.StringReader;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Standalone Live Internet Radio (`30,000+` Stations), Podcast Player/Downloader &
  * Offline RSS News Reader (`Arc7 Radio, Podcasts & Feeds`, `v2.2.0`):
  *
- *   - **Tab 1 — World Radio (`Radio-Browser` TLS 1.3 + Instant Presets):**
+ *   - **Tab 1 — World Radio (live Radio-Browser directory + TLS 1.3):**
  *       Screen-off background streaming via `Arc7AudioService` + smooth fade-out **Sleep Timer**!
  *   - **Tab 2 — Podcasts (Search + Episode List + 1-Tap Offline MP3 Download):**
  *       Searches global podcasts via TLS 1.3, lists episodes from RSS enclosures, streams live OR
@@ -52,16 +56,28 @@ public class Arc7RadioRssActivity extends Activity {
     private static final String KEY_CUSTOM_FEEDS = "custom_rss_urls";
     private static final String KEY_OFFLINE_RSS_CACHE = "offline_rss_cache";
 
-    private static final String[][] PRESET_STATIONS = new String[][]{
-            {"SomaFM Groove Salad (Ambient / Downtempo)", "http://ice1.somafm.com/groovesalad-128-mp3"},
-            {"SomaFM Drone Zone (Atmospheric Space)", "http://ice1.somafm.com/dronezone-128-mp3"},
-            {"SomaFM Secret Agent ( Lounge / Spy Jazz )", "http://ice1.somafm.com/secretagent-128-mp3"},
-            {"SomaFMLush (Mellow Vocal Electronica)", "http://ice1.somafm.com/lush-128-mp3"},
-            {"Radio Paradise Main Mix (Eclectic FLAC/MP3)", "http://stream.radioparadise.com/mp3-192"},
-            {"SomaFM DEF CON Radio (Hacker / Synth)", "http://ice1.somafm.com/defcon-128-mp3"},
-            {"Nightride FM (Synthwave / Retrowave)", "https://stream.nightride.fm/nightride.mp3"},
-            {"Classical KUSC 91.5 FM (Orchestral)", "https://playerservices.streamtheworld.com/api/livestream-redirect/KUSCMP128.mp3"}
+    private static final String RADIO_BROWSER_WEB_URL = "http://www.radio-browser.info/gui/#/";
+    private static final String[] RADIO_BROWSER_API_HOSTS = new String[]{
+            "https://de1.api.radio-browser.info",
+            "https://nl1.api.radio-browser.info",
+            "https://at1.api.radio-browser.info"
     };
+
+    public static final class RadioStation {
+        public final String name;
+        public final String countryCode;
+        public final String streamUrl;
+
+        public RadioStation(String name, String countryCode, String streamUrl) {
+            this.name = name;
+            this.countryCode = countryCode;
+            this.streamUrl = streamUrl;
+        }
+
+        public String displayName() {
+            return name + (countryCode.length() > 0 ? "  (" + countryCode + ")" : "");
+        }
+    }
 
     private static final String[][] DEFAULT_FEEDS = new String[][]{
             {"Hacker News — Frontpage", "https://hnrss.org/frontpage"},
@@ -198,10 +214,10 @@ public class Arc7RadioRssActivity extends Activity {
         LinearLayout searchCard = Arc7Skin.card(this, pal);
         final EditText q = new EditText(this);
         q.setSingleLine(true);
-        q.setHint("Search 30,000+ live stations (e.g. jazz, classical, toronto, bbc, lofi)...");
+        q.setHint("Search radio-browser.info (e.g. jazz, classical, Toronto, BBC, lofi)...");
         searchCard.addView(q);
 
-        Button searchBtn = Arc7Skin.actionButton(this, "Search Live Radio Directory (TLS 1.3)", 0xFF0284C7);
+        Button searchBtn = Arc7Skin.actionButton(this, "Search Radio-Browser Directory", 0xFF0284C7);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(8);
@@ -209,24 +225,130 @@ public class Arc7RadioRssActivity extends Activity {
             @Override public void onClick(View v) { searchRadioDirectory(q.getText().toString().trim()); }
         });
         searchCard.addView(searchBtn, slp);
+
+        Button directoryBtn = Arc7Skin.actionButton(this, "Open radio-browser.info", 0xFF334155);
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        dlp.topMargin = dp(6);
+        directoryBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(RADIO_BROWSER_WEB_URL)));
+                } catch (Throwable t) {
+                    Toast.makeText(Arc7RadioRssActivity.this,
+                            "Could not open radio-browser.info: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+        searchCard.addView(directoryBtn, dlp);
         bodyBox.addView(searchCard, cardSpace());
 
-        LinearLayout presetCard = Arc7Skin.card(this, pal);
-        addTitle(presetCard, "INSTANT SCREEN-OFF RADIO STATIONS");
-        for (int i = 0; i < PRESET_STATIONS.length; i++) {
-            final String stName = PRESET_STATIONS[i][0];
-            final String stUrl  = PRESET_STATIONS[i][1];
-            Button row = Arc7Skin.actionButton(this, "▶  " + stName, 0xFF1E293B);
+        LinearLayout popularCard = Arc7Skin.card(this, pal);
+        addTitle(popularCard, "POPULAR STATIONS FROM RADIO-BROWSER.INFO");
+        final TextView stationStatus = new TextView(this);
+        stationStatus.setTextColor(pal.textMuted);
+        stationStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        stationStatus.setText("Loading top-voted directory stations...");
+        popularCard.addView(stationStatus);
+
+        final LinearLayout stationRows = new LinearLayout(this);
+        stationRows.setOrientation(LinearLayout.VERTICAL);
+        popularCard.addView(stationRows);
+
+        Button refreshBtn = Arc7Skin.actionButton(this, "Refresh Popular Stations", 0xFF1E293B);
+        LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        rlp.topMargin = dp(8);
+        refreshBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { loadTopRadioBrowserStations(stationRows, stationStatus); }
+        });
+        popularCard.addView(refreshBtn, rlp);
+        bodyBox.addView(popularCard);
+        loadTopRadioBrowserStations(stationRows, stationStatus);
+    }
+
+    private void loadTopRadioBrowserStations(final LinearLayout rows, final TextView status) {
+        rows.removeAllViews();
+        status.setText("Loading top-voted directory stations...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final List<RadioStation> stations = fetchRadioBrowserStations("/json/stations/topvote/20");
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            rows.removeAllViews();
+                            if (stations.isEmpty()) {
+                                status.setText("No stations returned. Search above or open radio-browser.info.");
+                                return;
+                            }
+                            status.setText(stations.size() + " live stations from the Radio-Browser directory:");
+                            addRadioStationRows(rows, stations);
+                        }
+                    });
+                } catch (final Throwable t) {
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            status.setText("Radio-Browser is temporarily unreachable. Search again or open radio-browser.info.");
+                            Toast.makeText(Arc7RadioRssActivity.this,
+                                    "Radio-Browser error: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void addRadioStationRows(LinearLayout parent, List<RadioStation> stations) {
+        for (int i = 0; i < stations.size(); i++) {
+            final RadioStation station = stations.get(i);
+            Button row = Arc7Skin.actionButton(this, "▶  " + station.displayName(), 0xFF1E293B);
             row.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            rlp.bottomMargin = dp(6);
+            lp.bottomMargin = dp(6);
             row.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { startBackgroundStream(stName, stUrl); }
+                @Override public void onClick(View v) {
+                    startBackgroundStream(station.displayName(), station.streamUrl);
+                }
             });
-            presetCard.addView(row, rlp);
+            parent.addView(row, lp);
         }
-        bodyBox.addView(presetCard);
+    }
+
+    private List<RadioStation> fetchRadioBrowserStations(String path) throws Exception {
+        Throwable lastError = null;
+        for (int i = 0; i < RADIO_BROWSER_API_HOSTS.length; i++) {
+            try {
+                String raw = Arc7BookSources.fetchStringViaTls13(
+                        Arc7RadioRssActivity.this, shell, certMgr, RADIO_BROWSER_API_HOSTS[i] + path);
+                return parseRadioBrowserStations(raw);
+            } catch (Throwable t) {
+                lastError = t;
+            }
+        }
+        throw new Exception("All Radio-Browser API servers failed", lastError);
+    }
+
+    public static List<RadioStation> parseRadioBrowserStations(String json) throws Exception {
+        List<RadioStation> stations = new ArrayList<RadioStation>();
+        Set<String> seen = new HashSet<String>();
+        JSONArray arr = new JSONArray(json);
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.optJSONObject(i);
+            if (o == null) continue;
+            String url = o.optString("url_resolved", "").trim();
+            if (url.length() == 0) url = o.optString("url", "").trim();
+            if (!(url.startsWith("http://") || url.startsWith("https://"))) continue;
+            String name = o.optString("name", "").trim();
+            if (name.length() == 0) name = "Radio Station";
+            String country = o.optString("countrycode", "").trim();
+            String uuid = o.optString("stationuuid", "").trim();
+            String identity = uuid.length() > 0 ? uuid : (name.toLowerCase(Locale.US) + "|" + url);
+            if (!seen.add(identity)) continue;
+            stations.add(new RadioStation(name, country, url));
+        }
+        return stations;
     }
 
     private void searchRadioDirectory(final String term) {
@@ -236,32 +358,24 @@ public class Arc7RadioRssActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    String url = "https://de1.api.radio-browser.info/json/stations/byname/"
-                            + URLEncoder.encode(term, "UTF-8") + "?limit=25&hidebroken=true&order=votes&reverse=true";
-                    String raw = Arc7BookSources.fetchStringViaTls13(Arc7RadioRssActivity.this, shell, certMgr, url);
-                    JSONArray arr = new JSONArray(raw);
-                    final List<String> names = new ArrayList<String>();
-                    final List<String> urls = new ArrayList<String>();
-                    for (int i = 0; i < arr.length(); i++) {
-                        JSONObject o = arr.getJSONObject(i);
-                        String u = o.optString("url_resolved", o.optString("url", "")).trim();
-                        if (u.isEmpty()) continue;
-                        names.add(o.optString("name", "Station").trim() + "  (" + o.optString("countrycode", "") + ")");
-                        urls.add(u);
-                    }
+                    String encodedTerm = URLEncoder.encode(term, "UTF-8").replace("+", "%20");
+                    final List<RadioStation> stations = fetchRadioBrowserStations(
+                            "/json/stations/byname/" + encodedTerm
+                                    + "?limit=25&hidebroken=true&order=votes&reverse=true");
                     ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (names.isEmpty()) {
+                        @Override public void run() {
+                            if (stations.isEmpty()) {
                                 Toast.makeText(Arc7RadioRssActivity.this, "No stations found.", Toast.LENGTH_SHORT).show();
                                 return;
                             }
+                            final String[] names = new String[stations.size()];
+                            for (int i = 0; i < stations.size(); i++) names[i] = stations.get(i).displayName();
                             new AlertDialog.Builder(Arc7RadioRssActivity.this, AlertDialog.THEME_HOLO_DARK)
-                                    .setTitle("Tap Any Station to Stream")
-                                    .setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
-                                        @Override
-                                        public void onClick(DialogInterface d, int w) {
-                                            startBackgroundStream(names.get(w), urls.get(w));
+                                    .setTitle("Tap Any Radio-Browser Station to Stream")
+                                    .setItems(names, new DialogInterface.OnClickListener() {
+                                        @Override public void onClick(DialogInterface d, int w) {
+                                            RadioStation station = stations.get(w);
+                                            startBackgroundStream(station.displayName(), station.streamUrl);
                                         }
                                     })
                                     .show();
@@ -269,9 +383,9 @@ public class Arc7RadioRssActivity extends Activity {
                     });
                 } catch (final Throwable t) {
                     ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(Arc7RadioRssActivity.this, "Radio search error: " + t.getMessage(), Toast.LENGTH_LONG).show();
+                        @Override public void run() {
+                            Toast.makeText(Arc7RadioRssActivity.this,
+                                    "Radio search error: " + t.getMessage(), Toast.LENGTH_LONG).show();
                         }
                     });
                 }

@@ -291,8 +291,8 @@ public class Arc7AppManagerActivity extends Activity {
                     + "Use Freeze / Unfreeze if you want to disable it safely.";
         }
         if (isCriticalUninstallPackage(app.pkg)) {
-            return "This package is required for Android, device drivers, the Package Installer, or the only Home launcher. "
-                    + "It is protected to prevent a boot or navigation failure.";
+            return "The currently running App Manager, Android essentials/device drivers, Package Installer, and the only Home launcher "
+                    + "are protected to prevent a boot or navigation failure.";
         }
         return null;
     }
@@ -378,6 +378,10 @@ public class Arc7AppManagerActivity extends Activity {
     private boolean isCriticalUninstallPackage(String pkg) {
         if (pkg == null) return true;
         String p = pkg.toLowerCase(Locale.US);
+        String runningPackage = getPackageName();
+        if (runningPackage != null && p.equals(runningPackage.toLowerCase(Locale.US))) {
+            return true;
+        }
         if (p.equals("android")
                 || p.equals("com.android.systemui")
                 || p.equals("com.android.settings")
