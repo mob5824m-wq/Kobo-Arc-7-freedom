@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Zero-Cable, Zero-Driver, Zero-SSL Local Home Wi-Fi & Live Web Installer Server
-for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.5.1`).
+for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.5.2`).
 
 Fixes all common home-network, OS firewall, WSL2/container, and 2013 Android 4.2
 Stock Browser (`DownloadManager`) failure modes:
@@ -41,7 +41,7 @@ RELEASES_DIR = os.environ.get("ARC7_SERVE_DIR") or os.path.join(ROOT_DIR, "relea
 TOOLS_DIR = os.path.join(ROOT_DIR, "tools")
 APP_ICON_DIR = os.path.join(ROOT_DIR, "app", "src", "main", "res", "drawable-xhdpi")
 DEFAULT_PORT = 8000
-UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.5.1.apk"
+UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.5.2.apk"
 GITHUB_REPO = "mob5824m-wq/Kobo-Arc-7-freedom"
 GITHUB_LATEST_BASE = f"https://github.com/{GITHUB_REPO}/releases/latest/download"
 GITHUB_RAW_ROOT = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
@@ -208,6 +208,49 @@ def detect_environment_and_lan_ips():
     return (all_ips, "lan" if all_ips else "cloud")
 
 
+def render_lite_html(port: int = DEFAULT_PORT) -> str:
+    """
+    Text-only portal for the stock Android 4.2 Browser (and for anyone whose page renders
+    badly): no CSS backgrounds, no images, no JavaScript — just a plain list of
+    `<a href>` links, one per installable file.
+    """
+    items = []
+    for fname in (UPGRADER_APK_NAME, "KoboArc7Freedom.apk", "FDroidClassicLegacy.apk",
+                  "AuroraStore.apk", "VLC.apk", "VanillaAndroid4Home.apk"):
+        if os.path.isfile(os.path.join(RELEASES_DIR, fname)):
+            items.append(fname)
+    for name in ("YouTube.apk", "YouTubeMusic.apk"):
+        if os.path.isfile(os.path.join(RELEASES_DIR, name)):
+            items.append(name)
+
+    apps_dir = os.path.join(RELEASES_DIR, "apps")
+    if os.path.isdir(apps_dir):
+        for fname in sorted(os.listdir(apps_dir)):
+            if fname.lower().endswith(".apk"):
+                items.append("apps/" + fname)
+
+    rows = "".join(
+        f"<li><a href='/{urllib.parse.quote(name)}'>{html.escape(os.path.basename(name))}</a></li>"
+        for name in items
+    )
+    if not items:
+        rows = "<li>No APKs found next to this server yet.</li>"
+
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1'>"
+        "<title>Kobo Arc 7 Freedom - Text Mode</title></head>"
+        "<body style='font-size:17px;'>"
+        "<h2>Kobo Arc 7 Freedom - Downloads (text mode)</h2>"
+        "<p>Tap a file, then pull down the top-left notification shade on the Kobo and tap "
+        "<b>Install</b>. Address of this page: "
+        f"<b>http://&lt;this-computer-ip&gt;:{port}/lite</b></p>"
+        f"<ul>{rows}</ul>"
+        "<p><a href='/'>Back to the normal page</a></p>"
+        "</body></html>"
+    )
+
+
 def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> str:
     lan_ips, env_kind = ([], "static") if static_mode else detect_environment_and_lan_ips()
 
@@ -221,7 +264,10 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
                 files_meta.append((fname, os.path.getsize(fpath)))
 
     def _href(fname: str) -> str:
-        return f"./{urllib.parse.quote(fname)}"
+        # Live server: root-absolute, so a link also works from `/lite`, `/dl/clock`, a query
+        # string or a manually typed trailing slash.  Static GitHub page: same directory.
+        quoted = urllib.parse.quote(fname)
+        return f"/{quoted}" if not static_mode else f"./{quoted}"
 
     def _mirror_href(fname: str) -> str:
         return f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(fname)}"
@@ -255,11 +301,11 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.5.1 — PER-DAY ALARM CHECK-OFF + F-Droid v1304 sync-crash fix + playable 2026 DASH streams + TRULY SEPARATE YouTube / YouTube Music apps + Tailscale Google Auth):</div>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"{UPGRADER_APK_NAME}\")'>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.5.2 — PER-DAY ALARM CHECK-OFF + F-Droid v1304 sync-crash fix + playable 2026 DASH streams + TRULY SEPARATE YouTube / YouTube Music apps + Tailscale Google Auth):</div>"
+                f"<a class='btn primary' href='{link}'>"
                 f"{ico}<span>&#11015; 1-Tap OTA Root &amp; Upgrade — {UPGRADER_APK_NAME} ({size_txt})</span></a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"{UPGRADER_APK_NAME}\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}'>"
                     f"&#128295; Alternate Direct Binary Stream for Upgrader (tap if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
                     else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — {UPGRADER_APK_NAME}</a>"
@@ -270,10 +316,10 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             ico = _icon_img("ic_launcher.png", "Arc7 Freedom")
             main_html = (
                 f"<div class='dl-group'>"
-                f"<a class='btn primary' href='{link}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
-                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.5.1 ({size_txt}) — per-day alarm check-off + F-Droid fix + separate YouTube &amp; YouTube Music apps + Tailscale Google Auth + Launcher v55 + VLC</span></a>"
+                f"<a class='btn primary' href='{link}'>"
+                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.5.2 ({size_txt}) — per-day alarm check-off + F-Droid fix + separate YouTube &amp; YouTube Music apps + Tailscale Google Auth + Launcher v55 + VLC</span></a>"
                 + (
-                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}' onclick='onStartDl(\"KoboArc7Freedom.apk\")'>"
+                    f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
                     if not static_mode
                     else f"<a class='btn subtle' href='{mirror}'>&#9729; GitHub Releases Download — KoboArc7Freedom.apk</a>"
@@ -283,37 +329,37 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         elif fname == "YouTube.apk":
             ico = _icon_img("ic_youtube.png", "YouTube", 32)
             apk_buttons.append(
-                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"YouTube.apk\")'>"
-                f"{ico}<span>&#11015; Download the SEPARATE YouTube app (`ca.arc7freedom.youtube`, v2.5.1 — 2026 DASH remux playback) — YouTube.apk ({size_txt})</span></a>"
+                f"<a class='btn secondary' href='{link}'>"
+                f"{ico}<span>&#11015; Download the SEPARATE YouTube app (`ca.arc7freedom.youtube`, v2.5.2 — 2026 DASH remux playback) — YouTube.apk ({size_txt})</span></a>"
             )
         elif fname == "YouTubeMusic.apk":
             ico = _icon_img("ic_ytmusic.png", "YouTube Music", 32)
             apk_buttons.append(
-                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"YouTubeMusic.apk\")'>"
-                f"{ico}<span>&#11015; Download the SEPARATE YouTube Music app (`ca.arc7freedom.ytmusic`, v2.5.1 — screen-off AAC) — YouTubeMusic.apk ({size_txt})</span></a>"
+                f"<a class='btn secondary' href='{link}'>"
+                f"{ico}<span>&#11015; Download the SEPARATE YouTube Music app (`ca.arc7freedom.ytmusic`, v2.5.2 — screen-off AAC) — YouTubeMusic.apk ({size_txt})</span></a>"
             )
         elif fname == "VLC.apk":
             ico = _icon_img("ic_vlc.png", "VLC", 32)
             apk_buttons.append(
-                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"VLC.apk\")'>"
+                f"<a class='btn secondary' href='{link}'>"
                 f"{ico}<span>&#11015; Download Standalone VLC Media Player (Android 4.2 ARMv7) — VLC.apk ({size_txt})</span></a>"
             )
         elif fname == "AuroraStore.apk":
             ico = _icon_img("ic_aurora.png", "Aurora Store", 32)
             aurora_html = (
-                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"AuroraStore.apk\")'>"
+                f"<a class='btn secondary' href='{link}'>"
                 f"{ico}<span>&#11015; Download Standalone Aurora Store v4.8.5 (Verified Android 4.2 APKs + Auto JAR v1 Signer) — AuroraStore.apk ({size_txt})</span></a>"
             )
         elif fname == "FDroidClassicLegacy.apk":
             ico = _icon_img("ic_fdroid.png", "F-Droid", 32)
             apk_buttons.append(
-                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"FDroidClassicLegacy.apk\")'>"
+                f"<a class='btn secondary' href='{link}'>"
                 f"{ico}<span>&#11015; Download Patched F-Droid Classic v1304 (Android 4.2 SHA-256 Index &amp; APK Fix + largeHeap + Throwable Sync Catch + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</span></a>"
             )
         elif fname == "VanillaAndroid4Home.apk":
             ico = _icon_img("ic_wallpaper.png", "Home", 32)
             apk_buttons.append(
-                f"<a class='btn secondary' href='{link}' onclick='onStartDl(\"VanillaAndroid4Home.apk\")'>"
+                f"<a class='btn secondary' href='{link}'>"
                 f"{ico}<span>&#11015; Download Home Launcher v55 (Long-Press + 1-Tap Widget Removal) — VanillaAndroid4Home.apk ({size_txt})</span></a>"
             )
         elif fname.lower().endswith((".bat", ".sh")):
@@ -328,6 +374,67 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         apk_buttons.insert(0, main_html)
     if upgrader_html:
         apk_buttons.insert(0, upgrader_html)
+
+    # ---------------------------------------------------------------------------------
+    # Separately installable default apps (`releases/apps/*.apk`, `ca.arc7freedom.<key>`).
+    # Each one is a real standalone APK with its own icon / package / data directory.
+    # ---------------------------------------------------------------------------------
+    split_apps = []
+    tsv_path = os.path.join(ROOT_DIR, "split-apps", "apps.tsv")
+    if os.path.isfile(tsv_path):
+        with open(tsv_path, "r", encoding="utf-8") as fp:
+            for row in fp:
+                parts = row.rstrip("\n").split("\t")
+                if len(parts) < 4:
+                    continue
+                split_apps.append(tuple(parts[:4]))
+
+    def _split_href(fname: str) -> str:
+        if static_mode:
+            return f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(fname)}"
+        return "/apps/" + urllib.parse.quote(fname)
+
+    split_rows = []
+    for key, fname, label, desc in split_apps:
+        apk_path = os.path.join(RELEASES_DIR, "apps", fname)
+        present = os.path.isfile(apk_path)
+        size_txt = ""
+        if present:
+            mb = os.path.getsize(apk_path) / 1048576.0
+            size_txt = f" &middot; {mb:.2f} MB"
+        icon_file = {
+            "browser": "ic_browser", "clock": "ic_clock", "calculator": "ic_calculator",
+            "notes": "ic_notes", "filemanager": "ic_files", "pdfviewer": "ic_pdf",
+            "weather": "ic_weather", "radiorss": "ic_radio", "recorder": "ic_recorder",
+            "photos": "ic_photos", "camera": "ic_camera", "calendar": "ic_calendar",
+            "ebookreader": "ic_ereader", "audioplayer": "ic_audio", "terminal": "ic_terminal",
+            "wallpaperpicker": "ic_wallpaper", "appmanager": "ic_appmgr", "arcade": "ic_arcade",
+            "shield": "ic_shield", "boost": "ic_boost", "secondscreen": "ic_split",
+            "splitview": "ic_splitview", "streamdeck": "ic_streamdeck",
+            "dictionarywiki": "ic_wiki", "vpn": "ic_vpn", "wiredinternet": "ic_wired_net",
+            "packageinstaller": "ic_apk_installer",
+        }.get(key, "ic_apk_installer")
+        icon_html = _icon_img(f"{icon_file}.png", label, 32) if resolve_icon_path(f"{icon_file}.png") else ""
+        status = "" if present else " <i style='color:#94a3b8;'>(from GitHub release)</i>"
+        split_rows.append(
+            f"<a class='app-row' href='{_split_href(fname)}'>"
+            f"{icon_html}<span class='app-name'>{html.escape(label)}</span>"
+            f"<span class='app-size'>{size_txt}{status}</span>"
+            f"<span class='app-dl'>Download &rarr;</span></a>"
+            f"<div class='app-desc'>{html.escape(desc)} &middot; "
+            f"<code>ca.arc7freedom.{key}</code></div>"
+        )
+
+    split_apps_html = (
+        "<div class='card'>"
+        "<h2>&#128230; Separate Apps — Install Only the Ones You Want</h2>"
+        "<p>Every built-in app below is now its <b>own installable APK</b> with its own icon, "
+        "task, data folder and <i>Settings &rarr; Apps</i> entry — update or uninstall any one of "
+        "them on its own. The suite hides its copy automatically once you install the standalone "
+        "app, so you never get two identical icons.</p>"
+        + "".join(split_rows)
+        + "</div>"
+    ) if split_rows else ""
 
     bat_href = "./Start-Kobo-WiFi-Server.bat"
     sh_href = "./Start-Kobo-WiFi-Server.sh"
@@ -504,10 +611,18 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         ".bar-bg{background:#0f172a;height:12px;border-radius:6px;overflow:hidden;border:1px solid #1e293b;}"
         ".bar-fill{background:#10b981;height:100%;}"
         ".grid2{width:100%;}"
+        ".app-row{display:block;background:#0f172a;border:1px solid #1e3a5f;border-radius:9px;"
+        "padding:12px 14px;margin:8px 0 2px 0;color:#f1f5f9;text-decoration:none;font-weight:bold;"
+        "font-size:15px;}"
+        ".app-row .app-name{vertical-align:middle;}"
+        ".app-row .app-size{color:#94a3b8;font-size:12.5px;font-weight:normal;margin-left:6px;}"
+        ".app-row .app-dl{float:right;color:#38bdf8;font-size:13px;font-weight:bold;}"
+        ".app-desc{color:#94a3b8;font-size:12.5px;margin:0 0 10px 4px;line-height:1.45;}"
+        ".lite a{display:block;padding:9px 0;color:#7dd3fc;font-size:15px;}"
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v2.5.1 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
+        "<h1>Kobo Arc 7 Freedom v2.5.2 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
         "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; YouTube &amp; YouTube Music (Morphe Edition) &bull; "
         "Official Tailscale Google Sign-In &bull; Universal Standby Audio &bull; Fixed F-Droid v1304 &bull; VLC &amp; Aurora Store v4.8.5</p>"
         + featured_apps_strip
@@ -515,6 +630,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         + "".join(apk_buttons)
         + ("".join(other_buttons) if other_buttons else "")
         + "</div>"
+        + split_apps_html
         + top_banner
         + upload_section
         + "<div class='card'>"
@@ -684,7 +800,69 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
                     self.wfile.write(body)
                 return
 
-            if req_path in ("", "/", "/index.html"):
+            query = urllib.parse.parse_qs(parsed.query or "")
+
+            # `http://<ip>:8000/?file=Clock.apk` (or `?get=Clock.apk`) jumps straight to the APK.
+            # Handy on a 2013 tablet keyboard where typing a long file name is painful.
+            for param in ("file", "get", "apk"):
+                if param in query and query[param]:
+                    wanted = os.path.basename(os.path.abspath("/" + query[param][0].lstrip("/")))
+                    local = os.path.join(RELEASES_DIR, wanted)
+                    if os.path.isfile(local) and wanted.lower().endswith(".apk"):
+                        self.send_response(302)
+                        self._send_common_headers("text/plain", 0, {"Location": "/" + urllib.parse.quote(wanted)})
+                        return
+                    split = os.path.join(RELEASES_DIR, "apps", wanted)
+                    if os.path.isfile(split):
+                        self.send_response(302)
+                        self._send_common_headers("text/plain", 0, {"Location": "/apps/" + urllib.parse.quote(wanted)})
+                        return
+
+            # `/dl/<key>` (e.g. `/dl/clock`) -> that app's APK, local first then GitHub release.
+            if req_path.startswith("/dl/"):
+                key = urllib.parse.unquote(req_path[4:]).strip("/").lower()
+                tsv = os.path.join(ROOT_DIR, "split-apps", "apps.tsv")
+                fname = ""
+                if os.path.isfile(tsv):
+                    with open(tsv, "r", encoding="utf-8") as fp:
+                        for line in fp:
+                            parts = line.rstrip("\n").split("\t")
+                            if len(parts) >= 2 and parts[0].lower() == key:
+                                fname = parts[1]
+                                break
+                if fname:
+                    local = os.path.join(RELEASES_DIR, "apps", fname)
+                    location = ("/apps/" + urllib.parse.quote(fname)) if os.path.isfile(local) \
+                        else f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(fname)}"
+                    self.send_response(302)
+                    self._send_common_headers("text/plain", 0, {"Location": location})
+                    return
+
+            # `/apps/<Name>.apk` — separately installable default apps.
+            if req_path.startswith("/apps/"):
+                name = os.path.basename(urllib.parse.unquote(req_path[len("/apps/"):]))
+                target = os.path.join(RELEASES_DIR, "apps", name)
+                if name.lower().endswith(".apk") and os.path.isfile(target):
+                    self._stream_file(target, "application/vnd.android.package-archive",
+                                      head_only, download_name=name)
+                    return
+                if name.lower().endswith(".apk"):
+                    # Not built/downloaded locally yet: bounce to the signed GitHub release asset.
+                    self.send_response(302)
+                    self._send_common_headers("text/plain", 0,
+                                              {"Location": f"{GITHUB_LATEST_BASE}/{urllib.parse.quote(name)}"})
+                    return
+
+            # `/lite` — text-only fallback for the 2013 stock Browser (no CSS, no images, no JS).
+            if req_path in ("/lite", "/lite.html", "/text"):
+                body = render_lite_html(port=self.server_port_num).encode("utf-8")
+                self.send_response(200)
+                self._send_common_headers("text/html; charset=utf-8", len(body))
+                if not head_only:
+                    self.wfile.write(body)
+                return
+
+            if req_path in ("", "/", "/index.html", "/portal"):
                 body = render_portal_html(static_mode=False, port=self.server_port_num).encode("utf-8")
                 self.send_response(200)
                 self._send_common_headers("text/html; charset=utf-8", len(body))
@@ -868,7 +1046,7 @@ def main() -> None:
 
     lan_ips, env_kind = detect_environment_and_lan_ips()
     print("=" * 70)
-    print("  Kobo Arc 7 Freedom v2.5.1 — Zero-SSL Local Web Installer READY!")
+    print("  Kobo Arc 7 Freedom v2.5.2 — Zero-SSL Local Web Installer READY!")
     if env_kind == "lan" and lan_ips:
         print("  Open Browser on your Kobo Arc 7 and type (plain http://):")
         for ip in lan_ips:

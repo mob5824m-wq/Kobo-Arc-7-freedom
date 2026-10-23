@@ -14,3 +14,7 @@ __pycache__/
 *.keystore.tmp
 Unselected files/
 *.idsig
+
+# Separately installable default apps (built by scripts/build-all.sh, published as
+# GitHub release assets + served from the Wi-Fi OTA portal — not committed to git).
+releases/apps/

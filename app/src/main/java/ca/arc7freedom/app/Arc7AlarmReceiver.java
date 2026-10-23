@@ -17,6 +17,14 @@ public class Arc7AlarmReceiver extends BroadcastReceiver {
     public void onReceive(Context context, Intent intent) {
         if (intent == null) return;
         String action = intent.getAction();
+        // The standalone `Clock` app (ca.arc7freedom.clock) has no BootNetworkReceiver, so it
+        // restores every repeating alarm / running timer itself after a reboot or clock change.
+        if (Intent.ACTION_BOOT_COMPLETED.equals(action)
+                || Intent.ACTION_TIME_CHANGED.equals(action)
+                || Intent.ACTION_TIMEZONE_CHANGED.equals(action)) {
+            Arc7ClockStore.rescheduleAllOnBoot(context);
+            return;
+        }
         boolean isCal = Arc7CalendarStore.ACTION_CALENDAR_REMINDER.equals(action);
         boolean isTimer = Arc7ClockStore.ACTION_TIMER_TRIGGER.equals(action) || isCal;
         String label = isCal

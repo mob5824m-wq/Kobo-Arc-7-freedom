@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v2.5.1 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
+# Kobo Arc 7 Freedom v2.5.2 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
 #
 # Concurrent HTTP/1.1 + inline PNG/JPEG/SVG image serving + `Range: bytes=...`
 # (`206 Partial Content`) + instant TLS ClientHello reject so Kobo's Browser &
@@ -19,7 +19,12 @@ mkdir -p "${SERVE_DIR}"
 
 RAW_BASE="https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases"
 RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
-for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.5.1.apk KoboArc7Freedom.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
+
+# Main suite files (+ the separately installable YouTube / YouTube Music apps).
+# Everything downloads in the BACKGROUND: the portal is already answering on :8000 while
+# these copies finish, and a blocked/slow GitHub connection can never stall it.
+(
+for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.5.2.apk KoboArc7Freedom.apk YouTube.apk YouTubeMusic.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt; do
     if [ -f "${SCRIPT_DIR}/${ASSET}" ] && [ ! -s "${SERVE_DIR}/${ASSET}" ]; then
         cp -f "${SCRIPT_DIR}/${ASSET}" "${SERVE_DIR}/${ASSET}"
     fi
@@ -30,6 +35,34 @@ for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.5.1.apk KoboArc7Freedom.apk V
             || true
     fi
 done
+
+# The 27 separately installable default apps (Browser, Clock, Calculator, ...).
+# Release assets are flat, so they land in `Kobo-WiFi-Files/apps/<Name>.apk`.
+if [ -f "${SCRIPT_DIR}/split-apps/apps.tsv" ]; then
+    APP_LIST="$(cut -f2 "${SCRIPT_DIR}/split-apps/apps.tsv")"
+else
+    APP_LIST="Ad-Blocker.apk App-Manager.apk Books.apk Browser.apk Calculator.apk Calendar.apk Camera.apk Clock.apk Files.apk Games.apk Music.apk Notes.apk Package-Installer.apk PDF-Reader.apk Photos.apk Radio-Podcasts.apk Second-Screen.apk Split-View.apk Stream-Deck.apk System-Boost.apk Terminal.apk USB-Internet.apk Voice-Recorder.apk Wallpapers.apk Weather.apk Wi-Fi-VPN.apk Wikipedia.apk"
+fi
+mkdir -p "${SERVE_DIR}/apps"
+APP_COUNT=0
+APP_MISSING=0
+for ASSET in ${APP_LIST}; do
+    DEST="${SERVE_DIR}/apps/${ASSET}"
+    if [ -f "${SCRIPT_DIR}/releases/apps/${ASSET}" ] && [ ! -s "${DEST}" ]; then
+        cp -f "${SCRIPT_DIR}/releases/apps/${ASSET}" "${DEST}"
+    fi
+    if [ ! -s "${DEST}" ]; then
+        curl -fsSL --connect-timeout 5 "${RELEASE_BASE}/${ASSET}" -o "${DEST}" 2>/dev/null || true
+    fi
+    if [ -s "${DEST}" ]; then
+        APP_COUNT=$((APP_COUNT + 1))
+    else
+        rm -f "${DEST}"
+        APP_MISSING=$((APP_MISSING + 1))
+    fi
+done
+echo "==> Separate apps ready: ${APP_COUNT} local, ${APP_MISSING} will link to GitHub."
+) >"${SCRIPT_DIR}/Kobo-WiFi-download.log" 2>&1 &
 
 if [ -f "${SCRIPT_DIR}/serve-over-wifi.py" ]; then
     ARC7_SERVE_DIR="${SERVE_DIR}" exec python3 "${SCRIPT_DIR}/serve-over-wifi.py" "$@"
@@ -93,8 +126,11 @@ class H(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     def _index_bytes(self):
         items = []
-        for f in sorted(os.listdir(SERVE_DIR)):
-            fp = os.path.join(SERVE_DIR, f)
+        entries = [(f, os.path.join(SERVE_DIR, f)) for f in sorted(os.listdir(SERVE_DIR))]
+        apps_root = os.path.join(SERVE_DIR, "apps")
+        if os.path.isdir(apps_root):
+            entries += [("apps/" + f, os.path.join(apps_root, f)) for f in sorted(os.listdir(apps_root))]
+        for f, fp in entries:
             if not os.path.isfile(fp) or os.path.splitext(f.lower())[1] in IMG_MIMES:
                 continue
             mb = os.path.getsize(fp) / 1048576.0
@@ -104,7 +140,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 items.append(f"<a class='sub' href='./raw/{urllib.parse.quote(f)}'>Alternate Direct Stream ({html.escape(f)})</a>")
         return (
             "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>Kobo Arc 7 Freedom v2.5.1 — Local Wi-Fi Installer</title>"
+            "<title>Kobo Arc 7 Freedom v2.5.2 — Local Wi-Fi Installer</title>"
             "<style>body{font-family:sans-serif;background:#0e1319;color:#f8fafc;padding:20px;}"
             ".card{background:#161e28;border:1px solid #2b394b;border-radius:10px;padding:20px;max-width:660px;margin:auto;}"
             "h1{color:#38bdf8;font-size:20px;margin-top:0;}.btn{display:block;background:#1f2a38;color:#fff;"
@@ -114,9 +150,9 @@ class H(http.server.BaseHTTPRequestHandler):
             "<div style='text-align:center;max-width:660px;margin:0 auto 14px auto;'>"
             "<img src='./logo-banner.png' alt='Kobo Arc 7 Freedom' style='max-width:100%;max-height:112px;border-radius:10px;'>"
             "</div><div class='card'>"
-            "<h1>Kobo Arc 7 Freedom v2.5.1 — Wi-Fi OTA Rooting &amp; Installer</h1>"
+            "<h1>Kobo Arc 7 Freedom v2.5.2 — Wi-Fi OTA Rooting &amp; Installer</h1>"
             "<p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b> on your tablet.<br>"
-            "2. Tap <b>Upgrade-My-Kobo-To-v2.5.1.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
+            "2. Tap <b>Upgrade-My-Kobo-To-v2.5.2.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
             "3. Swipe down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>"
             + "".join(items) + "</div></body></html>"
         ).encode("utf-8")
@@ -227,7 +263,7 @@ class Srv(http.server.ThreadingHTTPServer):
 
 srv = Srv(("0.0.0.0", PORT), H)
 print("=" * 70)
-print("  Kobo Arc 7 Freedom v2.5.1 — Wi-Fi OTA Rooting & Installer LIVE!")
+print("  Kobo Arc 7 Freedom v2.5.2 — Wi-Fi OTA Rooting & Installer LIVE!")
 print("  Open Browser on your Kobo Arc 7 and type:")
 for ip in get_ips():
     print(f"\n      http://{ip}:{PORT}")

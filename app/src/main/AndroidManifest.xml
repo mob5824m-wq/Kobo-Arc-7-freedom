@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="251"
-    android:versionName="2.5.1"
+    android:versionCode="252"
+    android:versionName="2.5.2"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -121,17 +121,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" />
-                <data android:scheme="https" />
-            </intent-filter>
         </activity>
 
         <!-- 5. Standalone Offline EPUB / CBZ / FB2 / PDF E-Book Reader (`Books` — OWN TASK!) -->
@@ -143,22 +132,6 @@
             android:taskAffinity="ca.arc7freedom.task.ereader"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="file" />
-                <data android:mimeType="*/*" />
-                <data android:pathPattern=".*\\.epub" />
-                <data android:pathPattern=".*\\.fb2" />
-                <data android:pathPattern=".*\\.zip" />
-                <data android:pathPattern=".*\\.pdf" />
-                <data android:pathPattern=".*\\.cbz" />
-                <data android:pathPattern=".*\\.txt" />
-            </intent-filter>
         </activity>
 
         <!-- 6. Standalone Screen-Off Music & Audiobook Player (`Music` — OWN TASK!) -->
@@ -170,16 +143,6 @@
             android:taskAffinity="ca.arc7freedom.task.audio"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:scheme="file" />
-                <data android:mimeType="audio/*" />
-            </intent-filter>
         </activity>
 
         <!-- 7. Standalone `Clock` (Internet Archive Chimes, World Clock, Timer, Stopwatch — OWN TASK!) -->
@@ -191,10 +154,6 @@
             android:taskAffinity="ca.arc7freedom.task.clock"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 8. Clock Standby Split-Flap Flip Clock, Live Now-Playing & Weather Display (OWN TASK!) -->
@@ -229,14 +188,6 @@
             android:taskAffinity="ca.arc7freedom.task.wallpaper"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SET_WALLPAPER" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
         </activity>
 
         <!-- 11. Standalone `App Manager` (OWN TASK!) -->
@@ -249,10 +200,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 12. Standalone `Terminal` Root/Shell Emulator (OWN TASK!) -->
@@ -265,10 +212,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 13. `Calendar` App (Month + Agenda + Reminders + .ics Sync — OWN TASK!) -->
@@ -281,15 +224,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/calendar" />
-            </intent-filter>
         </activity>
 
         <!-- 14. `Photos` Gallery & Photo Filter Studio (OWN TASK!) -->
@@ -301,15 +235,6 @@
             android:taskAffinity="ca.arc7freedom.task.photos"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="image/*" />
-            </intent-filter>
         </activity>
 
         <!-- 15. `Camera` HD Photo & Video Studio with Front Screen Flash (OWN TASK!) -->
@@ -321,16 +246,6 @@
             android:taskAffinity="ca.arc7freedom.task.camera"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.media.action.IMAGE_CAPTURE" />
-                <action android:name="android.media.action.VIDEO_CAPTURE" />
-                <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
         </activity>
 
         <!-- 16. `Calculator` Scientific Calculator & Unit Converter (OWN TASK!) -->
@@ -342,10 +257,6 @@
             android:taskAffinity="ca.arc7freedom.task.calc"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 17. `Notes` Notes, Checklists & Color Sketchpad (OWN TASK!) -->
@@ -358,10 +269,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 18. `Files` Internal, MicroSD & ZIP Explorer (OWN TASK!) -->
@@ -373,10 +280,6 @@
             android:taskAffinity="ca.arc7freedom.task.files"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 19. `USB Internet` Two-Way Chromebook / Laptop Wired Internet Control Center (OWN TASK!) -->
@@ -388,10 +291,6 @@
             android:taskAffinity="ca.arc7freedom.task.usbnet"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 20. `Package Installer` (Manifest Audit + Auto JAR v1 Signer + Fast Root Install — OWN TASK!) -->
@@ -403,17 +302,6 @@
             android:taskAffinity="ca.arc7freedom.task.apkinstaller"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <action android:name="android.intent.action.INSTALL_PACKAGE" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:mimeType="application/vnd.android.package-archive" />
-            </intent-filter>
         </activity>
 
         <!-- 21. `PDF Reader` Native Offline PDF Reader + Camera Document Scanner (OWN TASK!) -->
@@ -425,15 +313,6 @@
             android:taskAffinity="ca.arc7freedom.task.pdf"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/pdf" />
-            </intent-filter>
         </activity>
 
         <!-- 22. `Weather` Live Open-Meteo Forecast (OWN TASK!) -->
@@ -445,10 +324,6 @@
             android:taskAffinity="ca.arc7freedom.task.weather"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 23. `Radio & Podcasts` 30k World Radio, Podcasts & Offline RSS (OWN TASK!) -->
@@ -460,10 +335,6 @@
             android:taskAffinity="ca.arc7freedom.task.radio"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 24. `Voice Recorder` 44.1 kHz Studio Voice Recorder & Lossless WAV Trimmer (OWN TASK!) -->
@@ -475,10 +346,6 @@
             android:taskAffinity="ca.arc7freedom.task.recorder"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 25. `Games` Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire (OWN TASK!) -->
@@ -490,10 +357,6 @@
             android:taskAffinity="ca.arc7freedom.task.arcade"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 26. `Ad Blocker` System-Wide Hosts AdBlocker & Root Firewall (OWN TASK!) -->
@@ -505,10 +368,6 @@
             android:taskAffinity="ca.arc7freedom.task.shield"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 27. `System Boost` +384 MB zRAM/Swap, CPU Governor & Battery Doctor (OWN TASK!) -->
@@ -520,10 +379,6 @@
             android:taskAffinity="ca.arc7freedom.task.boost"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 28. `Second Screen` Chromebook / PC Extended Monitor & Macro Deck (OWN TASK!) -->
@@ -535,10 +390,6 @@
             android:taskAffinity="ca.arc7freedom.task.secondscreen"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 29. `Split View` Landscape Dual-Pane Multitasking (OWN TASK!) -->
@@ -551,10 +402,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 30. `Wikipedia` Offline Lexicon + Clean Wikipedia Reader (OWN TASK!) -->
@@ -567,15 +414,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
         </activity>
 
         <!-- 31. `Stream Deck` 1280x800 Full LCD Stream Deck Pro for PC / Mac / Linux (OWN TASK!) -->
@@ -588,10 +426,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <!-- 32. `Wi-Fi & VPN` Official Tailscale Google Sign-In + School Wi-Fi Shield + Stealth Tunnel (OWN TASK!) -->
@@ -604,15 +438,6 @@
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
             android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/x-openvpn-profile" />
-            </intent-filter>
         </activity>
 
         <!-- Native Android 4.2 VpnService (`/dev/tun` + `libarc7vpn.so` + Official Tailscale + DoH) -->
@@ -719,5 +544,380 @@
         <!-- Scheduled Alarm & Calendar Trigger Receiver -->
         <receiver android:name=".Arc7AlarmReceiver" android:exported="true" />
 
-    </application>
+    
+        <!-- SPLIT-APPS:START (generated by scripts/gen-split-apps.py — do not edit) -->
+        <!--
+          Each default app now ships as its own installable APK (`releases/apps/<Name>.apk`,
+          packages `ca.arc7freedom.<key>`).  These aliases keep the old suite launcher entry
+          AND its deep links alive ONLY while the standalone app is not installed;
+          `SplitAppIconSync` disables them as soon as the real app is present, so the launcher
+          and the `Open with` chooser never show the same app twice.
+        -->
+        <activity-alias android:name=".launch.Arc7Browser"
+            android:targetActivity=".Arc7BrowserActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_browser"
+            android:label="Browser">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7EbookReader"
+            android:targetActivity=".Arc7EbookReaderActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_ereader"
+            android:label="Books">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.epub" />
+                <data android:pathPattern=".*\\.fb2" />
+                <data android:pathPattern=".*\\.zip" />
+                <data android:pathPattern=".*\\.pdf" />
+                <data android:pathPattern=".*\\.cbz" />
+                <data android:pathPattern=".*\\.txt" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7AudioPlayer"
+            android:targetActivity=".Arc7AudioPlayerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_audio"
+            android:label="Music">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Clock"
+            android:targetActivity=".Arc7ClockActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_clock"
+            android:label="Clock">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7WallpaperPicker"
+            android:targetActivity=".Arc7WallpaperPickerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_wallpaper"
+            android:label="Wallpapers">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SET_WALLPAPER" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7AppManager"
+            android:targetActivity=".Arc7AppManagerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_appmgr"
+            android:label="App Manager">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Terminal"
+            android:targetActivity=".Arc7TerminalActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_terminal"
+            android:label="Terminal">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Calendar"
+            android:targetActivity=".Arc7CalendarActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_calendar"
+            android:label="Calendar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/calendar" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Photos"
+            android:targetActivity=".Arc7PhotosActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_photos"
+            android:label="Photos">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="image/*" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Camera"
+            android:targetActivity=".Arc7CameraActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_camera"
+            android:label="Camera">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.media.action.IMAGE_CAPTURE" />
+                <action android:name="android.media.action.VIDEO_CAPTURE" />
+                <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Calculator"
+            android:targetActivity=".Arc7CalculatorActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_calculator"
+            android:label="Calculator">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Notes"
+            android:targetActivity=".Arc7NotesActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_notes"
+            android:label="Notes">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7FileManager"
+            android:targetActivity=".Arc7FileManagerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_files"
+            android:label="Files">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7WiredInternet"
+            android:targetActivity=".Arc7WiredInternetActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_wired_net"
+            android:label="USB Internet">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7PackageInstaller"
+            android:targetActivity=".Arc7PackageInstallerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_apk_installer"
+            android:label="Package Installer">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.INSTALL_PACKAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7PdfViewer"
+            android:targetActivity=".Arc7PdfViewerActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_pdf"
+            android:label="PDF Reader">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Weather"
+            android:targetActivity=".Arc7WeatherActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_weather"
+            android:label="Weather">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7RadioRss"
+            android:targetActivity=".Arc7RadioRssActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_radio"
+            android:label="Radio &amp; Podcasts">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Recorder"
+            android:targetActivity=".Arc7RecorderActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_recorder"
+            android:label="Voice Recorder">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Arcade"
+            android:targetActivity=".Arc7ArcadeActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_arcade"
+            android:label="Games">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Shield"
+            android:targetActivity=".Arc7ShieldActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_shield"
+            android:label="Ad Blocker">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Boost"
+            android:targetActivity=".Arc7BoostActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_boost"
+            android:label="System Boost">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7SecondScreen"
+            android:targetActivity=".Arc7SecondScreenActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_display"
+            android:label="Second Screen">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7SplitView"
+            android:targetActivity=".Arc7SplitViewActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_splitview"
+            android:label="Split View">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7DictionaryWiki"
+            android:targetActivity=".Arc7DictionaryWikiActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_wiki"
+            android:label="Wikipedia">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7StreamDeck"
+            android:targetActivity=".Arc7StreamDeckActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_streamdeck"
+            android:label="Stream Deck">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Vpn"
+            android:targetActivity=".Arc7VpnActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_vpn"
+            android:label="Wi-Fi &amp; VPN">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/x-openvpn-profile" />
+            </intent-filter>
+        </activity-alias>
+        <!-- SPLIT-APPS:END -->
+
+</application>
 </manifest>

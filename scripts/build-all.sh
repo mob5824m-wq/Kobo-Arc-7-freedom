@@ -356,7 +356,7 @@ cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
 
 # ------------------------------------------------------------------------------
-# Standalone "truly separate app" builder (v2.5.1)
+# Standalone "truly separate app" builder (v2.5.2)
 #
 # Every custom app that used to be just an extra <activity> inside the suite package is now
 # built as its OWN signed APK with its own package id, launcher label/icon and task stack:
@@ -420,6 +420,102 @@ build_standalone_app() {
         --out "$out_apk" \
         "$work/aligned.apk"
     ls -lh "$out_apk"
+}
+
+build_default_split_apps() {
+    # 27 separately installable default apps (Browser, Clock, Calculator, …).
+    #
+    # The shared Java sources are compiled to ONE `classes.dex`; every app then only pays for
+    # one `aapt2 link` + zip + signature, so publishing all 27 stays fast.
+    local repo_root="$PWD"
+    local work="build/split-defaults"
+    rm -rf "$work"
+    mkdir -p "$work/res_compiled" "$work/gen" "$work/classes" "$work/dex" \
+             "$work/assets/cacerts" "$work/stage/lib/armeabi-v7a" "$work/stage/lib/armeabi" \
+             releases/apps
+
+    cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/" 2>/dev/null || true
+    cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/" 2>/dev/null || true
+    if [ -d app/src/main/assets/cacerts/android-hashed ]; then
+        mkdir -p "$work/assets/cacerts/android-hashed"
+        cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
+    fi
+
+    "$AAPT2" compile --dir app/src/main/res -o "$work/res_compiled/res.zip"
+
+    # Link once to generate `R.java` for the shared `ca.arc7freedom.app` classes.
+    local seed_manifest="split-apps/calculator/AndroidManifest.xml"
+    "$AAPT2" link \
+        -I "$ANDROID_JAR" \
+        --manifest "$seed_manifest" \
+        --custom-package ca.arc7freedom.app \
+        -A "$work/assets" \
+        --java "$work/gen" \
+        --min-sdk-version 15 \
+        --target-sdk-version 17 \
+        --no-compile-sdk-metadata \
+        -o "$work/seed.apk" \
+        "$work/res_compiled/res.zip"
+
+    compile_java_and_dex \
+        "$work/classes" \
+        "$work/dex" \
+        "$work/gen/ca/arc7freedom/app/R.java" \
+        app/src/main/java/ca/arc7freedom/app/*.java
+
+    cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/" 2>/dev/null || true
+    cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/" 2>/dev/null || true
+
+    # Apps that actually speak TLS need the local `libarc7tls.so` gateway + the 2026 CA store;
+    # Calculator / Notes / Clock / Photos / … stay tiny without them.
+    local network_apps=" browser vpn terminal appmanager streamdeck secondscreen weather radiorss dictionarywiki ebookreader packageinstaller audioplayer filemanager "
+    local empty_assets="$work/empty_assets"
+    mkdir -p "$empty_assets"
+
+    local built=0
+    while IFS=$'\t' read -r key fname label desc; do
+        [ -n "$key" ] || continue
+        local manifest="split-apps/$key/AndroidManifest.xml"
+        [ -f "$manifest" ] || { echo "    MISSING $manifest"; continue; }
+        rm -f "$work/app-unsigned.apk" "$work/app-aligned.apk"
+        local assets_dir="$work/assets"
+        local with_libs=1
+        case "$network_apps" in
+            *" $key "*) ;;
+            *) assets_dir="$empty_assets"; with_libs=0 ;;
+        esac
+        "$AAPT2" link \
+            -I "$ANDROID_JAR" \
+            --manifest "$manifest" \
+            --custom-package ca.arc7freedom.app \
+            -A "$assets_dir" \
+            --min-sdk-version 15 \
+            --target-sdk-version 17 \
+            --no-compile-sdk-metadata \
+            -o "$work/app-unsigned.apk" \
+            "$work/res_compiled/res.zip"
+        (cd "$work/dex" && zip -qj "$repo_root/$work/app-unsigned.apk" classes.dex)
+        if [ "$with_libs" -eq 1 ]; then
+            (cd "$work/stage" && zip -qr -0 "$repo_root/$work/app-unsigned.apk" lib 2>/dev/null || true)
+        fi
+        "$ZIPALIGN" -f -p 4 "$work/app-unsigned.apk" "$work/app-aligned.apk"
+        "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
+            --ks "$KEYSTORE_PATH" \
+            --ks-pass "pass:$KEYSTORE_PASS" \
+            --key-pass "pass:$KEYSTORE_PASS" \
+            --ks-key-alias "$KEYSTORE_ALIAS" \
+            --min-sdk-version 15 \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --v4-signing-enabled false \
+            --out "releases/apps/$fname" \
+            "$work/app-aligned.apk"
+        rm -f "releases/apps/$fname.idsig"
+        built=$((built + 1))
+    done < split-apps/apps.tsv
+    echo "    Built $built standalone default apps into releases/apps/"
+    ls -lh releases/apps | tail -n +2 | head -30
 }
 
 echo "==> [3/8] Building standalone Stock Android 4.2 Home Launcher v49 (Long-Press Widgets) & Aurora Store (com.aurora.store)..."
@@ -494,6 +590,10 @@ mkdir -p app/src/main/assets/starter-apps
 cp -f releases/YouTube.apk app/src/main/assets/starter-apps/YouTube.apk
 cp -f releases/YouTubeMusic.apk app/src/main/assets/starter-apps/YouTubeMusic.apk
 
+echo "==> [3c/9] Building 27 separately installable default apps (releases/apps/*.apk)..."
+"$PY_BIN" scripts/gen-split-apps.py
+build_default_split_apps
+
 mkdir -p app/src/main/assets/starter-apps
 cp -f app/src/main/res/drawable-mdpi/ic_vlc.png vlc-player/res/drawable-mdpi/ic_vlc.png
 cp -f app/src/main/res/drawable-hdpi/ic_vlc.png vlc-player/res/drawable-hdpi/ic_vlc.png
@@ -554,7 +654,7 @@ cp -f releases/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-S
 cp -f releases/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.1 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1304 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.2 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1304 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -594,7 +694,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.1.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.2.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -628,7 +728,7 @@ rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.ap
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v2.5.1.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.5.2.apk \
     build/upgrader/aligned.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
@@ -638,7 +738,7 @@ rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v2.5.1.apk \
+    Upgrade-My-Kobo-To-v2.5.2.apk \
     KoboArc7Freedom.apk \
     YouTube.apk \
     YouTubeMusic.apk \
@@ -658,9 +758,10 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-I
     Backup-Kobo-To-Laptop-ADB.sh \
     Start-Kobo-WiFi-Server.bat \
     Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
+(cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v2.5.1.apk \
+    releases/Upgrade-My-Kobo-To-v2.5.2.apk \
     releases/KoboArc7Freedom.apk \
     releases/YouTube.apk \
     releases/YouTubeMusic.apk \

@@ -116,11 +116,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "55", f"Expected launcher versionCode 55, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.5.1", f"Expected upgrader 2.5.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "251", f"Expected upgrader 251, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.2", f"Expected upgrader 2.5.2, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "252", f"Expected upgrader 252, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.5.1", f"Expected 2.5.1, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "251", f"Expected 251, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.2", f"Expected 2.5.2, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "252", f"Expected 252, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1132,7 +1132,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 time.sleep(0.05)
         rel_imgs = [t.get("src", "") for t in _extract_img_tags(rel_body)]
         assert len(rel_imgs) >= 8 and "./logo-banner.png" in rel_imgs
-        assert "./Upgrade-My-Kobo-To-v2.5.1.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
+        assert "./Upgrade-My-Kobo-To-v2.5.2.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
         for isrc in rel_imgs:
             assert not isrc.startswith("https://"), f"releases/index.html has non-local HTTPS img: {isrc}"
             ci = http.client.HTTPConnection("127.0.0.1", 18894, timeout=5)
@@ -1155,7 +1155,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
         os.makedirs(iso_files, exist_ok=True)
         # Pre-seed placeholder APKs >= 128B EXCEPT `logo-banner.png` so we ALSO prove offline PNG fallback!
         for seed_name in (
-            "Upgrade-My-Kobo-To-v2.5.1.apk",
+            "Upgrade-My-Kobo-To-v2.5.2.apk",
             "KoboArc7Freedom.apk",
             "VLC.apk",
             "AuroraStore.apk",
@@ -3162,9 +3162,112 @@ public class TestV240Live {
 
 
 
+def verify_v252_split_apps_and_ota_portal(main_apk: str) -> None:
+    """Every built-in app ships as its own signed APK, and the OTA portal really delivers them."""
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.2: one installable APK per default app + working OTA download portal ===")
+    ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
+
+    tsv = os.path.join(ROOT, "split-apps", "apps.tsv")
+    assert os.path.isfile(tsv), "split-apps/apps.tsv missing — run scripts/gen-split-apps.py"
+    rows = [ln.rstrip("\n").split("\t") for ln in open(tsv, encoding="utf-8") if ln.strip()]
+    assert len(rows) >= 27, f"Expected >=27 separately installable apps, got {len(rows)}"
+
+    apps_dir = os.path.join(ROOT, "releases", "apps")
+    seen_pkgs = set()
+    launchers = {}
+    for key, fname, label, _desc in rows:
+        path = os.path.join(apps_dir, fname)
+        assert os.path.isfile(path), f"Missing built split app {fname} — run scripts/build-all.sh"
+
+        r = subprocess.run([ZIPALIGN, "-c", "4", path], capture_output=True, text=True)
+        assert r.returncode == 0, f"zipalign failed on {fname}"
+        r = subprocess.run(
+            [JAVA, "-jar", APKSIGNER, "verify", "--print-certs", "--min-sdk-version", "15",
+             "--max-sdk-version", "17", path],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0 and PERMANENT_CERT_SHA256 in r.stdout.lower(), (
+            f"{fname} is not signed with the permanent release certificate"
+        )
+
+        obj = APK(path)
+        pkg = obj.get_package()
+        assert pkg == f"ca.arc7freedom.{key}", f"{fname}: package {pkg} != ca.arc7freedom.{key}"
+        assert pkg not in seen_pkgs, f"Duplicate package {pkg}"
+        seen_pkgs.add(pkg)
+        assert str(obj.get_androidversion_code()) == "252", f"{fname}: versionCode is not 252"
+        assert str(obj.get_min_sdk_version()) == "15" and str(obj.get_target_sdk_version()) == "17"
+
+        xml = obj.get_android_manifest_xml()
+        acts = xml.findall(".//activity")
+        with_launcher = [
+            a for a in acts
+            if "android.intent.category.LAUNCHER" in
+            [c.get(ANDROID_NS + "name") for f in a.findall("intent-filter")
+             for c in f.findall("category")]
+        ]
+        assert len(with_launcher) == 1, f"{fname}: expected exactly 1 launcher activity, got {len(with_launcher)}"
+        launchers[pkg] = with_launcher[0].get(ANDROID_NS + "name")
+        with zipfile.ZipFile(path) as zf:
+            assert zf.read("classes.dex")[:8] == b"dex\n035\x00", f"{fname}: not DEX 035 (Dalvik 4.2)"
+    print(f"  [PASS] {len(rows)} separately installable default apps: unique ca.arc7freedom.* packages, "
+          "one launcher each, DEX 035, v1+v2+v3 signed")
+
+    # The suite must not advertise a second icon for any app that now ships on its own: every
+    # launcher entry moved to a generated <activity-alias>, which SplitAppIconSync disables
+    # once the standalone package is installed.
+    suite = APK(main_apk)
+    suite_xml = suite.get_android_manifest_xml()
+    aliases = suite_xml.findall(".//activity-alias")
+    assert len(aliases) >= 27, f"Suite only has {len(aliases)} split-app launcher aliases"
+    suite_launcher_acts = [
+        a for a in suite_xml.findall(".//activity")
+        if "android.intent.category.LAUNCHER" in
+        [c.get(ANDROID_NS + "name") for f in a.findall("intent-filter") for c in f.findall("category")]
+    ]
+    assert [a.get(ANDROID_NS + "name") for a in suite_launcher_acts] == [".MainActivity"], (
+        f"Suite still exposes duplicate launcher icons: {[a.get(ANDROID_NS + 'name') for a in suite_launcher_acts]}"
+    )
+    with zipfile.ZipFile(main_apk) as zf:
+        dex = DEX(zf.read("classes.dex"))
+        dex_strings = set(dex.get_strings())
+        methods = {m.get_name() for c in dex.get_classes() for m in c.get_methods()}
+    for needle in ("ca.arc7freedom.browser", "ca.arc7freedom.clock", "ca.arc7freedom.calculator"):
+        assert needle in dex_strings, f"Suite has no SplitApps entry for {needle}"
+    assert {"sync", "setAliasEnabled", "isInstalled"} <= methods, (
+        "SplitAppIconSync is missing from the suite DEX"
+    )
+    print(f"  [PASS] Suite keeps 1 real launcher entry + {len(aliases)} auto-disabled activity aliases "
+          "(SplitAppIconSync: no duplicate icons once a standalone app is installed)")
+
+    # ---- OTA portal: no JavaScript-dependent download buttons, every link resolves ----
+    idx_path = os.path.join(ROOT, "releases", "index.html")
+    html_body = open(idx_path, encoding="utf-8").read()
+    assert "onStartDl(" not in html_body, (
+        "OTA portal still wires download buttons to inline JavaScript — Android 4.2 Browser may not navigate"
+    )
+    assert "onclick='onStartDl" not in html_body
+    release_base = "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download"
+    for _key, fname, _label, _desc in rows:
+        quoted = urllib.parse.quote(fname)
+        assert (f"{release_base}/{quoted}" in html_body) or (f"./apps/{quoted}" in html_body), (
+            f"OTA portal does not link {fname}"
+        )
+    for needed in ("Upgrade-My-Kobo-To-v2.5.2.apk", "KoboArc7Freedom.apk"):
+        assert f"./{needed}" in html_body, f"OTA portal missing {needed}"
+
+    # Live server routes: `/lite`, `/dl/<key>`, `/apps/<Name>.apk`, `?file=`
+    portal_src = open(os.path.join(ROOT, "tools", "serve-over-wifi.py"), encoding="utf-8").read()
+    for route in ('"/lite"', '"/dl/"', '"/apps/"', '"file"'):
+        assert route in portal_src, f"Wi-Fi OTA server missing route {route}"
+    print("  [PASS] OTA portal: pure <a href> downloads (no inline JS), 27 app links, "
+          "/lite text mode, /dl/<key>, /apps/<Name>.apk and ?file= routing")
+
+
 def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) -> None:
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.1: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
+    print("\n=== Verifying v2.5.2: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     # 1. The suite must NOT expose YouTube / YouTube Music launcher icons any more.
@@ -3244,7 +3347,7 @@ def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) 
         "1.64.34",
         "7.12.52",
     ):
-        assert any(needle in v for v in strings), f"Missing critical v2.5.1 streaming string: {needle!r}"
+        assert any(needle in v for v in strings), f"Missing critical v2.5.2 streaming string: {needle!r}"
     print("  [PASS] DEX contains the 2026 InnerTube cascade + DASH remux + local Range server")
 
     # 4. The upgrader carries both standalone APKs inside its embedded suite APK.
@@ -3423,12 +3526,12 @@ def _update_service_handlers_are_throwable(raw_dex: bytes) -> bool:
 def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str,
                                                 fdroid_apk: str) -> None:
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.1: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
+    print("\n=== Verifying v2.5.2: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     app = APK(main_apk)
-    assert str(app.get_androidversion_name()) == "2.5.1", f"Expected suite 2.5.1, got {app.get_androidversion_name()}"
-    assert str(app.get_androidversion_code()) == "251", f"Expected suite 251, got {app.get_androidversion_code()}"
+    assert str(app.get_androidversion_name()) == "2.5.2", f"Expected suite 2.5.2, got {app.get_androidversion_name()}"
+    assert str(app.get_androidversion_code()) == "252", f"Expected suite 252, got {app.get_androidversion_code()}"
 
     with zipfile.ZipFile(main_apk, "r") as zf:
         dex = DEX(zf.read("classes.dex"))
@@ -3492,13 +3595,13 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
           "arc7-last-crash.txt + post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
 
     up_obj = APK(upgrader_apk)
-    assert str(up_obj.get_androidversion_name()) == "2.5.1", f"Expected upgrader 2.5.1, got {up_obj.get_androidversion_name()}"
-    assert str(up_obj.get_androidversion_code()) == "251", f"Expected upgrader 251, got {up_obj.get_androidversion_code()}"
-    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.1.apk is 2.5.1 / 251")
+    assert str(up_obj.get_androidversion_name()) == "2.5.2", f"Expected upgrader 2.5.2, got {up_obj.get_androidversion_name()}"
+    assert str(up_obj.get_androidversion_code()) == "252", f"Expected upgrader 252, got {up_obj.get_androidversion_code()}"
+    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.2.apk is 2.5.2 / 252")
 
 
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.1.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.2.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
         assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
             f"Stale {stale_ver} upgrader APK left in releases/!"
@@ -3554,9 +3657,10 @@ def main() -> None:
     verify_v230_native_vpn_streamdeck_and_relay(main_apk)
     verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
     verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
+    verify_v252_split_apps_and_ota_portal(main_apk)
     verify_v251_alarm_days_and_fdroid_stability(
         main_apk,
-        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.1.apk"),
+        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.2.apk"),
         os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"),
     )
     print("\nALL VERIFICATION GATES PASSED 100%!")
