@@ -61,6 +61,8 @@ public class Arc7VpnActivity extends Activity {
     private LinearLayout tabBar;
     private LinearLayout contentPane;
     private volatile boolean alive = true;
+    /** Last login URL we already auto-opened, so the watcher can never spam browsers. */
+    private volatile String autoOpenedLoginUrl = "";
 
     private int dp(int v) { return Arc7Skin.dp(this, v); }
 
@@ -749,7 +751,14 @@ public class Arc7VpnActivity extends Activity {
                                 requestAndLaunchSystemVpn();
                             } else if (!finalAuthUrl.isEmpty()) {
                                 renderOfficialGoogleQrCard(qrHolder, tsLogTv, finalAuthUrl);
-                                waitForGoogleCompletionAsync(qrHolder, tsLogTv);
+                                autoOpenLoginPage(tsLogTv, finalAuthUrl);
+                                watchForOfficialSignInAsync(qrHolder, tsLogTv, finalAuthUrl);
+                            } else {
+                                // The URL sometimes shows up a few seconds later (slow DNS / cold
+                                // control-plane connection). Show *something* actionable and keep
+                                // polling instead of leaving the user on a blank card.
+                                renderLoginPendingCard(qrHolder, tsLogTv);
+                                watchForOfficialSignInAsync(qrHolder, tsLogTv, "");
                             }
                         }
                     });
@@ -762,6 +771,62 @@ public class Arc7VpnActivity extends Activity {
                 }
             }
         }).start();
+    }
+
+    /**
+     * Opens the Tailscale / Google sign-in page exactly once per URL.
+     *
+     * This is the fix for "the Tailscale login web page never pops up": previously the flow only
+     * rendered a QR code and waited for the user to find the button, and if the auth URL arrived
+     * after the old 12 s window it was never shown at all.
+     */
+    private void autoOpenLoginPage(final TextView tsLogTv, final String authUrl) {
+        if (authUrl == null || authUrl.isEmpty()) return;
+        if (authUrl.equals(autoOpenedLoginUrl)) return;
+        autoOpenedLoginUrl = authUrl;
+        final String msg = TailscaleManager.openLoginPage(this, authUrl);
+        try {
+            tsLogTv.append("\n" + msg + "\n");
+        } catch (Throwable ignored) {}
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    private void renderLoginPendingCard(final LinearLayout holder, final TextView tsLogTv) {
+        holder.removeAllViews();
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(12), dp(12), dp(12), dp(12));
+        box.setBackgroundColor(0xFF0B1F35);
+
+        TextView tv = new TextView(this);
+        tv.setText("Connecting to the Tailscale control server...\n\n"
+                + "The Google sign-in page will open automatically the moment the tablet gets its "
+                + "login link (usually 5-20 seconds). You can also scan the QR code that appears here "
+                + "with your phone.");
+        tv.setTextColor(Color.WHITE);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        box.addView(tv);
+
+        Button retry = Arc7Skin.actionButton(this, "\u21BB Retry Sign-In", 0xFF2563EB);
+        retry.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                autoOpenedLoginUrl = "";
+                startOfficialGoogleSignInUiFlow(tsLogTv, (LinearLayout) holder, "", "");
+            }
+        });
+        box.addView(retry);
+
+        Button diag = Arc7Skin.actionButton(this, "\uD83E\uDDE9 Show tailscaled Diagnostics", 0xFF475569);
+        diag.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                tsLogTv.setText(TailscaleManager.diagnostics(Arc7VpnActivity.this));
+            }
+        });
+        box.addView(diag);
+
+        holder.addView(box);
     }
 
     private void renderOfficialGoogleQrCard(
@@ -778,24 +843,48 @@ public class Arc7VpnActivity extends Activity {
         qrBox.addView(qrIv, new LinearLayout.LayoutParams(dp(224), dp(224)));
 
         TextView cap = new TextView(this);
-        cap.setText("\nScan with your phone camera -> tap 'Continue with Google'!\n"
-                + "Or tap 'Sign in with Google on Tablet' below:\n" + authUrl);
+        cap.setText("\nThe sign-in page opens automatically. If it did not, tap below.\n"
+                + "You can also scan this code with your phone camera -> 'Continue with Google'.\n\n"
+                + "Login link: " + authUrl);
         cap.setTextColor(Color.WHITE);
         cap.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         cap.setGravity(Gravity.CENTER);
+        cap.setTextIsSelectable(true);
         qrBox.addView(cap);
 
         Button browserBtn = Arc7Skin.actionButton(this,
-                "\uD83C\uDF10 Sign in with Google on This Tablet", 0xFF16A34A);
+                "\uD83C\uDF10 Open Tailscale Sign-In Page", 0xFF16A34A);
         browserBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Intent b = new Intent(Arc7VpnActivity.this, Arc7BrowserActivity.class);
-                b.setData(Uri.parse(authUrl));
-                startActivity(b);
+                autoOpenedLoginUrl = "";
+                autoOpenLoginPage(tsLogTv, authUrl);
             }
         });
         qrBox.addView(browserBtn);
+
+        Button copyBtn = Arc7Skin.actionButton(this,
+                "\uD83D\uDCCB Copy Login Link (paste on your phone)", 0xFF0F766E);
+        copyBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                TailscaleManager.copyLoginUrl(Arc7VpnActivity.this, authUrl);
+                Toast.makeText(Arc7VpnActivity.this,
+                        "Login link copied - paste it into any browser on your phone or PC.",
+                        Toast.LENGTH_LONG).show();
+            }
+        });
+        qrBox.addView(copyBtn);
+
+        Button diagBtn = Arc7Skin.actionButton(this,
+                "\uD83E\uDDE9 Show tailscaled Diagnostics", 0xFF475569);
+        diagBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                tsLogTv.setText(TailscaleManager.diagnostics(Arc7VpnActivity.this));
+            }
+        });
+        qrBox.addView(diagBtn);
 
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -804,13 +893,34 @@ public class Arc7VpnActivity extends Activity {
         holder.addView(qrBox, lp);
     }
 
-    private void waitForGoogleCompletionAsync(final LinearLayout qrHolder, final TextView tsLogTv) {
+    /**
+     * Polls Tailscale while the sign-in page is open on the tablet (or another device).
+     *
+     * @param knownUrl the login URL we already have, or "" when it has not appeared yet. A URL that
+     *                 only shows up later is opened automatically the moment it is seen.
+     */
+    private void watchForOfficialSignInAsync(
+            final LinearLayout qrHolder, final TextView tsLogTv, final String knownUrl) {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                for (int i = 0; i < 120 && alive; i++) {
+                String watched = knownUrl == null ? "" : knownUrl;
+                for (int i = 0; i < 200 && alive; i++) {
                     try { Thread.sleep(1500L); } catch (InterruptedException ignored) {}
-                    if (TailscaleManager.isTailscaleAuthenticated(Arc7VpnActivity.this)) {
+                    String raw = TailscaleManager.queryStatusJson(Arc7VpnActivity.this);
+                    String late = TailscaleManager.queryAuthUrlFromStatus(raw);
+                    if (!late.isEmpty() && !late.equals(watched)) {
+                        watched = late;
+                        final String fresh = late;
+                        ui.post(new Runnable() {
+                            @Override
+                            public void run() {
+                                renderOfficialGoogleQrCard(qrHolder, tsLogTv, fresh);
+                                autoOpenLoginPage(tsLogTv, fresh);
+                            }
+                        });
+                    }
+                    if (TailscaleManager.isAuthenticatedFromStatus(raw)) {
                         final String summary = TailscaleManager.queryStatusSummary(Arc7VpnActivity.this);
                         ui.post(new Runnable() {
                             @Override

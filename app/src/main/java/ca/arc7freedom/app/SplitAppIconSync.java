@@ -7,7 +7,7 @@ import android.content.pm.PackageManager;
 /**
  * Keeps exactly ONE launcher icon per built-in app.
  *
- * Since `v2.5.2` every default app (Browser, Clock, Calculator, …) also ships as its own
+ * Since `v2.5.3` every default app (Browser, Clock, Calculator, …) also ships as its own
  * installable APK (`releases/apps/<Name>.apk`, package `ca.arc7freedom.<key>`,
  * see {@link SplitApps}).  The suite keeps an `<activity-alias>` for each of them so nothing
  * disappears from the launcher when only the suite is installed — but as soon as the real

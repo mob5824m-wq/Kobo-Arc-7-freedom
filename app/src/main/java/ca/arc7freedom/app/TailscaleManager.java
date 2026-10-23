@@ -1,8 +1,12 @@
 package ca.arc7freedom.app;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.net.Uri;
 
 import org.json.JSONObject;
 
@@ -47,7 +51,12 @@ public final class TailscaleManager {
             "https://pkgs.tailscale.com/stable/tailscale_1.78.1_arm.tgz";
 
     private static final java.util.regex.Pattern AUTH_URL_REGEX = java.util.regex.Pattern.compile(
-            "(https://[A-Za-z0-9._-]+/a/[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+)");
+            "(https://[A-Za-z0-9._:-]+/[aA]/[A-Za-z0-9._~:/?#\\[\\]@!$&'()*+,;=%-]+)");
+    /** Headscale / self-hosted control servers use `https://host/register/<id>` instead of `/a/<id>`. */
+    private static final java.util.regex.Pattern REGISTER_URL_REGEX = java.util.regex.Pattern.compile(
+            "(https://[A-Za-z0-9._:-]+/register/[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+)");
+    private static final java.util.regex.Pattern ANY_URL_REGEX = java.util.regex.Pattern.compile(
+            "https://[A-Za-z0-9._:/-]+");
 
     public static final class TailnetPeer {
         public String hostName;
@@ -335,8 +344,15 @@ public final class TailscaleManager {
             pb.environment().put("SSL_CERT_FILE", caFile.getAbsolutePath());
             pb.environment().put("TS_DEBUG_TLS_DIAL_INSECURE_SKIP_VERIFY", "false");
             pb.redirectErrorStream(true);
-            pb.start();
-            Thread.sleep(1200L);
+            final Process daemonProc = pb.start();
+            // `tailscaled` logs constantly: with nobody reading its pipe it fills (~64 KB) and the
+            // daemon freezes, so `tailscale up` then never prints the login URL. Drain it forever.
+            drainToLog(daemonProc, new File(stateDir, "tailscaled.log"));
+            // Give the socket a moment to appear before asking it for a status.
+            for (int i = 0; i < 12; i++) {
+                if (!queryStatusJson(ctx).trim().isEmpty()) break;
+                Thread.sleep(400L);
+            }
         }
 
         // Official Interactive Google Sign-In flow when no pre-auth key is supplied!
@@ -388,8 +404,11 @@ public final class TailscaleManager {
                 }
             }).start();
 
-            for (int i = 0; i < 14; i++) {
-                Thread.sleep(900L);
+            // 40 x 750 ms = 30 s: a cold `tailscaled` + DNS + control-plane round trip can easily
+            // take 10-15 s on a 2013 tablet, and the old 12 s window often timed out *just* before
+            // the URL appeared — which is why the sign-in page never popped up.
+            for (int i = 0; i < 40; i++) {
+                Thread.sleep(750L);
                 if (isTailscaleAuthenticated(ctx)) {
                     return queryStatusSummary(ctx);
                 }
@@ -400,13 +419,16 @@ public final class TailscaleManager {
                     }
                 }
                 if (!curUrl.isEmpty()) {
-                    writeLog(logFile, curUrl);
+                    appendLog(logFile, "AuthURL: " + curUrl);
                     return "AuthURL: " + curUrl + "\n" + queryStatusSummary(ctx);
                 }
             }
             synchronized (captured) {
-                writeLog(logFile, captured.toString());
-                return captured.length() > 0 ? captured.toString().trim() : queryStatusSummary(ctx);
+                appendLog(logFile, captured.toString());
+                String tail = readTail(new File(stateDir, "tailscaled.log"), 14);
+                String out = captured.toString().trim();
+                if (tail.length() > 0) out = out + "\n--- tailscaled.log ---\n" + tail;
+                return out.length() > 0 ? out : queryStatusSummary(ctx);
             }
         }
 
@@ -437,7 +459,7 @@ public final class TailscaleManager {
         while ((n = in.read(buf)) > 0) baos.write(buf, 0, n);
         in.close();
         String out = baos.toString("UTF-8");
-        writeLog(logFile, out);
+        appendLog(logFile, out);
         return out.trim().isEmpty() ? queryStatusSummary(ctx) : out.trim();
     }
 
@@ -577,7 +599,160 @@ public final class TailscaleManager {
     public static String extractAuthUrlFromText(String text) {
         if (text == null || text.isEmpty()) return "";
         java.util.regex.Matcher m = AUTH_URL_REGEX.matcher(text);
-        return m.find() ? m.group(1).trim() : "";
+        if (m.find()) return trimUrl(m.group(1));
+        m = REGISTER_URL_REGEX.matcher(text);
+        if (m.find()) return trimUrl(m.group(1));
+        // Last resort: any https URL that mentions a login/auth host (some control servers print
+        // "visit https://headscale.example.com/..." without the /a/ or /register/ path).
+        m = ANY_URL_REGEX.matcher(text);
+        while (m.find()) {
+            String u = trimUrl(m.group());
+            String low = u.toLowerCase(Locale.US);
+            if (low.contains("login.tailscale.com") || low.contains("controlplane.tailscale.com")
+                    || low.contains("/a/") || low.contains("/register/")) {
+                return u;
+            }
+        }
+        return "";
+    }
+
+    private static String trimUrl(String u) {
+        if (u == null) return "";
+        int cut = u.length();
+        while (cut > 0) {
+            char c = u.charAt(cut - 1);
+            if (c == '.' || c == ',' || c == ')' || c == ']' || c == ';' || c == '"' || c == '\'') cut--;
+            else break;
+        }
+        return u.substring(0, cut).trim();
+    }
+
+    /** Opens the official Tailscale / Google login page so the user never has to hunt for it. */
+    public static String openLoginPage(Context ctx, String url) {
+        if (url == null || !url.startsWith("https://")) {
+            return "No Tailscale login URL yet - the tablet is still contacting the control server.";
+        }
+        // Google OAuth refuses to run inside an embedded WebView, so a real browser wins when one
+        // is installed. 4.2 tablets usually only ship the stock Browser, whose TLS stack is too old
+        // for 2026 Google - our Arc7 Browser bridges TLS 1.3 and is the fallback.
+        String[] external = {
+                "com.android.chrome",
+                "org.mozilla.firefox",
+                "com.opera.browser",
+                "com.sec.android.app.sbrowser",
+                "com.android.browser",
+        };
+        for (int i = 0; i < external.length; i++) {
+            try {
+                Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                it.setPackage(external[i]);
+                it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(it);
+                return "Opened the Tailscale sign-in page in " + external[i];
+            } catch (Throwable ignored) {}
+        }
+        try {
+            Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(it);
+            return "Opened the Tailscale sign-in page in the system browser";
+        } catch (Throwable ignored) {}
+        try {
+            Intent it = new Intent(ctx, Arc7BrowserActivity.class);
+            it.setData(Uri.parse(url));
+            it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(it);
+            return "Opened the Tailscale sign-in page in Arc7 Browser (TLS 1.3 bridge)";
+        } catch (Throwable t) {
+            return "Could not open the sign-in page automatically (" + t.getMessage()
+                    + ") - scan the QR code with your phone instead.";
+        }
+    }
+
+    public static void copyLoginUrl(Context ctx, String url) {
+        try {
+            ClipboardManager cm = (ClipboardManager) ctx.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (cm != null) cm.setPrimaryClip(ClipData.newPlainText("Tailscale login", url));
+        } catch (Throwable ignored) {}
+    }
+
+    /** Background pump that keeps a child process from blocking on a full stdout pipe. */
+    private static void drainToLog(final Process process, final File out) {
+        try {
+            Thread t = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    java.io.BufferedReader br = null;
+                    try {
+                        br = new java.io.BufferedReader(
+                                new java.io.InputStreamReader(process.getInputStream(), "UTF-8"));
+                        String line;
+                        while ((line = br.readLine()) != null) {
+                            appendLog(out, line);
+                        }
+                    } catch (Throwable ignored) {
+                    } finally {
+                        try { if (br != null) br.close(); } catch (Throwable ignored) {}
+                    }
+                }
+            }, "arc7-tailscaled-log");
+            t.setDaemon(true);
+            t.start();
+        } catch (Throwable ignored) {}
+    }
+
+    /** Appends to the daemon log, trimming the file so it can never fill the data partition. */
+    private static synchronized void appendLog(File f, String txt) {
+        if (f == null || txt == null || txt.isEmpty()) return;
+        try {
+            if (f.exists() && f.length() > 192 * 1024) {
+                String keep = readTail(f, 300);
+                FileOutputStream trunc = new FileOutputStream(f, false);
+                try { trunc.write(keep.getBytes("UTF-8")); } finally { trunc.close(); }
+            }
+            FileOutputStream fos = new FileOutputStream(f, true);
+            try {
+                fos.write(txt.getBytes("UTF-8"));
+                fos.write('\n');
+            } finally {
+                fos.close();
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /** Returns the last {@code lines} lines of a (possibly large) log file. */
+    static String readTail(File f, int lines) {
+        if (f == null || !f.exists() || lines <= 0) return "";
+        java.io.RandomAccessFile raf = null;
+        try {
+            raf = new java.io.RandomAccessFile(f, "r");
+            long len = raf.length();
+            long start = Math.max(0, len - 16384);
+            raf.seek(start);
+            byte[] buf = new byte[(int) (len - start)];
+            raf.readFully(buf);
+            String[] all = new String(buf, "UTF-8").split("\\r?\\n");
+            StringBuilder sb = new StringBuilder();
+            int from = Math.max(0, all.length - lines);
+            for (int i = from; i < all.length; i++) {
+                if (all[i].trim().isEmpty()) continue;
+                sb.append(all[i]).append('\n');
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return "";
+        } finally {
+            try { if (raf != null) raf.close(); } catch (Throwable ignored) {}
+        }
+    }
+
+    /** Diagnostics shown in the VPN screen when no login URL appears. */
+    public static String diagnostics(Context ctx) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("tailscaled log:\n");
+        String tail = readTail(new File(new File(ctx.getFilesDir(), "tailscale_state"), "tailscaled.log"), 18);
+        sb.append(tail.isEmpty() ? "(empty - daemon has not written anything yet)" : tail);
+        return sb.toString();
     }
 
     public static boolean isTailscaleAuthenticated(Context ctx) {
@@ -588,6 +763,25 @@ public final class TailscaleManager {
         } catch (Throwable t) {
             return false;
         }
+    }
+
+    /** Pulls `AuthURL` out of an already-fetched `tailscale status --json` payload (no extra process). */
+    public static String queryAuthUrlFromStatus(String rawJson) {
+        if (rawJson == null || rawJson.isEmpty()) return "";
+        try {
+            String u = new JSONObject(rawJson).optString("AuthURL", "");
+            if (u.startsWith("https://")) return u;
+        } catch (Throwable ignored) {}
+        return "";
+    }
+
+    /** `BackendState == Running` from an already-fetched status payload. */
+    public static boolean isAuthenticatedFromStatus(String rawJson) {
+        if (rawJson == null || rawJson.isEmpty()) return false;
+        try {
+            return "Running".equalsIgnoreCase(new JSONObject(rawJson).optString("BackendState", ""));
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     public static String queryCurrentAuthUrl(Context ctx) {
@@ -634,11 +828,4 @@ public final class TailscaleManager {
         return QrCodeEncoder.renderQrBitmap(text, sizePx);
     }
 
-    private static void writeLog(File f, String txt) {
-        try {
-            FileOutputStream fos = new FileOutputStream(f);
-            try { fos.write((txt == null ? "" : txt).getBytes("UTF-8")); }
-            finally { fos.close(); }
-        } catch (Throwable ignored) {}
-    }
 }

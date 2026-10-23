@@ -12,8 +12,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.splitview"
-    android:versionCode="252"
-    android:versionName="2.5.2"
+    android:versionCode="253"
+    android:versionName="2.5.3"
     android:installLocation="internalOnly">
 
     <uses-sdk android:minSdkVersion="15" android:targetSdkVersion="17" />

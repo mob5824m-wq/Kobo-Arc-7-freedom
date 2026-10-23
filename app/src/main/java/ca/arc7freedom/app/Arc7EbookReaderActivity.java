@@ -16,11 +16,15 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.TypedValue;
+import android.view.GestureDetector;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -100,11 +104,24 @@ public class Arc7EbookReaderActivity extends Activity {
     private int fontZoom = 115;
     private int themeIndex = 1;
 
+    /* ---- v2.5.3 tap-to-turn page engine (`arc7ctl:` bridge, no JS interface needed) ---- */
+    private static final String KEY_TIPS_SHOWN = "reading_tips_shown";
+    /** Fraction (0..1) of the current chapter that is scrolled on screen — reported by the page. */
+    private float lastScrollRatio = 0f;
+    /** Ratio to apply once the freshly loaded chapter has laid out (-1 = keep the saved one). */
+    private float pendingScrollRatio = -1f;
+    private int pageInChapter = 1;
+    private int pagesInChapter = 1;
+    private boolean toolbarVisible = true;
+    private HorizontalScrollView toolbarScroll;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         rootShell = new RootShell(this);
         certManager = new NetworkCertManager(this, rootShell);
+        // A reader should not dim the screen in the middle of a page.
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         fontZoom = sp.getInt(KEY_FONT_ZOOM, 115);
@@ -137,6 +154,7 @@ public class Arc7EbookReaderActivity extends Activity {
                 headerRight));
 
         HorizontalScrollView toolScroll = new HorizontalScrollView(this);
+        toolbarScroll = toolScroll;
         toolScroll.setHorizontalScrollBarEnabled(false);
         toolScroll.setBackgroundColor(pal.surface);
         LinearLayout topBar = new LinearLayout(this);
@@ -150,11 +168,20 @@ public class Arc7EbookReaderActivity extends Activity {
         topBar.addView(navButton("TOC", "#475569", new View.OnClickListener() {
             @Override public void onClick(View v) { showTableOfContents(); }
         }));
-        topBar.addView(navButton("< Prev", "#334155", new View.OnClickListener() {
+        topBar.addView(navButton("\u2039 Page", "#334155", new View.OnClickListener() {
+            @Override public void onClick(View v) { turnPage(-1); }
+        }));
+        topBar.addView(navButton("Page \u203A", "#334155", new View.OnClickListener() {
+            @Override public void onClick(View v) { turnPage(1); }
+        }));
+        topBar.addView(navButton("\u00AB Ch", "#1D4ED8", new View.OnClickListener() {
             @Override public void onClick(View v) { jumpChapter(-1); }
         }));
-        topBar.addView(navButton("Next >", "#334155", new View.OnClickListener() {
+        topBar.addView(navButton("Ch \u00BB", "#1D4ED8", new View.OnClickListener() {
             @Override public void onClick(View v) { jumpChapter(1); }
+        }));
+        topBar.addView(navButton("Full Screen", "#0F766E", new View.OnClickListener() {
+            @Override public void onClick(View v) { toggleReadingChrome(); }
         }));
 
         lblBookTitle = new TextView(this);
@@ -198,27 +225,29 @@ public class Arc7EbookReaderActivity extends Activity {
 
         readerWebView = new WebView(this);
         WebSettings ws = readerWebView.getSettings();
-        ws.setJavaScriptEnabled(false);
+        // Enabled only so the injected paging runtime (`arc7NextPage`, tap zones) can run — books are
+        // loaded from the app cache with `loadDataWithBaseURL()`, and no `addJavascriptInterface()`
+        // bridge is exposed, so a book can never reach Android APIs.
+        ws.setJavaScriptEnabled(true);
         ws.setAllowFileAccess(true);
         ws.setLoadsImagesAutomatically(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
+        ws.setUseWideViewPort(false);
+        ws.setLoadWithOverviewMode(false);
+        ws.setDefaultFontSize(17);
         ws.setTextZoom(fontZoom);
+        readerWebView.setWebViewClient(new ReaderWebViewClient());
         contentFrame.addView(readerWebView, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
         comicScrollView = new ScrollView(this);
         comicScrollView.setBackgroundColor(Color.BLACK);
         comicScrollView.setVisibility(View.GONE);
-        comicPageImage = new ImageView(this);
+        comicPageImage = new ComicPageView(this);
         comicPageImage.setAdjustViewBounds(true);
+        comicPageImage.setClickable(true);
         comicPageImage.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        comicPageImage.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                jumpChapter(1);
-            }
-        });
         comicScrollView.addView(comicPageImage, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         contentFrame.addView(comicScrollView, new FrameLayout.LayoutParams(
@@ -572,6 +601,10 @@ public class Arc7EbookReaderActivity extends Activity {
             chapterFiles.clear();
             comicEntryNames.clear();
             isComicMode = false;
+            lastScrollRatio = 0f;
+            pendingScrollRatio = -1f;
+            pageInChapter = 1;
+            pagesInChapter = 1;
             currentBookPath = file.getAbsolutePath();
             currentBookTitle = file.getName();
 
@@ -791,28 +824,51 @@ public class Arc7EbookReaderActivity extends Activity {
             chapterFiles.add(c1);
         } catch (Throwable ignored) {}
         currentChapter = 0;
-        renderCurrentChapter();
+        lastScrollRatio = 0f;
+        pendingScrollRatio = -1f;
+        renderCurrentChapter(0f);
+        showReadingTipsOnce();
     }
 
     private void renderCurrentChapter() {
+        renderCurrentChapter(-1f);
+    }
+
+    /**
+     * Renders the current chapter.
+     *
+     * @param restoreRatio 0f = start of the chapter, 1f = end of the chapter, -1f = resume exactly
+     *                     where this chapter was last left.
+     */
+    private void renderCurrentChapter(float restoreRatio) {
         int total = totalSections();
         if (total == 0) return;
-        int pct = Math.round(((currentChapter + 1) * 100f) / Math.max(1, total));
-        lblBookTitle.setText(currentBookTitle);
-        lblChapterPos.setText((currentChapter + 1) + "/" + total + " (" + pct + "%)");
-
         if (!currentBookPath.isEmpty()) {
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putInt("chap_" + currentBookPath.hashCode(), currentChapter).commit();
         }
 
         if (isComicMode) {
+            pendingScrollRatio = -1f;
+            lastScrollRatio = 0f;
+            pageInChapter = currentChapter + 1;
+            pagesInChapter = total;
+            updateReadingProgress();
             readerWebView.setVisibility(View.GONE);
             comicScrollView.setVisibility(View.VISIBLE);
             comicScrollView.scrollTo(0, 0);
             renderComicPageBitmap();
             return;
         }
+
+        // Remember where we were in the chapter we are leaving so reopening resumes there.
+        if (restoreRatio < 0f) {
+            restoreRatio = getSharedPreferences(PREFS, MODE_PRIVATE)
+                    .getFloat(posKey(currentChapter), 0f);
+        }
+        pendingScrollRatio = Math.max(0f, Math.min(1f, restoreRatio));
+        lastScrollRatio = pendingScrollRatio;
+        updateReadingProgress();
 
         comicScrollView.setVisibility(View.GONE);
         readerWebView.setVisibility(View.VISIBLE);
@@ -822,10 +878,29 @@ public class Arc7EbookReaderActivity extends Activity {
         try {
             String rawHtml = readTextFile(f);
             String baseUrl = f.getParentFile().toURI().toString();
-            readerWebView.loadDataWithBaseURL(baseUrl, injectThemeCss(rawHtml), "text/html", "UTF-8", null);
+            readerWebView.loadDataWithBaseURL(baseUrl, injectReaderChrome(rawHtml), "text/html", "UTF-8", null);
         } catch (Throwable t) {
             Toast.makeText(this, "Error rendering chapter: " + t.getMessage(), Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private String posKey(int chapter) {
+        return "pos_" + currentBookPath.hashCode() + "_" + chapter;
+    }
+
+    private void updateReadingProgress() {
+        int total = Math.max(1, totalSections());
+        if (isComicMode) {
+            lblBookTitle.setText(currentBookTitle);
+            lblChapterPos.setText("Page " + (currentChapter + 1) + "/" + total);
+            return;
+        }
+        float overall = Math.min(1f, (currentChapter + lastScrollRatio) / total);
+        int pct = Math.round(overall * 100f);
+        lblBookTitle.setText(currentBookTitle);
+        lblChapterPos.setText((currentChapter + 1) + "/" + total
+                + "  \u2022  p" + pageInChapter + "/" + pagesInChapter
+                + "  \u2022  " + pct + "%");
     }
 
     private void renderComicPageBitmap() {
@@ -860,21 +935,98 @@ public class Arc7EbookReaderActivity extends Activity {
         }
     }
 
-    private String injectThemeCss(String html) {
+    /**
+     * Injects the reading stylesheet **and** the paging runtime into a chapter.
+     *
+     * The runtime turns the chapter into a sequence of screen-sized pages (`arc7NextPage` /
+     * `arc7PrevPage`), installs the left / middle / right tap zones, and reports the reading
+     * position back to Java through the `arc7ctl:` URL scheme (intercepted in
+     * {@link ReaderWebViewClient}) — so no `addJavascriptInterface()` bridge is ever exposed.
+     */
+    private String injectReaderChrome(String html) {
         String bg = themeIndex == 3 ? "#000000"
                 : (themeIndex == 2 ? "#111827" : (themeIndex == 1 ? "#FBF3E4" : "#FFFFFF"));
         String fg = themeIndex == 3 ? "#D1D5DB"
                 : (themeIndex == 2 ? "#E5E7EB" : (themeIndex == 1 ? "#2C221E" : "#111827"));
         String link = (themeIndex >= 2) ? "#60A5FA" : "#0369A1";
-        String style = "<style>html,body{background:" + bg + " !important;color:" + fg +
-                " !important;font-family:Georgia,serif;line-height:1.68;padding:18px 26px;max-width:760px;margin:0 auto;}" +
-                "a{color:" + link + " !important;}img{max-width:100% !important;height:auto !important;}</style>";
-        int headClose = html.toLowerCase(Locale.US).indexOf("</head>");
+        String style = "<style>"
+                + "html{background:" + bg + " !important;}"
+                + "body{background:" + bg + " !important;color:" + fg + " !important;"
+                + "font-family:Georgia,'Times New Roman',serif;font-size:100%;line-height:1.62;"
+                + "margin:0 auto !important;padding:10px 15px 44px 15px !important;max-width:900px !important;"
+                + "-webkit-text-size-adjust:100%;word-wrap:break-word;overflow-wrap:break-word;overflow-x:hidden;}"
+                + "p{margin:0 0 .82em 0;}"
+                + "h1,h2,h3,h4,h5,h6{line-height:1.24;margin:.75em 0 .45em 0;page-break-after:avoid;}"
+                + "h1{font-size:1.45em;}h2{font-size:1.28em;}h3{font-size:1.14em;}"
+                + "img,svg,video{max-width:100% !important;height:auto !important;}"
+                + "pre{white-space:pre-wrap !important;word-wrap:break-word !important;font-size:.9em;}"
+                + "table{max-width:100% !important;border-collapse:collapse;}"
+                + "blockquote{margin:.6em 0;padding-left:.8em;border-left:3px solid " + link + ";}"
+                + "a{color:" + link + " !important;}"
+                + "hr{border:0;border-top:1px solid " + link + "33;margin:1em 0;}"
+                + "</style>";
+        String script = "<script>" + READER_RUNTIME_JS + "</script>";
+        String head = style + script;
+        String lower = html.toLowerCase(Locale.US);
+        int headClose = lower.indexOf("</head>");
         if (headClose >= 0) {
-            return html.substring(0, headClose) + style + html.substring(headClose);
+            return html.substring(0, headClose) + head + html.substring(headClose);
         }
-        return style + html;
+        int bodyOpen = lower.indexOf("<body");
+        if (bodyOpen >= 0) {
+            return html.substring(0, bodyOpen) + head + html.substring(bodyOpen);
+        }
+        return head + html;
     }
+
+    /**
+     * Paging runtime. Kept dependency-free and ES3-clean so the stock Android 4.2 (WebKit 534.30)
+     * WebView runs it; every callback uses `location.href='arc7ctl:...'`, which the WebViewClient
+     * turns into a Java call.
+     */
+    private static final String READER_RUNTIME_JS =
+            "(function(){"
+            + "var ctl='arc7ctl:';"
+            + "var lastRatio=-1;var sentRatio=-1;"
+            + "function send(s){try{window.location.href=ctl+s;}catch(e){}}"
+            + "function vh(){return window.innerHeight||document.documentElement.clientHeight||640;}"
+            + "function sy(){return window.pageYOffset||document.documentElement.scrollTop||document.body.scrollTop||0;}"
+            + "function maxY(){var h=Math.max(document.body?document.body.scrollHeight:0,"
+            + "document.documentElement?document.documentElement.scrollHeight:0);return Math.max(0,h-vh());}"
+            + "function report(){var m=maxY();var y=Math.min(sy(),m);var h=vh();"
+            + "var r=m>0?(y/m):0;lastRatio=r;"
+            + "var pages=Math.max(1,Math.ceil((m+h-8)/h));"
+            + "var page=Math.min(pages,Math.max(1,Math.floor(y/Math.max(120,h*0.90))+1));"
+            + "if(Math.abs(r-sentRatio)>0.004){sentRatio=r;"
+            + "send('pos/'+Math.round(r*10000)+'/'+page+'/'+pages);}}"
+            + "window.arc7Refresh=function(){report();};"
+            + "window.arc7NextPage=function(){var m=maxY();var y=sy();"
+            + "if(m<=4||y>=m-4){send('atend');return;}"
+            + "var step=Math.max(Math.round(vh()*0.90),100);"
+            + "window.scrollTo(0,Math.min(m,y+step));setTimeout(report,80);};"
+            + "window.arc7PrevPage=function(){var y=sy();"
+            + "if(y<=4){send('atstart');return;}"
+            + "var step=Math.max(Math.round(vh()*0.90),100);"
+            + "window.scrollTo(0,Math.max(0,y-step));setTimeout(report,80);};"
+            + "window.arc7GotoRatio=function(r){var m=maxY();"
+            + "r=Math.max(0,Math.min(1,r));window.scrollTo(0,Math.round(r*m));"
+            + "setTimeout(report,60);setTimeout(report,260);};"
+            + "window.arc7GotoBottom=function(){window.scrollTo(0,maxY());"
+            + "setTimeout(report,60);setTimeout(report,260);};"
+            + "window.arc7GotoTop=function(){window.scrollTo(0,0);setTimeout(report,60);};"
+            + "var t=null;window.addEventListener('scroll',function(){"
+            + "if(t){return;}t=setTimeout(function(){t=null;report();},200);},false);"
+            + "function linkFrom(el){while(el&&el.nodeName){"
+            + "if(el.nodeName==='A'||el.nodeName==='AREA'){return el;}el=el.parentNode;}return null;}"
+            + "document.addEventListener('click',function(e){"
+            + "if(linkFrom(e.target)){return;}"
+            + "var w=window.innerWidth||document.documentElement.clientWidth||600;"
+            + "var x=(e.clientX===undefined||e.clientX===null)?(w/2):e.clientX;"
+            + "if(x<w*0.30){send('prev');}else if(x>w*0.70){send('next');}else{send('chrome');}"
+            + "},false);"
+            + "setTimeout(report,180);setTimeout(report,700);"
+            + "})();";
+
 
     private String wrapStyledHtml(String title, String bodyHtml) {
         return "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + escapeHtml(title) +
@@ -887,8 +1039,203 @@ public class Arc7EbookReaderActivity extends Activity {
             Toast.makeText(this, delta < 0 ? "Already at beginning." : "End reached!", Toast.LENGTH_SHORT).show();
             return;
         }
+        saveScrollPosition();
         currentChapter = next;
-        renderCurrentChapter();
+        renderCurrentChapter(delta < 0 ? 1f : 0f);
+        showReadingTipsOnce();
+    }
+
+    /* ==================== Tap / swipe page turning (`v2.5.3`) ==================== */
+
+    /**
+     * Turns one screen-sized page. At the very end of a chapter it rolls over into the next
+     * chapter (and at the very start it rolls back into the previous one), so a book can be read
+     * end-to-end by only tapping the right — or left — side of the page.
+     */
+    private void turnPage(int direction) {
+        if (isComicMode) {
+            jumpChapter(direction);
+            return;
+        }
+        if (totalSections() == 0) return;
+        runReaderJs(direction > 0 ? "arc7NextPage()" : "arc7PrevPage()");
+        showReadingTipsOnce();
+    }
+
+    /** Hides / shows the toolbars so a page can use the whole screen. */
+    private void toggleReadingChrome() {
+        toolbarVisible = !toolbarVisible;
+        if (toolbarScroll != null) {
+            toolbarScroll.setVisibility(toolbarVisible ? View.VISIBLE : View.GONE);
+        }
+        Toast.makeText(this, toolbarVisible
+                ? "Toolbar shown — tap the middle of the page to hide it again"
+                : "Full-screen reading — tap the middle of the page for the toolbar",
+                Toast.LENGTH_SHORT).show();
+    }
+
+    private void showReadingTipsOnce() {
+        SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (sp.getBoolean(KEY_TIPS_SHOWN, false)) return;
+        sp.edit().putBoolean(KEY_TIPS_SHOWN, true).commit();
+        Toast.makeText(this,
+                "Tap the RIGHT side of the page for the next page, the LEFT side for the previous page, "
+                        + "or the MIDDLE to hide/show the toolbar. Swipe left/right also turns pages.",
+                Toast.LENGTH_LONG).show();
+    }
+
+    private void runReaderJs(String js) {
+        try {
+            if (readerWebView != null) readerWebView.loadUrl("javascript:" + js);
+        } catch (Throwable ignored) {}
+    }
+
+    private void applyPendingScroll() {
+        float ratio = pendingScrollRatio;
+        if (ratio < 0f) ratio = 0f;
+        runReaderJs("arc7GotoRatio(" + ratio + ")");
+    }
+
+    private void saveScrollPosition() {
+        if (isComicMode || currentBookPath.isEmpty()) return;
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putFloat(posKey(currentChapter), lastScrollRatio).commit();
+    }
+
+    private void advanceToNextChapter() {
+        if (currentChapter + 1 >= totalSections()) {
+            Toast.makeText(this, "End of book reached.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        saveScrollPosition();
+        currentChapter++;
+        renderCurrentChapter(0f);
+    }
+
+    private void retreatToPreviousChapter() {
+        if (currentChapter <= 0) {
+            Toast.makeText(this, "Start of book reached.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        saveScrollPosition();
+        currentChapter--;
+        renderCurrentChapter(1f);
+    }
+
+    /**
+     * Handles the `arc7ctl:` callbacks emitted by the injected paging runtime.
+     * Returning `true` tells the WebView the navigation was handled (it never happens).
+     */
+    private boolean handleReaderSignal(String url) {
+        String body = url.substring("arc7ctl:".length());
+        if (body.startsWith("pos/")) {
+            // `pos/<ratio*10000>/<page>/<pages>` — screen-sized pages reported by the runtime.
+            try {
+                String[] parts = body.substring(4).split("/");
+                float ratio = Integer.parseInt(parts[0].trim()) / 10000f;
+                lastScrollRatio = Math.max(0f, Math.min(1f, ratio));
+                if (parts.length > 1) pageInChapter = Math.max(1, Integer.parseInt(parts[1].trim()));
+                if (parts.length > 2) pagesInChapter = Math.max(pageInChapter, Integer.parseInt(parts[2].trim()));
+                updateReadingProgress();
+                getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                        .putFloat(posKey(currentChapter), lastScrollRatio).commit();
+            } catch (Throwable ignored) {}
+            return true;
+        }
+        if ("next".equals(body)) {
+            turnPage(1);
+            return true;
+        }
+        if ("prev".equals(body)) {
+            turnPage(-1);
+            return true;
+        }
+        if ("atend".equals(body)) {
+            advanceToNextChapter();
+            return true;
+        }
+        if ("atstart".equals(body)) {
+            retreatToPreviousChapter();
+            return true;
+        }
+        if ("chrome".equals(body)) {
+            toggleReadingChrome();
+            return true;
+        }
+        return true;
+    }
+
+    /** WebViewClient: intercepts the `arc7ctl:` bridge and keeps EPUB-internal links inside the reader. */
+    private class ReaderWebViewClient extends WebViewClient {
+        @Override
+        public boolean shouldOverrideUrlLoading(WebView view, String url) {
+            if (url == null) return false;
+            if (url.startsWith("arc7ctl:")) return handleReaderSignal(url);
+            if (url.startsWith("file:")) {
+                // EPUB tables of contents, footnotes and cross-references point at files that are
+                // already parsed as chapters — jump the reader there instead of losing its state.
+                try {
+                    String path = Uri.parse(url).getPath();
+                    if (path != null) {
+                        File target = new File(path);
+                        for (int i = 0; i < chapterFiles.size(); i++) {
+                            if (chapterFiles.get(i).getCanonicalPath().equals(target.getCanonicalPath())) {
+                                saveScrollPosition();
+                                currentChapter = i;
+                                renderCurrentChapter(0f);
+                                return true;
+                            }
+                        }
+                    }
+                } catch (Throwable ignored) {}
+                return false;
+            }
+            return false;
+        }
+
+        @Override
+        public void onPageFinished(WebView view, String url) {
+            super.onPageFinished(view, url);
+            applyPendingScroll();
+            // Old WebKit can report a zero height during the first layout pass — re-apply shortly after.
+            view.postDelayed(new Runnable() {
+                @Override public void run() { applyPendingScroll(); }
+            }, 320L);
+        }
+    }
+
+    /** Comic page: tap left third for the previous page, anywhere else for the next one; swipes work too. */
+    private class ComicPageView extends ImageView {
+        private final GestureDetector detector;
+
+        ComicPageView(android.content.Context ctx) {
+            super(ctx);
+            detector = new GestureDetector(ctx, new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onSingleTapUp(MotionEvent e) {
+                    if (e.getX() < getWidth() * 0.32f) jumpChapter(-1);
+                    else jumpChapter(1);
+                    return true;
+                }
+
+                @Override
+                public boolean onFling(MotionEvent a, MotionEvent b, float vx, float vy) {
+                    if (a == null || b == null) return false;
+                    float dx = b.getX() - a.getX();
+                    if (Math.abs(dx) > dp(56) && Math.abs(dx) > Math.abs(vy) * 0.6f) {
+                        jumpChapter(dx < 0 ? 1 : -1);
+                        return true;
+                    }
+                    return false;
+                }
+            });
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            detector.onTouchEvent(e);
+            return super.onTouchEvent(e);
+        }
     }
 
     private void showTableOfContents() {
@@ -898,8 +1245,9 @@ public class Arc7EbookReaderActivity extends Activity {
                 .setItems(items, new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface d, int which) {
+                        saveScrollPosition();
                         currentChapter = which;
-                        renderCurrentChapter();
+                        renderCurrentChapter(0f);
                     }
                 })
                 .setNegativeButton("Close", null)
@@ -909,13 +1257,20 @@ public class Arc7EbookReaderActivity extends Activity {
     private void adjustFont(int delta) {
         fontZoom = Math.max(70, Math.min(220, fontZoom + delta));
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(KEY_FONT_ZOOM, fontZoom).commit();
-        readerWebView.getSettings().setTextZoom(fontZoom);
+        // Re-layout the chapter at the new size but stay on the same spot of the text.
+        renderCurrentChapter(lastScrollRatio);
     }
 
     private void cycleTheme() {
         themeIndex = (themeIndex + 1) % 4;
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(KEY_THEME, themeIndex).commit();
-        renderCurrentChapter();
+        renderCurrentChapter(lastScrollRatio);
+    }
+
+    @Override
+    protected void onPause() {
+        saveScrollPosition();
+        super.onPause();
     }
 
     private static String readTextFile(File f) throws Exception {

@@ -4,7 +4,7 @@ Generates one **standalone, separately installable** Android app per built-in de
 (Browser, Clock, Calculator, Notes, Files, PDF Reader, Weather, …) and keeps the
 `Arc7 Freedom` suite in sync so no launcher icon ever appears twice.
 
-Until `v2.5.2` every built-in app only existed as an `<activity>` inside the `Arc7 Freedom`
+Until `v2.5.3` every built-in app only existed as an `<activity>` inside the `Arc7 Freedom`
 suite (`ca.arc7freedom.app`), so the tablet only had ONE entry in *Settings → Apps*.  This
 script emits `split-apps/<key>/AndroidManifest.xml` for every app, giving each one:
 
@@ -377,7 +377,7 @@ def main() -> None:
     tree = ET.parse(SUITE_MANIFEST)
     manifest = tree.getroot()
     version_code = manifest.get(NS + "versionCode", "251")
-    version_name = manifest.get(NS + "versionName", "2.5.2")
+    version_name = manifest.get(NS + "versionName", "2.5.3")
     android = manifest.find("application")
     assert android is not None
 

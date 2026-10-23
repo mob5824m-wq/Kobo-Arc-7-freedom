@@ -116,11 +116,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "55", f"Expected launcher versionCode 55, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.5.2", f"Expected upgrader 2.5.2, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "252", f"Expected upgrader 252, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.3", f"Expected upgrader 2.5.3, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "253", f"Expected upgrader 252, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.5.2", f"Expected 2.5.2, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "252", f"Expected 252, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.3", f"Expected 2.5.3, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "253", f"Expected 252, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -1132,7 +1132,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 time.sleep(0.05)
         rel_imgs = [t.get("src", "") for t in _extract_img_tags(rel_body)]
         assert len(rel_imgs) >= 8 and "./logo-banner.png" in rel_imgs
-        assert "./Upgrade-My-Kobo-To-v2.5.2.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
+        assert "./Upgrade-My-Kobo-To-v2.5.3.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
         for isrc in rel_imgs:
             assert not isrc.startswith("https://"), f"releases/index.html has non-local HTTPS img: {isrc}"
             ci = http.client.HTTPConnection("127.0.0.1", 18894, timeout=5)
@@ -1155,7 +1155,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
         os.makedirs(iso_files, exist_ok=True)
         # Pre-seed placeholder APKs >= 128B EXCEPT `logo-banner.png` so we ALSO prove offline PNG fallback!
         for seed_name in (
-            "Upgrade-My-Kobo-To-v2.5.2.apk",
+            "Upgrade-My-Kobo-To-v2.5.3.apk",
             "KoboArc7Freedom.apk",
             "VLC.apk",
             "AuroraStore.apk",
@@ -3113,6 +3113,20 @@ public class TestV240Live {
         if (!"https://login.tailscale.com/a/7f9e2b4c81d0a3".equals(parsedAuth)) {
             throw new AssertionError("Tailscale AuthURL extraction failed: " + parsedAuth);
         }
+        // v2.5.3: trailing punctuation stripped + self-hosted Headscale /register/ links recognised.
+        String dotted = TailscaleManager.extractAuthUrlFromText(
+                "visit https://login.tailscale.com/a/abc.def123.");
+        if (!"https://login.tailscale.com/a/abc.def123".equals(dotted)) {
+            throw new AssertionError("Trailing dot not trimmed from AuthURL: " + dotted);
+        }
+        String headscale = TailscaleManager.extractAuthUrlFromText(
+                "headscale: https://hs.example.com/register/abc123xyz");
+        if (!"https://hs.example.com/register/abc123xyz".equals(headscale)) {
+            throw new AssertionError("Headscale /register/ AuthURL not recognised: " + headscale);
+        }
+        if (!TailscaleManager.extractAuthUrlFromText("no url here").isEmpty()) {
+            throw new AssertionError("False-positive AuthURL detected");
+        }
 
         // 3. Emit QR matrix for official Tailscale Google Sign-In URL!
         boolean[][] qr = QrCodeEncoder.encodeMatrix(parsedAuth);
@@ -3167,10 +3181,69 @@ public class TestV240Live {
 
 
 
-def verify_v252_split_apps_and_ota_portal(main_apk: str) -> None:
+def verify_v253_reader_paging_and_tailscale_login(main_apk: str) -> None:
+    """Tap-to-turn e-reader pages + the Tailscale sign-in page opening by itself."""
+    from androguard.core.dex import DEX
+    print("\n=== Verifying v2.5.3: tap-to-turn reader pages + Tailscale sign-in page that opens itself ===")
+
+    reader_src = open(os.path.join(
+        ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7EbookReaderActivity.java"), encoding="utf-8").read()
+    for needle in ("arc7NextPage", "arc7PrevPage", "arc7GotoRatio", "arc7ctl:",
+                   "toggleReadingChrome", "ComicPageView", "FLAG_KEEP_SCREEN_ON",
+                   "ReaderWebViewClient", "injectReaderChrome"):
+        assert needle in reader_src, f"Reader is missing {needle}"
+    assert "ws.setJavaScriptEnabled(true)" in reader_src, "Reader must enable JS for the paging runtime"
+    assert ".addJavascriptInterface(" not in reader_src, (
+        "Reader must not expose an addJavascriptInterface bridge (Android 4.2 JS-bridge RCE)"
+    )
+    assert "tap" in reader_src.lower() and "0.30" in reader_src and "0.70" in reader_src
+    print("  [PASS] Reader exposes left/middle/right tap zones, screen-sized page turning and "
+          "ratio-preserving font/theme changes (no JS bridge)")
+
+    ts_src = open(os.path.join(
+        ROOT, "app/src/main/java/ca/arc7freedom/app/TailscaleManager.java"), encoding="utf-8").read()
+    for needle in ("openLoginPage", "drainToLog", "REGISTER_URL_REGEX", "readTail",
+                   "diagnostics", "queryAuthUrlFromStatus", "isAuthenticatedFromStatus"):
+        assert needle in ts_src, f"TailscaleManager is missing {needle}"
+    assert "appendLog" in ts_src and "192 * 1024" in ts_src
+    assert "for (int i = 0; i < 40; i++)" in ts_src, "Login-URL capture window must be 30 s, not 12 s"
+
+    vpn_src = open(os.path.join(
+        ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7VpnActivity.java"), encoding="utf-8").read()
+    assert "autoOpenLoginPage" in vpn_src, "VPN screen never auto-opens the sign-in page"
+    assert "watchForOfficialSignInAsync" in vpn_src
+    assert "renderLoginPendingCard" in vpn_src
+    assert "waitForGoogleCompletionAsync" not in vpn_src
+    print("  [PASS] Tailscale: daemon stdout drained (no wedged tailscaled), 30 s auth-URL window, "
+          "late URLs auto-open, login page launched in a real browser with an Arc7 Browser fallback")
+
+    # The paging runtime is executed for real: node scripts/test-reader-paging.js drives the exact
+    # JS that ships inside the APK against a headless DOM stub.
+    node = shutil.which("node") or shutil.which("nodejs")
+    assert node, "node is required to execute the injected e-reader paging runtime"
+    r = subprocess.run([node, os.path.join(ROOT, "scripts/test-reader-paging.js")],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, f"E-reader paging runtime test failed:\n{r.stdout}\n{r.stderr}"
+    assert "ALL E-READER PAGING CHECKS PASSED" in r.stdout
+    print("  [PASS] Live JS run: 1-screen page turns, atend/atstart chapter rollover, exact ratio "
+          "restore, and left/middle/right tap zones all behave")
+
+    # And the strings really are inside the shipped DEX.
+    with zipfile.ZipFile(main_apk) as zf:
+        dex = DEX(zf.read("classes.dex"))
+    # javac folds constant string concatenation into one literal, so the runtime lives inside a
+    # single (very long) DEX string — search the joined pool, not for equal items.
+    dex_blob = "\n".join(dex.get_strings())
+    for needle in ("arc7ctl:", "arc7NextPage", "arc7GotoRatio", "injectReaderChrome",
+                   "openLoginPage", "tailscaled.log", "arc7GotoBottom"):
+        assert needle in dex_blob, f"Missing v2.5.3 string in suite DEX: {needle}"
+    print("  [PASS] Paging runtime + Tailscale login launcher are present in the compiled suite DEX")
+
+
+def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
     """Every built-in app ships as its own signed APK, and the OTA portal really delivers them."""
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.2: one installable APK per default app + working OTA download portal ===")
+    print("\n=== Verifying v2.5.3: one installable APK per default app + working OTA download portal ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     tsv = os.path.join(ROOT, "split-apps", "apps.tsv")
@@ -3201,7 +3274,7 @@ def verify_v252_split_apps_and_ota_portal(main_apk: str) -> None:
         assert pkg == f"ca.arc7freedom.{key}", f"{fname}: package {pkg} != ca.arc7freedom.{key}"
         assert pkg not in seen_pkgs, f"Duplicate package {pkg}"
         seen_pkgs.add(pkg)
-        assert str(obj.get_androidversion_code()) == "252", f"{fname}: versionCode is not 252"
+        assert str(obj.get_androidversion_code()) == "253", f"{fname}: versionCode is not 252"
         assert str(obj.get_min_sdk_version()) == "15" and str(obj.get_target_sdk_version()) == "17"
 
         xml = obj.get_android_manifest_xml()
@@ -3269,7 +3342,7 @@ def verify_v252_split_apps_and_ota_portal(main_apk: str) -> None:
         assert (f"{release_base}/{quoted}" in html_body) or (f"./apps/{quoted}" in html_body), (
             f"OTA portal does not link {fname}"
         )
-    for needed in ("Upgrade-My-Kobo-To-v2.5.2.apk", "KoboArc7Freedom.apk"):
+    for needed in ("Upgrade-My-Kobo-To-v2.5.3.apk", "KoboArc7Freedom.apk"):
         assert f"./{needed}" in html_body, f"OTA portal missing {needed}"
 
     # Live server routes: `/lite`, `/dl/<key>`, `/apps/<Name>.apk`, `?file=`
@@ -3282,7 +3355,7 @@ def verify_v252_split_apps_and_ota_portal(main_apk: str) -> None:
 
 def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) -> None:
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.2: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
+    print("\n=== Verifying v2.5.3: playable 2026 DASH remux + TRULY separate YouTube / YouTube Music apps ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     # 1. The suite must NOT expose YouTube / YouTube Music launcher icons any more.
@@ -3362,7 +3435,7 @@ def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) 
         "1.64.34",
         "7.12.52",
     ):
-        assert any(needle in v for v in strings), f"Missing critical v2.5.2 streaming string: {needle!r}"
+        assert any(needle in v for v in strings), f"Missing critical v2.5.3 streaming string: {needle!r}"
     print("  [PASS] DEX contains the 2026 InnerTube cascade + DASH remux + local Range server")
 
     # 4. The upgrader carries both standalone APKs inside its embedded suite APK.
@@ -3541,12 +3614,12 @@ def _update_service_handlers_are_throwable(raw_dex: bytes) -> bool:
 def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str,
                                                 fdroid_apk: str) -> None:
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.2: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
+    print("\n=== Verifying v2.5.3: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     app = APK(main_apk)
-    assert str(app.get_androidversion_name()) == "2.5.2", f"Expected suite 2.5.2, got {app.get_androidversion_name()}"
-    assert str(app.get_androidversion_code()) == "252", f"Expected suite 252, got {app.get_androidversion_code()}"
+    assert str(app.get_androidversion_name()) == "2.5.3", f"Expected suite 2.5.3, got {app.get_androidversion_name()}"
+    assert str(app.get_androidversion_code()) == "253", f"Expected suite 252, got {app.get_androidversion_code()}"
 
     with zipfile.ZipFile(main_apk, "r") as zf:
         dex = DEX(zf.read("classes.dex"))
@@ -3610,13 +3683,13 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
           "arc7-last-crash.txt + post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
 
     up_obj = APK(upgrader_apk)
-    assert str(up_obj.get_androidversion_name()) == "2.5.2", f"Expected upgrader 2.5.2, got {up_obj.get_androidversion_name()}"
-    assert str(up_obj.get_androidversion_code()) == "252", f"Expected upgrader 252, got {up_obj.get_androidversion_code()}"
-    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.2.apk is 2.5.2 / 252")
+    assert str(up_obj.get_androidversion_name()) == "2.5.3", f"Expected upgrader 2.5.3, got {up_obj.get_androidversion_name()}"
+    assert str(up_obj.get_androidversion_code()) == "253", f"Expected upgrader 252, got {up_obj.get_androidversion_code()}"
+    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.3.apk is 2.5.3 / 253")
 
 
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.2.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
         assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
             f"Stale {stale_ver} upgrader APK left in releases/!"
@@ -3672,10 +3745,11 @@ def main() -> None:
     verify_v230_native_vpn_streamdeck_and_relay(main_apk)
     verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
     verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
-    verify_v252_split_apps_and_ota_portal(main_apk)
+    verify_v253_split_apps_and_ota_portal(main_apk)
+    verify_v253_reader_paging_and_tailscale_login(main_apk)
     verify_v251_alarm_days_and_fdroid_stability(
         main_apk,
-        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.2.apk"),
+        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk"),
         os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"),
     )
     print("\nALL VERIFICATION GATES PASSED 100%!")

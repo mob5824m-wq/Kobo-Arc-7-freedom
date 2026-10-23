@@ -1,13 +1,30 @@
-# Arc7 Freedom (`v2.5.2` — separate installable apps + working OTA portal + per-day alarms + F-Droid crash fix)
+# Arc7 Freedom (`v2.5.3` — tap-to-turn E-Reader pages + Tailscale sign-in page that opens itself)
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
-**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.2`
-(`versionCode=252`).**
+**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.3`
+(`versionCode=253`).**
 
-`v2.5.2` fixes what was reported on the tablet:
+`v2.5.3` fixes what was reported on the tablet:
 
-1. **Every default app is now a separate, installable app.** Browser, Clock, Calculator, Notes,
+1. **The E-Reader is now a real page-turner.** Tap the **right** side of the page (or swipe left)
+   for the next page, the **left** side (or swipe right) for the previous one, and the **middle**
+   to hide/show the toolbar for full-screen reading. Pages are screen-sized: a whole-book EPUB that
+   used to be one endless scroll now turns page by page, and turning past the end of a chapter
+   rolls straight into the next one (and back again). A+ / A- and the theme buttons re-flow the
+   text but keep your exact place, the position is remembered per chapter, the page counter shows
+   `chapter/total · page/pages · %`, the layout uses the full 600 px screen instead of a 760 px
+   column with 26 px gutters, and images/pre/tables can no longer overflow. Comic `.cbz` pages get
+   the same left/right tap zones plus swipe, and the screen stays awake while reading.
+2. **The Tailscale Google sign-in page now opens by itself.** Before, the tablet only drew a QR
+   code and waited — and if the login link arrived after the old 12-second window it was dropped,
+   so the page never appeared. Now the login link is captured for a full 30 s window, a late link is
+   still picked up and opened automatically, the daemon's stdout is drained (a full pipe used to
+   freeze `tailscaled`, so the URL never came out at all), `/register/` Headscale links are
+   recognised, and the page opens in a real browser first (Google OAuth refuses embedded WebViews)
+   with Arc7 Browser (TLS 1.3 bridge) as the fallback. There is also **Copy Login Link** and a
+   **tailscaled Diagnostics** view.
+3. **Every default app is a separate, installable app.** Browser, Clock, Calculator, Notes,
    Files, PDF Reader, Weather, Radio & Podcasts, Photos, Camera, Calendar, Books, Music, Terminal,
    App Manager, Package Installer, USB Internet, Wallpapers, Games, Ad Blocker, System Boost,
    Second Screen, Split View, Wikipedia, Stream Deck, Voice Recorder and Wi-Fi & VPN each ship as
@@ -17,19 +34,19 @@
    uninstall any of them on its own. The suite keeps a hidden `<activity-alias>` fallback and
    `SplitAppIconSync` turns it off the moment the standalone app is installed, so you never see
    two identical icons.
-2. **The over-the-air installer website works again.** Download buttons are plain
+4. **The over-the-air installer website works again.** Download buttons are plain
    `<a href>` links now — the old `onclick='onStartDl(...)'` handlers were undefined on the
    static page, so taps on a 4.2 Browser could do nothing at all. Links are root-absolute,
    there are short `/dl/<key>` URLs (e.g. `http://<pc-ip>:8000/dl/clock`) and `?file=Clock.apk`,
    a text-only `/lite` page for the stock 2013 browser, `/apps/<Name>.apk` serves the separate
    apps (falling back to the GitHub release), and the 1-click `Start-Kobo-WiFi-Server.sh/.bat`
    launchers now start serving immediately and download in the background.
-3. **Alarms can now be set for specific days.** The alarm editor shows a **Sun · Mon · Tue · Wed ·
+5. **Alarms can now be set for specific days.** The alarm editor shows a **Sun · Mon · Tue · Wed ·
    Thu · Fri · Sat** row of check-off buttons (plus `Every day` / `Weekdays` / `Weekends` /
    `One-time` shortcuts). Any subset is saved as the alarm's day bitmask — e.g. Mon+Wed+Fri — and
    `AlarmManager` only fires on the checked days. Alarm cards show `Every Mon`, `Mon, Wed, Fri`,
    etc., and leaving every day unchecked gives a one-time alarm.
-4. **F-Droid no longer crashes right after a sync.** The crash happened in the code that runs
+6. **F-Droid no longer crashes right after a sync.** The crash happened in the code that runs
    *after* the index has already been downloaded, verified and stored. In
    `org.fdroid.fdroid.UpdateService.onHandleIntent(Intent)` those calls —
    `notifyContentProviders()` (refresh the app list) and `performUpdateNotification()` (query
@@ -90,29 +107,29 @@ Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ---
 
-## Direct Zero-Redirect `v2.5.2` Downloads (GitHub Releases + Raw CDN)
+## Direct Zero-Redirect `v2.5.3` Downloads (GitHub Releases + Raw CDN)
 
 All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3**
 signed with the permanent release certificate
 [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks)
 (`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
 
-- **Latest GitHub Release (`v2.5.2`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
+- **Latest GitHub Release (`v2.5.3`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
 - **Direct APK & Tool Streams:**
-  - **[`Upgrade-My-Kobo-To-v2.5.2.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.2.apk)** — 1-Tap OTA Root & Full `v2.5.2` Upgrader (`versionCode=252`; installs `Arc7 Freedom` `v2.5.2`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1304`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 118 2026 CAs)
-  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.2`, `versionCode=252`)
+  - **[`Upgrade-My-Kobo-To-v2.5.3.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.3.apk)** — 1-Tap OTA Root & Full `v2.5.3` Upgrader (`versionCode=252`; installs `Arc7 Freedom` `v2.5.3`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1304`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 118 2026 CAs)
+  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.3`, `versionCode=252`)
   - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=252`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
   - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=252`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
   - **[`VLC.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VLC.apk)** — Standalone Android 4.2 ARMv7 **VLC Media Player** (`org.videolan.vlc`, also pre-bundled inside `KoboArc7Freedom.apk`)
   - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS store client with binary APK validator & auto `SHA1withRSA` JAR `v1` signer (`v4.8.5`)
   - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1304`, largeHeap + Throwable-catch sync stability) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
   - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)**
-- **Separately installable default apps (`v2.5.2`, 27 signed APKs, one package each):** [`Ad-Blocker.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Ad-Blocker.apk) · [`App-Manager.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/App-Manager.apk) · [`Books.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Books.apk) · [`Browser.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Browser.apk) · [`Calculator.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calculator.apk) · [`Calendar.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calendar.apk) · [`Camera.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Camera.apk) · [`Clock.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Clock.apk) · [`Files.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Files.apk) · [`Games.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Games.apk) · [`Music.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Music.apk) · [`Notes.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Notes.apk) · [`Package-Installer.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Package-Installer.apk) · [`PDF-Reader.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/PDF-Reader.apk) · [`Photos.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Photos.apk) · [`Radio-Podcasts.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Radio-Podcasts.apk) · [`Second-Screen.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Second-Screen.apk) · [`Split-View.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Split-View.apk) · [`Stream-Deck.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Stream-Deck.apk) · [`System-Boost.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/System-Boost.apk) · [`Terminal.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Terminal.apk) · [`USB-Internet.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/USB-Internet.apk) · [`Voice-Recorder.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Voice-Recorder.apk) · [`Wallpapers.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wallpapers.apk) · [`Weather.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Weather.apk) · [`Wi-Fi-VPN.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wi-Fi-VPN.apk) · [`Wikipedia.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wikipedia.apk)
+- **Separately installable default apps (`v2.5.3`, 27 signed APKs, one package each):** [`Ad-Blocker.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Ad-Blocker.apk) · [`App-Manager.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/App-Manager.apk) · [`Books.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Books.apk) · [`Browser.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Browser.apk) · [`Calculator.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calculator.apk) · [`Calendar.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calendar.apk) · [`Camera.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Camera.apk) · [`Clock.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Clock.apk) · [`Files.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Files.apk) · [`Games.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Games.apk) · [`Music.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Music.apk) · [`Notes.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Notes.apk) · [`Package-Installer.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Package-Installer.apk) · [`PDF-Reader.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/PDF-Reader.apk) · [`Photos.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Photos.apk) · [`Radio-Podcasts.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Radio-Podcasts.apk) · [`Second-Screen.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Second-Screen.apk) · [`Split-View.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Split-View.apk) · [`Stream-Deck.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Stream-Deck.apk) · [`System-Boost.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/System-Boost.apk) · [`Terminal.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Terminal.apk) · [`USB-Internet.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/USB-Internet.apk) · [`Voice-Recorder.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Voice-Recorder.apk) · [`Wallpapers.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wallpapers.apk) · [`Weather.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Weather.apk) · [`Wi-Fi-VPN.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wi-Fi-VPN.apk) · [`Wikipedia.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wikipedia.apk)
   — or open the OTA portal (`Start-Kobo-WiFi-Server.bat/.sh`) and tap the ones you want. — Custom-skinned **Home** launcher (`v55`) with effortless widget removal, drag-and-drop icons, multi-page desktops, multi-edge app bar, 5 skins & 44 high-DPI icons
 
 ---
 
-## What's New in `v2.5.2`
+## What's New in `v2.5.3`
 
 1. **Per-day alarm check-off (`Arc7ClockActivity` + `Arc7ClockStore`):**
    - The `Repeat` cycle button is gone; the alarm editor now has seven toggle buttons

@@ -356,7 +356,7 @@ cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
 
 # ------------------------------------------------------------------------------
-# Standalone "truly separate app" builder (v2.5.2)
+# Standalone "truly separate app" builder (v2.5.3)
 #
 # Every custom app that used to be just an extra <activity> inside the suite package is now
 # built as its OWN signed APK with its own package id, launcher label/icon and task stack:
@@ -654,7 +654,7 @@ cp -f releases/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-S
 cp -f releases/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.2 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1304 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.3 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1304 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -694,7 +694,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.2.apk)..."
+echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.3.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -728,7 +728,7 @@ rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.ap
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v2.5.2.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.5.3.apk \
     build/upgrader/aligned.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
@@ -738,7 +738,7 @@ rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v2.5.2.apk \
+    Upgrade-My-Kobo-To-v2.5.3.apk \
     KoboArc7Freedom.apk \
     YouTube.apk \
     YouTubeMusic.apk \
@@ -783,7 +783,7 @@ PYCHECK
 
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v2.5.2.apk \
+    releases/Upgrade-My-Kobo-To-v2.5.3.apk \
     releases/KoboArc7Freedom.apk \
     releases/YouTube.apk \
     releases/YouTubeMusic.apk \

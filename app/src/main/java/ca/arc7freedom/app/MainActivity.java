@@ -236,7 +236,7 @@ public class MainActivity extends Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Freedom  v2.5.2");
+        title.setText("Arc7 Freedom  v2.5.3");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -1089,9 +1089,9 @@ public class MainActivity extends Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.5.2 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
+        // Card 1: Complete v2.5.3 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Arc7 Freedom v2.5.2 — Daily-Driver App & Media Suite",
+        addCardHeader(packCard, "Arc7 Freedom v2.5.3 — Daily-Driver App & Media Suite",
                 "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1304 sync-crash fix. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
                 + "Effortless Home Widget Removal (Launcher v55), Clean App Names, Official Tailscale Google Sign-In, "
                 + "Stream Deck Pro, 4-Store Books Reader, PDF Reader, Weather, Radio & Podcasts, Games, Ad Blocker, System Boost & VLC!");
