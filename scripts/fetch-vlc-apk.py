@@ -45,6 +45,26 @@ OFFICIAL_VLC_MIRRORS = [
         "https://mirror.lstn.net/videolan/vlc-android/2.5.27/VLC-Android-2.5.27-ARMv7.apk",
         "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
     ),
+    # VideoLAN reorganised/retired the 2.5.27 directory on some mirrors (a CI run could then
+    # only fall back to the tiny in-repo player and published a 25 KB "VLC.apk"). These are
+    # the canonical VideoLAN download hosts, plus our own published v2.4.1 release asset,
+    # which is the exact upstream file (same SHA-256) and always reachable from Actions.
+    (
+        "https://get.videolan.org/vlc-android/2.5.27/VLC-Android-2.5.27-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    (
+        "https://download.videolan.org/pub/videolan/vlc-android/2.5.27/VLC-Android-2.5.27-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    (
+        "https://ftp.nluug.nl/pub/videolan/vlc-android/2.5.27/VLC-Android-2.5.27-ARMv7.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
+    (
+        "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/download/v2.4.1/VLC.apk",
+        "4dc46242f792ebb598b9a957abfaaf13b4540870981e56e3f845706b378dd789",
+    ),
 ]
 
 

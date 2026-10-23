@@ -1678,7 +1678,12 @@ def verify_v200_all_11_upgrades() -> None:
     vlc_rel = os.path.join(ROOT, "releases/VLC.apk")
     vlc_asset = os.path.join(ROOT, "app/src/main/assets/starter-apps/VLC.apk")
     assert os.path.isfile(vlc_rel) and os.path.isfile(vlc_asset)
-    assert os.path.getsize(vlc_rel) == os.path.getsize(vlc_asset) and os.path.getsize(vlc_rel) > 25000
+    assert os.path.getsize(vlc_rel) == os.path.getsize(vlc_asset)
+    assert os.path.getsize(vlc_rel) > 5 * 1024 * 1024, (
+        "releases/VLC.apk is only "
+        f"{os.path.getsize(vlc_rel) // 1024} KB - that is the tiny offline fallback player, not the "
+        "real official VideoLAN ARMv7 build (scripts/fetch-vlc-apk.py could not reach any mirror)"
+    )
     subprocess.run([ZIPALIGN, "-c", "4", vlc_rel], check=True)
     subprocess.run([JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "9", "--max-sdk-version", "17", vlc_rel], check=True)
     v_apk = APK(vlc_rel)
