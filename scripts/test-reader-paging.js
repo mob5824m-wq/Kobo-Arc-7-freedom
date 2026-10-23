@@ -119,6 +119,12 @@ function makePage(docHeight, viewportHeight) {
             const target = { nodeName: nodeName || "DIV", parentNode: null };
             listeners.click.forEach((fn) => fn({ clientX: x, target: target }));
         },
+        swipe(fromX, toX, fromY, toY) {
+            const start = { clientX: fromX, clientY: fromY || 400 };
+            const end = { clientX: toX, clientY: toY || 400 };
+            (listeners.touchstart || []).forEach((fn) => fn({ touches: [start] }));
+            (listeners.touchend || []).forEach((fn) => fn({ changedTouches: [end] }));
+        },
         scroll() {
             listeners.scroll.forEach((fn) => fn({}));
         },
@@ -187,6 +193,23 @@ check("tap in the middle toggles the toolbar", /^arc7ctl:chrome$/.test(p5.lastSi
 p5.nav.length = 0;
 p5.tap(570, "A");
 check("taps on a link are left to the link", p5.nav.length === 0, p5.nav.join(","));
+
+/* 5b. horizontal swipes turn pages too */
+const p5b = makePage(5000, 900);
+p5b.nav.length = 0;
+p5b.swipe(560, 120);
+check("swipe left (finger moves left) turns forward", /^arc7ctl:next$/.test(p5b.lastSignal()), p5b.lastSignal());
+p5b.nav.length = 0;
+p5b.swipe(80, 540);
+check("swipe right turns back", /^arc7ctl:prev$/.test(p5b.lastSignal()), p5b.lastSignal());
+p5b.nav.length = 0;
+p5b.swipe(300, 290, 300, 520);
+check("vertical swipe does not turn the page", p5b.nav.length === 0, p5b.nav.join(","));
+/* the click that old WebKit can still fire right after a swipe must not double-turn */
+p5b.nav.length = 0;
+p5b.swipe(560, 120);
+p5b.tap(570);
+check("the click following a swipe is ignored", p5b.nav.length === 1, p5b.nav.join(","));
 
 /* 6. scroll position is reported back for the progress label */
 const p6 = makePage(2600, 800);
