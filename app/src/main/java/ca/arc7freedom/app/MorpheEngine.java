@@ -53,12 +53,14 @@ public final class MorpheEngine {
 
     // User-selectable Morphe Spoof Stream Client modes (`0 = Auto Best Stream`)
     public static final String[] SPOOF_CLIENT_LABELS = new String[]{
-            "Auto (visionOS 1.04 -> TV Simply -> Android VR)",
+            "Auto (Android VR Quest 3 -> visionOS 1.04 -> TV Simply -> iOS)",
             "visionOS 1.04 (Apple Vision Pro — 2026 Anonymous, Best H.264)",
             "TV Simply 1.1 (TVHTML5_SIMPLY — Zero PoToken)",
             "Android VR 1.64 (Pico 4 — DASH H.264)",
             "Android Music 7.12 (YouTube Music Native M4A)",
-            "Android Creator 26.10 (Studio — 720p cap)"
+            "Android Creator 26.10 (Studio — 720p cap)",
+            "Android VR 1.61 (Oculus Quest 3 — Progressive + DASH H.264/AAC)",
+            "iOS 20.10 (iPhone 15 Pro — Progressive + DASH H.264/AAC)"
     };
 
     /**
@@ -67,10 +69,6 @@ public final class MorpheEngine {
      * Columns: key | clientId | clientName | clientVersion | userAgent | deviceMake |
      *          deviceModel | osName | osVersion | androidSdk | buildId | clientScreen |
      *          platform | host
-     *
-     * `visionOS 1.04` is first because since 2026.08 it is the only anonymous client that
-     * still returns playable `adaptiveFormats` (plain H.264 / AAC ranges) without a
-     * PO-Token. Everything else either requires a PoToken, SABR, or login.
      */
     private static final String[][] CLIENT_SPECS = new String[][]{
             {
@@ -102,6 +100,18 @@ public final class MorpheEngine {
                     "com.google.android.apps.youtube.creator/26.10.000 (Linux; U; Android 16; Pixel 10 Pro XL Build/BD3A.251005.003.W3) gzip",
                     "Google", "Pixel 10 Pro XL", "Android", "16", "36", "BD3A.251005.003.W3",
                     "", "", "https://www.youtube.com"
+            },
+            {
+                    "ANDROID_VR_QUEST3", "28", "ANDROID_VR", "1.61.48",
+                    "com.google.android.apps.youtube.vr.oculus/1.61.48 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
+                    "Oculus", "Quest 3", "Android", "12L", "32", "SQ3A.220605.009.A1",
+                    "", "", "https://www.youtube.com"
+            },
+            {
+                    "IOS_20_10", "5", "IOS", "20.10.4",
+                    "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+                    "Apple", "iPhone16,2", "iPhone", "18.3.2.22D82", "", "",
+                    "", "MOBILE", "https://youtubei.googleapis.com"
             }
     };
 
@@ -1067,8 +1077,16 @@ public final class MorpheEngine {
         if (prefIdx >= 1 && prefIdx <= CLIENT_SPECS.length) {
             order.add(Integer.valueOf(prefIdx - 1));
         }
-        if (preferMusicClient && !order.contains(Integer.valueOf(3))) {
-            order.add(Integer.valueOf(3)); // `ANDROID_MUSIC_7_12` first for YT Music tracks!
+        // Try ANDROID_VR (Quest 3 `1.61.48` & Pico `1.64.34`) first: they return real MP4 progressive
+        // `formats` (`itag 18`) AND H.264/AAC `adaptiveFormats` without PoToken or HLS-only manifests!
+        int[] defaultOrder = preferMusicClient
+                ? new int[]{5, 2, 0, 1, 3, 6, 4}
+                : new int[]{5, 2, 0, 1, 6, 3, 4};
+        for (int i = 0; i < defaultOrder.length; i++) {
+            int idx = defaultOrder[i];
+            if (idx < CLIENT_SPECS.length && !order.contains(Integer.valueOf(idx))) {
+                order.add(Integer.valueOf(idx));
+            }
         }
         for (int i = 0; i < CLIENT_SPECS.length; i++) {
             if (!order.contains(Integer.valueOf(i))) order.add(Integer.valueOf(i));
@@ -1078,7 +1096,7 @@ public final class MorpheEngine {
         StringBuilder failures = new StringBuilder();
         long directDeadline = quick ? System.currentTimeMillis() + QUICK_DIRECT_BUDGET_MS : Long.MAX_VALUE;
         int directAttempts = 0;
-        int directLimit = quick ? Math.min(QUICK_DIRECT_CLIENT_ATTEMPTS, order.size()) : order.size();
+        int directLimit = quick ? Math.max(QUICK_DIRECT_CLIENT_ATTEMPTS, order.size()) : order.size();
         for (int idx = 0; idx < order.size() && resolved == null; idx++) {
             if (quick && directAttempts >= directLimit) break;
             long remaining = quick ? directDeadline - System.currentTimeMillis() : Long.MAX_VALUE;
@@ -1107,7 +1125,15 @@ public final class MorpheEngine {
                         : 15000;
                 ResolvedPlayback attempt = fetchPlayerWithClientSpec(ctx, videoId, spec, vd, playerTimeout);
                 if (attempt != null && attempt.hasAnyStream()) {
-                    resolved = attempt;
+                    reportResolutionProgress(listener, "Stream found (" + spec[0] + "); preparing Android 4.2 playback...");
+                    bindLocalPlayback(ctx, attempt, preferMusicClient);
+                    String activeProxy = preferMusicClient ? attempt.localAudioProxyUrl : attempt.localVideoProxyUrl;
+                    if (activeProxy != null && activeProxy.length() > 0) {
+                        resolved = attempt;
+                    } else {
+                        failures.append(spec[0]).append(':').append(
+                                attempt.muxNote.length() > 0 ? attempt.muxNote : "unplayable").append(' ');
+                    }
                 } else {
                     failures.append(spec[0]).append(":no-stream ");
                 }
@@ -1118,18 +1144,24 @@ public final class MorpheEngine {
 
         if (resolved == null) {
             if (quick) reportResolutionProgress(listener, "Direct clients unavailable; trying video mirrors...");
-            resolved = quick
+            ResolvedPlayback cloud = quick
                     ? fetchPlayerFromCloudInstances(ctx, videoId, QUICK_CLOUD_TIMEOUT_MS,
                             QUICK_CLOUD_ENDPOINT_ATTEMPTS, listener)
                     : fetchPlayerFromCloudInstances(ctx, videoId);
+            if (cloud != null) {
+                reportResolutionProgress(listener, "Stream found; preparing Android playback...");
+                bindLocalPlayback(ctx, cloud, preferMusicClient);
+                String activeProxy = preferMusicClient ? cloud.localAudioProxyUrl : cloud.localVideoProxyUrl;
+                if (activeProxy != null && activeProxy.length() > 0) {
+                    resolved = cloud;
+                }
+            }
         }
         if (resolved == null) {
             throw new Exception("No playable H.264/AAC stream for " + videoId
                     + " (" + failures.toString().trim() + ")");
         }
 
-        reportResolutionProgress(listener, "Stream found; preparing Android playback...");
-        bindLocalPlayback(ctx, resolved, preferMusicClient);
         if (quick) {
             reportResolutionProgress(listener, "Stream ready; opening player...");
         } else {
@@ -1151,30 +1183,44 @@ public final class MorpheEngine {
 
     /**
      * Turns the resolved DASH / progressive formats into `127.0.0.1` URLs that Android 4.2's
-     * Stagefright can actually open:
+     * Stagefright (`MPEG4Extractor.cpp`) can actually open:
      *
-     *   • Progressive muxed MP4 (itag 18/22, when YouTube still offers one) -> direct range proxy.
-     *   • Video-only H.264 + audio-only AAC (the 2026 norm) -> `MorpheStreamServer` +
-     *     `MorpheRemuxer` merge both DASH tracks into ONE fragmented MP4 and serve it with
-     *     `206 Partial Content`.
-     *   • Audio-only (YouTube Music background / screen-off) -> the DASH audio file is already a
-     *     complete fragmented MP4, so it is spooled verbatim and served the same way.
+     *   • Progressive muxed MP4 (`itag 18` / `22`) -> verified via live range probe, then served
+     *     through our local Range proxy.
+     *   • Video-only H.264 + audio-only AAC DASH -> `MorpheStreamServer` +
+     *     `MorpheRemuxer.remuxClassicMp4` defragments both tracks into a single classic
+     *     non-fragmented ISO-BMFF MP4 (`ftyp` + `moov` with full `stsd`/`stts`/`stss`/`ctts`/
+     *     `stsc`/`stsz`/`stco` sample tables + `mdat`).
+     *   • Audio-only (YouTube Music / background play) -> `MorpheRemuxer.remuxSingleTrackClassicMp4`
+     *     defragments the DASH audio track into a classic non-fragmented `.m4a` file.
      */
     private static void bindLocalPlayback(final Context ctx, final ResolvedPlayback res, boolean audioOnlyPreferred) {
         final StreamVariant videoTrack = pickBestVideoForMux(res);
         final StreamVariant audioTrack = res.audioStreams.isEmpty() ? null : res.audioStreams.get(0);
 
-        // 1. Progressive muxed MP4 wins when available — no remux needed at all.
+        // 1. Progressive muxed MP4 (`itag 18` / `22`) wins when available and verified reachable.
         if (!res.progressiveVideos.isEmpty()) {
-            StreamVariant bestV = res.progressiveVideos.get(0);
-            res.localVideoProxyUrl = registerPlayableStreamSlot(
-                    ctx, bestV.directHttpsUrl, bestV.userAgent, bestV.mimeType);
-            if (audioOnlyPreferred && audioTrack != null && audioTrack.isDashTrack()) {
-                res.localAudioProxyUrl = spoolAudioTrack(ctx, audioTrack);
-            } else {
-                res.localAudioProxyUrl = res.localVideoProxyUrl;
+            for (int i = 0; i < res.progressiveVideos.size(); i++) {
+                StreamVariant bestV = res.progressiveVideos.get(i);
+                if (bestV.isHls) continue;
+                try {
+                    byte[] probe = fetchRangeThroughGateway(ctx, bestV.directHttpsUrl, bestV.userAgent, 0L, 63L);
+                    if (probe != null && probe.length >= 8) {
+                        res.localVideoProxyUrl = registerPlayableStreamSlot(
+                                ctx, bestV.directHttpsUrl, bestV.userAgent, bestV.mimeType);
+                        if (audioOnlyPreferred && audioTrack != null && audioTrack.isDashTrack()) {
+                            String spooledAudio = spoolAudioTrack(ctx, audioTrack);
+                            res.localAudioProxyUrl = spooledAudio.length() > 0 ? spooledAudio : res.localVideoProxyUrl;
+                        } else {
+                            res.localAudioProxyUrl = res.localVideoProxyUrl;
+                        }
+                        res.muxNote = bestV.label + " (progressive)";
+                        return;
+                    }
+                } catch (Throwable t) {
+                    res.muxNote = "progressive probe failed: " + shortError(t);
+                }
             }
-            return;
         }
 
         // 2a. YouTube Music / audio-first: never download the video track at all.
@@ -1182,24 +1228,26 @@ public final class MorpheEngine {
             res.localAudioProxyUrl = spoolAudioTrack(ctx, audioTrack);
             if (res.localAudioProxyUrl.length() == 0 && videoTrack != null) {
                 res.localVideoProxyUrl = startMuxForVariant(ctx, res, videoTrack);
+                res.localAudioProxyUrl = res.localVideoProxyUrl;
             } else {
                 res.localVideoProxyUrl = res.localAudioProxyUrl;
             }
             return;
         }
 
-        // 2. DASH: merge video-only + audio-only into one fragmented MP4.
+        // 2b. DASH: defragment video-only + audio-only into ONE classic non-fragmented MP4.
         if (videoTrack != null && audioTrack != null) {
             try {
                 final MorpheRemuxer.Track vT = toRemuxTrack(ctx, videoTrack);
                 final MorpheRemuxer.Track aT = toRemuxTrack(ctx, audioTrack);
-                final MorpheRemuxer.Plan plan = MorpheRemuxer.plan(vT, aT);
+                // Probe init segments synchronously so HTTP 403 / broken tracks fail fast to next client.
+                MorpheRemuxer.plan(vT, aT);
                 String url = MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                     @Override
                     public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                        MorpheRemuxer.remux(vT, aT, out, progress);
+                        MorpheRemuxer.remuxClassicMp4(vT, aT, out, progress);
                     }
-                }, plan.totalBytes, "video/mp4");
+                }, -1L, "video/mp4");
                 res.localVideoProxyUrl = url;
                 res.muxedLocally = true;
                 res.muxNote = videoTrack.label + " + " + audioTrack.label;
@@ -1211,16 +1259,18 @@ public final class MorpheEngine {
             }
         }
 
-        // 3. Video-only without a usable audio track: still let the user watch it silently.
+        // 3. Video-only without a usable audio track: defragment into classic MP4.
         if (res.localVideoProxyUrl.length() == 0 && videoTrack != null) {
             try {
                 final MorpheRemuxer.Track vT = toRemuxTrack(ctx, videoTrack);
+                byte[] vInit = vT.fetcher.fetch(0L, vT.initEnd);
+                if (vInit == null || vInit.length < 8) throw new Exception("Empty video init");
                 String url = MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                     @Override
                     public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                        MorpheRemuxer.copyTrack(vT, out, progress);
+                        MorpheRemuxer.remuxSingleTrackClassicMp4(vT, out, progress);
                     }
-                }, videoTrack.contentLength, "video/mp4");
+                }, -1L, "video/mp4");
                 res.localVideoProxyUrl = url;
                 res.muxNote = videoTrack.label + " (video only)";
             } catch (Throwable t) {
@@ -1228,9 +1278,19 @@ public final class MorpheEngine {
             }
         }
 
-        // 4. Audio-only (YouTube Music) still needs a playable local file.
+        // 4. Audio-only (YouTube Music) still needs a playable local classic M4A file.
         if (res.localAudioProxyUrl.length() == 0 && audioTrack != null) {
-            res.localAudioProxyUrl = spoolAudioTrack(ctx, audioTrack);
+            if (audioTrack.isDashTrack()) {
+                res.localAudioProxyUrl = spoolAudioTrack(ctx, audioTrack);
+            } else {
+                try {
+                    byte[] probe = fetchRangeThroughGateway(ctx, audioTrack.directHttpsUrl, audioTrack.userAgent, 0L, 63L);
+                    if (probe != null && probe.length >= 8) {
+                        res.localAudioProxyUrl = registerPlayableStreamSlot(
+                                ctx, audioTrack.directHttpsUrl, audioTrack.userAgent, audioTrack.mimeType);
+                    }
+                } catch (Throwable ignored) {}
+            }
         }
         if (res.localAudioProxyUrl.length() == 0) {
             res.localAudioProxyUrl = res.localVideoProxyUrl;
@@ -1262,12 +1322,15 @@ public final class MorpheEngine {
     private static String spoolAudioTrack(final Context ctx, final StreamVariant audioTrack) {
         try {
             final MorpheRemuxer.Track aT = toRemuxTrack(ctx, audioTrack);
+            // Verify init segment immediately so HTTP 403 URLs never get registered as valid streams.
+            byte[] aInit = aT.fetcher.fetch(0L, aT.initEnd);
+            if (aInit == null || aInit.length < 8) return "";
             return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                 @Override
                 public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                    MorpheRemuxer.copyTrack(aT, out, progress);
+                    MorpheRemuxer.remuxSingleTrackClassicMp4(aT, out, progress);
                 }
-            }, audioTrack.contentLength, "audio/mp4");
+            }, -1L, "audio/mp4");
         } catch (Throwable t) {
             return "";
         }
@@ -1301,27 +1364,27 @@ public final class MorpheEngine {
         if (video.isDashTrack() && !res.audioStreams.isEmpty()
                 && res.audioStreams.get(0).isDashTrack()) {
             try {
-                MorpheRemuxer.Track vT = toRemuxTrack(ctx, video);
-                MorpheRemuxer.Track aT = toRemuxTrack(ctx, res.audioStreams.get(0));
-                MorpheRemuxer.Plan plan = MorpheRemuxer.plan(vT, aT);
+                final MorpheRemuxer.Track vT = toRemuxTrack(ctx, video);
+                final MorpheRemuxer.Track aT = toRemuxTrack(ctx, res.audioStreams.get(0));
+                MorpheRemuxer.plan(vT, aT);
                 return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                     @Override
                     public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                        MorpheRemuxer.remux(vT, aT, out, progress);
+                        MorpheRemuxer.remuxClassicMp4(vT, aT, out, progress);
                     }
-                }, plan.totalBytes, "video/mp4");
+                }, -1L, "video/mp4");
             } catch (Throwable ignored) {
             }
         }
         if (video.isDashTrack()) {
             try {
-                MorpheRemuxer.Track vT = toRemuxTrack(ctx, video);
+                final MorpheRemuxer.Track vT = toRemuxTrack(ctx, video);
                 return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                     @Override
                     public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                        MorpheRemuxer.copyTrack(vT, out, progress);
+                        MorpheRemuxer.remuxSingleTrackClassicMp4(vT, out, progress);
                     }
-                }, video.contentLength, "video/mp4");
+                }, -1L, "video/mp4");
             } catch (Throwable ignored) {
             }
         }
@@ -1343,9 +1406,19 @@ public final class MorpheEngine {
         for (int i = 0; i < res.videoOnlyStreams.size(); i++) {
             StreamVariant v = res.videoOnlyStreams.get(i);
             if (!v.isDashTrack()) continue;
-            if (best == null || scoreHeight(v.height) > scoreHeight(best.height)) best = v;
+            if (best == null || scoreHeightForMux(v.height) > scoreHeightForMux(best.height)) best = v;
         }
         return best;
+    }
+
+    private static int scoreHeightForMux(int height) {
+        if (height <= 0) return 0;
+        // Prefer 360p / 480p for fast classic MP4 muxing on Kobo Arc 7 (720p remains selectable in Quality menu).
+        if (height == 360) return 1000;
+        if (height == 480) return 950;
+        if (height == 240) return 800;
+        if (height == 720) return 750;
+        return height <= 720 ? height : 720 - (height - 720) / 2;
     }
 
     private static int scoreHeight(int height) {
@@ -1504,21 +1577,11 @@ public final class MorpheEngine {
             }
         }
 
-        // 3. Live HLS `.m3u8` (only used as a last-resort marker; Android 4.2 cannot play it well).
-        String hlsUrl = sd.optString("hlsManifestUrl", "");
-        if (hlsUrl.length() > 0 && out.progressiveVideos.isEmpty() && out.videoOnlyStreams.isEmpty()) {
-            StreamVariant sv = new StreamVariant();
-            sv.itag = 93;
-            sv.directHttpsUrl = hlsUrl;
-            sv.userAgent = clientUa;
-            sv.mimeType = "application/vnd.apple.mpegurl";
-            sv.height = 480;
-            sv.hasVideo = true;
-            sv.hasAudio = true;
-            sv.isHls = true;
-            sv.label = "Live HLS Stream";
-            out.progressiveVideos.add(sv);
-        }
+        // 3. Do NOT treat `hlsManifestUrl` as a progressive MP4: Apple `VISIONOS` often returns
+        // an HLS-only manifest whose internal segment URLs are direct TLS 1.3 fMP4 ranges that
+        // Android 4.2 Stagefright cannot open. Leaving `progressiveVideos` empty when only HLS
+        // is present ensures `hasAnyStream()` stays false and our client cascade falls through
+        // to `ANDROID_VR` / `TVHTML5_SIMPLY` / `IOS` which provide real MP4/M4A streams.
 
         // Sort progressive video highest-720p-compatible first (`<= 720p` ideal for 1024x600 / 1280x800 IPS panel!)
         Collections.sort(out.progressiveVideos, new Comparator<StreamVariant>() {
@@ -1902,26 +1965,28 @@ public final class MorpheEngine {
         // a bare `moov` and is only playable once it is spooled/merged, so download it that way.
         final boolean dash = variant.isDashTrack();
         if (dash) {
-            FileOutputStream fosDash = new FileOutputStream(outFile);
+            final MorpheRemuxer.Track t = toRemuxTrack(ctx, variant);
+            final long total = variant.contentLength;
+            final DownloadProgressListener dlListener = listener;
+            RandomAccessFile rafOut = new RandomAccessFile(outFile, "rw");
             try {
-                MorpheRemuxer.Track t = toRemuxTrack(ctx, variant);
-                long start = 0L;
-                long total = variant.contentLength;
-                long step = 262144L;
-                while (total <= 0L || start < total) {
-                    long end = (total > 0L) ? Math.min(total - 1L, start + step - 1L) : (start + step - 1L);
-                    byte[] chunk = t.fetcher.fetch(start, end);
-                    if (chunk == null || chunk.length == 0) break;
-                    fosDash.write(chunk);
-                    start += chunk.length;
-                    if (listener != null && total > 0L) {
-                        listener.onProgress((int) Math.min(100L, (start * 100L) / total), start, total);
+                MorpheRemuxer.copyTrack(t, rafOut, new MorpheRemuxer.Progress() {
+                    @Override
+                    public void onBytes(long absoluteOffset, long totalBytes) {
+                        long denom = totalBytes > 0L ? totalBytes : total;
+                        if (dlListener != null && denom > 0L) {
+                            dlListener.onProgress(
+                                    (int) Math.min(100L, (absoluteOffset * 100L) / denom),
+                                    absoluteOffset,
+                                    denom);
+                        }
                     }
-                    if (total <= 0L && chunk.length < step) break;
-                }
-                fosDash.flush();
+
+                    @Override
+                    public void onStage(String stage) {}
+                });
             } finally {
-                try { fosDash.close(); } catch (Throwable ignored) {}
+                try { rafOut.close(); } catch (Throwable ignored) {}
             }
             return outFile;
         }

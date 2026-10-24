@@ -64,8 +64,17 @@
 #include <psa/crypto.h>
 
 #define USER_AGENT_STR \
-    "Mozilla/5.0 (Linux; Android 10; Kobo Arc 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "Mozilla/5.0 (Linux; Android 14; Kobo Arc 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36"
 #define ARC7_WORKER_STACK_BYTES (2 * 1024 * 1024)
+
+static int is_vk_host(const char *host) {
+    if (!host || !host[0]) return 0;
+    size_t len = strlen(host);
+    if (strcasecmp(host, "vk.com") == 0 || strcasecmp(host, "vk.ru") == 0) return 1;
+    if (len > 7 && strcasecmp(host + len - 7, ".vk.com") == 0) return 1;
+    if (len > 6 && strcasecmp(host + len - 6, ".vk.ru") == 0) return 1;
+    return 0;
+}
 
 /* -------------------- URL Parser -------------------- */
 
@@ -1350,8 +1359,10 @@ static int stream_http_to_fd(const char *url_initial,
                                "User-Agent: %s\r\n"
                                "Accept: */*\r\n"
                                "Accept-Encoding: identity\r\n"
+                               "%s"
                                "Connection: close\r\n\r\n",
-                               u.path, u.host, USER_AGENT_STR);
+                               u.path, u.host, USER_AGENT_STR,
+                               is_vk_host(u.host) ? "Cookie: remixbdr=1\r\n" : "");
         if (tls_write_all(&conn, req, (size_t)req_len) != 0) {
             free(req); free(hdr); free(buf);
             tls_conn_free(&conn);
@@ -2477,6 +2488,17 @@ static void stream_raw_for_arc7_browser(int client_fd,
         }
 
         const char *ua_use = (user_agent_hdr && user_agent_hdr[0]) ? user_agent_hdr : USER_AGENT_STR;
+        char eff_cookie[2304] = {0};
+        if (cookie_hdr && cookie_hdr[0]) {
+            snprintf(eff_cookie, sizeof(eff_cookie), "%s", cookie_hdr);
+        }
+        if (is_vk_host(u.host) && strstr(eff_cookie, "remixbdr=1") == NULL) {
+            size_t cl = strlen(eff_cookie);
+            snprintf(eff_cookie + cl, sizeof(eff_cookie) - cl, "%sremixbdr=1", cl > 0 ? "; " : "");
+        }
+        if (is_vk_host(u.host) && strncasecmp(u.path, "/badbrowser.php", 15) == 0) {
+            strcpy(u.path, "/");
+        }
         int req_len = snprintf(req, 6144,
                                "GET %s HTTP/1.1\r\n"
                                "Host: %s\r\n"
@@ -2491,9 +2513,9 @@ static void stream_raw_for_arc7_browser(int client_fd,
                                (referer_url && referer_url[0]) ? "Referer: " : "",
                                (referer_url && referer_url[0]) ? referer_url : "",
                                (referer_url && referer_url[0]) ? "\r\n" : "",
-                               (cookie_hdr && cookie_hdr[0]) ? "Cookie: " : "",
-                               (cookie_hdr && cookie_hdr[0]) ? cookie_hdr : "",
-                               (cookie_hdr && cookie_hdr[0]) ? "\r\n" : "");
+                               eff_cookie[0] ? "Cookie: " : "",
+                               eff_cookie[0] ? eff_cookie : "",
+                               eff_cookie[0] ? "\r\n" : "");
         if (tls_write_all(&conn, req, (size_t)req_len) != 0) {
             free(req); free(hdr); free(buf);
             tls_conn_free(&conn);
@@ -2548,6 +2570,9 @@ static void stream_raw_for_arc7_browser(int client_fd,
                 loc += 11;
                 char next_url[8192];
                 resolve_redirect(&u, loc, next_url, sizeof(next_url));
+                if (is_vk_host(u.host) && strcasestr(next_url, "/badbrowser.php") != NULL) {
+                    snprintf(next_url, sizeof(next_url), "https://m.vk.com/");
+                }
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
                 snprintf(current_url, sizeof(current_url), "%s", next_url);
@@ -2811,10 +2836,15 @@ static void *handle_proxy_client(void *arg) {
         return NULL;
     }
 
-    /* 5. Interactive Browser Gateway Portal (`/`, `/browse?u=...`) */
+    /* 5. Interactive Browser Gateway Portal (`/`, `/browse?u=...`, `/__arc7_proxy?url=...`) */
     char target_url[2048] = {0};
     if (strncmp(target, "/browse?", 8) == 0) {
         extract_query_param(target + 8, "u", target_url, sizeof(target_url));
+    } else if (strncmp(target, "/__arc7_proxy?", 14) == 0) {
+        extract_query_param(target + 14, "url", target_url, sizeof(target_url));
+        if (target_url[0] == '\0') {
+            extract_query_param(target + 14, "u", target_url, sizeof(target_url));
+        }
     }
 
     if (target_url[0] == '\0') {

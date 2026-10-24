@@ -193,15 +193,25 @@ public final class MorpheRemuxer {
     }
 
     /**
-     * Copies a single-track DASH file (audio-only `mp4a`, already a valid fragmented MP4)
-     * byte-for-byte, in ranges, into `out`.
+     * Copies a single-track DASH file (audio-only `mp4a` or video-only `avc1`) into `out`,
+     * defragmenting DASH `moof`/`mdat` segments into a classic non-fragmented ISO-BMFF MP4
+     * (`ftyp` + `moov` with full `stsd`/`stts`/`stsc`/`stsz`/`stco` sample tables + `mdat`)
+     * so Android 4.2.2 Stagefright (`MPEG4Extractor`) plays it natively.
      */
     public static void copyTrack(Track track, RandomAccessFile out, Progress progress) throws Exception {
+        if (track.initEnd > 0L) {
+            try {
+                remuxSingleTrackClassicMp4(track, out, progress);
+                return;
+            } catch (Throwable ignored) {
+                // Fall back to direct range copy if the input is already a progressive stream.
+            }
+        }
         out.seek(0L);
         out.setLength(0L);
         long total = track.contentLength;
         long pos = 0L;
-        long step = 262144L;
+        long step = 524288L;
         while (total <= 0L || pos < total) {
             long end = (total > 0L) ? Math.min(total - 1L, pos + step - 1L) : (pos + step - 1L);
             byte[] chunk = track.fetcher.fetch(pos, end);
@@ -213,6 +223,227 @@ public final class MorpheRemuxer {
         }
         out.getFD().sync();
         if (progress != null) progress.onStage("complete");
+    }
+
+    /**
+     * Defragments a video-only DASH track + an audio-only DASH track into a single classic
+     * non-fragmented ISO-BMFF MP4 (`ftyp` + `moov` with populated `stsd`, `stts`, `stss`,
+     * `ctts`, `stsc`, `stsz`, `stco` tables + interleaved `mdat`) that Android 4.2.2
+     * `libstagefright` (`MPEG4Extractor.cpp`) plays natively without needing `moof`/`trun`.
+     */
+    public static void remuxClassicMp4(final Track video,
+                                       final Track audio,
+                                       RandomAccessFile out,
+                                       final Progress progress) throws Exception {
+        final byte[][] inits = new byte[2][];
+        final Throwable[] initErr = new Throwable[2];
+        Thread tA = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    inits[1] = audio.fetcher.fetch(0L, audio.initEnd);
+                } catch (Throwable t) {
+                    initErr[1] = t;
+                }
+            }
+        }, "Arc7-MuxInitAudio");
+        tA.start();
+        try {
+            inits[0] = video.fetcher.fetch(0L, video.initEnd);
+        } catch (Throwable t) {
+            initErr[0] = t;
+        }
+        tA.join();
+        if (initErr[0] != null) {
+            if (initErr[0] instanceof Exception) throw (Exception) initErr[0];
+            throw new IOException(initErr[0]);
+        }
+        if (initErr[1] != null) {
+            if (initErr[1] instanceof Exception) throw (Exception) initErr[1];
+            throw new IOException(initErr[1]);
+        }
+
+        ClassicTrackBuilder vBuilder = new ClassicTrackBuilder(inits[0], 1, true, video.durationMs);
+        ClassicTrackBuilder aBuilder = new ClassicTrackBuilder(inits[1], 2, false, audio.durationMs);
+
+        final long approxTotal = (video.contentLength > 0L ? video.contentLength : 0L)
+                + (audio.contentLength > 0L ? audio.contentLength : 0L);
+
+        // Fetch video and audio fragment streams in parallel into memory queues for 2x throughput.
+        final List<Fragment> vFrags = new ArrayList<Fragment>();
+        final List<Fragment> aFrags = new ArrayList<Fragment>();
+        final Throwable[] streamErr = new Throwable[2];
+        final long[] bytesFetched = new long[]{inits[0].length + inits[1].length};
+
+        Thread vThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    FragmentStream vs = new FragmentStream(video, 1, inits[0]);
+                    Fragment f;
+                    while ((f = vs.next()) != null) {
+                        synchronized (vFrags) {
+                            vFrags.add(f);
+                            bytesFetched[0] += f.moof.length + f.mdat.length;
+                            if (progress != null) progress.onBytes(bytesFetched[0], approxTotal);
+                        }
+                    }
+                } catch (Throwable t) {
+                    streamErr[0] = t;
+                }
+            }
+        }, "Arc7-MuxFetchVideo");
+
+        Thread aThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    FragmentStream as = new FragmentStream(audio, 2, inits[1]);
+                    Fragment f;
+                    while ((f = as.next()) != null) {
+                        synchronized (vFrags) {
+                            aFrags.add(f);
+                            bytesFetched[0] += f.moof.length + f.mdat.length;
+                            if (progress != null) progress.onBytes(bytesFetched[0], approxTotal);
+                        }
+                    }
+                } catch (Throwable t) {
+                    streamErr[1] = t;
+                }
+            }
+        }, "Arc7-MuxFetchAudio");
+
+        vThread.start();
+        aThread.start();
+        vThread.join();
+        aThread.join();
+
+        if (streamErr[0] != null && vFrags.isEmpty()) {
+            if (streamErr[0] instanceof Exception) throw (Exception) streamErr[0];
+            throw new IOException(streamErr[0]);
+        }
+        if (streamErr[1] != null && aFrags.isEmpty()) {
+            if (streamErr[1] instanceof Exception) throw (Exception) streamErr[1];
+            throw new IOException(streamErr[1]);
+        }
+
+        java.io.File spoolFile = java.io.File.createTempFile("arc7_mdat_", ".bin");
+        RandomAccessFile spool = new RandomAccessFile(spoolFile, "rw");
+        try {
+            int vi = 0, ai = 0;
+            while (vi < vFrags.size() || ai < aFrags.size()) {
+                boolean takeVideo;
+                if (vi >= vFrags.size()) takeVideo = false;
+                else if (ai >= aFrags.size()) takeVideo = true;
+                else takeVideo = vFrags.get(vi).decodeTimeSec <= aFrags.get(ai).decodeTimeSec;
+
+                if (takeVideo) {
+                    vBuilder.consumeFragment(vFrags.get(vi++), spool);
+                } else {
+                    aBuilder.consumeFragment(aFrags.get(ai++), spool);
+                }
+            }
+            if (vBuilder.sampleCount() == 0) {
+                throw new IOException("No video samples decoded from DASH stream");
+            }
+
+            long mdatPayloadLen = spool.length();
+            byte[] ftyp = defaultFtyp();
+            List<ClassicTrackBuilder> tracks = new ArrayList<ClassicTrackBuilder>();
+            tracks.add(vBuilder);
+            if (aBuilder.sampleCount() > 0) tracks.add(aBuilder);
+
+            byte[] dummyMoov = buildClassicMoov(vBuilder.mvhdBox, tracks, 0L);
+            long mdatDataOffset = (long) ftyp.length + (long) dummyMoov.length + 8L;
+            byte[] finalMoov = buildClassicMoov(vBuilder.mvhdBox, tracks, mdatDataOffset);
+
+            out.seek(0L);
+            out.setLength(0L);
+            out.write(ftyp);
+            out.write(finalMoov);
+
+            byte[] mdatHdr = new byte[8];
+            put32(mdatHdr, 0, 8L + mdatPayloadLen);
+            mdatHdr[4] = 'm'; mdatHdr[5] = 'd'; mdatHdr[6] = 'a'; mdatHdr[7] = 't';
+            out.write(mdatHdr);
+
+            spool.seek(0L);
+            byte[] copyBuf = new byte[65536];
+            int n;
+            long totalOut = (long) ftyp.length + (long) finalMoov.length + 8L + mdatPayloadLen;
+            while ((n = spool.read(copyBuf)) > 0) {
+                out.write(copyBuf, 0, n);
+            }
+            out.getFD().sync();
+            if (progress != null) {
+                progress.onBytes(totalOut, totalOut);
+                progress.onStage("complete");
+            }
+        } finally {
+            try { spool.close(); } catch (Throwable ignored) {}
+            try { spoolFile.delete(); } catch (Throwable ignored) {}
+        }
+    }
+
+    /**
+     * Defragments a single DASH track (audio-only `.m4a` or video-only `.mp4`) into a classic
+     * non-fragmented ISO-BMFF file (`ftyp` + `moov` with full `stbl` + `mdat`).
+     */
+    public static void remuxSingleTrackClassicMp4(Track track, RandomAccessFile out, Progress progress) throws Exception {
+        byte[] init = track.fetcher.fetch(0L, track.initEnd);
+        boolean isVideo = track.mimeType != null && track.mimeType.startsWith("video/");
+        ClassicTrackBuilder builder = new ClassicTrackBuilder(init, 1, isVideo, track.durationMs);
+
+        java.io.File spoolFile = java.io.File.createTempFile("arc7_smdat_", ".bin");
+        RandomAccessFile spool = new RandomAccessFile(spoolFile, "rw");
+        try {
+            FragmentStream fs = new FragmentStream(track, 1, init);
+            Fragment f;
+            long fetched = init.length;
+            while ((f = fs.next()) != null) {
+                builder.consumeFragment(f, spool);
+                fetched += f.moof.length + f.mdat.length;
+                if (progress != null) progress.onBytes(fetched, track.contentLength);
+            }
+            if (builder.sampleCount() == 0) {
+                throw new IOException("No samples decoded from single-track DASH stream");
+            }
+
+            long mdatPayloadLen = spool.length();
+            byte[] ftyp = defaultFtyp();
+            List<ClassicTrackBuilder> tracks = new ArrayList<ClassicTrackBuilder>();
+            tracks.add(builder);
+
+            byte[] dummyMoov = buildClassicMoov(builder.mvhdBox, tracks, 0L);
+            long mdatDataOffset = (long) ftyp.length + (long) dummyMoov.length + 8L;
+            byte[] finalMoov = buildClassicMoov(builder.mvhdBox, tracks, mdatDataOffset);
+
+            out.seek(0L);
+            out.setLength(0L);
+            out.write(ftyp);
+            out.write(finalMoov);
+
+            byte[] mdatHdr = new byte[8];
+            put32(mdatHdr, 0, 8L + mdatPayloadLen);
+            mdatHdr[4] = 'm'; mdatHdr[5] = 'd'; mdatHdr[6] = 'a'; mdatHdr[7] = 't';
+            out.write(mdatHdr);
+
+            spool.seek(0L);
+            byte[] copyBuf = new byte[65536];
+            int n;
+            long totalOut = (long) ftyp.length + (long) finalMoov.length + 8L + mdatPayloadLen;
+            while ((n = spool.read(copyBuf)) > 0) {
+                out.write(copyBuf, 0, n);
+            }
+            out.getFD().sync();
+            if (progress != null) {
+                progress.onBytes(totalOut, totalOut);
+                progress.onStage("complete");
+            }
+        } finally {
+            try { spool.close(); } catch (Throwable ignored) {}
+            try { spoolFile.delete(); } catch (Throwable ignored) {}
+        }
     }
 
     /* ======================================================================
@@ -511,9 +742,12 @@ public final class MorpheRemuxer {
         private boolean eof;
 
         FragmentStream(Track track, int newTrackId) throws Exception {
+            this(track, newTrackId, track.fetcher.fetch(0L, track.initEnd));
+        }
+
+        FragmentStream(Track track, int newTrackId, byte[] init) throws Exception {
             this.track = track;
             this.newTrackId = newTrackId;
-            byte[] init = track.fetcher.fetch(0L, track.initEnd);
             byte[] moov = null;
             for (Box b : boxes(init, 0, init.length)) {
                 if ("moov".equals(b.type)) moov = slice(init, b.start, b.size);
@@ -537,7 +771,7 @@ public final class MorpheRemuxer {
         private boolean fill(long wantBytes) throws Exception {
             if (pending.size() >= wantBytes) return true;
             if (eof) return false;
-            long end = Math.min(fetchEndInclusive, nextFetchStart + Math.max(262144L, wantBytes) - 1L);
+            long end = Math.min(fetchEndInclusive, nextFetchStart + Math.max(524288L, wantBytes) - 1L);
             byte[] chunk = track.fetcher.fetch(nextFetchStart, end);
             if (chunk == null || chunk.length == 0) {
                 eof = true;
@@ -675,7 +909,499 @@ public final class MorpheRemuxer {
     }
 
     /* ======================================================================
-     * 5. Small helpers used by the JVM regression suite
+     * 5. Classic non-fragmented ISO-BMFF MP4 builder for Android 4.2 Stagefright
+     * ====================================================================== */
+
+    static final class ClassicTrackBuilder {
+        final int newTrackId;
+        final boolean isVideo;
+        final long fallbackDurationMs;
+        byte[] mvhdBox;
+        byte[] tkhdBox;
+        byte[] mdhdBox;
+        byte[] hdlrBox;
+        byte[] mediaHeaderBox; // vmhd or smhd
+        byte[] dinfBox;
+        byte[] stsdBox;
+        int timescale = 1000;
+        int trexDefDuration = 0;
+        int trexDefSize = 0;
+        int trexDefFlags = 0;
+
+        int[] sampleDurations = new int[4096];
+        int[] sampleSizes = new int[4096];
+        int[] sampleCts = new int[4096];
+        boolean[] sampleSync = new boolean[4096];
+        int numSamples = 0;
+        boolean hasNonZeroCts = false;
+
+        long[] chunkRelOffsets = new long[512];
+        int[] chunkSampleCounts = new int[512];
+        int numChunks = 0;
+        long totalDurationTicks = 0L;
+
+        ClassicTrackBuilder(byte[] init, int newTrackId, boolean isVideoHint, long fallbackDurationMs) throws IOException {
+            this.newTrackId = newTrackId;
+            this.fallbackDurationMs = fallbackDurationMs;
+            byte[] moov = null;
+            for (Box b : boxes(init, 0, init.length)) {
+                if ("moov".equals(b.type)) {
+                    moov = slice(init, b.start, b.size);
+                    break;
+                }
+            }
+            if (moov == null) throw new IOException("DASH init segment has no moov box");
+
+            List<Box> moovKids = boxes(moov, 8, moov.length);
+            Box mvhd = findBox(moovKids, "mvhd");
+            Box trak = findBox(moovKids, "trak");
+            if (mvhd == null || trak == null) throw new IOException("DASH moov missing mvhd/trak");
+            this.mvhdBox = slice(moov, mvhd.start, mvhd.size);
+
+            Box mvex = findBox(moovKids, "mvex");
+            if (mvex != null) {
+                for (Box b : boxes(moov, mvex.contentStart, mvex.contentEnd)) {
+                    if ("trex".equals(b.type) && b.contentStart + 24 <= moov.length) {
+                        this.trexDefDuration = (int) u32(moov, b.contentStart + 12);
+                        this.trexDefSize = (int) u32(moov, b.contentStart + 16);
+                        this.trexDefFlags = (int) u32(moov, b.contentStart + 20);
+                        break;
+                    }
+                }
+            }
+
+            byte[] trakBytes = slice(moov, trak.start, trak.size);
+            this.timescale = timescaleOf(trakBytes);
+            List<Box> trakKids = boxes(trakBytes, 8, trakBytes.length);
+            Box tkhd = findBox(trakKids, "tkhd");
+            Box mdia = findBox(trakKids, "mdia");
+            if (tkhd == null || mdia == null) throw new IOException("DASH trak missing tkhd/mdia");
+            this.tkhdBox = slice(trakBytes, tkhd.start, tkhd.size);
+
+            List<Box> mdiaKids = boxes(trakBytes, mdia.contentStart, mdia.contentEnd);
+            Box mdhd = findBox(mdiaKids, "mdhd");
+            Box hdlr = findBox(mdiaKids, "hdlr");
+            Box minf = findBox(mdiaKids, "minf");
+            if (mdhd == null || hdlr == null || minf == null) throw new IOException("DASH mdia missing mdhd/hdlr/minf");
+            this.mdhdBox = slice(trakBytes, mdhd.start, mdhd.size);
+            this.hdlrBox = slice(trakBytes, hdlr.start, hdlr.size);
+
+            boolean detectedVideo = isVideoHint;
+            if (hdlr.contentStart + 12 <= trakBytes.length) {
+                String hType = new String(trakBytes, hdlr.contentStart + 8, 4);
+                if ("vide".equals(hType)) detectedVideo = true;
+                else if ("soun".equals(hType)) detectedVideo = false;
+            }
+            this.isVideo = detectedVideo;
+
+            List<Box> minfKids = boxes(trakBytes, minf.contentStart, minf.contentEnd);
+            for (Box mk : minfKids) {
+                if ("vmhd".equals(mk.type) || "smhd".equals(mk.type) || "hmhd".equals(mk.type) || "nmhd".equals(mk.type)) {
+                    this.mediaHeaderBox = slice(trakBytes, mk.start, mk.size);
+                } else if ("dinf".equals(mk.type)) {
+                    this.dinfBox = slice(trakBytes, mk.start, mk.size);
+                } else if ("stbl".equals(mk.type)) {
+                    List<Box> stblKids = boxes(trakBytes, mk.contentStart, mk.contentEnd);
+                    Box stsd = findBox(stblKids, "stsd");
+                    if (stsd != null) this.stsdBox = slice(trakBytes, stsd.start, stsd.size);
+                }
+            }
+            if (this.stsdBox == null) throw new IOException("DASH stbl missing stsd");
+            if (this.mediaHeaderBox == null) {
+                if (this.isVideo) {
+                    byte[] vm = new byte[12];
+                    vm[3] = 1;
+                    this.mediaHeaderBox = box("vmhd", vm);
+                } else {
+                    this.mediaHeaderBox = box("smhd", new byte[8]);
+                }
+            }
+            if (this.dinfBox == null) {
+                byte[] urlBox = box("url ", new byte[]{0, 0, 0, 1});
+                byte[] drefPayload = new byte[8 + urlBox.length];
+                put32(drefPayload, 4, 1);
+                System.arraycopy(urlBox, 0, drefPayload, 8, urlBox.length);
+                this.dinfBox = box("dinf", box("dref", drefPayload));
+            }
+        }
+
+        int sampleCount() {
+            return numSamples;
+        }
+
+        private void ensureSampleCapacity(int add) {
+            if (numSamples + add <= sampleDurations.length) return;
+            int nextCap = Math.max(sampleDurations.length * 2, numSamples + add + 1024);
+            int[] nd = new int[nextCap];
+            int[] ns = new int[nextCap];
+            int[] nc = new int[nextCap];
+            boolean[] nsync = new boolean[nextCap];
+            System.arraycopy(sampleDurations, 0, nd, 0, numSamples);
+            System.arraycopy(sampleSizes, 0, ns, 0, numSamples);
+            System.arraycopy(sampleCts, 0, nc, 0, numSamples);
+            System.arraycopy(sampleSync, 0, nsync, 0, numSamples);
+            sampleDurations = nd;
+            sampleSizes = ns;
+            sampleCts = nc;
+            sampleSync = nsync;
+        }
+
+        private void addChunk(long relOffset, int count) {
+            if (count <= 0) return;
+            if (numChunks >= chunkRelOffsets.length) {
+                int nextCap = chunkRelOffsets.length * 2;
+                long[] no = new long[nextCap];
+                int[] nc = new int[nextCap];
+                System.arraycopy(chunkRelOffsets, 0, no, 0, numChunks);
+                System.arraycopy(chunkSampleCounts, 0, nc, 0, numChunks);
+                chunkRelOffsets = no;
+                chunkSampleCounts = nc;
+            }
+            chunkRelOffsets[numChunks] = relOffset;
+            chunkSampleCounts[numChunks] = count;
+            numChunks++;
+        }
+
+        void consumeFragment(Fragment f, RandomAccessFile spool) throws IOException {
+            Box mdatBox = null;
+            for (Box b : boxes(f.mdat, 0, f.mdat.length)) {
+                if ("mdat".equals(b.type)) {
+                    mdatBox = b;
+                    break;
+                }
+            }
+            if (mdatBox == null || mdatBox.contentLen() <= 0) return;
+
+            int samplesInFrag = 0;
+            int expectedBytesInFrag = 0;
+            int firstDataOffset = -1;
+
+            for (Box top : boxes(f.moof, 8, f.moof.length)) {
+                if (!"traf".equals(top.type)) continue;
+                int defDur = trexDefDuration;
+                int defSize = trexDefSize;
+                int defFlags = trexDefFlags;
+                boolean hasTfhdFlags = false;
+
+                List<Box> trafKids = boxes(f.moof, top.contentStart, top.contentEnd);
+                Box tfhd = findBox(trafKids, "tfhd");
+                if (tfhd != null && tfhd.contentStart + 8 <= tfhd.contentEnd) {
+                    int tfhdFlags = ((f.moof[tfhd.contentStart + 1] & 0xFF) << 16)
+                            | ((f.moof[tfhd.contentStart + 2] & 0xFF) << 8)
+                            | (f.moof[tfhd.contentStart + 3] & 0xFF);
+                    int p = tfhd.contentStart + 8;
+                    if ((tfhdFlags & 0x000001) != 0) p += 8;
+                    if ((tfhdFlags & 0x000002) != 0) p += 4;
+                    if ((tfhdFlags & 0x000008) != 0 && p + 4 <= tfhd.contentEnd) {
+                        defDur = (int) u32(f.moof, p);
+                        p += 4;
+                    }
+                    if ((tfhdFlags & 0x000010) != 0 && p + 4 <= tfhd.contentEnd) {
+                        defSize = (int) u32(f.moof, p);
+                        p += 4;
+                    }
+                    if ((tfhdFlags & 0x000020) != 0 && p + 4 <= tfhd.contentEnd) {
+                        defFlags = (int) u32(f.moof, p);
+                        hasTfhdFlags = true;
+                    }
+                }
+
+                for (Box tb : trafKids) {
+                    if (!"trun".equals(tb.type) || tb.contentStart + 8 > tb.contentEnd) continue;
+                    int trunFlags = ((f.moof[tb.contentStart + 1] & 0xFF) << 16)
+                            | ((f.moof[tb.contentStart + 2] & 0xFF) << 8)
+                            | (f.moof[tb.contentStart + 3] & 0xFF);
+                    int sCount = (int) u32(f.moof, tb.contentStart + 4);
+                    if (sCount <= 0 || sCount > 200000) continue;
+                    int p = tb.contentStart + 8;
+                    if ((trunFlags & 0x000001) != 0 && p + 4 <= tb.contentEnd) {
+                        int dOff = (int) u32(f.moof, p);
+                        if (firstDataOffset < 0) firstDataOffset = dOff;
+                        p += 4;
+                    }
+                    int firstSampleFlags = defFlags;
+                    boolean hasFirstFlags = false;
+                    if ((trunFlags & 0x000004) != 0 && p + 4 <= tb.contentEnd) {
+                        firstSampleFlags = (int) u32(f.moof, p);
+                        hasFirstFlags = true;
+                        p += 4;
+                    }
+
+                    ensureSampleCapacity(sCount);
+                    for (int i = 0; i < sCount; i++) {
+                        int dur = defDur;
+                        int sz = defSize;
+                        int flg = (i == 0 && hasFirstFlags) ? firstSampleFlags : defFlags;
+                        int cts = 0;
+                        if ((trunFlags & 0x000100) != 0 && p + 4 <= tb.contentEnd) {
+                            dur = (int) u32(f.moof, p);
+                            p += 4;
+                        }
+                        if ((trunFlags & 0x000200) != 0 && p + 4 <= tb.contentEnd) {
+                            sz = (int) u32(f.moof, p);
+                            p += 4;
+                        }
+                        if ((trunFlags & 0x000400) != 0 && p + 4 <= tb.contentEnd) {
+                            flg = (int) u32(f.moof, p);
+                            p += 4;
+                        }
+                        if ((trunFlags & 0x000800) != 0 && p + 4 <= tb.contentEnd) {
+                            cts = (int) u32(f.moof, p);
+                            p += 4;
+                        }
+                        if (dur <= 0) {
+                            dur = isVideo ? Math.max(1, timescale / 30) : 1024;
+                        }
+                        if (sz <= 0 && sCount == 1) {
+                            sz = mdatBox.contentLen();
+                        }
+                        if (sz <= 0) continue;
+
+                        boolean sync;
+                        if (!isVideo) {
+                            sync = true;
+                        } else if ((trunFlags & 0x000400) != 0 || (i == 0 && hasFirstFlags) || hasTfhdFlags) {
+                            sync = ((flg & 0x00010000) == 0) && (((flg >>> 24) & 0x03) != 1);
+                            if (i == 0 && samplesInFrag == 0 && !sync && (trunFlags & 0x000400) == 0 && !hasFirstFlags) {
+                                sync = true;
+                            }
+                        } else {
+                            sync = (i == 0);
+                        }
+
+                        sampleDurations[numSamples] = dur;
+                        sampleSizes[numSamples] = sz;
+                        sampleCts[numSamples] = cts;
+                        sampleSync[numSamples] = sync;
+                        if (cts != 0) hasNonZeroCts = true;
+                        totalDurationTicks += (long) dur;
+                        numSamples++;
+                        samplesInFrag++;
+                        expectedBytesInFrag += sz;
+                    }
+                }
+            }
+
+            if (samplesInFrag <= 0 || expectedBytesInFrag <= 0) return;
+
+            int payloadStart = mdatBox.contentStart;
+            if (firstDataOffset > f.moof.length) {
+                int rel = firstDataOffset - f.moof.length;
+                if (rel >= mdatBox.contentStart && rel + expectedBytesInFrag <= mdatBox.contentEnd) {
+                    payloadStart = rel;
+                }
+            }
+            int avail = mdatBox.contentEnd - payloadStart;
+            int toWrite = Math.min(avail, expectedBytesInFrag);
+            if (toWrite <= 0) return;
+
+            long chunkRelOffset = spool.getFilePointer();
+            spool.write(f.mdat, payloadStart, toWrite);
+            if (toWrite < expectedBytesInFrag) {
+                spool.write(new byte[expectedBytesInFrag - toWrite]);
+            }
+            addChunk(chunkRelOffset, samplesInFrag);
+        }
+
+        long durationMs() {
+            if (timescale > 0 && totalDurationTicks > 0L) {
+                return (totalDurationTicks * 1000L) / (long) timescale;
+            }
+            return fallbackDurationMs;
+        }
+
+        byte[] buildClassicTrak(long mdatDataFileOffset, long mvhdTimescale) {
+            byte[] stts = buildStts();
+            byte[] ctts = (isVideo && hasNonZeroCts) ? buildCtts() : null;
+            byte[] stss = isVideo ? buildStss() : null;
+            byte[] stsc = buildStsc();
+            byte[] stsz = buildStsz();
+            byte[] stco = buildStco(mdatDataFileOffset);
+
+            List<byte[]> stblKids = new ArrayList<byte[]>();
+            stblKids.add(stsdBox);
+            stblKids.add(stts);
+            if (ctts != null) stblKids.add(ctts);
+            if (stss != null) stblKids.add(stss);
+            stblKids.add(stsc);
+            stblKids.add(stsz);
+            stblKids.add(stco);
+            byte[] stbl = box("stbl", concat(stblKids));
+
+            List<byte[]> minfKids = new ArrayList<byte[]>();
+            minfKids.add(mediaHeaderBox);
+            minfKids.add(dinfBox);
+            minfKids.add(stbl);
+            byte[] minf = box("minf", concat(minfKids));
+
+            byte[] mdhd = mdhdBox.clone();
+            patchMdhdDuration(mdhd, totalDurationTicks);
+            List<byte[]> mdiaKids = new ArrayList<byte[]>();
+            mdiaKids.add(mdhd);
+            mdiaKids.add(hdlrBox);
+            mdiaKids.add(minf);
+            byte[] mdia = box("mdia", concat(mdiaKids));
+
+            byte[] tkhd = tkhdBox.clone();
+            // Ensure track_enabled | track_in_movie | track_in_preview (0x000007)
+            if (tkhd.length >= 12) {
+                tkhd[9] = 0;
+                tkhd[10] = 0;
+                tkhd[11] = 7;
+            }
+            byte[] trak = box("trak", concat(java.util.Arrays.asList(tkhd, mdia)));
+            patchTrackId(trak, newTrackId);
+            patchTkhdDuration(trak, durationMs(), (int) Math.max(1L, mvhdTimescale));
+            return trak;
+        }
+
+        private byte[] buildStts() {
+            int runs = 0;
+            for (int i = 0; i < numSamples; i++) {
+                if (i == 0 || sampleDurations[i] != sampleDurations[i - 1]) runs++;
+            }
+            byte[] p = new byte[8 + runs * 8];
+            put32(p, 4, runs);
+            int pos = 8;
+            int i = 0;
+            while (i < numSamples) {
+                int d = sampleDurations[i];
+                int count = 1;
+                while (i + count < numSamples && sampleDurations[i + count] == d) count++;
+                put32(p, pos, count);
+                put32(p, pos + 4, d);
+                pos += 8;
+                i += count;
+            }
+            return box("stts", p);
+        }
+
+        private byte[] buildCtts() {
+            int runs = 0;
+            for (int i = 0; i < numSamples; i++) {
+                if (i == 0 || sampleCts[i] != sampleCts[i - 1]) runs++;
+            }
+            byte[] p = new byte[8 + runs * 8];
+            put32(p, 4, runs);
+            int pos = 8;
+            int i = 0;
+            while (i < numSamples) {
+                int c = sampleCts[i];
+                int count = 1;
+                while (i + count < numSamples && sampleCts[i + count] == c) count++;
+                put32(p, pos, count);
+                put32(p, pos + 4, c);
+                pos += 8;
+                i += count;
+            }
+            return box("ctts", p);
+        }
+
+        private byte[] buildStss() {
+            int syncCount = 0;
+            for (int i = 0; i < numSamples; i++) {
+                if (sampleSync[i]) syncCount++;
+            }
+            if (syncCount == 0 && numSamples > 0) {
+                sampleSync[0] = true;
+                syncCount = 1;
+            }
+            byte[] p = new byte[8 + syncCount * 4];
+            put32(p, 4, syncCount);
+            int pos = 8;
+            for (int i = 0; i < numSamples; i++) {
+                if (sampleSync[i]) {
+                    put32(p, pos, i + 1);
+                    pos += 4;
+                }
+            }
+            return box("stss", p);
+        }
+
+        private byte[] buildStsc() {
+            int runs = 0;
+            for (int c = 0; c < numChunks; c++) {
+                if (c == 0 || chunkSampleCounts[c] != chunkSampleCounts[c - 1]) runs++;
+            }
+            byte[] p = new byte[8 + runs * 12];
+            put32(p, 4, runs);
+            int pos = 8;
+            for (int c = 0; c < numChunks; c++) {
+                if (c == 0 || chunkSampleCounts[c] != chunkSampleCounts[c - 1]) {
+                    put32(p, pos, c + 1);
+                    put32(p, pos + 4, chunkSampleCounts[c]);
+                    put32(p, pos + 8, 1);
+                    pos += 12;
+                }
+            }
+            return box("stsc", p);
+        }
+
+        private byte[] buildStsz() {
+            byte[] p = new byte[12 + numSamples * 4];
+            put32(p, 4, 0);
+            put32(p, 8, numSamples);
+            int pos = 12;
+            for (int i = 0; i < numSamples; i++) {
+                put32(p, pos, sampleSizes[i]);
+                pos += 4;
+            }
+            return box("stsz", p);
+        }
+
+        private byte[] buildStco(long mdatDataFileOffset) {
+            byte[] p = new byte[8 + numChunks * 4];
+            put32(p, 4, numChunks);
+            int pos = 8;
+            for (int c = 0; c < numChunks; c++) {
+                put32(p, pos, mdatDataFileOffset + chunkRelOffsets[c]);
+                pos += 4;
+            }
+            return box("stco", p);
+        }
+    }
+
+    static void patchMdhdDuration(byte[] mdhd, long durationTicks) {
+        if (mdhd.length < 24 || durationTicks <= 0L) return;
+        int version = mdhd[8] & 0xFF;
+        if (version == 1) {
+            if (mdhd.length >= 36) put64(mdhd, 28, durationTicks);
+        } else {
+            if (mdhd.length >= 24) put32(mdhd, 20, durationTicks);
+        }
+    }
+
+    static long mvhdTimescaleOf(byte[] mvhd) {
+        if (mvhd == null || mvhd.length < 24) return 1000L;
+        int version = mvhd[8] & 0xFF;
+        int tsOff = 8 + (version == 1 ? 20 : 12);
+        if (tsOff + 4 > mvhd.length) return 1000L;
+        long ts = u32(mvhd, tsOff);
+        return ts > 0L ? ts : 1000L;
+    }
+
+    static byte[] buildClassicMoov(byte[] mvhdTemplate,
+                                   List<ClassicTrackBuilder> tracks,
+                                   long mdatDataFileOffset) {
+        byte[] mvhd = mvhdTemplate.clone();
+        long mvhdTs = mvhdTimescaleOf(mvhd);
+        List<byte[]> kids = new ArrayList<byte[]>();
+        kids.add(mvhd);
+        long maxDurMs = 0L;
+        int maxTrackId = 1;
+        for (int i = 0; i < tracks.size(); i++) {
+            ClassicTrackBuilder tb = tracks.get(i);
+            if (tb.durationMs() > maxDurMs) maxDurMs = tb.durationMs();
+            if (tb.newTrackId > maxTrackId) maxTrackId = tb.newTrackId;
+            kids.add(tb.buildClassicTrak(mdatDataFileOffset, mvhdTs));
+        }
+        byte[] moov = box("moov", concat(kids));
+        patchMvhd(moov, maxDurMs, maxTrackId + 1, true);
+        return moov;
+    }
+
+    /* ======================================================================
+     * 6. Small helpers used by the JVM regression suite
      * ====================================================================== */
 
     /** Reads exactly `bytes` bytes from a stream (used by tests and HTTP readers). */

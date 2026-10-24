@@ -80,11 +80,95 @@ public class Arc7RadioRssActivity extends Activity {
     }
 
     private static final String[][] DEFAULT_FEEDS = new String[][]{
+            {"CBC News — Kitchener-Waterloo (Local)", "https://www.cbc.ca/webfeed/rss/rss-canada-kitchenerwaterloo"},
+            {"CBC News — Top Stories (Canada)", "https://www.cbc.ca/webfeed/rss/rss-topstories"},
             {"Hacker News — Frontpage", "https://hnrss.org/frontpage"},
             {"BBC News — World", "https://feeds.bbci.co.uk/news/world/rss.xml"},
-            {"CBC News — Top Stories (Canada)", "https://www.cbc.ca/webfeed/rss/rss-topstories"},
             {"Ars Technica — Technology Lab", "https://feeds.arstechnica.com/arstechnica/index"}
     };
+
+    public static List<RadioStation> buildWaterlooRegionStations() {
+        List<RadioStation> local = new ArrayList<RadioStation>();
+        local.add(new RadioStation(
+                "CBC Radio One — Waterloo Region 89.1 FM (Kitchener-Waterloo CBLA-FM-2)",
+                "CA",
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLAFM2.mp3"));
+        local.add(new RadioStation(
+                "CBC Radio One — Southern Ontario 99.1 FM (CBLA-FM)",
+                "CA",
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLAFM.mp3"));
+        local.add(new RadioStation(
+                "CBC Music — Southern Ontario & Waterloo Region 94.1 FM (CBL-FM)",
+                "CA",
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLFM.mp3"));
+        local.add(new RadioStation(
+                "98.5 CKWR — Waterloo Region Community Radio (Kitchener-Waterloo)",
+                "CA",
+                "https://stream2.statsradio.com:8124/stream"));
+        local.add(new RadioStation(
+                "CityNews 570 (CKGL 570 AM — Kitchener-Waterloo News, Traffic & Weather)",
+                "CA",
+                "https://rogers-hls.leanstream.co/rogers/kit570.stream/icy"));
+        local.add(new RadioStation(
+                "96.7 CHYM FM (Kitchener-Waterloo)",
+                "CA",
+                "https://rogers-hls.leanstream.co/rogers/kit967.stream/icy"));
+        local.add(new RadioStation(
+                "Country 106.7 (CIKZ-FM Kitchener-Waterloo)",
+                "CA",
+                "https://rogers-hls.leanstream.co/rogers/kit1067.stream/icy"));
+        local.add(new RadioStation(
+                "91.5 The Beat (CKBT-FM Kitchener-Waterloo)",
+                "CA",
+                "https://live.leanstream.co/CKBTFM-MP3"));
+        local.add(new RadioStation(
+                "107.5 Dave Rocks (CJDV-FM Kitchener-Waterloo Classic Rock)",
+                "CA",
+                "https://live.leanstream.co/CJDVFM-MP3"));
+        local.add(new RadioStation(
+                "105.3 Virgin Radio (CFCA-FM Kitchener-Waterloo)",
+                "CA",
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CFCAFM.mp3"));
+        local.add(new RadioStation(
+                "99.5 Bounce Radio (CKKW-FM Kitchener-Waterloo)",
+                "CA",
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CKKWFM.mp3"));
+        local.add(new RadioStation(
+                "CFRU 93.3 FM — Guelph & Wellington-Waterloo Community Radio",
+                "CA",
+                "https://stream.cfru.ca/cfru128.mp3"));
+        local.add(new RadioStation(
+                "88.3 CJIQ FM — Conestoga College Waterloo Region (Kitchener)",
+                "CA",
+                "https://peridot.streamguys1.com:5185/live"));
+        return local;
+    }
+
+    public static List<RadioStation> filterWaterlooRegionStations(String query) {
+        List<RadioStation> all = buildWaterlooRegionStations();
+        if (query == null || query.trim().length() == 0) return all;
+        String q = query.trim().toLowerCase(Locale.US);
+        if (q.equals("local") || q.equals("waterloo") || q.equals("waterloo region")
+                || q.equals("kitchener") || q.equals("kitchener-waterloo")
+                || q.equals("cambridge") || q.equals("kw") || q.equals("ontario")) {
+            return all;
+        }
+        String[] tokens = q.split("\\s+");
+        List<RadioStation> matched = new ArrayList<RadioStation>();
+        for (int i = 0; i < all.size(); i++) {
+            RadioStation st = all.get(i);
+            String hay = (st.name + " " + st.countryCode + " waterloo region kitchener cambridge guelph ontario").toLowerCase(Locale.US);
+            boolean ok = true;
+            for (int t = 0; t < tokens.length; t++) {
+                if (tokens[t].length() > 0 && !hay.contains(tokens[t])) {
+                    ok = false;
+                    break;
+                }
+            }
+            if (ok) matched.add(st);
+        }
+        return matched;
+    }
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private RootShell shell;
@@ -214,10 +298,10 @@ public class Arc7RadioRssActivity extends Activity {
         LinearLayout searchCard = Arc7Skin.card(this, pal);
         final EditText q = new EditText(this);
         q.setSingleLine(true);
-        q.setHint("Search radio-browser.info (e.g. jazz, classical, Toronto, BBC, lofi)...");
+        q.setHint("Search stations (e.g. CBC Radio One Waterloo, Kitchener, CKWR, jazz, BBC)...");
         searchCard.addView(q);
 
-        Button searchBtn = Arc7Skin.actionButton(this, "Search Radio-Browser Directory", 0xFF0284C7);
+        Button searchBtn = Arc7Skin.actionButton(this, "Search Local & Radio-Browser Directory", 0xFF0284C7);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(8);
@@ -243,6 +327,22 @@ public class Arc7RadioRssActivity extends Activity {
         searchCard.addView(directoryBtn, dlp);
         bodyBox.addView(searchCard, cardSpace());
 
+        // Local Waterloo Region & Ontario Stations Card (CBC Radio One 89.1 FM Kitchener-Waterloo + local FM/AM)
+        LinearLayout localCard = Arc7Skin.card(this, pal);
+        addTitle(localCard, "WATERLOO REGION & LOCAL ONTARIO STATIONS (KITCHENER • WATERLOO • CAMBRIDGE • GUELPH)");
+        final TextView localStatus = new TextView(this);
+        localStatus.setTextColor(pal.textMuted);
+        localStatus.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        localStatus.setText("Tap any local Waterloo Region / Kitchener-Waterloo station to stream live:");
+        localCard.addView(localStatus);
+
+        final LinearLayout localRows = new LinearLayout(this);
+        localRows.setOrientation(LinearLayout.VERTICAL);
+        localCard.addView(localRows);
+        addRadioStationRows(localRows, buildWaterlooRegionStations());
+        bodyBox.addView(localCard, cardSpace());
+        enrichWaterlooStationsFromDirectoryAsync(localRows, localStatus);
+
         LinearLayout popularCard = Arc7Skin.card(this, pal);
         addTitle(popularCard, "POPULAR STATIONS FROM RADIO-BROWSER.INFO");
         final TextView stationStatus = new TextView(this);
@@ -265,6 +365,43 @@ public class Arc7RadioRssActivity extends Activity {
         popularCard.addView(refreshBtn, rlp);
         bodyBox.addView(popularCard);
         loadTopRadioBrowserStations(stationRows, stationStatus);
+    }
+
+    private void enrichWaterlooStationsFromDirectoryAsync(final LinearLayout localRows, final TextView localStatus) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final List<RadioStation> merged = new ArrayList<RadioStation>(buildWaterlooRegionStations());
+                Set<String> seenUrls = new HashSet<String>();
+                for (int i = 0; i < merged.size(); i++) {
+                    seenUrls.add(merged.get(i).streamUrl);
+                }
+                String[] regionalTerms = new String[]{"Kitchener", "Waterloo", "CBC%20Radio%20One"};
+                for (int t = 0; t < regionalTerms.length; t++) {
+                    try {
+                        List<RadioStation> extra = fetchRadioBrowserStations(
+                                "/json/stations/byname/" + regionalTerms[t]
+                                        + "?limit=10&hidebroken=true&order=votes&reverse=true");
+                        for (int k = 0; k < extra.size(); k++) {
+                            RadioStation st = extra.get(k);
+                            if (seenUrls.add(st.streamUrl)) {
+                                merged.add(st);
+                            }
+                        }
+                    } catch (Throwable ignored) {}
+                }
+                if (merged.size() > buildWaterlooRegionStations().size()) {
+                    ui.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            localRows.removeAllViews();
+                            localStatus.setText(merged.size() + " Waterloo Region & Ontario stations ready to stream:");
+                            addRadioStationRows(localRows, merged);
+                        }
+                    });
+                }
+            }
+        }, "Arc7-WaterlooRadio").start();
     }
 
     private void loadTopRadioBrowserStations(final LinearLayout rows, final TextView status) {
@@ -353,42 +490,65 @@ public class Arc7RadioRssActivity extends Activity {
 
     private void searchRadioDirectory(final String term) {
         if (term.isEmpty()) return;
-        Toast.makeText(this, "Searching Radio-Browser directory...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Searching local Waterloo Region & Radio-Browser directory...", Toast.LENGTH_SHORT).show();
         new Thread(new Runnable() {
             @Override
             public void run() {
+                final List<RadioStation> stations = new ArrayList<RadioStation>(filterWaterlooRegionStations(term));
+                Set<String> seenUrls = new HashSet<String>();
+                for (int i = 0; i < stations.size(); i++) {
+                    seenUrls.add(stations.get(i).streamUrl);
+                }
+                Throwable dirErr = null;
                 try {
                     String encodedTerm = URLEncoder.encode(term, "UTF-8").replace("+", "%20");
-                    final List<RadioStation> stations = fetchRadioBrowserStations(
+                    List<RadioStation> remote = fetchRadioBrowserStations(
                             "/json/stations/byname/" + encodedTerm
                                     + "?limit=25&hidebroken=true&order=votes&reverse=true");
-                    ui.post(new Runnable() {
-                        @Override public void run() {
-                            if (stations.isEmpty()) {
-                                Toast.makeText(Arc7RadioRssActivity.this, "No stations found.", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-                            final String[] names = new String[stations.size()];
-                            for (int i = 0; i < stations.size(); i++) names[i] = stations.get(i).displayName();
-                            new AlertDialog.Builder(Arc7RadioRssActivity.this, AlertDialog.THEME_HOLO_DARK)
-                                    .setTitle("Tap Any Radio-Browser Station to Stream")
-                                    .setItems(names, new DialogInterface.OnClickListener() {
-                                        @Override public void onClick(DialogInterface d, int w) {
-                                            RadioStation station = stations.get(w);
-                                            startBackgroundStream(station.displayName(), station.streamUrl);
-                                        }
-                                    })
-                                    .show();
+                    for (int i = 0; i < remote.size(); i++) {
+                        RadioStation st = remote.get(i);
+                        if (seenUrls.add(st.streamUrl)) stations.add(st);
+                    }
+                    String low = term.toLowerCase(Locale.US);
+                    if (low.contains("waterloo") || low.contains("kitchener") || low.contains("cbc")) {
+                        String[] extraQueries = new String[]{"Kitchener", "Waterloo", "CBC%20Radio%20One"};
+                        for (int qIdx = 0; qIdx < extraQueries.length; qIdx++) {
+                            try {
+                                List<RadioStation> more = fetchRadioBrowserStations(
+                                        "/json/stations/byname/" + extraQueries[qIdx]
+                                                + "?limit=15&hidebroken=true&order=votes&reverse=true");
+                                for (int k = 0; k < more.size(); k++) {
+                                    RadioStation st = more.get(k);
+                                    if (seenUrls.add(st.streamUrl)) stations.add(st);
+                                }
+                            } catch (Throwable ignored) {}
                         }
-                    });
-                } catch (final Throwable t) {
-                    ui.post(new Runnable() {
-                        @Override public void run() {
-                            Toast.makeText(Arc7RadioRssActivity.this,
-                                    "Radio search error: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                        }
-                    });
+                    }
+                } catch (Throwable t) {
+                    dirErr = t;
                 }
+                final Throwable finalErr = dirErr;
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        if (stations.isEmpty()) {
+                            Toast.makeText(Arc7RadioRssActivity.this,
+                                    finalErr != null ? ("Radio search error: " + finalErr.getMessage()) : "No stations found.",
+                                    Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        final String[] names = new String[stations.size()];
+                        for (int i = 0; i < stations.size(); i++) names[i] = stations.get(i).displayName();
+                        new AlertDialog.Builder(Arc7RadioRssActivity.this, AlertDialog.THEME_HOLO_DARK)
+                                .setTitle("Tap Any Station to Stream")
+                                .setItems(names, new DialogInterface.OnClickListener() {
+                                    @Override public void onClick(DialogInterface d, int w) {
+                                        RadioStation station = stations.get(w);
+                                        startBackgroundStream(station.displayName(), station.streamUrl);
+                                    }
+                                })
+                                .show();
+                    }
+                });
             }
         }).start();
     }

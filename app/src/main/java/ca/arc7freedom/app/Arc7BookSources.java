@@ -13,9 +13,14 @@ import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.CookieManager;
+import android.webkit.CookieSyncManager;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.net.http.SslError;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -33,7 +38,12 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.PushbackInputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
@@ -46,6 +56,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -274,6 +285,10 @@ public final class Arc7BookSources {
                                                  final String initialHttpsUrl,
                                                  final TokenSavedCallback tokenCb,
                                                  final DirectBookInterceptCallback bookCb) {
+        try {
+            CookieSyncManager.createInstance(host);
+            Arc7BrowserActivity.seedBrowserCompatibilityCookies();
+        } catch (Throwable ignored) {}
         try { certMgr.ensureCaBundleFile(); } catch (Throwable ignored) {}
         certMgr.startBrowserGateway();
         final int gwPort = NetworkCertManager.BROWSER_GATEWAY_PORT;
@@ -301,7 +316,7 @@ public final class Arc7BookSources {
         ws.setDomStorageEnabled(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
-        ws.setUserAgentString("Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 Chrome/114.0.0.0 Mobile Safari/537.36");
+        ws.setUserAgentString(Arc7BrowserActivity.UA_MOBILE);
 
         final AlertDialog sheet = new AlertDialog.Builder(host, AlertDialog.THEME_HOLO_DARK)
                 .setView(wrap)
@@ -324,6 +339,11 @@ public final class Arc7BookSources {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
                 String realUrl = unwrapGatewayUrl(url);
+                if (realUrl.toLowerCase(Locale.US).contains("/badbrowser.php")) {
+                    Arc7BrowserActivity.seedBrowserCompatibilityCookies();
+                    view.loadUrl("https://m.vk.com/");
+                    return true;
+                }
                 if (realUrl.contains("access_token=")) {
                     String tok = extractAccessTokenIfUrl(realUrl);
                     saveVkToken(host, tok);
@@ -337,13 +357,128 @@ public final class Arc7BookSources {
                     bookCb.onBookUrlIntercepted(guessTitleFromUrl(realUrl), realUrl);
                     return true;
                 }
-                view.loadUrl(wrapThroughLocalGateway(realUrl, gwPort));
-                return true;
+                return false;
+            }
+
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                if (url != null && url.contains("access_token=")) {
+                    String tok = extractAccessTokenIfUrl(url);
+                    saveVkToken(host, tok);
+                    Toast.makeText(host, "Signed in to vk.com! Full VK Book Search active!", Toast.LENGTH_LONG).show();
+                    sheet.dismiss();
+                    if (tokenCb != null) tokenCb.onTokenChanged(tok);
+                }
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.proceed();
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, String url) {
+                if (url == null || !url.startsWith("https://")) return null;
+                if (looksLikeDirectBookOrVkDocUrl(url)) return null;
+                return fetchVkResourceViaLocalGateway(url, gwPort);
             }
         });
 
         sheet.show();
-        wv.loadUrl(wrapThroughLocalGateway(initialHttpsUrl, gwPort));
+        wv.loadUrl(initialHttpsUrl != null && initialHttpsUrl.length() > 0 ? initialHttpsUrl : "https://m.vk.com/");
+    }
+
+    private static WebResourceResponse fetchVkResourceViaLocalGateway(String url, int gwPort) {
+        HttpURLConnection conn = null;
+        try {
+            String target = url;
+            if (target.toLowerCase(Locale.US).contains("/badbrowser.php")) {
+                target = "https://m.vk.com/";
+            }
+            String reqUrl = "http://127.0.0.1:" + gwPort + "/__arc7_raw?u=" + URLEncoder.encode(target, "UTF-8");
+            conn = (HttpURLConnection) new URL(reqUrl).openConnection();
+            conn.setInstanceFollowRedirects(true);
+            conn.setConnectTimeout(12000);
+            conn.setReadTimeout(20000);
+            conn.setRequestProperty("X-Arc7-UA", Arc7BrowserActivity.UA_MOBILE);
+
+            String cookies = null;
+            try { cookies = CookieManager.getInstance().getCookie(target); } catch (Throwable ignored) {}
+            if (cookies == null || !cookies.contains("remixbdr=1")) {
+                cookies = (cookies != null && cookies.length() > 0) ? (cookies + "; remixbdr=1") : "remixbdr=1";
+            }
+            conn.setRequestProperty("X-Arc7-Cookie", cookies);
+
+            int status = conn.getResponseCode();
+            String finalUrl = conn.getHeaderField("X-Arc7-Final-Url");
+            if (finalUrl == null || finalUrl.length() == 0) finalUrl = target;
+
+            Map<String, List<String>> hdrs = conn.getHeaderFields();
+            if (hdrs != null) {
+                List<String> scList = hdrs.get("X-Arc7-Cookie");
+                if (scList == null) scList = hdrs.get("x-arc7-cookie");
+                if (scList != null) {
+                    for (String sc : scList) {
+                        if (sc != null && sc.length() > 0) {
+                            try { CookieManager.getInstance().setCookie(finalUrl, sc); } catch (Throwable ignored) {}
+                        }
+                    }
+                    try { CookieSyncManager.getInstance().sync(); } catch (Throwable ignored) {}
+                }
+            }
+
+            InputStream raw = (status >= 400) ? conn.getErrorStream() : conn.getInputStream();
+            if (raw == null) {
+                conn.disconnect();
+                return null;
+            }
+            String encHdr = conn.getHeaderField("X-Arc7-Encoding");
+            PushbackInputStream pb = new PushbackInputStream(raw, 4);
+            byte[] sig2 = new byte[2];
+            int n2 = pb.read(sig2);
+            if (n2 > 0) pb.unread(sig2, 0, n2);
+            boolean isGzip = (encHdr != null && encHdr.toLowerCase(Locale.US).contains("gzip"))
+                    || (n2 == 2 && (sig2[0] & 0xFF) == 0x1F && (sig2[1] & 0xFF) == 0x8B);
+
+            final HttpURLConnection ownedConn = conn;
+            InputStream decoded = isGzip ? new GZIPInputStream(pb) : pb;
+            InputStream managed = new FilterInputStream(decoded) {
+                @Override
+                public void close() throws IOException {
+                    try { super.close(); } finally { ownedConn.disconnect(); }
+                }
+            };
+
+            String rawCt = conn.getContentType();
+            String mime = "text/html";
+            String charset = "UTF-8";
+            if (rawCt != null) {
+                int semi = rawCt.indexOf(';');
+                mime = (semi >= 0 ? rawCt.substring(0, semi) : rawCt).trim().toLowerCase(Locale.US);
+                int csIdx = rawCt.toLowerCase(Locale.US).indexOf("charset=");
+                if (csIdx >= 0) {
+                    charset = rawCt.substring(csIdx + 8).trim().replace("\"", "");
+                }
+            }
+            if ("text/html".equals(mime)) {
+                ByteArrayOutputStream bos = new ByteArrayOutputStream(32768);
+                byte[] buf = new byte[8192];
+                int r;
+                while ((r = managed.read(buf)) > 0) {
+                    bos.write(buf, 0, r);
+                    if (bos.size() > 3 * 1048576) break;
+                }
+                managed.close();
+                String html = new String(bos.toByteArray(), charset.length() > 0 ? charset : "UTF-8");
+                html = Arc7BrowserActivity.prepareMainHtmlForWebView(html, finalUrl);
+                return new WebResourceResponse("text/html", "UTF-8",
+                        new ByteArrayInputStream(html.getBytes("UTF-8")));
+            }
+            return new WebResourceResponse(mime, charset, managed);
+        } catch (Throwable ignored) {
+            if (conn != null) conn.disconnect();
+            return null;
+        }
     }
 
     private static String wrapThroughLocalGateway(String url, int gwPort) {

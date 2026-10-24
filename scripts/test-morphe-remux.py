@@ -336,6 +336,19 @@ public class RemuxHarness {
         byte[] tail = get(url, plan.totalBytes - 4096, plan.totalBytes - 1);
         if (tail.length != 4096) throw new RuntimeException("tail length " + tail.length);
         System.out.println("RANGE_OK=1");
+
+        // Exercise classic non-fragmented ISO-BMFF MP4 remuxer for Android 4.2.2 Stagefright!
+        String classicPath = outPath + ".classic.mp4";
+        RandomAccessFile cRaf = new RandomAccessFile(classicPath, "rw");
+        MorpheRemuxer.remuxClassicMp4(v, a, cRaf, null);
+        cRaf.close();
+        System.out.println("CLASSIC_LENGTH=" + new File(classicPath).length());
+
+        String singleAudioPath = outPath + ".audio.m4a";
+        RandomAccessFile aRaf = new RandomAccessFile(singleAudioPath, "rw");
+        MorpheRemuxer.remuxSingleTrackClassicMp4(a, aRaf, null);
+        aRaf.close();
+        System.out.println("CLASSIC_AUDIO_LENGTH=" + new File(singleAudioPath).length());
         MorpheStreamServer.cancelAll();
     }
 }
@@ -394,6 +407,34 @@ def main():
         merged = open(merged_path, "rb").read()
         validate(merged, plan_total, expected_samples)
         print("  [PASS] merged fMP4 validated: 2 traks, interleaved moof/mdat, exact length")
+
+        classic = open(merged_path + ".classic.mp4", "rb").read()
+        ctop = parse_boxes(classic)
+        assert [k for k, _, _ in ctop] == ["ftyp", "moov", "mdat"], [k for k, _, _ in ctop]
+        cmoov_kids = parse_boxes(classic, ctop[1][1] + 8, ctop[1][2])
+        assert [k for k, _, _ in cmoov_kids] == ["mvhd", "trak", "trak"], [k for k, _, _ in cmoov_kids]
+        cmdat = ctop[2]
+        assert cmdat[2] - cmdat[1] - 8 == expected_samples, (cmdat[2] - cmdat[1] - 8, expected_samples)
+        for t_idx, (_, ts, te) in enumerate([b for b in cmoov_kids if b[0] == "trak"]):
+            mdia = [b for b in parse_boxes(classic, ts + 8, te) if b[0] == "mdia"][0]
+            minf = [b for b in parse_boxes(classic, mdia[1] + 8, mdia[2]) if b[0] == "minf"][0]
+            stbl = [b for b in parse_boxes(classic, minf[1] + 8, minf[2]) if b[0] == "stbl"][0]
+            stbl_Map = {k: (s, e) for k, s, e in parse_boxes(classic, stbl[1] + 8, stbl[2])}
+            for req_box in ("stsd", "stts", "stsc", "stsz", "stco"):
+                assert req_box in stbl_Map, f"trak {t_idx + 1} missing {req_box}: {list(stbl_Map)}"
+            stsz_s, _ = stbl_Map["stsz"]
+            sample_count = struct.unpack(">I", classic[stsz_s + 16:stsz_s + 20])[0]
+            assert sample_count > 0, f"trak {t_idx + 1} has 0 samples in stsz"
+            stco_s, _ = stbl_Map["stco"]
+            chunk_count = struct.unpack(">I", classic[stco_s + 12:stco_s + 16])[0]
+            assert chunk_count == 2, f"trak {t_idx + 1} expected 2 chunks in stco, got {chunk_count}"
+            for c_i in range(chunk_count):
+                off = struct.unpack(">I", classic[stco_s + 16 + c_i * 4:stco_s + 20 + c_i * 4])[0]
+                assert cmdat[1] + 8 <= off < cmdat[2], f"stco offset {off} outside mdat {cmdat}"
+        classic_audio = open(merged_path + ".audio.m4a", "rb").read()
+        atop = parse_boxes(classic_audio)
+        assert [k for k, _, _ in atop] == ["ftyp", "moov", "mdat"], [k for k, _, _ in atop]
+        print("  [PASS] classic non-fragmented MP4/M4A validated (ftyp + moov[stsd/stts/stsc/stsz/stco] + mdat)")
         assert any(name == "audio.mp4" for name, _, _ in RangeHandler.seen_ranges)
         assert all(start >= 0 for _, start, _ in RangeHandler.seen_ranges)
         print(f"  [PASS] {len(RangeHandler.seen_ranges)} strict Range requests served "

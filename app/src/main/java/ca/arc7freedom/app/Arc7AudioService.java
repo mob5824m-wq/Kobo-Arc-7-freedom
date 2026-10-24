@@ -24,6 +24,7 @@ import android.widget.RemoteViews;
 import android.widget.Toast;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -507,23 +508,13 @@ public class Arc7AudioService extends Service {
                                 activeSourceApp, item.bestThumb(), activeLaunchClass, true);
                         return;
                     }
-                    MorpheEngine.ResolvedPlayback res = MorpheEngine.resolveStreams(
-                            getApplicationContext(), item.videoId, true);
+                    final MorpheEngine.ResolvedPlayback res = MorpheEngine.resolveStreams(
+                            getApplicationContext(), item.videoId, true, null);
                     if (res.author != null && res.author.length() > 0 && item.author.length() == 0) {
                         item.author = res.author;
                     }
                     if (res.title != null && res.title.length() > 0) {
                         item.title = res.title;
-                    }
-                    synchronized (Arc7AudioService.this) {
-                        activeSkipSegments.clear();
-                        activeSkipSegments.addAll(res.skipSegments);
-                        // Auto-populate Up-Next Radio Mix if single track was tapped!
-                        if (morpheQueue.size() == 1 && !res.relatedItems.isEmpty()) {
-                            for (int i = 0; i < res.relatedItems.size() && morpheQueue.size() < 25; i++) {
-                                morpheQueue.add(res.relatedItems.get(i));
-                            }
-                        }
                     }
                     resolvingMorpheTrack = false;
                     String playable = res.localAudioProxyUrl;
@@ -541,6 +532,24 @@ public class Arc7AudioService extends Service {
                             res.thumbnailUrl.length() > 0 ? res.thumbnailUrl : item.bestThumb(),
                             activeLaunchClass,
                             true);
+                    // Enrich SponsorBlock segments and Up-Next automix asynchronously so playback starts first!
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                MorpheEngine.enrichPlaybackMetadata(getApplicationContext(), res);
+                                synchronized (Arc7AudioService.this) {
+                                    activeSkipSegments.clear();
+                                    activeSkipSegments.addAll(res.skipSegments);
+                                    if (morpheQueue.size() == 1 && !res.relatedItems.isEmpty()) {
+                                        for (int i = 0; i < res.relatedItems.size() && morpheQueue.size() < 25; i++) {
+                                            morpheQueue.add(res.relatedItems.get(i));
+                                        }
+                                    }
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+                    }, "Arc7-Audio-Metadata").start();
                 } catch (final Throwable t) {
                     resolvingMorpheTrack = false;
                     handler.post(new Runnable() {
@@ -613,33 +622,46 @@ public class Arc7AudioService extends Service {
                 "", "ca.arc7freedom.app.Arc7RadioRssActivity");
     }
 
-    public synchronized void playStreamUrlFull(String streamUrl,
-                                               String title,
-                                               String artist,
-                                               String sourceApp,
-                                               String thumbUrl,
-                                               String launchCls) {
+    public synchronized void playStreamUrlFull(final String streamUrl,
+                                               final String title,
+                                               final String artist,
+                                               final String sourceApp,
+                                               final String thumbUrl,
+                                               final String launchCls) {
+        if (streamUrl == null || streamUrl.length() == 0) return;
         morpheIndex = -1;
         currentIndex = -1;
-        String effectiveUrl = streamUrl;
-        try {
-            if (streamUrl.startsWith("https://")) {
-                RootShell sh = new RootShell(getApplicationContext());
-                NetworkCertManager cm = new NetworkCertManager(getApplicationContext(), sh);
-                cm.ensureCaBundleFile();
-                cm.startBrowserGateway();
-                int port = NetworkCertManager.BROWSER_GATEWAY_PORT;
-                effectiveUrl = "http://127.0.0.1:" + port + "/__arc7_raw?u="
-                        + URLEncoder.encode(streamUrl, "UTF-8");
+        activeStreamTitle = title == null || title.isEmpty() ? "Live Internet Stream" : title;
+        activeStreamArtist = artist != null ? artist : "";
+        activeSourceApp = sourceApp != null ? sourceApp : "Radio & Podcasts";
+        activeArtworkUrl = thumbUrl != null ? thumbUrl : "";
+        activeLaunchClass = launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity";
+        publishOwnPlaybackState(true);
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String effectiveUrl = streamUrl;
+                try {
+                    if (streamUrl.startsWith("https://")) {
+                        RootShell sh = new RootShell(getApplicationContext());
+                        NetworkCertManager cm = new NetworkCertManager(getApplicationContext(), sh);
+                        cm.ensureCaBundleFile();
+                        cm.startBrowserGateway();
+                        int port = NetworkCertManager.BROWSER_GATEWAY_PORT;
+                        effectiveUrl = "http://127.0.0.1:" + port + "/__https/"
+                                + streamUrl.substring("https://".length());
+                    }
+                } catch (Throwable ignored) {}
+                playPreparedDataSource(effectiveUrl,
+                        title == null || title.isEmpty() ? "Live Internet Stream" : title,
+                        artist != null ? artist : "",
+                        sourceApp != null ? sourceApp : "Radio & Podcasts",
+                        thumbUrl != null ? thumbUrl : "",
+                        launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity",
+                        false);
             }
-        } catch (Throwable ignored) {}
-        playPreparedDataSource(effectiveUrl,
-                title == null || title.isEmpty() ? "Live Internet Stream" : title,
-                artist != null ? artist : "",
-                sourceApp != null ? sourceApp : "Radio & Podcasts",
-                thumbUrl != null ? thumbUrl : "",
-                launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity",
-                false);
+        }, "Arc7-Radio-Prepare").start();
     }
 
     private synchronized void playPreparedDataSource(final String dataSource,
@@ -657,12 +679,23 @@ public class Arc7AudioService extends Service {
         activeArtworkUrl = thumbUrl != null ? thumbUrl : "";
         activeLaunchClass = launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7AudioPlayerActivity";
 
+        FileInputStream localFis = null;
         try {
             acquireWifiLockSafe();
             player = new MediaPlayer();
             player.setAudioStreamType(AudioManager.STREAM_MUSIC);
             player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
-            player.setDataSource(dataSource);
+            if (dataSource != null && !dataSource.startsWith("http://") && !dataSource.startsWith("https://")) {
+                File f = new File(dataSource);
+                if (f.isFile()) {
+                    localFis = new FileInputStream(f);
+                    player.setDataSource(localFis.getFD());
+                } else {
+                    player.setDataSource(dataSource);
+                }
+            } else {
+                player.setDataSource(dataSource);
+            }
             player.setVolume(1.0f, 1.0f);
             player.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
@@ -686,8 +719,20 @@ public class Arc7AudioService extends Service {
             applyEqualizerPreset(currentEqPreset);
             player.start();
             publishOwnPlaybackState(true);
-        } catch (Throwable t) {
+        } catch (final Throwable t) {
             releasePlayer();
+            handler.post(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(getApplicationContext(),
+                            "Audio playback error: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()),
+                            Toast.LENGTH_SHORT).show();
+                }
+            });
+        } finally {
+            if (localFis != null) {
+                try { localFis.close(); } catch (Throwable ignored) {}
+            }
         }
     }
 

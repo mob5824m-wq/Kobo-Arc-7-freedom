@@ -84,6 +84,7 @@ public class YouTubeActivity extends Activity {
     private EditText searchEt;
     private LinearLayout feedList;
     private TextView feedHeaderTv;
+    private ScrollView pageScroll;
 
     private final List<MorpheEngine.MediaItem> currentFeed = new ArrayList<MorpheEngine.MediaItem>();
     private int currentFeedIdx = -1;
@@ -302,7 +303,7 @@ public class YouTubeActivity extends Activity {
         mainChrome.addView(chipScroll);
 
         // Responsive Split Body: Video Stage + Controls on Top/Left + Feed/Related List Below
-        ScrollView pageScroll = new ScrollView(this);
+        pageScroll = new ScrollView(this);
         LinearLayout pageBody = new LinearLayout(this);
         pageBody.setOrientation(LinearLayout.VERTICAL);
 
@@ -787,6 +788,9 @@ public class YouTubeActivity extends Activity {
         pauseBg.setAction(Arc7AudioService.ACTION_STOP_DISMISS);
         startService(pauseBg);
 
+        if (pageScroll != null) {
+            pageScroll.scrollTo(0, 0);
+        }
         playerOverlayStatusTv.setVisibility(View.VISIBLE);
         playerOverlayStatusTv.setText("Connecting to YouTube playback services...");
         videoTitleTv.setText(initialTitle);

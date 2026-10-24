@@ -641,12 +641,12 @@ fi
 cp -f releases/AuroraStore.apk app/src/main/assets/starter-apps/AuroraStore.apk
 
 mkdir -p app/src/main/assets/chromebook
-cp -f releases/Start-Chromebook-Wired-Internet.sh app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
-cp -f releases/Start-Kobo-Second-Screen.py app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
-cp -f releases/Start-PC-Stream-Deck.py app/src/main/assets/chromebook/Start-PC-Stream-Deck.py
-cp -f releases/Start-PC-Stream-Deck.bat app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat
-cp -f releases/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh
-cp -f releases/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
+cp -f tools/Start-Chromebook-Wired-Internet.sh app/src/main/assets/chromebook/Start-Chromebook-Wired-Internet.sh
+cp -f tools/Start-Kobo-Second-Screen.py app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
+cp -f tools/Start-PC-Stream-Deck.py app/src/main/assets/chromebook/Start-PC-Stream-Deck.py
+cp -f tools/Start-PC-Stream-Deck.bat app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat
+cp -f tools/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh
+cp -f tools/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
 echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.3 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1304 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
@@ -730,7 +730,7 @@ cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidCl
 echo "==> [7/8] Generating local Wi-Fi portal & writing SHA256SUMS.txt..."
 rm -rf docs
 rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
-chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
+chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
     Upgrade-My-Kobo-To-v2.5.3.apk \
@@ -742,7 +742,8 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-I
     FDroidClassicLegacy.apk \
     VanillaAndroid4Home.apk \
     logo-banner.png \
-    index.html \
+    index.html > SHA256SUMS.txt)
+(cd tools && sha256sum \
     Start-PC-Stream-Deck.py \
     Start-PC-Stream-Deck.bat \
     Start-PC-Stream-Deck.sh \
@@ -752,7 +753,7 @@ chmod +x releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-I
     Backup-Kobo-To-Laptop-ADB.bat \
     Backup-Kobo-To-Laptop-ADB.sh \
     Start-Kobo-WiFi-Server.bat \
-    Start-Kobo-WiFi-Server.sh > SHA256SUMS.txt)
+    Start-Kobo-WiFi-Server.sh) >> releases/SHA256SUMS.txt
 (cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
 # Fold the 27 standalone-app hashes into the top-level checksum file so a single
 # releases/latest/download/SHA256SUMS.txt verifies the whole release.
@@ -787,14 +788,14 @@ ls -lh \
     releases/FDroidClassicLegacy.apk \
     releases/VanillaAndroid4Home.apk \
     releases/logo-banner.png \
-    releases/Start-PC-Stream-Deck.py \
-    releases/Start-PC-Stream-Deck.bat \
-    releases/Start-PC-Stream-Deck.sh \
-    releases/Start-PC-School-VPN-Relay.py \
-    releases/Start-Chromebook-Wired-Internet.sh \
-    releases/Start-Kobo-Second-Screen.py \
-    releases/Backup-Kobo-To-Laptop-ADB.bat \
-    releases/Backup-Kobo-To-Laptop-ADB.sh \
-    releases/Start-Kobo-WiFi-Server.bat \
-    releases/Start-Kobo-WiFi-Server.sh \
+    tools/Start-PC-Stream-Deck.py \
+    tools/Start-PC-Stream-Deck.bat \
+    tools/Start-PC-Stream-Deck.sh \
+    tools/Start-PC-School-VPN-Relay.py \
+    tools/Start-Chromebook-Wired-Internet.sh \
+    tools/Start-Kobo-Second-Screen.py \
+    tools/Backup-Kobo-To-Laptop-ADB.bat \
+    tools/Backup-Kobo-To-Laptop-ADB.sh \
+    tools/Start-Kobo-WiFi-Server.bat \
+    tools/Start-Kobo-WiFi-Server.sh \
     releases/index.html

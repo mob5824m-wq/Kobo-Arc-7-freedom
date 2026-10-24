@@ -42,6 +42,9 @@ case "$PKG_DUMP" in
     *)
         echo "  Older or missing KoboArc7Freedom detected — automatically upgrading tablet to v1.8.1..."
         LOCAL_APK="$SCRIPT_DIR/KoboArc7Freedom.apk"
+        if [ ! -s "$LOCAL_APK" ] && [ -s "$SCRIPT_DIR/../releases/KoboArc7Freedom.apk" ]; then
+            LOCAL_APK="$SCRIPT_DIR/../releases/KoboArc7Freedom.apk"
+        fi
         if [ ! -s "$LOCAL_APK" ]; then
             LOCAL_APK="$HOME/.cache/kobo-arc7-adb/KoboArc7Freedom-v1.8.1.apk"
             mkdir -p "$(dirname "$LOCAL_APK")"

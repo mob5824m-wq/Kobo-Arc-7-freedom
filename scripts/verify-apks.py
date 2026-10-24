@@ -933,12 +933,26 @@ def verify_wifi_server_and_drive_fixes() -> None:
     import socket
     import time
 
-    for rel in ("releases/index.html", "releases/Start-Kobo-WiFi-Server.bat", "releases/Start-Kobo-WiFi-Server.sh",
-                "releases/Start-Chromebook-Wired-Internet.sh",
-                "releases/Backup-Kobo-To-Laptop-ADB.bat", "releases/Backup-Kobo-To-Laptop-ADB.sh"):
+    for rel in ("releases/index.html", "tools/Start-Kobo-WiFi-Server.bat", "tools/Start-Kobo-WiFi-Server.sh",
+                "tools/Start-Chromebook-Wired-Internet.sh",
+                "tools/Backup-Kobo-To-Laptop-ADB.bat", "tools/Backup-Kobo-To-Laptop-ADB.sh"):
         p = os.path.join(ROOT, rel)
         assert os.path.isfile(p) and os.path.getsize(p) > 512, f"Missing or empty {rel}"
-    print("  [PASS] 1-Click Chromebook USB Internet (.sh), USB ADB Backup (.bat + .sh) & Home Wi-Fi (.bat + .sh) scripts verified!")
+    for moved_tool in (
+        "Backup-Kobo-To-Laptop-ADB.bat",
+        "Backup-Kobo-To-Laptop-ADB.sh",
+        "Start-Chromebook-Wired-Internet.sh",
+        "Start-Kobo-Second-Screen.py",
+        "Start-Kobo-WiFi-Server.bat",
+        "Start-Kobo-WiFi-Server.sh",
+        "Start-PC-School-VPN-Relay.py",
+        "Start-PC-Stream-Deck.bat",
+        "Start-PC-Stream-Deck.py",
+        "Start-PC-Stream-Deck.sh",
+    ):
+        assert os.path.isfile(os.path.join(ROOT, "tools", moved_tool)), f"Missing tools/{moved_tool}"
+        assert not os.path.exists(os.path.join(ROOT, "releases", moved_tool)), f"Tool {moved_tool} still in releases/"
+    print("  [PASS] 1-Click Chromebook USB Internet (.sh), USB ADB Backup (.bat + .sh) & Home Wi-Fi (.bat + .sh) scripts verified in tools/!")
 
     # Verify compiled Arc7WifiDriveService has new methods & fast-reject logic
     drive_cls = os.path.join(ROOT, "build/app/classes/ca/arc7freedom/app/Arc7WifiDriveService.class")
@@ -1149,7 +1163,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
 
     with tempfile.TemporaryDirectory() as iso_dir:
         iso_sh = os.path.join(iso_dir, "Start-Kobo-WiFi-Server.sh")
-        shutil.copyfile(os.path.join(ROOT, "releases/Start-Kobo-WiFi-Server.sh"), iso_sh)
+        shutil.copyfile(os.path.join(ROOT, "tools/Start-Kobo-WiFi-Server.sh"), iso_sh)
         os.chmod(iso_sh, 0o755)
         iso_files = os.path.join(iso_dir, "Kobo-WiFi-Files")
         os.makedirs(iso_files, exist_ok=True)
@@ -1429,6 +1443,7 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
 
     seen_classes = {}
     verified_indexv1_noverify = False
+    verified_indexv1_streaming = False
     verified_installed_apk_safe = False
     with zipfile.ZipFile(fdroid_apk, "r") as zf:
         for dn in sorted(n for n in zf.namelist() if n.endswith(".dex")):
@@ -1448,6 +1463,17 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
                                 f"REGRESSION: IndexV1Updater.processDownloadedIndex still calls new JarFile(indexFile, true): {ins[1].get_raw().hex()}!"
                             )
                             verified_indexv1_noverify = True
+                        elif m.get_name() == "processIndexV1":
+                            ins = list(m.get_code().get_bc().get_instructions())
+                            assert (
+                                len(ins) == 2
+                                and ins[0].get_name() == "invoke-super"
+                                and "processIndexV1(" in ins[0].get_output()
+                                and ins[1].get_name() == "return-void"
+                            ), (
+                                "REGRESSION: IndexV1Updater.processIndexV1 in classes4.dex still deserializes full index-v1.json into RAM!"
+                            )
+                            verified_indexv1_streaming = True
                 elif cname == "Lorg/fdroid/fdroid/data/App;":
                     for m in cls.get_methods():
                         if m.get_name() == "initInstalledApk":
@@ -1460,6 +1486,7 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
                             )
                             verified_installed_apk_safe = True
         assert verified_indexv1_noverify, "Did not verify IndexV1Updater.processDownloadedIndex verify=false!"
+        assert verified_indexv1_streaming, "Did not verify IndexV1Updater.processIndexV1 streaming delegation!"
         assert verified_installed_apk_safe, "Did not verify App.initInstalledApk safe hook!"
         assert "Lorg/fdroid/fdroid/Arc7Bridge;" in seen_classes
         assert "Lorg/fdroid/fdroid/Arc7ApkKit;" in seen_classes
@@ -1702,8 +1729,8 @@ def verify_v200_all_11_upgrades() -> None:
         "tools/serve-over-wifi.py",
         "tools/serve-over-wifi.sh",
         "tools/serve-over-wifi.bat",
-        "releases/Start-Kobo-WiFi-Server.sh",
-        "releases/Start-Kobo-WiFi-Server.bat",
+        "tools/Start-Kobo-WiFi-Server.sh",
+        "tools/Start-Kobo-WiFi-Server.bat",
         "releases/index.html",
     ):
         txt = open(os.path.join(ROOT, check_rel), "r", encoding="utf-8", errors="ignore").read()
@@ -2777,7 +2804,7 @@ def verify_v230_native_vpn_streamdeck_and_relay(main_apk: str) -> None:
         sd_proc = subprocess.Popen(
             [
                 sys.executable,
-                os.path.join(ROOT, "releases/Start-PC-Stream-Deck.py"),
+                os.path.join(ROOT, "tools/Start-PC-Stream-Deck.py"),
                 "--port", str(sd_port),
                 "--web-port", str(web_port),
                 "--obs-port", str(obs_port),
@@ -2871,7 +2898,7 @@ def verify_v230_native_vpn_streamdeck_and_relay(main_apk: str) -> None:
         relay_proc = subprocess.Popen(
             [
                 sys.executable,
-                os.path.join(ROOT, "releases/Start-PC-School-VPN-Relay.py"),
+                os.path.join(ROOT, "tools/Start-PC-School-VPN-Relay.py"),
                 "--port", str(relay_port),
                 "--token", "student:schoolpass",
                 "--cert-dir", rtd,
@@ -3623,12 +3650,19 @@ def _axml_has_large_heap(raw: bytes) -> bool:
             if name_idx < len(strings) and strings[name_idx] == "application":
                 attr_start, attr_size, attr_count = _struct.unpack_from("<HHH", raw, pos + 24)
                 ap = pos + 16 + attr_start
+                found_large_heap = False
+                attr_rids = []
                 for _i in range(attr_count):
                     _ans, anm, _rawv = _struct.unpack_from("<III", raw, ap)
                     _vsz, _r0, dtype, data = _struct.unpack_from("<HBBI", raw, ap + 12)
+                    rid = rmap[anm] if anm < len(rmap) and rmap[anm] != 0 else 0xFFFFFFFF
+                    attr_rids.append(rid)
                     if anm < len(rmap) and rmap[anm] == 0x0101035A and dtype == 0x12 and data != 0:
-                        return True
+                        found_large_heap = True
                     ap += attr_size
+                # Android 4.2.2 AssetManager.retrieveAttributes requires <application> attributes
+                # to be sorted by ascending resource ID (0x0101035a before 0x010103af).
+                return found_large_heap and attr_rids == sorted(attr_rids)
         pos += csize
     return False
 
@@ -3774,8 +3808,19 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
     )
     for needle in ("arc7-last-crash.txt", "Arc7CrashGuard", "installCrashGuard"):
         assert needle in dex_strings, f"Missing F-Droid crash guard string {needle!r}"
-    for name in ("safeNotifyContentProviders", "safePerformUpdateNotification", "logCaught"):
-        assert name in fd_methods, f"Missing F-Droid post-sync guard method {name!r}"
+    for name in (
+        "safeNotifyContentProviders",
+        "safePerformUpdateNotification",
+        "logCaught",
+        "processIndexV1Streaming",
+        "streamCompatiblePackages",
+        "isApkCompatibleWithDevice",
+        "compactApk",
+        "compactApp",
+        "findDownloadedIndexJar",
+        "cleanupStaleDownloadTempFiles",
+    ):
+        assert name in fd_methods, f"Missing F-Droid stability/streaming method {name!r}"
 
     # Both post-sync calls in `onHandleIntent` sit AFTER the last try range of that method, so
     # they must be retargeted to the `Arc7Bridge.safe*` reflective Throwable guards.
@@ -3796,6 +3841,9 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
             f"UpdateService.onHandleIntent still calls the unguarded {wrapper.replace('safe','')}() "
             "outside every try range — the post-sync crash is not fixed!"
         )
+    assert "Ljava/lang/Throwable;->getMessage()Ljava/lang/String;" in post_sync_calls, (
+        "UpdateService.onHandleIntent catch(Throwable) still invokes Exception.getMessage()!"
+    )
     print("  [PASS] F-Droid v1304: largeHeap=true, Throwable catch in UpdateService, crash guard writing "
           "arc7-last-crash.txt + post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
 
@@ -3847,7 +3895,7 @@ def verify_requested_runtime_hardening() -> None:
     import contextlib
     import importlib.util
     import io as io_module
-    screen_path = os.path.join(ROOT, "releases/Start-Kobo-Second-Screen.py")
+    screen_path = os.path.join(ROOT, "tools/Start-Kobo-Second-Screen.py")
     screen_spec = importlib.util.spec_from_file_location("arc7_second_screen_test", screen_path)
     screen_module = importlib.util.module_from_spec(screen_spec)
     screen_spec.loader.exec_module(screen_module)
@@ -3870,7 +3918,7 @@ def verify_requested_runtime_hardening() -> None:
     assert captured.getvalue().count("Desktop clicks/keys are disabled") == 1
 
     # The PC ADB forwarding port is distinct from its Wi-Fi listener, and failures are visible.
-    pc_deck = open(os.path.join(ROOT, "releases/Start-PC-Stream-Deck.py"), encoding="utf-8").read()
+    pc_deck = open(os.path.join(ROOT, "tools/Start-PC-Stream-Deck.py"), encoding="utf-8").read()
     android_deck = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7StreamDeckActivity.java"), encoding="utf-8").read()
     assert "ADB_FORWARD_PORT = 18992" in pc_deck and "STREAM_DECK_PORT = 18991" in pc_deck
     assert 'f"tcp:{forward_port}"' in pc_deck and 'f"tcp:{device_port}"' in pc_deck
@@ -3893,8 +3941,29 @@ def verify_requested_runtime_hardening() -> None:
     assert "Resolving video: YouTube client" in morphe and "Trying video mirror" in morphe
     assert "loadPlaybackMetadataAsync(res, videoId)" in youtube
     assert "MorpheEngine.ResolutionProgressListener" in youtube
-    print("  [PASS] Standalone logos + immediate alias sync, Radio-Browser catalog, missing-xdotool safety, "
-          "separate ADB bridge port, and fast/progress-reporting YouTube playback verified")
+
+    remuxer = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/MorpheRemuxer.java"), encoding="utf-8").read()
+    for needle in ("remuxClassicMp4", "remuxSingleTrackClassicMp4", "buildClassicMoov"):
+        assert needle in remuxer, f"MorpheRemuxer classic Stagefright MP4 remux is missing {needle!r}"
+    assert "MorpheRemuxer.remuxClassicMp4" in morphe and "MorpheRemuxer.remuxSingleTrackClassicMp4" in morphe
+
+    radio_src = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7RadioRssActivity.java"), encoding="utf-8").read()
+    for needle in ("buildWaterlooRegionStations", "CBC Radio One — Waterloo Region", "CBLA-FM-2", "CBLAFM2.mp3",
+                   "98.5 CKWR", "CityNews 570", "96.7 CHYM", "Country 106.7", "105.3 Virgin Radio", "99.5 Bounce Radio"):
+        assert needle in radio_src, f"Arc7RadioRssActivity is missing Waterloo Region station {needle!r}"
+
+    browser_src = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7BrowserActivity.java"), encoding="utf-8").read()
+    books_src = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7BookSources.java"), encoding="utf-8").read()
+    tls_c = open(os.path.join(ROOT, "native/arc7tls.c"), encoding="utf-8").read()
+    for needle in ("remixbdr=1", "WEBVIEW_ES6_POLYFILL_SCRIPT", "badbrowser.php", "Chrome/135.0.0.0"):
+        assert needle in browser_src, f"Arc7BrowserActivity is missing vk.com fix {needle!r}"
+    for needle in ("remixbdr=1", "badbrowser.php", "prepareMainHtmlForWebView"):
+        assert needle in books_src, f"Arc7BookSources is missing vk.com fix {needle!r}"
+    for needle in ("remixbdr=1", "is_vk_host", "badbrowser.php", "Chrome/135.0.0.0"):
+        assert needle in tls_c, f"native/arc7tls.c is missing vk.com fix {needle!r}"
+
+    print("  [PASS] Standalone logos + immediate alias sync, Radio-Browser + Waterloo Region catalog, missing-xdotool safety, "
+          "separate ADB bridge port, vk.com badbrowser fix, and Stagefright classic MP4 YouTube/YTM playback verified")
 
 
 def main() -> None:

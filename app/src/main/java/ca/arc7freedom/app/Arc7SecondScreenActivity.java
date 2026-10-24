@@ -36,7 +36,7 @@ import java.util.Locale;
  *   - **Mode 1 — High-Speed USB (`adb forward tcp:18900 tcp:18900`) or Wi-Fi (`:18900`) Monitor:**
  *     Streams live desktop JPEG frames straight onto the Kobo Arc 7 `1280x800` IPS panel while
  *     sending normalized `TOUCH x y` & `MACRO id` events back over the same TCP socket to
- *     `releases/Start-Kobo-Second-Screen.py`!
+ *     `tools/Start-Kobo-Second-Screen.py`!
  *   - **Mode 2 — 12-Key Touch Macro Pad:** Instant hardware/desktop shortcut triggers!
  */
 public class Arc7SecondScreenActivity extends Activity {

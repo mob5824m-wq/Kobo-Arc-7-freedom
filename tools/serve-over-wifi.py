@@ -902,6 +902,10 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
 
             decoded = os.path.basename(urllib.parse.unquote(rel.lstrip("/")))
             target = os.path.join(RELEASES_DIR, decoded)
+            if not os.path.isfile(target):
+                tools_cand = os.path.join(TOOLS_DIR, decoded)
+                if os.path.isfile(tools_cand):
+                    target = tools_cand
             if not os.path.isfile(target) and image_mime_for_name(decoded):
                 icon_fallback = resolve_icon_path(decoded)
                 if icon_fallback:
@@ -1005,9 +1009,9 @@ def write_static_pages() -> None:
     os.makedirs(RELEASES_DIR, exist_ok=True)
     icons_dir = os.path.join(RELEASES_DIR, "icons")
     os.makedirs(icons_dir, exist_ok=True)
-    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.bat"))
-    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"))
-    os.chmod(os.path.join(RELEASES_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
+    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.bat"))
+    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh"))
+    os.chmod(os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
 
     rel_html = render_portal_html(static_mode=True)
     for icon_file in sorted(set(re.findall(r"\./icons/([A-Za-z0-9_.-]+)", rel_html))):
