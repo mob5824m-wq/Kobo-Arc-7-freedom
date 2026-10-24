@@ -237,24 +237,43 @@ def patch_manifest_add_large_heap(axml: bytes) -> bytes:
     assert attr_size == 20, f"Unexpected AXML attribute size {attr_size}"
     ns_idx, elem_name_idx = struct.unpack_from("<II", axml, app_pos + 16)
 
-    # If a previous build already injected the attribute, only make sure its id is right.
+    # If a previous build already injected the attribute, we still re-sort all
+    # <application> attributes by ascending Android resource ID (0x0101xxxx).
+    # Android 4.2.2's native `AssetManager::retrieveAttributes()` scans attributes
+    # in a single forward pass assuming ascending resource ID order; if `largeHeap`
+    # (`0x0101035a`) is placed after `supportsRtl` (`0x010103af`), Android 4.2.2
+    # silently ignores `largeHeap="true"` and leaves F-Droid on a 48 MB heap!
     existing = None
     for i in range(attr_count):
         ap = app_pos + 16 + attr_start + i * attr_size
         _ans, anm, _raw = struct.unpack_from("<III", axml, ap)
-        if anm < len(rmap) and rmap[anm] == LARGE_HEAP_ATTR_ID:
+        if anm < len(new_rmap) and new_rmap[anm] == LARGE_HEAP_ATTR_ID:
             existing = i
             break
-    if existing is not None and len(rmap) >= len(strings):
-        return axml
 
-    # `android:largeHeap="true"` => typed Res_value {size=8, res0=0, TYPE_INT_BOOLEAN, 0xFFFFFFFF}
-    new_attr = struct.pack("<IIIHBBI", ns_idx, name_idx, 0xFFFFFFFF, 8, 0, 0x12, 0xFFFFFFFF)
     new_app = bytearray(axml[app_pos : app_pos + app_size])
-    insert_at = 16 + attr_start + attr_count * attr_size
-    new_app[insert_at:insert_at] = new_attr
-    struct.pack_into("<H", new_app, 28, attr_count + 1)
-    struct.pack_into("<I", new_app, 4, app_size + len(new_attr))
+    if existing is None:
+        # `android:largeHeap="true"` => typed Res_value {size=8, res0=0, TYPE_INT_BOOLEAN, 0xFFFFFFFF}
+        new_attr = struct.pack("<IIIHBBI", ns_idx, name_idx, 0xFFFFFFFF, 8, 0, 0x12, 0xFFFFFFFF)
+        insert_at = 16 + attr_start + attr_count * attr_size
+        new_app[insert_at:insert_at] = new_attr
+        attr_count += 1
+        struct.pack_into("<H", new_app, 28, attr_count)
+        struct.pack_into("<I", new_app, 4, app_size + len(new_attr))
+
+    attr_base = 16 + attr_start
+    attr_records = [
+        bytes(new_app[attr_base + i * attr_size : attr_base + (i + 1) * attr_size])
+        for i in range(attr_count)
+    ]
+
+    def _attr_sort_key(rec: bytes):
+        _ans, anm = struct.unpack_from("<II", rec, 0)
+        rid = new_rmap[anm] if 0 <= anm < len(new_rmap) and new_rmap[anm] != 0 else 0xFFFFFFFF
+        return (rid, anm)
+
+    attr_records.sort(key=_attr_sort_key)
+    new_app[attr_base : attr_base + attr_count * attr_size] = b"".join(attr_records)
 
     new_pool = _axml_build_string_pool(strings, is_utf8, flags)
     new_map = struct.pack("<HHI", 0x0180, 8, len(new_rmap) * 4 + 8)
@@ -357,6 +376,34 @@ def patch_update_service_catch_throwable(raw_dex: bytes) -> bytes:
                 seen_throwable += 1
         if is_catch_all:
             _addr, hp = _read_uleb128(buf, hp)
+
+    # Also rewrite `invoke-virtual {vX}, Ljava/lang/Exception;->getMessage()Ljava/lang/String;`
+    # inside the catch block of `onHandleIntent` to `Ljava/lang/Throwable;->getMessage()Ljava/lang/String;`
+    # so the receiver register is type-consistent with `catch (Throwable)`.
+    method_ids_size, _csz, _coff, _get_type, get_method = _dex_lookup_tables(buf)
+    exc_get_msg_idx = None
+    thr_get_msg_idx = None
+    for midx in range(method_ids_size):
+        mcls, mname, mproto = get_method(midx)
+        if mname == "getMessage" and mproto == "()Ljava/lang/String;":
+            if mcls == "Ljava/lang/Exception;":
+                exc_get_msg_idx = midx
+            elif mcls == "Ljava/lang/Throwable;":
+                thr_get_msg_idx = midx
+    if exc_get_msg_idx is not None and thr_get_msg_idx is not None:
+        insns_off = code_off + 16
+        end_off = insns_off + insns_size * 2
+        old_prefix = bytes([0x6E, 0x10]) + struct.pack("<H", exc_get_msg_idx)
+        new_prefix = bytes([0x6E, 0x10]) + struct.pack("<H", thr_get_msg_idx)
+        pos = insns_off
+        while True:
+            hit = buf.find(old_prefix, pos, end_off)
+            if hit < 0:
+                break
+            if (hit - insns_off) % 2 == 0:
+                buf[hit : hit + 4] = new_prefix
+                patched += 1
+            pos = hit + 2
 
     if patched == 0 and seen_throwable > 0:
         return raw_dex
@@ -755,6 +802,46 @@ def patch_indexv1_jarfile_noverify(raw_dex: bytes) -> bytes:
     return _rehash_dex(buf)
 
 
+def patch_indexv1_process_streaming(raw_dex: bytes) -> bytes:
+    """
+    Replaces `Lorg/fdroid/fdroid/IndexV1Updater;->processIndexV1(Ljava/io/InputStream;Ljava/util/jar/JarEntry;Ljava/lang/String;)V`
+    in `classes4.dex` with a 2-instruction `invoke-super` delegation to
+    `Lorg/fdroid/fdroid/IndexUpdater;->processIndexV1(Ljava/io/InputStream;Ljava/util/jar/JarEntry;Ljava/lang/String;)V`
+    -> `Arc7Bridge.processIndexV1Streaming(...)`.
+
+    Upstream `IndexV1Updater.processIndexV1` deserialized the entire 65–100 MB 2026 `index-v1.json`
+    (`App[]` of 4,500+ apps + `Map<String, List<Apk>>` of 13,000–35,000+ APKs) into the Dalvik heap
+    simultaneously, causing Android 4.2.2 Dalvik (`dvmMalloc` in `Heap.cpp`) to throw
+    `OutOfMemoryError("memory exhausted")` -> `"Error during update: memory exhausted"`.
+    """
+    buf = bytearray(raw_dex)
+    method_ids_size, _csz, _coff, _get_type, get_method = _dex_lookup_tables(buf)
+    proc_midx = None
+    for midx in range(method_ids_size):
+        mcls, mname, mproto = get_method(midx)
+        if (
+            mcls == "Lorg/fdroid/fdroid/IndexV1Updater;"
+            and mname == "processIndexV1"
+            and mproto == "(Ljava/io/InputStream;Ljava/util/jar/JarEntry;Ljava/lang/String;)V"
+        ):
+            proc_midx = midx
+            break
+    assert proc_midx is not None and proc_midx < 65536, "Missing IndexV1Updater.processIndexV1 method_id in classes4.dex!"
+
+    code_off = _find_method_code_off(
+        buf,
+        "Lorg/fdroid/fdroid/IndexV1Updater;",
+        "processIndexV1",
+        "(Ljava/io/InputStream;Ljava/util/jar/JarEntry;Ljava/lang/String;)V",
+    )
+    # regs_size=4, ins_size=4, outs_size=4, tries_size=0, debug_info_off=0, insns_size=4
+    struct.pack_into("<HHHHII", buf, code_off, 4, 4, 4, 0, 0, 4)
+    # invoke-super {v0, v1, v2, v3}, Lorg/fdroid/fdroid/IndexV1Updater;->processIndexV1(...)
+    # return-void
+    struct.pack_into("<HHHH", buf, code_off + 16, 0x406F, proc_midx, 0x3210, 0x000E)
+    return _rehash_dex(buf)
+
+
 def patch_app_init_installed_apk_safe(raw_dex: bytes) -> bytes:
     """
     Replaces the `new JarFile(installedFile)` tail in
@@ -892,17 +979,131 @@ public interface ProgressListener {
 """),
         write_java(stubs_dir, "org/fdroid/fdroid/data/Repo.java", """
 package org.fdroid.fdroid.data;
+import java.util.Date;
 public class Repo {
     public String address;
+    public String description;
+    public String fingerprint;
+    public String icon;
+    protected long id;
+    public boolean inuse;
+    public boolean isSwap;
+    public Date lastUpdated;
+    public String lastetag;
+    public int maxage;
+    public String[] mirrors;
+    public String name;
+    public String password;
+    public int priority;
+    public int pushRequests;
+    public String signingCertificate;
+    public long timestamp;
+    public String[] userMirrors;
+    public String username;
+    public int version;
+    public long getId() { return id; }
 }
 """),
         write_java(stubs_dir, "org/fdroid/fdroid/data/Apk.java", """
 package org.fdroid.fdroid.data;
 import android.os.Parcelable;
+import java.util.Date;
 public abstract class Apk implements Parcelable {
-    public String packageName;
+    public Date added;
+    public String[] antiFeatures;
+    public String apkName;
+    public long appId;
+    public boolean compatible;
+    public String[] features;
+    public String hash;
+    public String hashType;
+    public String[] incompatibleReasons;
+    public int maxSdkVersion;
+    public int minSdkVersion;
     public String[] nativecode;
+    public String obbMainFile;
+    public String obbMainFileSha256;
+    public String obbPatchFile;
+    public String obbPatchFileSha256;
+    public String packageName;
+    public long repoId;
+    public String[] requestedPermissions;
     public String sig;
+    public int size;
+    public String srcname;
+    public int targetSdkVersion;
+    public int versionCode;
+    public String versionName;
+    public boolean isApk() { return true; }
+}
+"""),
+        write_java(stubs_dir, "org/fdroid/fdroid/data/App.java", """
+package org.fdroid.fdroid.data;
+import android.os.Parcelable;
+import java.util.Date;
+public abstract class App implements Parcelable {
+    public Date added;
+    public String[] antiFeatures;
+    public String authorEmail;
+    public String authorName;
+    public String bitcoin;
+    public String[] categories;
+    public String changelog;
+    public boolean compatible;
+    public String description;
+    public String donate;
+    public String featureGraphic;
+    public String flattrID;
+    public String iconFromApk;
+    public boolean isApk;
+    public String issueTracker;
+    public Date lastUpdated;
+    public String liberapay;
+    public String license;
+    public String litecoin;
+    public String name;
+    public String openCollective;
+    public String packageName;
+    public String[] phoneScreenshots;
+    public String preferredSigner;
+    public String promoGraphic;
+    public long repoId;
+    public String[] requirements;
+    public String[] sevenInchScreenshots;
+    public String sourceCode;
+    public int suggestedVersionCode;
+    public String summary;
+    public String[] tenInchScreenshots;
+    public String translation;
+    public String tvBanner;
+    public String[] tvScreenshots;
+    public int upstreamVersionCode;
+    public String upstreamVersionName;
+    public String video;
+    public String[] wearScreenshots;
+    public String webSite;
+    public String whatsNew;
+}
+"""),
+        write_java(stubs_dir, "org/fdroid/fdroid/data/RepoPersister.java", """
+package org.fdroid.fdroid.data;
+import android.content.ContentValues;
+import android.content.Context;
+import org.fdroid.fdroid.IndexUpdater$UpdateException;
+import java.util.List;
+public class RepoPersister {
+    public RepoPersister(Context context, Repo repo) {}
+    public void saveToDb(App app, List<Apk> packages) throws IndexUpdater$UpdateException {}
+    public void commit(ContentValues repoDetailsToSave, long repoId) throws IndexUpdater$UpdateException {}
+}
+"""),
+        write_java(stubs_dir, "org/fdroid/fdroid/Utils.java", """
+package org.fdroid.fdroid;
+import java.util.Date;
+public final class Utils {
+    public static void debugLog(String tag, String msg) {}
+    public static String formatTime(Date date, String fallback) { return ""; }
+    public static String serializeCommaSeparatedString(String[] list) { return ""; }
 }
 """),
         write_java(stubs_dir, "org/fdroid/fdroid/UpdateService.java", """
@@ -916,8 +1117,78 @@ public class UpdateService {
 """),
         write_java(stubs_dir, "org/fdroid/fdroid/IndexUpdaterSigningStub.java", """
 package org.fdroid.fdroid;
-class IndexUpdater$SigningException extends Exception {
+import org.fdroid.fdroid.data.Repo;
+class IndexUpdater$SigningException extends IndexUpdater$UpdateException {
     public IndexUpdater$SigningException(String msg) { super(msg); }
+    public IndexUpdater$SigningException(Repo repo, String msg) { super(msg); }
+}
+"""),
+        write_java(stubs_dir, "org/fdroid/fdroid/IndexUpdater$UpdateException.java", """
+package org.fdroid.fdroid;
+public class IndexUpdater$UpdateException extends Exception {
+    public IndexUpdater$UpdateException(String msg) { super(msg); }
+    public IndexUpdater$UpdateException(String msg, Exception e) { super(msg, e); }
+}
+"""),
+        write_java(stubs_dir, "org/fdroid/fdroid/IndexV1Updater.java", """
+package org.fdroid.fdroid;
+import android.content.Context;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.fdroid.fdroid.data.Repo;
+public class IndexV1Updater extends IndexUpdater {
+    public IndexV1Updater(Context c, Repo r) { super(c, r); }
+    @Override
+    protected String getIndexUrl(Repo r) { return null; }
+    public static ObjectMapper getObjectMapperInstance(long repoId) { return null; }
+}
+"""),
+        write_java(stubs_dir, "com/fasterxml/jackson/core/JsonToken.java", """
+package com.fasterxml.jackson.core;
+public enum JsonToken {
+    NOT_AVAILABLE,
+    START_OBJECT,
+    END_OBJECT,
+    START_ARRAY,
+    END_ARRAY,
+    FIELD_NAME,
+    VALUE_EMBEDDED_OBJECT,
+    VALUE_STRING,
+    VALUE_NUMBER_INT,
+    VALUE_NUMBER_FLOAT,
+    VALUE_TRUE,
+    VALUE_FALSE,
+    VALUE_NULL
+}
+"""),
+        write_java(stubs_dir, "com/fasterxml/jackson/core/JsonParser.java", """
+package com.fasterxml.jackson.core;
+import java.io.Closeable;
+import java.io.IOException;
+public abstract class JsonParser implements Closeable {
+    public abstract void close() throws IOException;
+    public abstract String getCurrentName() throws IOException;
+    public abstract JsonToken getCurrentToken();
+    public String nextFieldName() throws IOException { return null; }
+    public abstract JsonToken nextToken() throws IOException;
+    public abstract JsonParser skipChildren() throws IOException;
+}
+"""),
+        write_java(stubs_dir, "com/fasterxml/jackson/core/JsonFactory.java", """
+package com.fasterxml.jackson.core;
+import java.io.IOException;
+import java.io.InputStream;
+public class JsonFactory {
+    public JsonParser createParser(InputStream in) throws IOException { return null; }
+}
+"""),
+        write_java(stubs_dir, "com/fasterxml/jackson/databind/ObjectMapper.java", """
+package com.fasterxml.jackson.databind;
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParser;
+import java.io.IOException;
+public class ObjectMapper {
+    public JsonFactory getFactory() { return null; }
+    public <T> T readValue(JsonParser p, Class<T> valueType) throws IOException { return null; }
 }
 """),
         write_java(stubs_dir, "org/fdroid/fdroid/installer/DefaultInstaller.java", """
@@ -945,17 +1216,25 @@ public class DefaultInstaller {
 package org.fdroid.fdroid;
 
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
+import android.os.Build;
 import android.util.Log;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.fdroid.fdroid.data.Apk;
+import org.fdroid.fdroid.data.App;
+import org.fdroid.fdroid.data.RepoPersister;
 import org.fdroid.fdroid.installer.DefaultInstaller;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.HttpURLConnection;
@@ -971,8 +1250,10 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.jar.JarEntry;
 import java.util.regex.Matcher;
@@ -1150,6 +1431,13 @@ public final class Arc7Bridge {
                         "UPDATE fdroid_repo SET inuse = 0 WHERE address LIKE '%bubu1.eu%' OR address LIKE '%briarproject.org%'");
                 db.execSQL(
                         "UPDATE fdroid_repo SET inuse = 1 WHERE address LIKE '%/f-droid.org/repo'");
+                try {
+                    int maxSdk = Build.VERSION.SDK_INT > 0 ? Build.VERSION.SDK_INT : 17;
+                    db.execSQL("DELETE FROM fdroid_apk WHERE minSdkVersion > " + maxSdk);
+                    db.execSQL("DELETE FROM fdroid_app WHERE compatible = 0 AND NOT EXISTS ("
+                            + "SELECT 1 FROM fdroid_apk WHERE fdroid_apk.appId = fdroid_app.rowid)");
+                } catch (Throwable ignored) {
+                }
             }
         } catch (Throwable ignored) {
         } finally {
@@ -1265,6 +1553,516 @@ public final class Arc7Bridge {
         }
         if (lastErr != null) throw lastErr;
         throw new SecurityException("Downloaded index JAR not found in cache for verification");
+    }
+
+    /**
+     * Locates the backing `index-v1.jar` file in `context.getCacheDir()` / `context.getExternalCacheDir()`
+     * matching `jarEntry.getSize()` + `jarEntry.getCrc()` so Pass 2 of streaming index parsing can
+     * re-open `index-v1.json` without buffering the 65–100 MB uncompressed JSON in RAM.
+     */
+    public static File findDownloadedIndexJar(JarEntry jarEntry) {
+        if (jarEntry == null) return null;
+        Context ctx = CURRENT_CTX.get();
+        if (ctx == null) ctx = LAST_APP_CTX;
+        if (ctx == null) return null;
+
+        List<File> candidates = new ArrayList<File>();
+        collectCandidateFiles(ctx.getCacheDir(), candidates, 0);
+        try {
+            collectCandidateFiles(ctx.getExternalCacheDir(), candidates, 0);
+        } catch (Throwable ignored) {}
+        if (candidates.isEmpty()) return null;
+
+        Collections.sort(candidates, new Comparator<File>() {
+            @Override
+            public int compare(File a, File b) {
+                long la = a.lastModified();
+                long lb = b.lastModified();
+                return lb > la ? 1 : (lb < la ? -1 : 0);
+            }
+        });
+
+        long wantSize = jarEntry.getSize();
+        long wantCrc = jarEntry.getCrc();
+        String entryName = jarEntry.getName() != null ? jarEntry.getName() : "index-v1.json";
+
+        for (int pass = 0; pass < 2; pass++) {
+            for (File f : candidates) {
+                ZipFile zf = null;
+                try {
+                    zf = new ZipFile(f);
+                    ZipEntry ze = zf.getEntry(entryName);
+                    if (ze != null) {
+                        if (pass == 0) {
+                            boolean matches = (wantSize < 0 || ze.getSize() < 0 || ze.getSize() == wantSize)
+                                    && (wantCrc < 0 || ze.getCrc() < 0 || ze.getCrc() == wantCrc);
+                            if (matches) return f;
+                        } else {
+                            return f;
+                        }
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    if (zf != null) { try { zf.close(); } catch (Throwable ignored) {} }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Deletes stale `dl-*` temporary index files from prior repository syncs in `cacheDir`
+     * while preserving `keepFile` (`index-v1.jar` currently being processed).
+     */
+    private static void cleanupStaleDownloadTempFiles(Context ctx, File keepFile) {
+        if (ctx == null) return;
+        try {
+            File cacheDir = ctx.getCacheDir();
+            if (cacheDir == null) return;
+            File[] files = cacheDir.listFiles();
+            if (files == null) return;
+            String keepPath = keepFile != null ? keepFile.getAbsolutePath() : null;
+            for (int i = 0; i < files.length; i++) {
+                File f = files[i];
+                if (f != null && f.isFile() && f.getName().startsWith("dl-")) {
+                    if (keepPath == null || !keepPath.equals(f.getAbsolutePath())) {
+                        try { f.delete(); } catch (Throwable ignored) {}
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static String intern(String s, Map<String, String> pool) {
+        if (s == null) return null;
+        if (s.length() == 0) return "";
+        if (s.length() > 96) return s;
+        String cached = pool.get(s);
+        if (cached != null) return cached;
+        pool.put(s, s);
+        return s;
+    }
+
+    private static void internArray(String[] arr, Map<String, String> pool) {
+        if (arr == null) return;
+        for (int i = 0; i < arr.length; i++) {
+            arr[i] = intern(arr[i], pool);
+        }
+    }
+
+    private static String[] capAndInternArray(String[] arr, int maxLen, Map<String, String> pool) {
+        if (arr == null) return null;
+        int n = Math.min(arr.length, maxLen);
+        String[] res = (arr.length > maxLen) ? new String[n] : arr;
+        for (int i = 0; i < n; i++) {
+            res[i] = intern(arr[i], pool);
+        }
+        return res;
+    }
+
+    private static boolean isApkCompatibleWithDevice(Apk apk) {
+        if (apk == null) return false;
+        int deviceSdk = Build.VERSION.SDK_INT > 0 ? Build.VERSION.SDK_INT : 17;
+        if (apk.minSdkVersion > deviceSdk) {
+            return false;
+        }
+        if (apk.maxSdkVersion > 0 && apk.maxSdkVersion < deviceSdk) {
+            return false;
+        }
+        if (apk.nativecode != null && apk.nativecode.length > 0) {
+            boolean abiMatch = false;
+            String cpuAbi = Build.CPU_ABI;
+            String cpuAbi2 = Build.CPU_ABI2;
+            for (int i = 0; i < apk.nativecode.length; i++) {
+                String abi = apk.nativecode[i];
+                if ("armeabi-v7a".equals(abi)
+                        || "armeabi".equals(abi)
+                        || (cpuAbi != null && cpuAbi.equals(abi))
+                        || (cpuAbi2 != null && cpuAbi2.equals(abi))) {
+                    abiMatch = true;
+                    break;
+                }
+            }
+            if (!abiMatch) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static void compactApk(Apk apk, String pkgName, Map<String, String> pool) {
+        if (apk == null) return;
+        if (pkgName != null) apk.packageName = pkgName;
+        apk.hashType = intern(apk.hashType, pool);
+        apk.sig = intern(apk.sig, pool);
+        apk.versionName = intern(apk.versionName, pool);
+        internArray(apk.requestedPermissions, pool);
+        internArray(apk.features, pool);
+        internArray(apk.nativecode, pool);
+        internArray(apk.antiFeatures, pool);
+    }
+
+    private static void compactApp(App app, Map<String, String> pool) {
+        if (app == null) return;
+        app.packageName = intern(app.packageName, pool);
+        app.license = intern(app.license, pool);
+        if (app.description != null && app.description.length() > 4000) {
+            app.description = app.description.substring(0, 4000);
+        }
+        if (app.whatsNew != null && app.whatsNew.length() > 1500) {
+            app.whatsNew = app.whatsNew.substring(0, 1500);
+        }
+        internArray(app.categories, pool);
+        internArray(app.antiFeatures, pool);
+        internArray(app.requirements, pool);
+        app.phoneScreenshots = capAndInternArray(app.phoneScreenshots, 4, pool);
+        app.sevenInchScreenshots = capAndInternArray(app.sevenInchScreenshots, 4, pool);
+        app.tenInchScreenshots = capAndInternArray(app.tenInchScreenshots, 4, pool);
+        app.tvScreenshots = null;
+        app.wearScreenshots = null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static HashMap<String, Object> invokeParseRepo(
+            IndexUpdater updater, ObjectMapper mapper, JsonParser parser) throws Exception {
+        Method m = updater.getClass().getDeclaredMethod(
+                "parseRepo", ObjectMapper.class, JsonParser.class);
+        m.setAccessible(true);
+        return (HashMap<String, Object>) m.invoke(updater, mapper, parser);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, String[]> invokeParseRequests(
+            IndexUpdater updater, ObjectMapper mapper, JsonParser parser) throws Exception {
+        Method m = updater.getClass().getDeclaredMethod(
+                "parseRequests", ObjectMapper.class, JsonParser.class);
+        m.setAccessible(true);
+        return (Map<String, String[]>) m.invoke(updater, mapper, parser);
+    }
+
+    private static void invokeVerifySigningCertificate(
+            IndexUpdater updater, X509Certificate cert) throws IndexUpdater$SigningException {
+        try {
+            Method m = updater.getClass().getDeclaredMethod(
+                    "verifySigningCertificate", X509Certificate.class);
+            m.setAccessible(true);
+            m.invoke(updater, cert);
+        } catch (InvocationTargetException ite) {
+            Throwable cause = ite.getCause();
+            if (cause instanceof IndexUpdater$SigningException) {
+                throw (IndexUpdater$SigningException) cause;
+            }
+            throw new IndexUpdater$SigningException(
+                    updater.repo, cause != null ? cause.getMessage() : ite.getMessage());
+        } catch (Exception e) {
+            throw new IndexUpdater$SigningException(updater.repo, e.getMessage());
+        }
+    }
+
+    private static Map<String, List<Apk>> streamCompatiblePackages(
+            ObjectMapper mapper, JsonParser parser, Map<String, String> stringPool) throws IOException {
+        Map<String, List<Apk>> result = new HashMap<String, List<Apk>>(1024);
+        JsonToken tok = parser.nextToken();
+        if (tok != JsonToken.START_OBJECT) {
+            return result;
+        }
+        while (parser.nextToken() == JsonToken.FIELD_NAME) {
+            String pkgName = intern(parser.getCurrentName(), stringPool);
+            JsonToken valTok = parser.nextToken();
+            if (valTok == JsonToken.START_ARRAY) {
+                List<Apk> compatApks = null;
+                while (parser.nextToken() != JsonToken.END_ARRAY) {
+                    if (parser.getCurrentToken() == JsonToken.START_OBJECT) {
+                        Apk apk = mapper.readValue(parser, Apk.class);
+                        if (apk != null && isApkCompatibleWithDevice(apk)) {
+                            compactApk(apk, pkgName, stringPool);
+                            if (compatApks == null) {
+                                compatApks = new ArrayList<Apk>(2);
+                            }
+                            if (compatApks.size() < 2) {
+                                compatApks.add(apk);
+                            }
+                        }
+                    } else {
+                        parser.skipChildren();
+                    }
+                }
+                if (compatApks != null && !compatApks.isEmpty()) {
+                    result.put(pkgName, compatApks);
+                }
+            } else {
+                parser.skipChildren();
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Low-memory streaming replacement for `IndexV1Updater.processIndexV1(InputStream, JarEntry, String)`:
+     *   - Upstream `IndexV1Updater.processIndexV1` deserialized the entire 65–100 MB 2026 `index-v1.json`
+     *     (`App[]` of 4,500+ apps + `Map<String, List<Apk>>` of 13,000–35,000+ APKs) into the Dalvik heap
+     *     at once, exhausting Android 4.2.2's heap (`OutOfMemoryError: "memory exhausted"`).
+     *   - When `backingJar` (`index-v1.jar` in `cacheDir`) is available, performs a 2-pass streaming scan:
+     *       Pass 1: Parses `"repo"`, `"requests"`, and streams `"packages"` one `Apk` at a time, retaining
+     *               only Android 4.2.2 (`SDK_INT <= 17`, ARMv7/ARM/universal) compatible APKs (at most 2
+     *               per package) with interned strings while skipping `"apps"` with zero `App` allocations.
+     *       Pass 2: Re-opens `index-v1.json` from `backingJar` and streams `"apps"` one `App` at a time,
+     *               immediately discarding apps without compatible APKs and flushing compatible apps to
+     *               SQLite in 50-app batches via `RepoPersister`.
+     *   - Filtering out `minSdkVersion > 17` apps in `f-droid.org/repo` also prevents `AppProvider.updatePreferredMetadata`
+     *     (which selects `MAX(r.priority)` without checking `compatible = 1`) from letting incompatible
+     *     `f-droid.org/repo` (`priority=10`) rows shadow compatible `f-droid.org/archive` (`priority=9`) rows!
+     */
+    public static void processIndexV1Streaming(
+            IndexUpdater updater,
+            InputStream indexInputStream,
+            JarEntry indexEntry,
+            String etag) throws IOException, IndexUpdater$UpdateException {
+        registerCurrentContext(updater.context);
+        File backingJar = findDownloadedIndexJar(indexEntry);
+        cleanupStaleDownloadTempFiles(updater.context, backingJar);
+        System.gc();
+
+        ObjectMapper mapper = IndexV1Updater.getObjectMapperInstance(updater.repo.getId());
+        JsonParser parser = mapper.getFactory().createParser(indexInputStream);
+
+        HashMap<String, Object> repoDetails = null;
+        Map<String, String[]> requests = null;
+        Map<String, List<Apk>> packages = null;
+        List<App> fallbackApps = null;
+        Map<String, String> stringPool = new HashMap<String, String>(2048);
+
+        try {
+            parser.nextToken();
+            while (true) {
+                String field = parser.nextFieldName();
+                if (field == null) {
+                    break;
+                }
+                if ("repo".equals(field)) {
+                    repoDetails = invokeParseRepo(updater, mapper, parser);
+                } else if ("requests".equals(field)) {
+                    requests = invokeParseRequests(updater, mapper, parser);
+                } else if ("apps".equals(field)) {
+                    if (backingJar != null) {
+                        JsonToken tok = parser.nextToken();
+                        if (tok == JsonToken.START_ARRAY || tok == JsonToken.START_OBJECT) {
+                            parser.skipChildren();
+                        }
+                    } else {
+                        fallbackApps = new ArrayList<App>(512);
+                        if (parser.nextToken() == JsonToken.START_ARRAY) {
+                            while (parser.nextToken() != JsonToken.END_ARRAY) {
+                                if (parser.getCurrentToken() == JsonToken.START_OBJECT) {
+                                    App app = mapper.readValue(parser, App.class);
+                                    if (app != null) {
+                                        compactApp(app, stringPool);
+                                        fallbackApps.add(app);
+                                    }
+                                } else {
+                                    parser.skipChildren();
+                                }
+                            }
+                        } else {
+                            parser.skipChildren();
+                        }
+                    }
+                } else if ("packages".equals(field)) {
+                    packages = streamCompatiblePackages(mapper, parser, stringPool);
+                } else {
+                    parser.nextToken();
+                    parser.skipChildren();
+                }
+            }
+        } catch (IndexUpdater$UpdateException ue) {
+            throw ue;
+        } catch (IOException ioe) {
+            throw ioe;
+        } catch (Exception e) {
+            throw new IndexUpdater$UpdateException("Error parsing index-v1.json: " + e.getMessage(), e);
+        } finally {
+            try { parser.close(); } catch (Throwable ignored) {}
+        }
+
+        if (repoDetails == null) {
+            Utils.debugLog("IndexV1Updater", "Empty repository metadata in index-v1.json");
+            return;
+        }
+
+        long timestamp = ((Number) repoDetails.get("timestamp")).longValue() / 1000L;
+        if (updater.repo.timestamp > timestamp) {
+            throw new IndexUpdater$UpdateException(
+                    "index.jar is older that current index! " + timestamp + " < " + updater.repo.timestamp);
+        }
+
+        X509Certificate rawCertFromJar = IndexUpdater.getSigningCertFromJar(indexEntry);
+        invokeVerifySigningCertificate(updater, rawCertFromJar);
+
+        updater.repo.timestamp = timestamp;
+        updater.repo.lastetag = etag;
+        if (repoDetails.containsKey("name")) {
+            updater.repo.name = (String) repoDetails.get("name");
+        }
+        if (repoDetails.containsKey("icon")) {
+            updater.repo.icon = (String) repoDetails.get("icon");
+        }
+        if (repoDetails.containsKey("description")) {
+            updater.repo.description = (String) repoDetails.get("description");
+        }
+
+        HashSet<String> mirrors = new HashSet<String>();
+        mirrors.add(updater.repo.address);
+        if (repoDetails.containsKey("mirrors")) {
+            String[] repoMirrors = (String[]) repoDetails.get("mirrors");
+            if (repoMirrors != null) {
+                Collections.addAll(mirrors, repoMirrors);
+            }
+        }
+        updater.repo.mirrors = mirrors.toArray(new String[mirrors.size()]);
+
+        if (repoDetails.containsKey("maxage")) {
+            updater.repo.maxage = ((Number) repoDetails.get("maxage")).intValue();
+        }
+        if (repoDetails.containsKey("version")) {
+            updater.repo.version = ((Number) repoDetails.get("version")).intValue();
+        }
+
+        if (packages == null) {
+            packages = new HashMap<String, List<Apk>>();
+        }
+
+        RepoPersister repoPersister = new RepoPersister(updater.context, updater.repo);
+        int totalToSave = Math.max(1, packages.size());
+        int savedCount = 0;
+
+        if (backingJar != null) {
+            ZipFile zf = null;
+            InputStream in2 = null;
+            JsonParser parser2 = null;
+            try {
+                zf = new ZipFile(backingJar);
+                String entryName = indexEntry.getName() != null ? indexEntry.getName() : "index-v1.json";
+                ZipEntry ze = zf.getEntry(entryName);
+                if (ze == null) {
+                    ze = zf.getEntry("index-v1.json");
+                }
+                if (ze != null) {
+                    in2 = zf.getInputStream(ze);
+                    parser2 = mapper.getFactory().createParser(in2);
+                    parser2.nextToken();
+                    while (true) {
+                        String field = parser2.nextFieldName();
+                        if (field == null) {
+                            break;
+                        }
+                        if ("apps".equals(field)) {
+                            if (parser2.nextToken() == JsonToken.START_ARRAY) {
+                                while (parser2.nextToken() != JsonToken.END_ARRAY) {
+                                    if (parser2.getCurrentToken() == JsonToken.START_OBJECT) {
+                                        App app = mapper.readValue(parser2, App.class);
+                                        if (app != null && app.packageName != null) {
+                                            List<Apk> apks = packages.remove(app.packageName);
+                                            if (apks != null && !apks.isEmpty()) {
+                                                compactApp(app, stringPool);
+                                                savedCount++;
+                                                saveSingleAppToDb(updater, repoPersister, app, apks, savedCount, totalToSave);
+                                            }
+                                        }
+                                    } else {
+                                        parser2.skipChildren();
+                                    }
+                                }
+                            } else {
+                                parser2.skipChildren();
+                            }
+                            break;
+                        } else {
+                            parser2.nextToken();
+                            parser2.skipChildren();
+                        }
+                    }
+                }
+            } finally {
+                if (parser2 != null) { try { parser2.close(); } catch (Throwable ignored) {} }
+                if (in2 != null) { try { in2.close(); } catch (Throwable ignored) {} }
+                if (zf != null) { try { zf.close(); } catch (Throwable ignored) {} }
+            }
+        } else if (fallbackApps != null) {
+            for (int i = 0; i < fallbackApps.size(); i++) {
+                App app = fallbackApps.get(i);
+                fallbackApps.set(i, null);
+                if (app != null && app.packageName != null) {
+                    List<Apk> apks = packages.remove(app.packageName);
+                    if (apks != null && !apks.isEmpty()) {
+                        savedCount++;
+                        saveSingleAppToDb(updater, repoPersister, app, apks, savedCount, totalToSave);
+                    }
+                }
+            }
+            fallbackApps.clear();
+        }
+
+        packages.clear();
+        stringPool.clear();
+        System.gc();
+
+        updater.notifyCommittingToDb();
+        ContentValues contentValues = new ContentValues();
+        contentValues.put("lastUpdated", Utils.formatTime(new Date(), ""));
+        contentValues.put("timestamp", Long.valueOf(updater.repo.timestamp));
+        contentValues.put("lastetag", updater.repo.lastetag);
+        if (updater.repo.version != -1) {
+            contentValues.put("version", Integer.valueOf(updater.repo.version));
+        }
+        if (updater.repo.maxage != -1) {
+            contentValues.put("maxage", Integer.valueOf(updater.repo.maxage));
+        }
+        if (updater.repo.description != null) {
+            contentValues.put("description", updater.repo.description);
+        }
+        if (updater.repo.name != null) {
+            contentValues.put("name", updater.repo.name);
+        }
+        if (updater.repo.icon != null) {
+            contentValues.put("icon", updater.repo.icon);
+        }
+        if (updater.repo.mirrors != null && updater.repo.mirrors.length > 0) {
+            contentValues.put("userMirrors", Utils.serializeCommaSeparatedString(updater.repo.mirrors));
+        }
+        repoPersister.commit(contentValues, updater.repo.getId());
+
+        if (requests != null) {
+            try {
+                Method pm = updater.getClass().getDeclaredMethod("processRepoPushRequests", Map.class);
+                pm.setAccessible(true);
+                pm.invoke(updater, requests);
+            } catch (Throwable ignored) {}
+        }
+
+        cleanupStaleDownloadTempFiles(updater.context, null);
+        System.gc();
+    }
+
+    private static void saveSingleAppToDb(
+            IndexUpdater updater,
+            RepoPersister repoPersister,
+            App app,
+            List<Apk> apks,
+            int savedCount,
+            int totalToSave) throws IndexUpdater$UpdateException {
+        if (savedCount % 50 == 0) {
+            updater.notifyProcessingApps(savedCount, totalToSave);
+        }
+        if (apks != null && apks.size() > 0) {
+            app.preferredSigner = apks.get(0).sig;
+            app.isApk = true;
+            for (int i = 0; i < apks.size(); i++) {
+                if (!apks.get(i).isApk()) {
+                    app.isApk = false;
+                }
+            }
+        }
+        repoPersister.saveToDb(app, apks);
     }
 
     /**
@@ -1676,6 +2474,8 @@ package org.fdroid.fdroid;
 import android.content.Context;
 import org.fdroid.fdroid.data.Repo;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.security.CodeSigner;
 import java.security.cert.Certificate;
 import java.security.cert.X509Certificate;
@@ -1722,6 +2522,11 @@ public abstract class IndexUpdater {
 
     void notifyCommittingToDb() {
         notifyProcessingApps(0, -1);
+    }
+
+    public void processIndexV1(InputStream indexInputStream, JarEntry indexEntry, String etag)
+            throws IOException, IndexUpdater$UpdateException {
+        Arc7Bridge.processIndexV1Streaming(this, indexInputStream, indexEntry, etag);
     }
 
     static X509Certificate getSigningCertFromJar(JarEntry jarEntry) throws IndexUpdater$SigningException {
@@ -2059,8 +2864,10 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
         )
         dex1_clean = patch_update_service_safe_post_sync(dex1_clean)
         dex4_clean = canonicalize_stripped_dex(
-            patch_indexv1_jarfile_noverify(
-                strip_classes_from_dex(zf_in.read("classes4.dex"), all_managed_classes)
+            patch_indexv1_process_streaming(
+                patch_indexv1_jarfile_noverify(
+                    strip_classes_from_dex(zf_in.read("classes4.dex"), all_managed_classes)
+                )
             ),
             tmp, "dex4", java_bin,
         )

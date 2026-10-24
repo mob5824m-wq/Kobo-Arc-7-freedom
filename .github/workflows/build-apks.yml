@@ -36,7 +36,7 @@ jobs:
 
       - name: Generate 44 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.5.3 APKs
         run: |
-          chmod +x scripts/build-all.sh releases/Backup-Kobo-To-Laptop-ADB.sh releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.sh releases/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
+          chmod +x scripts/build-all.sh tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
@@ -62,16 +62,16 @@ jobs:
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
-            releases/Start-PC-Stream-Deck.py \
-            releases/Start-PC-Stream-Deck.bat \
-            releases/Start-PC-Stream-Deck.sh \
-            releases/Start-PC-School-VPN-Relay.py \
-            releases/Start-Chromebook-Wired-Internet.sh \
-            releases/Start-Kobo-Second-Screen.py \
-            releases/Backup-Kobo-To-Laptop-ADB.bat \
-            releases/Backup-Kobo-To-Laptop-ADB.sh \
-            releases/Start-Kobo-WiFi-Server.bat \
-            releases/Start-Kobo-WiFi-Server.sh \
+            tools/Start-PC-Stream-Deck.py \
+            tools/Start-PC-Stream-Deck.bat \
+            tools/Start-PC-Stream-Deck.sh \
+            tools/Start-PC-School-VPN-Relay.py \
+            tools/Start-Chromebook-Wired-Internet.sh \
+            tools/Start-Kobo-Second-Screen.py \
+            tools/Backup-Kobo-To-Laptop-ADB.bat \
+            tools/Backup-Kobo-To-Laptop-ADB.sh \
+            tools/Start-Kobo-WiFi-Server.bat \
+            tools/Start-Kobo-WiFi-Server.sh \
             releases/SHA256SUMS.txt \
             app/src/main/assets/VanillaAndroid4Home.apk \
             app/src/main/assets/starter-apps/AuroraStore.apk \
@@ -103,16 +103,16 @@ jobs:
             releases/logo-banner.png
             releases/index.html
             releases/icons/*.png
-            releases/Start-PC-Stream-Deck.py
-            releases/Start-PC-Stream-Deck.bat
-            releases/Start-PC-Stream-Deck.sh
-            releases/Start-PC-School-VPN-Relay.py
-            releases/Start-Chromebook-Wired-Internet.sh
-            releases/Start-Kobo-Second-Screen.py
-            releases/Backup-Kobo-To-Laptop-ADB.bat
-            releases/Backup-Kobo-To-Laptop-ADB.sh
-            releases/Start-Kobo-WiFi-Server.bat
-            releases/Start-Kobo-WiFi-Server.sh
+            tools/Start-PC-Stream-Deck.py
+            tools/Start-PC-Stream-Deck.bat
+            tools/Start-PC-Stream-Deck.sh
+            tools/Start-PC-School-VPN-Relay.py
+            tools/Start-Chromebook-Wired-Internet.sh
+            tools/Start-Kobo-Second-Screen.py
+            tools/Backup-Kobo-To-Laptop-ADB.bat
+            tools/Backup-Kobo-To-Laptop-ADB.sh
+            tools/Start-Kobo-WiFi-Server.bat
+            tools/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
       - name: Publish signed v2.5.3 APKs (suite + 27 standalone default apps + YouTube / YouTube Music) to GitHub Releases
@@ -186,25 +186,25 @@ jobs:
               releases/apps/*.apk \
               releases/logo-banner.png \
               releases/index.html \
-              releases/Start-PC-Stream-Deck.py \
-              releases/Start-PC-Stream-Deck.bat \
-              releases/Start-PC-Stream-Deck.sh \
-              releases/Start-PC-School-VPN-Relay.py \
-              releases/Start-Chromebook-Wired-Internet.sh \
-              releases/Start-Kobo-Second-Screen.py \
-              releases/Backup-Kobo-To-Laptop-ADB.bat \
-              releases/Backup-Kobo-To-Laptop-ADB.sh \
-              releases/Start-Kobo-WiFi-Server.bat \
-              releases/Start-Kobo-WiFi-Server.sh \
+              tools/Start-PC-Stream-Deck.py \
+              tools/Start-PC-Stream-Deck.bat \
+              tools/Start-PC-Stream-Deck.sh \
+              tools/Start-PC-School-VPN-Relay.py \
+              tools/Start-Chromebook-Wired-Internet.sh \
+              tools/Start-Kobo-Second-Screen.py \
+              tools/Backup-Kobo-To-Laptop-ADB.bat \
+              tools/Backup-Kobo-To-Laptop-ADB.sh \
+              tools/Start-Kobo-WiFi-Server.bat \
+              tools/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
               --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.5.3 \
               releases/Upgrade-My-Kobo-To-v2.5.3.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
               releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
-              releases/Start-PC-Stream-Deck.py releases/Start-PC-Stream-Deck.bat releases/Start-PC-Stream-Deck.sh \
-              releases/Start-PC-School-VPN-Relay.py releases/Start-Chromebook-Wired-Internet.sh releases/Start-Kobo-Second-Screen.py \
-              releases/Backup-Kobo-To-Laptop-ADB.bat releases/Backup-Kobo-To-Laptop-ADB.sh \
-              releases/Start-Kobo-WiFi-Server.bat releases/Start-Kobo-WiFi-Server.sh --clobber; }
+              tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.bat tools/Start-PC-Stream-Deck.sh \
+              tools/Start-PC-School-VPN-Relay.py tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py \
+              tools/Backup-Kobo-To-Laptop-ADB.bat tools/Backup-Kobo-To-Laptop-ADB.sh \
+              tools/Start-Kobo-WiFi-Server.bat tools/Start-Kobo-WiFi-Server.sh --clobber; }
           else
             gh release create v2.5.3 \
               releases/Upgrade-My-Kobo-To-v2.5.3.apk \
@@ -218,16 +218,16 @@ jobs:
               releases/apps/*.apk \
               releases/logo-banner.png \
               releases/index.html \
-              releases/Start-PC-Stream-Deck.py \
-              releases/Start-PC-Stream-Deck.bat \
-              releases/Start-PC-Stream-Deck.sh \
-              releases/Start-PC-School-VPN-Relay.py \
-              releases/Start-Chromebook-Wired-Internet.sh \
-              releases/Start-Kobo-Second-Screen.py \
-              releases/Backup-Kobo-To-Laptop-ADB.bat \
-              releases/Backup-Kobo-To-Laptop-ADB.sh \
-              releases/Start-Kobo-WiFi-Server.bat \
-              releases/Start-Kobo-WiFi-Server.sh \
+              tools/Start-PC-Stream-Deck.py \
+              tools/Start-PC-Stream-Deck.bat \
+              tools/Start-PC-Stream-Deck.sh \
+              tools/Start-PC-School-VPN-Relay.py \
+              tools/Start-Chromebook-Wired-Internet.sh \
+              tools/Start-Kobo-Second-Screen.py \
+              tools/Backup-Kobo-To-Laptop-ADB.bat \
+              tools/Backup-Kobo-To-Laptop-ADB.sh \
+              tools/Start-Kobo-WiFi-Server.bat \
+              tools/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \

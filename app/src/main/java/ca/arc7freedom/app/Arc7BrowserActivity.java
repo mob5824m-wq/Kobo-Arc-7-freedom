@@ -73,10 +73,10 @@ public class Arc7BrowserActivity extends Activity {
 
     private static final String HOME_PORTAL_URL = "arc7://home";
     private static final int DAEMON_PORT = 18119;
-    private static final String UA_MOBILE =
-            "Mozilla/5.0 (Linux; Android 10; Kobo Arc 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-    private static final String UA_DESKTOP =
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    public static final String UA_MOBILE =
+            "Mozilla/5.0 (Linux; Android 14; Kobo Arc 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36";
+    public static final String UA_DESKTOP =
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final Object daemonLock = new Object();
@@ -95,12 +95,34 @@ public class Arc7BrowserActivity extends Activity {
     private volatile boolean desktopMode = false;
     private volatile String currentDocumentUrl = "";
 
+    public static void seedBrowserCompatibilityCookies() {
+        try {
+            CookieManager cm = CookieManager.getInstance();
+            cm.setAcceptCookie(true);
+            String[] vkOrigins = new String[]{
+                    "https://vk.com",
+                    "https://m.vk.com",
+                    "https://oauth.vk.com",
+                    "https://id.vk.com",
+                    "https://vk.ru",
+                    "https://m.vk.ru"
+            };
+            for (String origin : vkOrigins) {
+                cm.setCookie(origin, "remixbdr=1; Path=/; Domain=.vk.com; Max-Age=31536000");
+                cm.setCookie(origin, "remixbdr=1; Path=/; Max-Age=31536000");
+            }
+            CookieSyncManager.getInstance().sync();
+        } catch (Throwable ignored) {
+        }
+    }
+
     @Override
     @SuppressLint("SetJavaScriptEnabled")
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         CookieSyncManager.createInstance(this);
         CookieManager.getInstance().setAcceptCookie(true);
+        seedBrowserCompatibilityCookies();
 
         rootShell = new RootShell(this);
         certManager = new NetworkCertManager(this, rootShell);
@@ -376,6 +398,14 @@ public class Arc7BrowserActivity extends Activity {
                     return true;
                 }
                 if (tryRouteToYouTubeApps(url)) {
+                    return true;
+                }
+                if (url.toLowerCase(Locale.US).contains("/badbrowser.php")) {
+                    seedBrowserCompatibilityCookies();
+                    String safeVk = "https://m.vk.com/";
+                    currentDocumentUrl = safeVk;
+                    urlBar.setText(safeVk);
+                    view.loadUrl(safeVk);
                     return true;
                 }
                 if (isDirectBinaryDownloadUrl(url)) {
@@ -803,30 +833,62 @@ public class Arc7BrowserActivity extends Activity {
         }
     }
 
+    private static final String WEBVIEW_ES6_POLYFILL_SCRIPT =
+            "<script>(function(){try{"
+            + "document.cookie='remixbdr=1; path=/; domain=.vk.com; max-age=31536000';"
+            + "document.cookie='remixbdr=1; path=/; max-age=31536000';"
+            + "if(!Object.assign){Object.assign=function(t){if(t==null)throw new TypeError();var o=Object(t);for(var i=1;i<arguments.length;i++){var s=arguments[i];if(s!=null){for(var k in s){if(Object.prototype.hasOwnProperty.call(s,k))o[k]=s[k];}}}return o;};}"
+            + "if(!Array.from){Array.from=function(a){return Array.prototype.slice.call(a||[]);};}"
+            + "if(!Array.prototype.includes){Array.prototype.includes=function(x){return this.indexOf(x)!==-1;};}"
+            + "if(!Array.prototype.find){Array.prototype.find=function(fn,th){for(var i=0;i<this.length;i++){if(fn.call(th,this[i],i,this))return this[i];}return undefined;};}"
+            + "if(!Array.prototype.findIndex){Array.prototype.findIndex=function(fn,th){for(var i=0;i<this.length;i++){if(fn.call(th,this[i],i,this))return i;}return -1;};}"
+            + "if(!String.prototype.includes){String.prototype.includes=function(s,p){return this.indexOf(s,p||0)!==-1;};}"
+            + "if(!String.prototype.startsWith){String.prototype.startsWith=function(s,p){var i=p||0;return this.substr(i,s.length)===s;};}"
+            + "if(!String.prototype.endsWith){String.prototype.endsWith=function(s,l){var len=l===undefined?this.length:l;return this.substring(len-s.length,len)===s;};}"
+            + "if(!window.Symbol){var sc=0;window.Symbol=function(d){return '@@sym_'+(d||'')+'_'+(++sc);};window.Symbol.iterator='@@iterator';}"
+            + "if(!window.Promise){var P=function(fn){var st=0,val=null,cbs=[];function run(){if(!st)return;while(cbs.length){var c=cbs.shift();try{var f=st===1?c.ok:c.err;if(f){var r=f(val);c.res(r);}else{(st===1?c.res:c.rej)(val);}}catch(e){c.rej(e);}}}function res(v){if(st)return;if(v&&(typeof v==='object'||typeof v==='function')&&typeof v.then==='function'){try{v.then(res,rej);return;}catch(e){rej(e);return;}}st=1;val=v;setTimeout(run,0);}function rej(e){if(st)return;st=2;val=e;setTimeout(run,0);}this.then=function(ok,err){return new P(function(rs,rj){cbs.push({ok:ok,err:err,res:rs,rej:rj});run();});};this['catch']=function(err){return this.then(null,err);};try{fn(res,rej);}catch(e){rej(e);}};P.resolve=function(v){return new P(function(r){r(v);});};P.reject=function(e){return new P(function(r,j){j(e);});};P.all=function(arr){return new P(function(rs,rj){var out=[],rem=arr?arr.length:0;if(!rem){rs(out);return;}for(var i=0;i<arr.length;i++)(function(idx){P.resolve(arr[idx]).then(function(v){out[idx]=v;if(--rem===0)rs(out);},rj);})(i);});};window.Promise=P;}"
+            + "if(!window.fetch){window.fetch=function(u,o){o=o||{};return new Promise(function(rs,rj){var x=new XMLHttpRequest();x.open(o.method||'GET',u,true);if(o.headers){for(var k in o.headers)x.setRequestHeader(k,o.headers[k]);}x.onload=function(){var txt=x.responseText||'';rs({ok:x.status>=200&&x.status<300,status:x.status,text:function(){return Promise.resolve(txt);},json:function(){try{return Promise.resolve(JSON.parse(txt));}catch(e){return Promise.reject(e);}}});};x.onerror=function(){rj(new Error('Network error'));};x.send(o.body||null);});};}"
+            + "if(!window.CSS)window.CSS={};if(!window.CSS.supports)window.CSS.supports=function(){return true;};"
+            + "if(!window.performance)window.performance={};if(!window.performance.now)window.performance.now=function(){return Date.now();};"
+            + "if(!window.requestAnimationFrame)window.requestAnimationFrame=function(cb){return setTimeout(function(){cb(Date.now());},16);};"
+            + "if(!window.IntersectionObserver)window.IntersectionObserver=function(){this.observe=function(){};this.unobserve=function(){};this.disconnect=function(){};};"
+            + "if(!window.ResizeObserver)window.ResizeObserver=function(){this.observe=function(){};this.unobserve=function(){};this.disconnect=function(){};};"
+            + "if(!window.MutationObserver)window.MutationObserver=function(){this.observe=function(){};this.disconnect=function(){};this.takeRecords=function(){return[];};};"
+            + "if(window.Element&&!Element.prototype.matches){Element.prototype.matches=Element.prototype.webkitMatchesSelector||function(){return false;};}"
+            + "if(window.Element&&!Element.prototype.closest){Element.prototype.closest=function(s){var el=this;while(el&&el.nodeType===1){if(el.matches(s))return el;el=el.parentElement||el.parentNode;}return null;};}"
+            + "}catch(e){}})();</script>";
+
     /**
      * Light, non-destructive HTML fixup ONLY for Android 4.2 WebView compatibility:
      *  1. Injects `<base href="...">` if missing so all relative CSS/JS/images resolve against
      *     the true post-redirect HTTPS URL instead of the pre-redirect URL!
-     *  2. Converts `<form ... method="post">` on DuckDuckGo search pages to `method="get"` so
+     *  2. Injects ES6+/Web API polyfills (`Promise`, `fetch`, `Object.assign`, `Symbol`, `CSS.supports`)
+     *     and neutralizes `badbrowser.php` browser-sniffing redirects on `vk.com`!
+     *  3. Converts `<form ... method="post">` on DuckDuckGo search pages to `method="get"` so
      *     submitting search boxes inside WebView works natively on Android 4.2!
      *  Never strips page CSS, styles, layouts, or scripts!
      */
-    private static String prepareMainHtmlForWebView(String html, String effectiveUrl) {
-        String lower = html.toLowerCase(Locale.US);
-        if (!lower.contains("<base ")) {
-            String safeBase = effectiveUrl.replace("\"", "%22");
-            String baseTag = "<base href=\"" + safeBase + "\">";
-            int headIdx = lower.indexOf("<head");
-            if (headIdx >= 0) {
-                int gt = html.indexOf('>', headIdx);
-                if (gt >= 0) {
-                    html = html.substring(0, gt + 1) + baseTag + html.substring(gt + 1);
-                }
-            } else {
-                html = baseTag + html;
-            }
+    public static String prepareMainHtmlForWebView(String html, String effectiveUrl) {
+        if (html == null) return "";
+        String effLow = effectiveUrl != null ? effectiveUrl.toLowerCase(Locale.US) : "";
+        if (effLow.contains("vk.com") || effLow.contains("vk.ru")) {
+            html = html.replace("/badbrowser.php", "/#arc7_vk_ok")
+                    .replace("badbrowser.php", "#arc7_vk_ok");
         }
-        if (effectiveUrl.contains("duckduckgo.com")) {
+        String lower = html.toLowerCase(Locale.US);
+        String safeBase = (effectiveUrl != null ? effectiveUrl : "").replace("\"", "%22");
+        String injectHead = (!lower.contains("<base ") && safeBase.length() > 0
+                ? "<base href=\"" + safeBase + "\">" : "") + WEBVIEW_ES6_POLYFILL_SCRIPT;
+        int headIdx = lower.indexOf("<head");
+        if (headIdx >= 0) {
+            int gt = html.indexOf('>', headIdx);
+            if (gt >= 0) {
+                html = html.substring(0, gt + 1) + injectHead + html.substring(gt + 1);
+            }
+        } else {
+            html = injectHead + html;
+        }
+        if (effLow.contains("duckduckgo.com")) {
             html = html.replaceAll("(?i)(<form[^>]*?)method=[\"']post[\"']", "$1method=\"get\"");
         }
         return html;

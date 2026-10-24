@@ -35,6 +35,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "if ($pkgInfo -notmatch 'versionCode=181') {" ^
   "  Write-Host '  Older/conflicting KoboArc7Freedom version detected - upgrading tablet to v1.8.1 automatically...' -ForegroundColor Cyan;" ^
   "  $apkFile = Join-Path $scriptDir 'KoboArc7Freedom.apk';" ^
+  "  if (-not (Test-Path $apkFile)) { $apkFile = Join-Path (Join-Path $scriptDir '..\releases') 'KoboArc7Freedom.apk'; }" ^
   "  if (-not (Test-Path $apkFile)) {" ^
   "    $apkFile = Join-Path $env:TEMP 'KoboArc7Freedom-v1.8.1.apk';" ^
   "    Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk' -OutFile $apkFile;" ^
