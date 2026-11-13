@@ -607,7 +607,8 @@ def check_bundled_cacerts_and_tls_engine(apk_path: str) -> None:
         subprocess.run(
             ["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
              "-days", "365", "-nodes", "-keyout", f"{ca_tmp}/up.key", "-out", f"{ca_tmp}/up.crt",
-             "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1"],
+             "-subj", "/CN=127.0.0.1", "-addext", "subjectAltName=IP:127.0.0.1",
+             "-addext", "subjectKeyIdentifier=hash", "-addext", "authorityKeyIdentifier=keyid:always"],
             check=True, capture_output=True,
         )
         srv_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
