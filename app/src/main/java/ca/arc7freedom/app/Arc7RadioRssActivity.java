@@ -411,7 +411,10 @@ public class Arc7RadioRssActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    final List<RadioStation> stations = fetchRadioBrowserStations("/json/stations/topvote/20");
+                    // The directory's raw top-vote list includes stale streams unless asked
+                    // to exclude stations that have failed their latest health check.
+                    final List<RadioStation> stations = fetchRadioBrowserStations(
+                            "/json/stations/topvote/20?hidebroken=true");
                     ui.post(new Runnable() {
                         @Override public void run() {
                             rows.removeAllViews();
@@ -474,6 +477,9 @@ public class Arc7RadioRssActivity extends Activity {
         for (int i = 0; i < arr.length(); i++) {
             JSONObject o = arr.optJSONObject(i);
             if (o == null) continue;
+            // Search and top-vote results can otherwise surface streams that Radio-Browser
+            // already marked broken. Older/custom JSON fixtures without this field remain valid.
+            if (o.has("lastcheckok") && !o.optBoolean("lastcheckok", false)) continue;
             String url = o.optString("url_resolved", "").trim();
             if (url.length() == 0) url = o.optString("url", "").trim();
             if (!(url.startsWith("http://") || url.startsWith("https://"))) continue;

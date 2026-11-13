@@ -68,7 +68,8 @@ public class Arc7AlarmAlertActivity extends Activity {
                         | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         readExtras(getIntent());
-        Arc7ClockStore.startAlarmRinging(getApplicationContext(), chimeId, volumePct);
+        // Arc7AlarmReceiver starts the chime and acquires the CPU WakeLock before opening this
+        // screen. Do not restart playback here: a second start would stop the first alarm thread.
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);

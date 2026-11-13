@@ -3,7 +3,6 @@ package ca.arc7freedom.app;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.os.PowerManager;
 import java.util.List;
 
 /**
@@ -36,17 +35,9 @@ public class Arc7AlarmReceiver extends BroadcastReceiver {
         String chimeId = intent.getStringExtra("chime_id");
         int volumePct = intent.getIntExtra("volume_pct", 85);
 
-        PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
-        if (pm != null) {
-            @SuppressWarnings("deprecation")
-            PowerManager.WakeLock wl = pm.newWakeLock(
-                    PowerManager.FULL_WAKE_LOCK
-                            | PowerManager.ACQUIRE_CAUSES_WAKEUP
-                            | PowerManager.ON_AFTER_RELEASE,
-                    "Arc7Freedom:AlarmTriggerWake");
-            wl.setReferenceCounted(false);
-            wl.acquire(45000L);
-        }
+        // Arc7ClockStore takes a process-owned PARTIAL_WAKE_LOCK before its chime thread
+        // starts. The alert Activity's window flags wake the display; keeping a temporary
+        // WakeLock only inside this receiver would allow the CPU to suspend after onReceive.
 
         if (isTimer) {
             Arc7ClockStore.saveTimerState(context, false, 0L, 0L, label);

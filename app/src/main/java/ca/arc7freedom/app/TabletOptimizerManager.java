@@ -186,7 +186,7 @@ public class TabletOptimizerManager {
 
     public boolean installBundledFDroidClassic(LogSink log) {
             if (log != null) {
-                log.onLog("=== Installing Pre-Bundled Offline F-Droid Classic (`v1304` — Android 4.2 SHA-256 JarUtils Fix + largeHeap + Throwable Sync Catch + TLS 1.3 Bridge) ===");
+                log.onLog("=== Installing Pre-Patched Offline F-Droid Classic (`v1304` — low-memory index streaming + SHA-256 fix + TLS 1.3 Bridge) ===");
             }
         // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway + system CAs are synced BEFORE F-Droid ever runs!
         Arc7TlsGatewayService.ensureStarted(ctx);

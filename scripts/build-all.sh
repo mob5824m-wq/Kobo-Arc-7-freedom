@@ -175,6 +175,23 @@ cp -f "$FDROID_RAW" "$FDROID_APK"
     "$KEYSTORE_PATH" \
     "$KEYSTORE_PASS" \
     "$KEYSTORE_ALIAS"
+# Fail the installer build if it would bundle an upstream/stale F-Droid APK instead of the
+# result of the current patch step (disk-backed two-pass index parser + heap-safe updates).
+"$PY_BIN" - "$FDROID_APK" <<'PYFDROIDCHECK'
+import sys, zipfile
+apk = sys.argv[1]
+markers = (b"processIndexV1Streaming", b"dl-arc7-index-v1-", b"512 MiB safety limit")
+with zipfile.ZipFile(apk, "r") as zf:
+    dex_names = sorted(n for n in zf.namelist()
+                       if n == "classes.dex" or (n.startswith("classes") and n.endswith(".dex")))
+    if not dex_names:
+        raise SystemExit("F-Droid patch check failed: no DEX files in APK")
+    dex_files = [zf.read(n) for n in dex_names]
+missing = [m.decode("ascii") for m in markers if not any(m in dex for dex in dex_files)]
+if missing:
+    raise SystemExit("F-Droid patch check failed; installer would bundle unpatched APK: " + ", ".join(missing))
+print("Verified installer F-Droid payload has the low-memory streaming patch:", apk)
+PYFDROIDCHECK
 ls -lh "$FDROID_APK"
 
 echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls w/ BearSSL+MbedTLS)..."

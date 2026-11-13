@@ -1232,6 +1232,7 @@ import org.fdroid.fdroid.data.RepoPersister;
 import org.fdroid.fdroid.installer.DefaultInstaller;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -1634,12 +1635,9 @@ public final class Arc7Bridge {
     }
 
     private static String intern(String s, Map<String, String> pool) {
-        if (s == null) return null;
-        if (s.length() == 0) return "";
-        if (s.length() > 96) return s;
-        String cached = pool.get(s);
-        if (cached != null) return cached;
-        pool.put(s, s);
+        // A whole-index interning table keeps every app title/category/permission alive until
+        // sync completes, defeating streaming on small Dalvik heaps. The parser already reuses
+        // field strings within each model; do not create an unbounded global String pool.
         return s;
     }
 
@@ -1805,8 +1803,9 @@ public final class Arc7Bridge {
      *   - When `backingJar` (`index-v1.jar` in `cacheDir`) is available, performs a 2-pass streaming scan:
      *       Pass 1: Parses `"repo"`, `"requests"`, and streams `"packages"` one `Apk` at a time, retaining
      *               only Android 4.2.2 (`SDK_INT <= 17`, ARMv7/ARM/universal) compatible APKs (at most 2
-     *               per package) with interned strings while skipping `"apps"` with zero `App` allocations.
-     *       Pass 2: Re-opens `index-v1.json` from `backingJar` and streams `"apps"` one `App` at a time,
+     *               per package) while skipping `"apps"` with zero `App` allocations. If the original
+     *               JAR cannot be found, the incoming JSON is first spooled to disk (bounded at 512 MiB).
+     *       Pass 2: Re-opens `index-v1.json` from the JAR or disk spool and streams `"apps"` one `App` at a time,
      *               immediately discarding apps without compatible APKs and flushing compatible apps to
      *               SQLite in 50-app batches via `RepoPersister`.
      *   - Filtering out `minSdkVersion > 17` apps in `f-droid.org/repo` also prevents `AppProvider.updatePreferredMetadata`
@@ -1821,6 +1820,43 @@ public final class Arc7Bridge {
         registerCurrentContext(updater.context);
         File backingJar = findDownloadedIndexJar(indexEntry);
         cleanupStaleDownloadTempFiles(updater.context, backingJar);
+
+        // Some F-Droid builds hand this method a stream whose backing JAR is not discoverable
+        // in cache. Never retain the whole "apps" array as a heap fallback: spool the expanded
+        // JSON to disk with a bounded copy, then make the same two-pass streaming parse used for
+        // the normal cached-JAR path. This is what prevents Android 4.2 Dalvik's "memory exhausted"
+        // failure when the cache filename/layout differs from the expected dl-* convention.
+        File backingJson = null;
+        if (backingJar == null) {
+            File cache = updater.context.getCacheDir();
+            if (cache == null || (!cache.isDirectory() && !cache.mkdirs())) {
+                throw new IOException("F-Droid cache is unavailable for low-memory index processing");
+            }
+            backingJson = File.createTempFile("dl-arc7-index-v1-", ".json", cache);
+            FileOutputStream spool = null;
+            InputStream source = indexInputStream;
+            try {
+                spool = new FileOutputStream(backingJson);
+                byte[] copyBuffer = new byte[16384];
+                long copied = 0L;
+                int copiedNow;
+                while ((copiedNow = source.read(copyBuffer)) != -1) {
+                    copied += copiedNow;
+                    if (copied > 512L * 1024L * 1024L) {
+                        throw new IOException("F-Droid index exceeds the 512 MiB safety limit");
+                    }
+                    spool.write(copyBuffer, 0, copiedNow);
+                }
+                spool.flush();
+            } catch (IOException copyError) {
+                try { backingJson.delete(); } catch (Throwable ignored) {}
+                throw copyError;
+            } finally {
+                try { if (spool != null) spool.close(); } catch (Throwable ignored) {}
+                try { if (source != null) source.close(); } catch (Throwable ignored) {}
+            }
+            indexInputStream = new FileInputStream(backingJson);
+        }
         System.gc();
 
         ObjectMapper mapper = IndexV1Updater.getObjectMapperInstance(updater.repo.getId());
@@ -1829,7 +1865,6 @@ public final class Arc7Bridge {
         HashMap<String, Object> repoDetails = null;
         Map<String, String[]> requests = null;
         Map<String, List<Apk>> packages = null;
-        List<App> fallbackApps = null;
         Map<String, String> stringPool = new HashMap<String, String>(2048);
 
         try {
@@ -1844,28 +1879,10 @@ public final class Arc7Bridge {
                 } else if ("requests".equals(field)) {
                     requests = invokeParseRequests(updater, mapper, parser);
                 } else if ("apps".equals(field)) {
-                    if (backingJar != null) {
-                        JsonToken tok = parser.nextToken();
-                        if (tok == JsonToken.START_ARRAY || tok == JsonToken.START_OBJECT) {
-                            parser.skipChildren();
-                        }
-                    } else {
-                        fallbackApps = new ArrayList<App>(512);
-                        if (parser.nextToken() == JsonToken.START_ARRAY) {
-                            while (parser.nextToken() != JsonToken.END_ARRAY) {
-                                if (parser.getCurrentToken() == JsonToken.START_OBJECT) {
-                                    App app = mapper.readValue(parser, App.class);
-                                    if (app != null) {
-                                        compactApp(app, stringPool);
-                                        fallbackApps.add(app);
-                                    }
-                                } else {
-                                    parser.skipChildren();
-                                }
-                            }
-                        } else {
-                            parser.skipChildren();
-                        }
+                    // Apps are read in a second pass from the cached JAR or disk spool below.
+                    JsonToken tok = parser.nextToken();
+                    if (tok == JsonToken.START_ARRAY || tok == JsonToken.START_OBJECT) {
+                        parser.skipChildren();
                     }
                 } else if ("packages".equals(field)) {
                     packages = streamCompatiblePackages(mapper, parser, stringPool);
@@ -1935,71 +1952,60 @@ public final class Arc7Bridge {
         int totalToSave = Math.max(1, packages.size());
         int savedCount = 0;
 
-        if (backingJar != null) {
-            ZipFile zf = null;
-            InputStream in2 = null;
-            JsonParser parser2 = null;
-            try {
+        ZipFile zf = null;
+        InputStream in2 = null;
+        JsonParser parser2 = null;
+        try {
+            if (backingJar != null) {
                 zf = new ZipFile(backingJar);
                 String entryName = indexEntry.getName() != null ? indexEntry.getName() : "index-v1.json";
                 ZipEntry ze = zf.getEntry(entryName);
-                if (ze == null) {
-                    ze = zf.getEntry("index-v1.json");
-                }
-                if (ze != null) {
-                    in2 = zf.getInputStream(ze);
-                    parser2 = mapper.getFactory().createParser(in2);
-                    parser2.nextToken();
-                    while (true) {
-                        String field = parser2.nextFieldName();
-                        if (field == null) {
-                            break;
-                        }
-                        if ("apps".equals(field)) {
-                            if (parser2.nextToken() == JsonToken.START_ARRAY) {
-                                while (parser2.nextToken() != JsonToken.END_ARRAY) {
-                                    if (parser2.getCurrentToken() == JsonToken.START_OBJECT) {
-                                        App app = mapper.readValue(parser2, App.class);
-                                        if (app != null && app.packageName != null) {
-                                            List<Apk> apks = packages.remove(app.packageName);
-                                            if (apks != null && !apks.isEmpty()) {
-                                                compactApp(app, stringPool);
-                                                savedCount++;
-                                                saveSingleAppToDb(updater, repoPersister, app, apks, savedCount, totalToSave);
-                                            }
-                                        }
-                                    } else {
-                                        parser2.skipChildren();
+                if (ze == null) ze = zf.getEntry("index-v1.json");
+                if (ze == null) throw new IOException("Downloaded index JAR has no index-v1.json entry");
+                in2 = zf.getInputStream(ze);
+            } else if (backingJson != null) {
+                in2 = new FileInputStream(backingJson);
+            } else {
+                throw new IOException("No disk-backed F-Droid index available for second pass");
+            }
+
+            parser2 = mapper.getFactory().createParser(in2);
+            parser2.nextToken();
+            while (true) {
+                String field = parser2.nextFieldName();
+                if (field == null) break;
+                if ("apps".equals(field)) {
+                    if (parser2.nextToken() == JsonToken.START_ARRAY) {
+                        while (parser2.nextToken() != JsonToken.END_ARRAY) {
+                            if (parser2.getCurrentToken() == JsonToken.START_OBJECT) {
+                                App app = mapper.readValue(parser2, App.class);
+                                if (app != null && app.packageName != null) {
+                                    List<Apk> apks = packages.remove(app.packageName);
+                                    if (apks != null && !apks.isEmpty()) {
+                                        compactApp(app, stringPool);
+                                        savedCount++;
+                                        saveSingleAppToDb(updater, repoPersister, app, apks,
+                                                savedCount, totalToSave);
                                     }
                                 }
                             } else {
                                 parser2.skipChildren();
                             }
-                            break;
-                        } else {
-                            parser2.nextToken();
-                            parser2.skipChildren();
                         }
+                    } else {
+                        parser2.skipChildren();
                     }
-                }
-            } finally {
-                if (parser2 != null) { try { parser2.close(); } catch (Throwable ignored) {} }
-                if (in2 != null) { try { in2.close(); } catch (Throwable ignored) {} }
-                if (zf != null) { try { zf.close(); } catch (Throwable ignored) {} }
-            }
-        } else if (fallbackApps != null) {
-            for (int i = 0; i < fallbackApps.size(); i++) {
-                App app = fallbackApps.get(i);
-                fallbackApps.set(i, null);
-                if (app != null && app.packageName != null) {
-                    List<Apk> apks = packages.remove(app.packageName);
-                    if (apks != null && !apks.isEmpty()) {
-                        savedCount++;
-                        saveSingleAppToDb(updater, repoPersister, app, apks, savedCount, totalToSave);
-                    }
+                    break;
+                } else {
+                    parser2.nextToken();
+                    parser2.skipChildren();
                 }
             }
-            fallbackApps.clear();
+        } finally {
+            if (parser2 != null) { try { parser2.close(); } catch (Throwable ignored) {} }
+            if (in2 != null) { try { in2.close(); } catch (Throwable ignored) {} }
+            if (zf != null) { try { zf.close(); } catch (Throwable ignored) {} }
+            if (backingJson != null) { try { backingJson.delete(); } catch (Throwable ignored) {} }
         }
 
         packages.clear();

@@ -839,6 +839,32 @@ public class AuroraStoreActivity extends Activity {
     private List<String> resolveAndroid42ApkUrls(String pkg) {
         List<String> out = new ArrayList<String>();
         if (pkg == null || pkg.length() == 0) return out;
+        if ("com.negativitynow.app".equals(pkg)) {
+            // Negativity Now publishes versioned APK assets from its tag-triggered GitHub release
+            // workflow, so resolve the current asset rather than guessing a versioned URL.
+            try {
+                String releaseJson = httpFetchStringTls13("GET",
+                        "https://api.github.com/repos/mob5824m-wq/Negativity-Now/releases/latest",
+                        null, null);
+                if (releaseJson != null) {
+                    JSONObject release = new JSONObject(releaseJson);
+                    JSONArray assets = release.optJSONArray("assets");
+                    if (assets != null) {
+                        for (int i = 0; i < assets.length(); i++) {
+                            JSONObject asset = assets.optJSONObject(i);
+                            if (asset == null) continue;
+                            String name = asset.optString("name", "");
+                            String url = asset.optString("browser_download_url", "");
+                            if (name.toLowerCase(Locale.US).startsWith("negativity-now-")
+                                    && name.toLowerCase(Locale.US).endsWith(".apk")
+                                    && url.startsWith("https://github.com/mob5824m-wq/Negativity-Now/releases/download/")) {
+                                out.add(url);
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {}
+        }
         Map<String, StoreAppItem> idx = ensureAndroid42RepoIndexLoaded();
         StoreAppItem hit = idx.get(pkg);
         if (hit != null && hit.directApkUrl != null && hit.directApkUrl.length() > 0) {
@@ -928,6 +954,9 @@ public class AuroraStoreActivity extends Activity {
                     }
 
                     if (candidateUrls.isEmpty()) {
+                        if ("com.negativitynow.app".equals(item.pkg)) {
+                            throw new Exception("Negativity Now has no downloadable GitHub APK release yet. The project publishes its APK when a v* release tag is created; try again after a release appears.");
+                        }
                         throw new Exception("No Android 4.2 (API <= 17) ARMv7 build available on upstream repository.");
                     }
 
@@ -1499,6 +1528,13 @@ public class AuroraStoreActivity extends Activity {
                 "Gold-standard EPUB, PDF, DJVu, CBZ & CBR reader with hyphenation, dictionaries, and night mode — native NDK ARMv7 API-14 build verified for Kobo Arc 7!",
                 "READING", "v2020.08.1", "GitHub Direct ARMv7 APK",
                 "https://github.com/koreader/koreader/releases/download/v2020.08.1/koreader-android-arm-v2020.08.1.apk", 14));
+        list.add(new StoreAppItem(
+                "com.negativitynow.app",
+                "Negativity Now",
+                "mob5824m-wq",
+                "A lightweight scheduled negativity-check-in app with reminders, snoozing, and a home-screen widget. Requires an APK asset in the project's latest GitHub release; Android minimum API 14.",
+                "WELLNESS", "GitHub latest release", "GitHub • API 14+ (release APK)",
+                "", 14));
         list.add(new StoreAppItem(
                 "eu.bubu1.fdroidclassic.debug",
                 "F-Droid Classic (Arc7 TLS 1.3 Patched)",

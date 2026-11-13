@@ -72,16 +72,16 @@ APP_META = {
     "vpn": ("Wi-Fi-VPN.apk", "Wi-Fi fix, official Tailscale Google sign-in, VPN manager"),
 }
 
-# Extra manifest components each standalone app needs (services / receivers).  Everything
-# else is deliberately left out: 27 apps each booting the suite's networking receivers would
-# be brutal on a 2013 tablet.
+# Extra manifest components each standalone app needs (activities / services / receivers).
+# Everything else is deliberately left out: 27 apps each booting the suite's networking
+# receivers would be brutal on a 2013 tablet.
 APP_EXTRAS = {
     "browser": (("service", "Arc7TlsGatewayService"),),
     "vpn": (("service", "Arc7TlsGatewayService"), ("service", "Arc7VpnService")),
     "audioplayer": (("service", "Arc7AudioService"),),
     "radiorss": (("service", "Arc7AudioService"),),
     "recorder": (("service", "Arc7AudioService"),),
-    "clock": (("receiver", "Arc7AlarmReceiver"),),
+    "clock": (("activity", "Arc7AlarmAlertActivity"), ("receiver", "Arc7AlarmReceiver")),
 }
 
 SUITE_HEADER = """<?xml version="1.0" encoding="utf-8"?>
@@ -259,15 +259,26 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
 
     for tag, comp_name in APP_EXTRAS.get(key, ()):
         src = None
-        for cand in (services if tag == "service" else receivers):
+        if tag == "service":
+            candidates = services
+        elif tag == "receiver":
+            candidates = receivers
+        elif tag == "activity":
+            candidates = list(by_class.values())
+        else:
+            raise AssertionError(f"{key}: unsupported extra component type {tag!r}")
+        for cand in candidates:
             if attr(cand, "name").lstrip(".") == comp_name:
                 src = cand
                 break
         assert src is not None, f"{key}: {tag} {comp_name} missing from the suite manifest"
+        extra_override = ({"exported": "false", "taskAffinity": f"{pkg}.task.alarm"}
+                          if tag == "activity" else None)
         lines += indent(render_component(
             tag, src,
             name="ca.arc7freedom.app." + comp_name,
-            keep_filters=True,
+            override=extra_override,
+            keep_filters=False if tag == "activity" else True,
         ), 8)
         lines.append("")
 
