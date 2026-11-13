@@ -2058,6 +2058,7 @@ public class JSONObject {
         return v;
     }
     public JSONObject put(String k, Object v) { m.put(k, v); return this; }
+    public boolean has(String k) { return m.containsKey(k); }
     public Object opt(String k) { return m.get(k); }
     public String optString(String k) { return optString(k, ""); }
     public String optString(String k, String d) { Object v = m.get(k); return v == null ? d : String.valueOf(v); }
