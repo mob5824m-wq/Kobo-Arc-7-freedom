@@ -643,14 +643,20 @@ public class Arc7AudioService extends Service {
             public void run() {
                 String effectiveUrl = streamUrl;
                 try {
-                    if (streamUrl.startsWith("https://")) {
+                    if (streamUrl.startsWith("https://") || streamUrl.startsWith("http://")) {
                         RootShell sh = new RootShell(getApplicationContext());
                         NetworkCertManager cm = new NetworkCertManager(getApplicationContext(), sh);
                         cm.ensureCaBundleFile();
                         cm.startBrowserGateway();
                         int port = NetworkCertManager.BROWSER_GATEWAY_PORT;
-                        effectiveUrl = "http://127.0.0.1:" + port + "/__https/"
-                                + streamUrl.substring("https://".length());
+                        if (streamUrl.startsWith("https://")) {
+                            effectiveUrl = "http://127.0.0.1:" + port + "/__https/"
+                                    + streamUrl.substring("https://".length());
+                        } else {
+                            // Route HTTP radio streams through the local bridge too: this lets the
+                            // bridge follow HTTP-to-HTTPS station redirects and handle custom ports.
+                            effectiveUrl = "http://127.0.0.1:" + port + "/__stream/" + streamUrl;
+                        }
                     }
                 } catch (Throwable ignored) {}
                 playPreparedDataSource(effectiveUrl,

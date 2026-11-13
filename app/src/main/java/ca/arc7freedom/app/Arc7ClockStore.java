@@ -11,6 +11,7 @@ import android.media.AudioTrack;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.provider.Settings;
 
 import org.json.JSONArray;
@@ -123,6 +124,11 @@ public class Arc7ClockStore {
     private static volatile boolean ringingActive = false;
     private static volatile Thread synthThread = null;
     private static volatile MediaPlayer activeMediaPlayer = null;
+    // Keep the CPU awake for the complete chime, including while Android has blanked the
+    // display. A WakeLock held only in BroadcastReceiver.onReceive() is not sufficient:
+    // Android may suspend the CPU as soon as that short callback returns.
+    private static PowerManager.WakeLock alarmWakeLock;
+    private static int ringGeneration;
     private static volatile boolean syncInFlight = false;
 
     public static File getChimesDir() {
@@ -767,6 +773,8 @@ public class Arc7ClockStore {
             return; // 0% per-alarm silent/screen-wake-only mode!
         }
         ringingActive = true;
+        final int generation = ++ringGeneration;
+        acquireAlarmWakeLock(ctx);
 
         try {
             AudioManager audioMgr = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
@@ -781,6 +789,7 @@ public class Arc7ClockStore {
             @Override
             public void run() {
                 AudioTrack track = null;
+                MediaPlayer localPlayer = null;
                 try {
                     // 1. Play real downloaded Internet Archive (.ogg / .mp3) chime first (downloading on demand if needed!)
                     File audioFile = getCachedChimeFile(chimeId);
@@ -788,17 +797,21 @@ public class Arc7ClockStore {
                         audioFile = downloadSingleArchiveChime(ctx, chimeId);
                     }
                     if (audioFile != null && audioFile.isFile()) {
-                        MediaPlayer mp = new MediaPlayer();
-                        activeMediaPlayer = mp;
-                        mp.setAudioStreamType(AudioManager.STREAM_ALARM);
-                        mp.setDataSource(audioFile.getAbsolutePath());
-                        mp.setLooping(true);
+                        localPlayer = new MediaPlayer();
+                        if (generation != ringGeneration || !ringingActive) {
+                            localPlayer.release();
+                            return;
+                        }
+                        activeMediaPlayer = localPlayer;
+                        localPlayer.setAudioStreamType(AudioManager.STREAM_ALARM);
+                        localPlayer.setDataSource(audioFile.getAbsolutePath());
+                        localPlayer.setLooping(true);
                         float gain = Math.max(0.0f, Math.min(1.0f, clampedPct / 100.0f));
-                        mp.setVolume(gain, gain);
-                        mp.prepare();
-                        mp.start();
+                        localPlayer.setVolume(gain, gain);
+                        localPlayer.prepare();
+                        localPlayer.start();
                         long startedAt = System.currentTimeMillis();
-                        while (ringingActive) {
+                        while (ringingActive && generation == ringGeneration) {
                             if (maxDurationMs > 0L && System.currentTimeMillis() - startedAt >= maxDurationMs) {
                                 break;
                             }
@@ -826,7 +839,7 @@ public class Arc7ClockStore {
                     long startedAt = System.currentTimeMillis();
                     int offset = 0;
                     int chunk = 4096;
-                    while (ringingActive && phrase.length > 0) {
+                    while (ringingActive && generation == ringGeneration && phrase.length > 0) {
                         if (maxDurationMs > 0L && System.currentTimeMillis() - startedAt >= maxDurationMs) {
                             break;
                         }
@@ -836,12 +849,14 @@ public class Arc7ClockStore {
                     }
                 } catch (Throwable ignored) {
                 } finally {
-                    ringingActive = false;
-                    MediaPlayer mp = activeMediaPlayer;
-                    activeMediaPlayer = null;
-                    if (mp != null) {
-                        try { mp.stop(); } catch (Throwable ignored) {}
-                        try { mp.release(); } catch (Throwable ignored) {}
+                    if (generation == ringGeneration) {
+                        ringingActive = false;
+                        if (activeMediaPlayer == localPlayer) activeMediaPlayer = null;
+                        releaseAlarmWakeLock(generation);
+                    }
+                    if (localPlayer != null) {
+                        try { localPlayer.stop(); } catch (Throwable ignored) {}
+                        try { localPlayer.release(); } catch (Throwable ignored) {}
                     }
                     if (track != null) {
                         try { track.stop(); } catch (Throwable ignored) {}
@@ -899,8 +914,37 @@ public class Arc7ClockStore {
         return out;
     }
 
+    private static synchronized void acquireAlarmWakeLock(Context ctx) {
+        try {
+            PowerManager pm = (PowerManager) ctx.getApplicationContext()
+                    .getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            if (alarmWakeLock == null) {
+                alarmWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+                        "Arc7Freedom:AlarmAudio");
+                alarmWakeLock.setReferenceCounted(false);
+            }
+            if (!alarmWakeLock.isHeld()) alarmWakeLock.acquire();
+        } catch (Throwable ignored) {}
+    }
+
+    private static synchronized void releaseAlarmWakeLock(int generation) {
+        if (generation != ringGeneration) return;
+        releaseAlarmWakeLockLocked();
+    }
+
+    private static void releaseAlarmWakeLockLocked() {
+        PowerManager.WakeLock lock = alarmWakeLock;
+        alarmWakeLock = null;
+        if (lock != null) {
+            try { if (lock.isHeld()) lock.release(); } catch (Throwable ignored) {}
+        }
+    }
+
     public static synchronized void stopAlarmRinging() {
+        ringGeneration++;
         ringingActive = false;
+        releaseAlarmWakeLockLocked();
         MediaPlayer mp = activeMediaPlayer;
         activeMediaPlayer = null;
         if (mp != null) {

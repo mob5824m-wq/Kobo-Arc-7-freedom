@@ -2195,6 +2195,11 @@ static void stream_https_bridge(int client_fd,
         }
 
         const char *wire_method = is_head ? "HEAD" : (is_post ? method : "GET");
+        char host_header[272];
+        int default_port = (u.is_https && strcmp(u.port, "443") == 0)
+                || (!u.is_https && strcmp(u.port, "80") == 0);
+        if (default_port) snprintf(host_header, sizeof(host_header), "%s", u.host);
+        else snprintf(host_header, sizeof(host_header), "%s:%s", u.host, u.port);
         int req_len = snprintf(req, 20480,
                                "%s %s HTTP/1.1\r\n"
                                "Host: %s\r\n"
@@ -2204,7 +2209,7 @@ static void stream_https_bridge(int client_fd,
                                "%s"
                                "Connection: close\r\n\r\n",
                                wire_method,
-                               u.path, u.host,
+                               u.path, host_header,
                                custom_ua[0] ? custom_ua : "F-Droid 1.2 (Arc7Freedom/1.9 TLS1.3)",
                                custom_accept[0] ? custom_accept : "*/*",
                                extra_hdrs);
@@ -2793,7 +2798,21 @@ static void *handle_proxy_client(void *arg) {
         _exit(0);
     }
 
-    /* 3. Transparent Local TLS 1.3 HTTPS Mirror Bridge (`/__https/<host>/<path>` & plain HTTP proxy `http://...`) */
+    /* 3. Local upstream bridge routes. `__stream` accepts full HTTP or HTTPS radio URLs;
+     * `__https` retains its original host/path form for app fetches. */
+    if (strncmp(target, "/__stream/", 10) == 0) {
+        const char *stream_url = target + 10;
+        if (strncasecmp(stream_url, "http://", 7) == 0
+                || strncasecmp(stream_url, "https://", 8) == 0) {
+            stream_https_bridge(fd, method, stream_url, req, (size_t)used, job->ca_bundle);
+        } else {
+            dprintf(fd, "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\nInvalid stream URL\n");
+        }
+        free(req);
+        close(fd);
+        free(job);
+        return NULL;
+    }
     if (strncmp(target, "/__https/", 9) == 0) {
         char https_url[8192];
         snprintf(https_url, sizeof(https_url), "https://%.8180s", target + 9);

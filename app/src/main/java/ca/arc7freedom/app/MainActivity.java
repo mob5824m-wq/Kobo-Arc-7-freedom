@@ -648,7 +648,7 @@ public class MainActivity extends Activity {
         openSchoolVpnBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivity(new Intent(MainActivity.this, Arc7VpnActivity.class));
+                launchBuiltInActivity(Arc7VpnActivity.class);
             }
         });
         svRow.addView(openSchoolVpnBtn, new LinearLayout.LayoutParams(0, dp(46), 1.35f));
@@ -659,7 +659,7 @@ public class MainActivity extends Activity {
         openStreamDeckQuickBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivity(new Intent(MainActivity.this, Arc7StreamDeckActivity.class));
+                launchBuiltInActivity(Arc7StreamDeckActivity.class);
             }
         });
         svRow.addView(openStreamDeckQuickBtn, new LinearLayout.LayoutParams(0, dp(46), 0.9f));
@@ -710,7 +710,7 @@ public class MainActivity extends Activity {
         browserBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivity(new Intent(MainActivity.this, Arc7BrowserActivity.class));
+                launchBuiltInActivity(Arc7BrowserActivity.class);
             }
         });
         qRow.addView(browserBtn, new LinearLayout.LayoutParams(0, dp(44), 1.15f));
@@ -1058,6 +1058,41 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    /**
+     * Route dashboard shortcuts to the separately installed app package when it exists.
+     * Directly starting the suite's copy of an activity kept all shortcuts in the
+     * Arc7 Freedom process, so an unrelated app crash could surface as an Arc7 Freedom
+     * ANR/crash dialog. The in-suite activity remains a fallback for users who installed
+     * only the main package.
+     */
+    private void launchBuiltInActivity(Class<?> fallbackActivity) {
+        String simpleName = fallbackActivity.getSimpleName();
+        String stem = simpleName.endsWith("Activity")
+                ? simpleName.substring(0, simpleName.length() - "Activity".length())
+                : simpleName;
+        String packageName = null;
+        if ("YouTube".equals(stem)) packageName = "ca.arc7freedom.youtube";
+        else if ("YouTubeMusic".equals(stem)) packageName = "ca.arc7freedom.ytmusic";
+        else {
+            for (String[] row : SplitApps.ALL) {
+                if (row[0].endsWith("." + stem)) {
+                    packageName = row[1];
+                    break;
+                }
+            }
+        }
+        if (packageName != null) {
+            try {
+                Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
+                if (launch != null) {
+                    startActivity(launch);
+                    return;
+                }
+            } catch (Throwable ignored) {}
+        }
+        startActivity(new Intent(this, fallbackActivity));
+    }
+
     /* ========================== TAB 5: STARTER APPS, STORAGE, SPEED & TOOLS ========================== */
     private LinearLayout buildTab4Tools() {
         LinearLayout page = new LinearLayout(this);
@@ -1100,7 +1135,7 @@ public class MainActivity extends Activity {
                 "Watch 2026 YouTube videos with hardware H.264/AAC decoding via local TLS 1.3 Range Proxy, SponsorBlock skip, Dislikes & MP4/M4A download!",
                 "YouTube", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, YouTubeActivity.class));
+                        launchBuiltInActivity(YouTubeActivity.class);
                     }
                 });
 
@@ -1108,7 +1143,7 @@ public class MainActivity extends Activity {
                 "Stream songs, albums & playlists with screen OFF, synced lyrics, SponsorBlock non-music skip, 5-band Equalizer & Clock Standby display!",
                 "YouTube Music", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, YouTubeMusicActivity.class));
+                        launchBuiltInActivity(YouTubeMusicActivity.class);
                     }
                 });
 
@@ -1116,7 +1151,7 @@ public class MainActivity extends Activity {
                 "Sign directly into Tailscale with Google (scannable ISO QR code or tablet sign-in), bypass school blocks, or connect an HTTPS/SSH tunnel!",
                 "Wi-Fi & VPN", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7VpnActivity.class));
+                        launchBuiltInActivity(Arc7VpnActivity.class);
                     }
                 });
 
@@ -1124,7 +1159,7 @@ public class MainActivity extends Activity {
                 "15/24/32/6-key tactile LCD grids over Wi-Fi, zero-lag USB ADB, or Tailscale with OBS WebSocket v5, Volume Faders, Push-to-Talk & Web Deck Studio!",
                 "Stream Deck", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7StreamDeckActivity.class));
+                        launchBuiltInActivity(Arc7StreamDeckActivity.class);
                     }
                 });
 
@@ -1132,7 +1167,7 @@ public class MainActivity extends Activity {
                 "4-source free e-book storefront (`vk.com` OAuth + zero-login `vk.com` search/m.vk.com interceptor + Gutenberg + Open Library + Standard Ebooks) + `.fb2`/`.fb2.zip`/`.pdf`/`.epub`/`.cbz`!",
                 "Books", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
+                        launchBuiltInActivity(Arc7EbookReaderActivity.class);
                     }
                 });
 
@@ -1140,7 +1175,7 @@ public class MainActivity extends Activity {
                 "Read `.pdf` documents offline with chapter search OR scan paper pages via Kobo camera straight to `.pdf`!",
                 "PDF Reader", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7PdfViewerActivity.class));
+                        launchBuiltInActivity(Arc7PdfViewerActivity.class);
                     }
                 });
 
@@ -1148,7 +1183,7 @@ public class MainActivity extends Activity {
                 "Zero-API-key TLS 1.3 hourly & 7-day weather forecasts with °C/°F toggle and offline Home Widget cache!",
                 "Weather", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7WeatherActivity.class));
+                        launchBuiltInActivity(Arc7WeatherActivity.class);
                     }
                 });
 
@@ -1156,7 +1191,7 @@ public class MainActivity extends Activity {
                 "Stream 30,000+ live world radio stations with screen OFF + download offline `.mp3` podcasts + RSS/Atom feeds!",
                 "Radio", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7RadioRssActivity.class));
+                        launchBuiltInActivity(Arc7RadioRssActivity.class);
                     }
                 });
 
@@ -1164,7 +1199,7 @@ public class MainActivity extends Activity {
                 "Record crystal-clear 16-bit PCM `.wav` lectures & memos with live 60 fps waveform, Pause/Resume & lossless trim!",
                 "Recorder", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7RecorderActivity.class));
+                        launchBuiltInActivity(Arc7RecorderActivity.class);
                     }
                 });
 
@@ -1172,7 +1207,7 @@ public class MainActivity extends Activity {
                 "5 instant zero-ad 60 fps classic tablet games built straight into your tablet!",
                 "Games", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7ArcadeActivity.class));
+                        launchBuiltInActivity(Arc7ArcadeActivity.class);
                     }
                 });
 
@@ -1180,7 +1215,7 @@ public class MainActivity extends Activity {
                 "Instant offline English lexicon + Wiktionary definitions + distraction-free Wikipedia reader with saved articles!",
                 "Wikipedia", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7DictionaryWikiActivity.class));
+                        launchBuiltInActivity(Arc7DictionaryWikiActivity.class);
                     }
                 });
 
@@ -1188,7 +1223,7 @@ public class MainActivity extends Activity {
                 "Run Web Browser, E-Reader/PDF, Research Notes, Dictionary/Wiki & Calculator side-by-side (`35/50/65%` + `⇄ Swap`)!",
                 "Split View", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7SplitViewActivity.class));
+                        launchBuiltInActivity(Arc7SplitViewActivity.class);
                     }
                 });
 
@@ -1196,7 +1231,7 @@ public class MainActivity extends Activity {
                 "Use Kobo Arc 7 as a `1280x800` USB/Wi-Fi second display (`:18900`) with reverse touch input + 12-key Macro Deck!",
                 "2nd Screen", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7SecondScreenActivity.class));
+                        launchBuiltInActivity(Arc7SecondScreenActivity.class);
                     }
                 });
 
@@ -1204,7 +1239,7 @@ public class MainActivity extends Activity {
                 "Block ad/tracker domains in `/system/etc/hosts` (+ live 80k StevenBlack list) & control per-app `iptables` internet access!",
                 "Ad Blocker", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7ShieldActivity.class));
+                        launchBuiltInActivity(Arc7ShieldActivity.class);
                     }
                 });
 
@@ -1212,7 +1247,7 @@ public class MainActivity extends Activity {
                 "Add `+384 MB` swap headroom alongside 1 GB RAM, switch quad-core CPU profiles, and reclaim cached RAM!",
                 "System Boost", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7BoostActivity.class));
+                        launchBuiltInActivity(Arc7BoostActivity.class);
                     }
                 });
 
@@ -1239,7 +1274,7 @@ public class MainActivity extends Activity {
                 "Share your Chromebook's internet to Kobo over USB OR plug-and-play USB Ethernet tether Kobo -> Chromebook!",
                 "USB Internet", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7WiredInternetActivity.class));
+                        launchBuiltInActivity(Arc7WiredInternetActivity.class);
                     }
                 });
 
@@ -1268,7 +1303,7 @@ public class MainActivity extends Activity {
                 "Full Calendar with wake-screen chime reminders, color tags, Home Screen Widget, and `.ics` import/export!",
                 "Open Calendar", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7CalendarActivity.class));
+                        launchBuiltInActivity(Arc7CalendarActivity.class);
                     }
                 });
 
@@ -1276,7 +1311,7 @@ public class MainActivity extends Activity {
                 "Fast multi-album thumbnail gallery + 7 Live Filters, Rotate/Flip, Slideshow, Wallpaper & VLC video launch!",
                 "Open Photos", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7PhotosActivity.class));
+                        launchBuiltInActivity(Arc7PhotosActivity.class);
                     }
                 });
 
@@ -1284,7 +1319,7 @@ public class MainActivity extends Activity {
                 "Hardware-tuned for Kobo Arc 7 HD sensor with Front Screen Flash, 3s/10s Self-Timer, Grid & Color FX!",
                 "Open Camera", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7CameraActivity.class));
+                        launchBuiltInActivity(Arc7CameraActivity.class);
                     }
                 });
 
@@ -1292,7 +1327,7 @@ public class MainActivity extends Activity {
                 "Full scientific calculator (`sin/cos/tan/ln/log/√/^/!`), clickable History Tape, and Unit Converter!",
                 "Calculator", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7CalculatorActivity.class));
+                        launchBuiltInActivity(Arc7CalculatorActivity.class);
                     }
                 });
 
@@ -1300,7 +1335,7 @@ public class MainActivity extends Activity {
                 "Two-pane tablet notebook with interactive checkboxes, stylus/finger color canvas, and `.md`/`.png` export!",
                 "Open Notes", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7NotesActivity.class));
+                        launchBuiltInActivity(Arc7NotesActivity.class);
                     }
                 });
 
@@ -1308,7 +1343,7 @@ public class MainActivity extends Activity {
                 "Full file manager with Copy/Move/Rename, `.zip` create/extract, and 1-tap APK / VLC / Photos launch!",
                 "Open Files", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7FileManagerActivity.class));
+                        launchBuiltInActivity(Arc7FileManagerActivity.class);
                     }
                 });
 
@@ -1316,7 +1351,7 @@ public class MainActivity extends Activity {
                 "Inspects package metadata & permissions, auto-re-signs modern v2/v3 APKs with SHA1withRSA, & root-installs!",
                 "Installer", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7PackageInstallerActivity.class));
+                        launchBuiltInActivity(Arc7PackageInstallerActivity.class);
                     }
                 });
 
@@ -1362,7 +1397,7 @@ public class MainActivity extends Activity {
                 "Read `.epub`/`.txt`/`.html` + Color `.cbz` Comics/Manga + 1-tap Project Gutenberg TLS 1.3 book downloads!",
                 "Open Books", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7EbookReaderActivity.class));
+                        launchBuiltInActivity(Arc7EbookReaderActivity.class);
                     }
                 });
 
@@ -1370,7 +1405,7 @@ public class MainActivity extends Activity {
                 "Plays MP3/M4A/OGG/FLAC/WAV with screen OFF, auto-bookmarks audiobooks, +/-30s skip & Sleep Timer!",
                 "Open Music", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7AudioPlayerActivity.class));
+                        launchBuiltInActivity(Arc7AudioPlayerActivity.class);
                     }
                 });
 
@@ -1378,7 +1413,7 @@ public class MainActivity extends Activity {
                 "Unlimited wake-up Alarms (with Snooze & loud chime), screen-off Countdown Timers, Centisecond Lap Stopwatch & Standby!",
                 "Open Clock", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7ClockActivity.class));
+                        launchBuiltInActivity(Arc7ClockActivity.class);
                     }
                 });
 
@@ -1386,7 +1421,7 @@ public class MainActivity extends Activity {
                 "Apply 12 crisp 1280x800 procedural HD wallpapers or any photo from MicroSD / Internal Storage in one tap!",
                 "Wallpapers", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7WallpaperPickerActivity.class));
+                        launchBuiltInActivity(Arc7WallpaperPickerActivity.class);
                     }
                 });
 
@@ -1402,7 +1437,7 @@ public class MainActivity extends Activity {
                 "Inspect installed apps, uninstall user apps through Android's confirmation screen, back up APKs to MicroSD, freeze background drainers, or clear data.",
                 "App Manager", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7AppManagerActivity.class));
+                        launchBuiltInActivity(Arc7AppManagerActivity.class);
                     }
                 });
 
@@ -1410,7 +1445,7 @@ public class MainActivity extends Activity {
                 "Run `su`, `df`, `mount`, `dmesg`, `arc7tool`, `arc7tls`, or any Linux command right on the tablet.",
                 "Open Terminal", new View.OnClickListener() {
                     @Override public void onClick(View v) {
-                        startActivity(new Intent(MainActivity.this, Arc7TerminalActivity.class));
+                        launchBuiltInActivity(Arc7TerminalActivity.class);
                     }
                 });
 

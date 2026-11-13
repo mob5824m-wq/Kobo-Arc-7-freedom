@@ -44,12 +44,16 @@ public final class MorpheEngine {
     public static final String PREFS = "morphe_settings_v250";
     public static final int STREAM_PROXY_PORT = 18977;
 
-    private static final int QUICK_DIRECT_CLIENT_ATTEMPTS = 3;
+    // Keep playback resolution bounded and avoid the old burst of requests across every
+    // spoofed client/mirror; one preferred client plus one conservative fallback is enough.
+    private static final int MAX_DIRECT_CLIENT_ATTEMPTS = 2;
     private static final int QUICK_VISITOR_TIMEOUT_MS = 1600;
     private static final int QUICK_PLAYER_TIMEOUT_MS = 6500;
     private static final int QUICK_CLOUD_TIMEOUT_MS = 3000;
-    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 4;
+    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 1;
     private static final long QUICK_DIRECT_BUDGET_MS = 21000L;
+    private static final Object YOUTUBE_PACE_LOCK = new Object();
+    private static long nextYouTubeRequestAtMs = 0L;
 
     // User-selectable Morphe Spoof Stream Client modes (`0 = Auto Best Stream`)
     public static final String[] SPOOF_CLIENT_LABELS = new String[]{
@@ -517,6 +521,40 @@ public final class MorpheEngine {
         } catch (Throwable ignored) {}
     }
 
+    private static boolean isYouTubeOrigin(String url) {
+        if (url == null) return false;
+        String lower = url.toLowerCase(Locale.US);
+        return lower.contains("youtube.com/") || lower.contains("youtubei.googleapis.com/")
+                || lower.contains("googlevideo.com/");
+    }
+
+    private static void paceYouTubeRequest(String url) throws IOException {
+        if (!isYouTubeOrigin(url)) return;
+        synchronized (YOUTUBE_PACE_LOCK) {
+            long waitMs;
+            while ((waitMs = nextYouTubeRequestAtMs - System.currentTimeMillis()) > 0L) {
+                try {
+                    YOUTUBE_PACE_LOCK.wait(waitMs);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while pacing YouTube requests", e);
+                }
+            }
+            nextYouTubeRequestAtMs = System.currentTimeMillis() + 1200L;
+        }
+    }
+
+    private static void backoffYouTubeOrigin(String url, int statusCode) {
+        if (!isYouTubeOrigin(url)) return;
+        long delay = statusCode == 429 || statusCode == 503 ? 60000L
+                : (statusCode == 403 ? 30000L : 0L);
+        if (delay == 0L) return;
+        synchronized (YOUTUBE_PACE_LOCK) {
+            nextYouTubeRequestAtMs = Math.max(nextYouTubeRequestAtMs,
+                    System.currentTimeMillis() + delay);
+        }
+    }
+
     public static byte[] requestHttpsBytes(Context ctx,
                                            String method,
                                            String httpsUrl,
@@ -524,6 +562,7 @@ public final class MorpheEngine {
                                            Map<String, String> headers,
                                            int timeoutMs,
                                            int maxBytes) throws Exception {
+        paceYouTubeRequest(httpsUrl);
         ensureGatewayWarm(ctx);
         String bridgeUrl = httpsUrl.startsWith("https://")
                 ? ("http://127.0.0.1:" + gatewayPort() + "/__https/" + httpsUrl.substring(8))
@@ -556,6 +595,9 @@ public final class MorpheEngine {
             }
 
             int code = conn.getResponseCode();
+            if (code == 403 || code == 429 || code == 503) {
+                backoffYouTubeOrigin(httpsUrl, code);
+            }
             in = (code >= 200 && code < 400) ? conn.getInputStream() : conn.getErrorStream();
             if (in == null) {
                 throw new Exception("HTTP " + code);
@@ -1096,9 +1138,9 @@ public final class MorpheEngine {
         StringBuilder failures = new StringBuilder();
         long directDeadline = quick ? System.currentTimeMillis() + QUICK_DIRECT_BUDGET_MS : Long.MAX_VALUE;
         int directAttempts = 0;
-        int directLimit = quick ? Math.max(QUICK_DIRECT_CLIENT_ATTEMPTS, order.size()) : order.size();
+        int directLimit = Math.min(MAX_DIRECT_CLIENT_ATTEMPTS, order.size());
         for (int idx = 0; idx < order.size() && resolved == null; idx++) {
-            if (quick && directAttempts >= directLimit) break;
+            if (directAttempts >= directLimit) break;
             long remaining = quick ? directDeadline - System.currentTimeMillis() : Long.MAX_VALUE;
             if (quick && remaining <= 0L) break;
 
@@ -1448,30 +1490,14 @@ public final class MorpheEngine {
         JSONObject payload = new JSONObject();
         payload.put("context", buildClientContext(spec, visitorData, true));
         payload.put("videoId", videoId);
-        payload.put("cpn", randomCpn());
-        payload.put("contentCheckOk", true);
-        payload.put("racyCheckOk", true);
 
         Map<String, String> hdrs = clientHeaders(spec, host, visitorData);
-
-        // Newer clients expose the full response on `/youtubei/v1/player` with `?id=` +
-        // a rotating `t=` token; `www.youtube.com` only answers that shape for TV clients.
-        String url = host + "/youtubei/v1/player?prettyPrint=false&t=" + randomToken(11)
-                + "&id=" + Uri.encode(videoId);
+        // Use the documented request shape. The old implementation appended fabricated,
+        // rotating query tokens and extra content flags; those caused needless request
+        // variability and contributed to rate-limit / unusual-traffic responses.
+        String url = host + "/youtubei/v1/player?prettyPrint=false";
         String raw = requestHttpsString(ctx, "POST", url, payload.toString(), hdrs, Math.max(1, timeoutMs));
         return parseInnerTubePlayerResponse(new JSONObject(raw), videoId, spec[0], spec[4]);
-    }
-
-    private static String randomToken(int len) {
-        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        StringBuilder sb = new StringBuilder();
-        java.util.Random r = new java.util.Random();
-        for (int i = 0; i < len; i++) sb.append(alphabet.charAt(r.nextInt(alphabet.length())));
-        return sb.toString();
-    }
-
-    private static String randomCpn() {
-        return randomToken(16);
     }
 
     public static ResolvedPlayback parseInnerTubePlayerResponse(JSONObject pr,
@@ -1510,7 +1536,7 @@ public final class MorpheEngine {
             for (int i = 0; i < formats.length(); i++) {
                 JSONObject f = formats.optJSONObject(i);
                 if (f == null) continue;
-                String url = f.optString("url", "");
+                String url = directUrlFromFormat(f);
                 if (url.length() == 0) continue;
                 String mime = f.optString("mimeType", "video/mp4");
                 // MT8125 hardware decoder excels at MP4/H.264 (`avc1` + `mp4a`); avoid AV1 (`av01`) & VP9 (`vp9`)
@@ -1537,7 +1563,7 @@ public final class MorpheEngine {
             for (int i = 0; i < adaptive.length(); i++) {
                 JSONObject f = adaptive.optJSONObject(i);
                 if (f == null) continue;
-                String url = f.optString("url", "");
+                String url = directUrlFromFormat(f);
                 if (url.length() == 0) continue;
                 String mime = f.optString("mimeType", "");
                 StreamVariant sv = new StreamVariant();
@@ -1607,6 +1633,35 @@ public final class MorpheEngine {
         return out;
     }
 
+    /**
+     * Extract a directly usable URL from a YouTube format. Some player responses expose a
+     * clear `sig`/`signature` inside `signatureCipher` instead of a top-level `url`; accept
+     * those without attempting to bypass an encrypted `s` signature (which needs the site's
+     * current player script and must be reported as unavailable rather than guessed).
+     */
+    private static String directUrlFromFormat(JSONObject format) {
+        if (format == null) return "";
+        String direct = format.optString("url", "");
+        if (direct.length() > 0) return direct;
+        String cipher = format.optString("signatureCipher", "");
+        if (cipher.length() == 0) cipher = format.optString("cipher", "");
+        if (cipher.length() == 0) return "";
+        try {
+            Uri params = Uri.parse("https://format.invalid/?" + cipher);
+            String url = params.getQueryParameter("url");
+            String signature = params.getQueryParameter("sig");
+            if (signature == null || signature.length() == 0) {
+                signature = params.getQueryParameter("signature");
+            }
+            if (url == null || url.length() == 0 || signature == null || signature.length() == 0) return "";
+            String key = params.getQueryParameter("sp");
+            if (key == null || !key.matches("[A-Za-z0-9_-]{1,32}")) key = "signature";
+            return url + (url.indexOf('?') >= 0 ? "&" : "?") + key + "=" + Uri.encode(signature);
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
     private static String extractCodec(String mimeType) {
         int idx = mimeType.indexOf("codecs=\"");
         if (idx < 0) return "";
@@ -1624,7 +1679,7 @@ public final class MorpheEngine {
     }
 
     private static ResolvedPlayback fetchPlayerFromCloudInstances(Context ctx, String videoId) {
-        return fetchPlayerFromCloudInstances(ctx, videoId, 10000, PIPED_INSTANCES.length + INVIDIOUS_INSTANCES.length, null);
+        return fetchPlayerFromCloudInstances(ctx, videoId, 10000, 1, null);
     }
 
     private static ResolvedPlayback fetchPlayerFromCloudInstances(Context ctx, String videoId,
@@ -1751,7 +1806,8 @@ public final class MorpheEngine {
         Map<String, String> hdrs = new LinkedHashMap<String, String>();
         hdrs.put("User-Agent", WEB_UA);
         String filter = musicOnly ? "music_songs" : "videos";
-        for (int i = 0; i < PIPED_INSTANCES.length; i++) {
+        // One fallback endpoint per user action; do not fan out a search across public mirrors.
+        for (int i = 0; i < Math.min(1, PIPED_INSTANCES.length); i++) {
             try {
                 String raw = requestHttpsString(ctx, "GET",
                         PIPED_INSTANCES[i] + "/search?q=" + Uri.encode(query) + "&filter=" + filter,

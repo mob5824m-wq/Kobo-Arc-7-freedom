@@ -347,7 +347,11 @@ public class UpgraderActivity extends Activity {
                     } finally {
                         zis.close();
                     }
-                    uiLog("[2/7] Extracted VLC Media Player (" + (vlcApk.length() / 1024) + " KB), Aurora Store, F-Droid Classic, VanillaAndroid4Home v50, Python 3, apt & " + caCount + " 2026 Root CAs");
+                    if (!fdroidApk.isFile() || fdroidApk.length() < 1024L * 1024L) {
+                        throw new IllegalStateException("Patched F-Droid APK is missing from the installer bundle");
+                    }
+                    uiLog("[F-Droid] Installer bundle contains the pre-patched APK (low-memory index parser + TLS/signature fixes); the root installer will install it automatically.");
+                    uiLog("[2/7] Extracted VLC Media Player (" + (vlcApk.length() / 1024) + " KB), Aurora Store, patched F-Droid Classic, VanillaAndroid4Home v50, Python 3, apt & " + caCount + " 2026 Root CAs");
 
                     uiProgress(40, "Running root package swap & installing 2026 CA store...");
 

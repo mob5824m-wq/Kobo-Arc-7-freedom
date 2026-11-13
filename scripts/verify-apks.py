@@ -3821,6 +3821,8 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
         "cleanupStaleDownloadTempFiles",
     ):
         assert name in fd_methods, f"Missing F-Droid stability/streaming method {name!r}"
+    for marker in ("dl-arc7-index-v1-", "512 MiB safety limit"):
+        assert marker in dex_strings, f"F-Droid installer payload is missing low-memory patch marker {marker!r}"
 
     # Both post-sync calls in `onHandleIntent` sit AFTER the last try range of that method, so
     # they must be retargeted to the `Arc7Bridge.safe*` reflective Throwable guards.
@@ -3930,17 +3932,46 @@ def verify_requested_runtime_hardening() -> None:
                    "reportConnectionDiagnostic", "connectionError(t)"):
         assert needle in android_deck, f"Stream Deck connection recovery is missing {needle!r}"
 
-    # Foreground playback has bounded direct/cloud attempts, emits UI progress, and no longer waits
-    # for SponsorBlock/recommendation APIs before opening the playable stream.
+    # Foreground playback has bounded direct/cloud attempts, paced API traffic, and a standard
+    # player request shape instead of the old rotating query-token/request fan-out.
     morphe = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/MorpheEngine.java"), encoding="utf-8").read()
     youtube = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/YouTubeActivity.java"), encoding="utf-8").read()
-    for needle in ("QUICK_DIRECT_CLIENT_ATTEMPTS = 3", "QUICK_VISITOR_TIMEOUT_MS = 1600",
-                   "QUICK_PLAYER_TIMEOUT_MS = 6500", "QUICK_CLOUD_TIMEOUT_MS = 3000",
+    for needle in ("MAX_DIRECT_CLIENT_ATTEMPTS = 2", "QUICK_VISITOR_TIMEOUT_MS = 1600",
+                   "QUICK_PLAYER_TIMEOUT_MS = 6500", "QUICK_CLOUD_ENDPOINT_ATTEMPTS = 1",
+                   "YOUTUBE_PACE_LOCK", "1200L", "backoffYouTubeOrigin",
                    "ResolutionProgressListener", "enrichPlaybackMetadata"):
         assert needle in morphe, f"Bounded YouTube resolution is missing {needle!r}"
     assert "Resolving video: YouTube client" in morphe and "Trying video mirror" in morphe
+    assert '"/youtubei/v1/player?prettyPrint=false"' in morphe
+    assert "randomToken(" not in morphe and "randomCpn(" not in morphe
     assert "loadPlaybackMetadataAsync(res, videoId)" in youtube
     assert "MorpheEngine.ResolutionProgressListener" in youtube
+
+    # Dashboard app shortcuts must leave the suite process when a separately packaged app is
+    # installed; standalone Clock must also contain the alert activity launched by its receiver.
+    main_src = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/MainActivity.java"), encoding="utf-8").read()
+    assert "launchBuiltInActivity(Class<?> fallbackActivity)" in main_src
+    assert "getLaunchIntentForPackage(packageName)" in main_src
+    clock_manifest = open(os.path.join(ROOT, "split-apps/clock/AndroidManifest.xml"), encoding="utf-8").read()
+    assert "ca.arc7freedom.app.Arc7AlarmAlertActivity" in clock_manifest
+    assert "android.permission.WAKE_LOCK" in clock_manifest
+    alarm_store = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7ClockStore.java"), encoding="utf-8").read()
+    assert "Arc7Freedom:AlarmAudio" in alarm_store and "PowerManager.PARTIAL_WAKE_LOCK" in alarm_store
+
+    # Radio-Browser's popular list excludes stations the directory marks broken. F-Droid's
+    # missing-cache path is disk-backed rather than retaining every App model in the Dalvik heap.
+    assert "hidebroken=true" in radio and 'o.has("lastcheckok")' in radio
+    fdroid_patch = open(os.path.join(ROOT, "scripts/patch-fdroid-apk.py"), encoding="utf-8").read()
+    for needle in ("File.createTempFile(\"dl-arc7-index-v1-\"", "512 MiB safety limit",
+                   "new FileInputStream(backingJson)", "low-memory index processing"):
+        assert needle in fdroid_patch, f"F-Droid low-memory fallback is missing {needle!r}"
+    assert "fallbackApps" not in fdroid_patch
+    upgrader_src = open(os.path.join(ROOT, "upgrader/src/main/java/ca/arc7freedom/upgrader/UpgraderActivity.java"), encoding="utf-8").read()
+    assert "Patched F-Droid APK is missing from the installer bundle" in upgrader_src
+    assert "[F-Droid] Installer bundle contains the pre-patched APK" in upgrader_src
+    assert 'pm install -r /data/local/tmp/FDroidClassicLegacy.apk' in upgrader_src
+    build_script = open(os.path.join(ROOT, "scripts/build-all.sh"), encoding="utf-8").read()
+    assert 'scripts/patch-fdroid-apk.py' in build_script and 'PYFDROIDCHECK' in build_script
 
     remuxer = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/MorpheRemuxer.java"), encoding="utf-8").read()
     for needle in ("remuxClassicMp4", "remuxSingleTrackClassicMp4", "buildClassicMoov"):

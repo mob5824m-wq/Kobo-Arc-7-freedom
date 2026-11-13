@@ -62,6 +62,17 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name="ca.arc7freedom.app.Arc7AlarmAlertActivity"
+            android:label="Alarm"
+            android:icon="@drawable/ic_clock"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.clock.task.alarm"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen"
+            android:exported="false" />
+
         <receiver
             android:name="ca.arc7freedom.app.Arc7AlarmReceiver"
             android:exported="true" />
