@@ -3823,7 +3823,7 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
         "cleanupStaleDownloadTempFiles",
     ):
         assert name in fd_methods, f"Missing F-Droid stability/streaming method {name!r}"
-    for marker in ("dl-arc7-index-v1-", "512 MiB safety limit"):
+    for marker in ("dl-arc7-index-v1-", "F-Droid index exceeds the 512 MiB safety limit"):
         assert marker in dex_strings, f"F-Droid installer payload is missing low-memory patch marker {marker!r}"
 
     # Both post-sync calls in `onHandleIntent` sit AFTER the last try range of that method, so
