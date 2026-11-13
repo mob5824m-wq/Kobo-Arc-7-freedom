@@ -1643,7 +1643,11 @@ static int cmd_gen_local_ca(const char *out_dir) {
     }
     mbedtls_x509write_crt_set_basic_constraints(&crt, 1, 1);
     mbedtls_x509write_crt_set_key_usage(&crt, MBEDTLS_X509_KU_KEY_CERT_SIGN | MBEDTLS_X509_KU_CRL_SIGN);
-    mbedtls_x509write_crt_set_subject_key_identifier(&crt);
+    if (mbedtls_x509write_crt_set_subject_key_identifier(&crt) != 0 ||
+        mbedtls_x509write_crt_set_authority_key_identifier(&crt) != 0) {
+        fprintf(stderr, "GEN_LOCAL_CA=FAILED step=key_identifiers\n");
+        return 1;
+    }
 
     unsigned char cert_pem[8192], key_pem[8192];
     if (mbedtls_x509write_crt_pem(&crt, cert_pem, sizeof(cert_pem), mbedtls_ctr_drbg_random, &drbg) != 0 ||
@@ -1773,6 +1777,12 @@ static int get_or_mint_host_cert_der(const char *hostname, unsigned char *out_de
     mbedtls_x509write_crt_set_basic_constraints(&crt, 0, -1);
     mbedtls_x509write_crt_set_key_usage(&crt,
                                         MBEDTLS_X509_KU_DIGITAL_SIGNATURE | MBEDTLS_X509_KU_KEY_ENCIPHERMENT);
+    if (mbedtls_x509write_crt_set_subject_key_identifier(&crt) != 0 ||
+        mbedtls_x509write_crt_set_authority_key_identifier(&crt) != 0) {
+        mbedtls_x509write_crt_free(&crt);
+        pthread_mutex_unlock(&g_cert_mu);
+        return -1;
+    }
 
     /* ExtendedKeyUsage = id-kp-serverAuth (1.3.6.1.5.5.7.3.1) DER: 30 0A 06 08 2B 06 01 05 05 07 03 01 */
     static const unsigned char eku_server_auth[] = {
