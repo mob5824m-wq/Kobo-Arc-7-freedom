@@ -88,11 +88,127 @@ public final class MorpheRemuxer {
         }
     }
 
+    private static volatile java.io.File cacheDir;
+    public static void setCacheDir(java.io.File dir) { cacheDir = dir; }
     private MorpheRemuxer() {}
 
     /* ======================================================================
      * 1. Public API
      * ====================================================================== */
+
+    /** Finite fMP4 HLS input. At most one segment per source is resident in memory. */
+    public interface SegmentSource {
+        byte[] init() throws Exception;
+        byte[] next() throws Exception;
+        long durationMs();
+    }
+
+    /** Handles separate or muxed fMP4 HLS; old Stagefright receives classic MP4/M4A. */
+    public static void remuxHlsClassicMp4(SegmentSource video, SegmentSource audio,
+                                            RandomAccessFile out, Progress progress) throws Exception {
+        byte[] vi = video != null ? video.init() : null;
+        byte[] ai = audio != null ? audio.init() : vi;
+        List<ClassicTrackBuilder> builders = new ArrayList<ClassicTrackBuilder>();
+        ClassicTrackBuilder vb = null, ab = null;
+        if (video != null) {
+            if (!hasTrack(vi, true)) throw new IOException("HLS video initialization has no video track");
+            vb = new ClassicTrackBuilder(vi, 1, true, video.durationMs());
+            builders.add(vb);
+        }
+        if (ai != null && hasTrack(ai, false)) {
+            ab = new ClassicTrackBuilder(ai, vb == null ? 1 : 2, false,
+                    audio != null ? audio.durationMs() : video.durationMs());
+            builders.add(ab);
+        }
+        if (ab == null) throw new IOException("HLS initialization has no AAC audio track");
+        java.io.File parent = outFileDirectory();
+        java.io.File temp = java.io.File.createTempFile("arc7_hls_mdat_", ".bin", parent);
+        RandomAccessFile spool = new RandomAccessFile(temp, "rw");
+        try {
+            boolean vDone = video == null, aDone = audio == null;
+            while (!vDone || !aDone) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("HLS remux cancelled");
+                if (!vDone) {
+                    byte[] segment = video.next();
+                    vDone = segment == null;
+                    if (!vDone) consumeHlsSegment(segment, vb, audio == null ? ab : null, spool);
+                }
+                if (!aDone) {
+                    byte[] segment = audio.next();
+                    aDone = segment == null;
+                    if (!aDone) consumeHlsSegment(segment, null, ab, spool);
+                }
+                if (spool.length() > 512L * 1024L * 1024L) throw new IOException("HLS preparation exceeds 512 MB cache limit");
+                if (progress != null) progress.onStage("Preparing HLS for Android 4.2 (" + spool.length() / 1048576L + " MB)");
+            }
+            for (ClassicTrackBuilder b : builders) if (b.sampleCount() == 0) throw new IOException("HLS track has no media samples");
+            writeClassic(builders, spool, out, progress);
+        } finally {
+            try { spool.close(); } finally { temp.delete(); }
+        }
+    }
+
+    private static java.io.File outFileDirectory() {
+        if (cacheDir != null) return cacheDir;
+        java.io.File dir = new java.io.File(System.getProperty("java.io.tmpdir", "/data/local/tmp"));
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    static boolean hasTrack(byte[] init, boolean video) {
+        if (init == null) return false;
+        for (Box moov : boxes(init, 0, init.length)) if ("moov".equals(moov.type)) {
+            for (Box trak : boxes(init, moov.contentStart, moov.contentEnd)) if ("trak".equals(trak.type)) {
+                if ((video ? "vide" : "soun").equals(handlerOf(slice(init, trak.start, trak.size)))) return true;
+            }
+        }
+        return false;
+    }
+
+    private static String handlerOf(byte[] trak) {
+        Box mdia = findBox(boxes(trak, 8, trak.length), "mdia");
+        if (mdia == null) return "";
+        Box hdlr = findBox(boxes(trak, mdia.contentStart, mdia.contentEnd), "hdlr");
+        return hdlr != null && hdlr.contentStart + 12 <= trak.length
+                ? new String(trak, hdlr.contentStart + 8, 4) : "";
+    }
+
+    private static void consumeHlsSegment(byte[] segment, ClassicTrackBuilder video,
+                                           ClassicTrackBuilder audio, RandomAccessFile spool) throws Exception {
+        List<Box> all = boxes(segment, 0, segment.length);
+        int found = 0;
+        for (int i = 0; i < all.size(); i++) {
+            Box moof = all.get(i);
+            if (!"moof".equals(moof.type)) continue;
+            Box mdat = i + 1 < all.size() ? all.get(i + 1) : null;
+            if (mdat == null || !"mdat".equals(mdat.type)) throw new IOException("HLS fragment has no adjacent mdat");
+            Fragment f = new Fragment();
+            f.moof = slice(segment, moof.start, moof.size);
+            f.mdat = slice(segment, moof.contentEnd, mdat.contentEnd - moof.contentEnd);
+            f.sourceOffset = moof.start;
+            if (video != null) video.consumeFragment(f, spool);
+            if (audio != null) audio.consumeFragment(f, spool);
+            found++;
+        }
+        if (found == 0) throw new IOException("HLS segment contains no MP4 media fragments");
+    }
+
+    private static void writeClassic(List<ClassicTrackBuilder> builders, RandomAccessFile spool,
+                                       RandomAccessFile out, Progress progress) throws Exception {
+        byte[] ftyp = defaultFtyp();
+        byte[] dummy = buildClassicMoov(builders.get(0).mvhdBox, builders, 0L);
+        byte[] moov = buildClassicMoov(builders.get(0).mvhdBox, builders, ftyp.length + dummy.length + 8L);
+        out.seek(0L); out.setLength(0L); out.write(ftyp); out.write(moov);
+        byte[] header = new byte[8]; put32(header, 0, spool.length() + 8L);
+        header[4] = 'm'; header[5] = 'd'; header[6] = 'a'; header[7] = 't'; out.write(header);
+        spool.seek(0L); byte[] buffer = new byte[65536]; int n;
+        while ((n = spool.read(buffer)) >= 0) {
+            if (Thread.currentThread().isInterrupted()) throw new IOException("HLS remux cancelled");
+            out.write(buffer, 0, n);
+        }
+        out.getFD().sync();
+        if (progress != null) { progress.onBytes(out.length(), out.length()); progress.onStage("complete"); }
+    }
 
     /**
      * Builds the merged ftyp+moov for a video-only + audio-only pair and computes the
@@ -247,13 +363,22 @@ public final class MorpheRemuxer {
                 }
             }
         }, "Arc7-MuxInitAudio");
+        tA.setDaemon(true);
         tA.start();
         try {
-            inits[0] = video.fetcher.fetch(0L, video.initEnd);
-        } catch (Throwable t) {
-            initErr[0] = t;
+            try {
+                inits[0] = video.fetcher.fetch(0L, video.initEnd);
+            } catch (Throwable t) {
+                initErr[0] = t;
+            }
+            tA.join();
+        } catch (InterruptedException cancelled) {
+            tA.interrupt();
+            Thread.currentThread().interrupt();
+            throw new IOException("DASH preparation cancelled", cancelled);
+        } finally {
+            if (Thread.currentThread().isInterrupted()) tA.interrupt();
         }
-        tA.join();
         if (initErr[0] != null) {
             if (initErr[0] instanceof Exception) throw (Exception) initErr[0];
             throw new IOException(initErr[0]);
@@ -266,85 +391,22 @@ public final class MorpheRemuxer {
         ClassicTrackBuilder vBuilder = new ClassicTrackBuilder(inits[0], 1, true, video.durationMs);
         ClassicTrackBuilder aBuilder = new ClassicTrackBuilder(inits[1], 2, false, audio.durationMs);
 
-        final long approxTotal = (video.contentLength > 0L ? video.contentLength : 0L)
-                + (audio.contentLength > 0L ? audio.contentLength : 0L);
-
-        // Fetch video and audio fragment streams in parallel into memory queues for 2x throughput.
-        final List<Fragment> vFrags = new ArrayList<Fragment>();
-        final List<Fragment> aFrags = new ArrayList<Fragment>();
-        final Throwable[] streamErr = new Throwable[2];
-        final long[] bytesFetched = new long[]{inits[0].length + inits[1].length};
-
-        Thread vThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    FragmentStream vs = new FragmentStream(video, 1, inits[0]);
-                    Fragment f;
-                    while ((f = vs.next()) != null) {
-                        synchronized (vFrags) {
-                            vFrags.add(f);
-                            bytesFetched[0] += f.moof.length + f.mdat.length;
-                            if (progress != null) progress.onBytes(bytesFetched[0], approxTotal);
-                        }
-                    }
-                } catch (Throwable t) {
-                    streamErr[0] = t;
-                }
-            }
-        }, "Arc7-MuxFetchVideo");
-
-        Thread aThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    FragmentStream as = new FragmentStream(audio, 2, inits[1]);
-                    Fragment f;
-                    while ((f = as.next()) != null) {
-                        synchronized (vFrags) {
-                            aFrags.add(f);
-                            bytesFetched[0] += f.moof.length + f.mdat.length;
-                            if (progress != null) progress.onBytes(bytesFetched[0], approxTotal);
-                        }
-                    }
-                } catch (Throwable t) {
-                    streamErr[1] = t;
-                }
-            }
-        }, "Arc7-MuxFetchAudio");
-
-        vThread.start();
-        aThread.start();
-        vThread.join();
-        aThread.join();
-
-        if (streamErr[0] != null && vFrags.isEmpty()) {
-            if (streamErr[0] instanceof Exception) throw (Exception) streamErr[0];
-            throw new IOException(streamErr[0]);
-        }
-        if (streamErr[1] != null && aFrags.isEmpty()) {
-            if (streamErr[1] instanceof Exception) throw (Exception) streamErr[1];
-            throw new IOException(streamErr[1]);
-        }
-
-        java.io.File spoolFile = java.io.File.createTempFile("arc7_mdat_", ".bin");
+        java.io.File spoolFile = java.io.File.createTempFile("arc7_mdat_", ".bin", outFileDirectory());
         RandomAccessFile spool = new RandomAccessFile(spoolFile, "rw");
         try {
-            int vi = 0, ai = 0;
-            while (vi < vFrags.size() || ai < aFrags.size()) {
-                boolean takeVideo;
-                if (vi >= vFrags.size()) takeVideo = false;
-                else if (ai >= aFrags.size()) takeVideo = true;
-                else takeVideo = vFrags.get(vi).decodeTimeSec <= aFrags.get(ai).decodeTimeSec;
-
-                if (takeVideo) {
-                    vBuilder.consumeFragment(vFrags.get(vi++), spool);
-                } else {
-                    aBuilder.consumeFragment(aFrags.get(ai++), spool);
-                }
+            FragmentStream vs = new FragmentStream(video, 1, inits[0]);
+            FragmentStream as = new FragmentStream(audio, 2, inits[1]);
+            Fragment vf = vs.next(), af = as.next();
+            while (vf != null || af != null) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("DASH remux cancelled");
+                if (vf != null && (af == null || vf.decodeTimeSec <= af.decodeTimeSec)) {
+                    vBuilder.consumeFragment(vf, spool); vf = vs.next();
+                } else { aBuilder.consumeFragment(af, spool); af = as.next(); }
+                if (spool.length() > 512L * 1024L * 1024L) throw new IOException("DASH preparation exceeds cache limit");
+                if (progress != null) progress.onStage("Preparing classic MP4 (" + spool.length() / 1048576L + " MB)");
             }
-            if (vBuilder.sampleCount() == 0) {
-                throw new IOException("No video samples decoded from DASH stream");
+            if (vBuilder.sampleCount() == 0 || aBuilder.sampleCount() == 0) {
+                throw new IOException("Incomplete DASH stream: video or audio samples missing");
             }
 
             long mdatPayloadLen = spool.length();
@@ -372,6 +434,7 @@ public final class MorpheRemuxer {
             int n;
             long totalOut = (long) ftyp.length + (long) finalMoov.length + 8L + mdatPayloadLen;
             while ((n = spool.read(copyBuf)) > 0) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("Media preparation cancelled");
                 out.write(copyBuf, 0, n);
             }
             out.getFD().sync();
@@ -394,16 +457,17 @@ public final class MorpheRemuxer {
         boolean isVideo = track.mimeType != null && track.mimeType.startsWith("video/");
         ClassicTrackBuilder builder = new ClassicTrackBuilder(init, 1, isVideo, track.durationMs);
 
-        java.io.File spoolFile = java.io.File.createTempFile("arc7_smdat_", ".bin");
+        java.io.File spoolFile = java.io.File.createTempFile("arc7_smdat_", ".bin", outFileDirectory());
         RandomAccessFile spool = new RandomAccessFile(spoolFile, "rw");
         try {
             FragmentStream fs = new FragmentStream(track, 1, init);
             Fragment f;
-            long fetched = init.length;
             while ((f = fs.next()) != null) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("DASH audio preparation cancelled");
                 builder.consumeFragment(f, spool);
-                fetched += f.moof.length + f.mdat.length;
-                if (progress != null) progress.onBytes(fetched, track.contentLength);
+                if (spool.length() > 512L * 1024L * 1024L) throw new IOException("DASH preparation exceeds cache limit");
+                // These bytes are in the INPUT spool, not in the final playable output.
+                if (progress != null) progress.onStage("Preparing classic M4A/MP4 (" + spool.length() / 1048576L + " MB)");
             }
             if (builder.sampleCount() == 0) {
                 throw new IOException("No samples decoded from single-track DASH stream");
@@ -433,6 +497,7 @@ public final class MorpheRemuxer {
             int n;
             long totalOut = (long) ftyp.length + (long) finalMoov.length + 8L + mdatPayloadLen;
             while ((n = spool.read(copyBuf)) > 0) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("Media preparation cancelled");
                 out.write(copyBuf, 0, n);
             }
             out.getFD().sync();
@@ -726,6 +791,7 @@ public final class MorpheRemuxer {
         byte[] mdat;
         double decodeTimeSec;
         int newTrackId;
+        long sourceOffset;
     }
 
     /**
@@ -769,6 +835,7 @@ public final class MorpheRemuxer {
         }
 
         private boolean fill(long wantBytes) throws Exception {
+            if (Thread.currentThread().isInterrupted()) throw new IOException("DASH request cancelled");
             if (pending.size() >= wantBytes) return true;
             if (eof) return false;
             long end = Math.min(fetchEndInclusive, nextFetchStart + Math.max(524288L, wantBytes) - 1L);
@@ -785,27 +852,28 @@ public final class MorpheRemuxer {
 
         Fragment next() throws Exception {
             while (true) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("DASH request cancelled");
                 byte[] buf = pending.toByteArray();
                 if (buf.length < 8) {
-                    if (!fill(8)) return null;
+                    if (!fill(8)) {
+                        if (buf.length > 0) throw new IOException("Truncated MP4 box header");
+                        return null;
+                    }
                     continue;
                 }
                 long size = u32(buf, 0);
                 String type = new String(buf, 4, 4);
                 int header = 8;
                 if (size == 1L) {
-                    if (buf.length < 16) { if (!fill(16)) return null; continue; }
+                    if (buf.length < 16) { if (!fill(16)) throw new IOException("Truncated MP4 extended box header"); continue; }
                     size = i64(buf, 8);
                     header = 16;
                 }
                 if (size < header || size > 64L * 1024L * 1024L) {
-                    // Stream is not what we expect; drop a byte and resynchronise.
-                    pending.reset();
-                    pending.write(buf, 1, buf.length - 1);
-                    continue;
+                    throw new IOException("Invalid or oversized MP4 fragment box");
                 }
                 if (buf.length < size) {
-                    if (!fill((int) size)) return null;
+                    if (!fill((int) size)) throw new IOException("Truncated MP4 fragment");
                     continue;
                 }
                 byte[] whole = slice(buf, 0, (int) size);
@@ -844,9 +912,10 @@ public final class MorpheRemuxer {
                             if (!"mdat".equals(t2)) { mdat = new byte[0]; }
                         }
                     }
-                    if (mdat == null) return null;
+                    if (mdat == null) throw new IOException("MP4 fragment is missing mdat");
                     byte[] g = group.toByteArray();
                     Fragment f = new Fragment();
+                    f.sourceOffset = nextFetchStart - pending.size() - g.length;
                     f.moof = slice(g, 0, whole.length);
                     // Everything after the `moof` (interstitial boxes + `mdat`) is copied verbatim.
                     f.mdat = slice(g, whole.length, g.length - whole.length);
@@ -914,6 +983,7 @@ public final class MorpheRemuxer {
 
     static final class ClassicTrackBuilder {
         final int newTrackId;
+        final int originalTrackId;
         final boolean isVideo;
         final long fallbackDurationMs;
         byte[] mvhdBox;
@@ -955,13 +1025,19 @@ public final class MorpheRemuxer {
             List<Box> moovKids = boxes(moov, 8, moov.length);
             Box mvhd = findBox(moovKids, "mvhd");
             Box trak = findBox(moovKids, "trak");
+            for (Box candidate : moovKids) if ("trak".equals(candidate.type)
+                    && (isVideoHint ? "vide" : "soun").equals(handlerOf(slice(moov, candidate.start, candidate.size)))) {
+                trak = candidate; break;
+            }
             if (mvhd == null || trak == null) throw new IOException("DASH moov missing mvhd/trak");
             this.mvhdBox = slice(moov, mvhd.start, mvhd.size);
+            this.originalTrackId = trackIdOf(slice(moov, trak.start, trak.size));
 
             Box mvex = findBox(moovKids, "mvex");
             if (mvex != null) {
                 for (Box b : boxes(moov, mvex.contentStart, mvex.contentEnd)) {
-                    if ("trex".equals(b.type) && b.contentStart + 24 <= moov.length) {
+                    if ("trex".equals(b.type) && b.contentStart + 24 <= moov.length
+                            && u32(moov, b.contentStart + 4) == originalTrackId) {
                         this.trexDefDuration = (int) u32(moov, b.contentStart + 12);
                         this.trexDefSize = (int) u32(moov, b.contentStart + 16);
                         this.trexDefFlags = (int) u32(moov, b.contentStart + 20);
@@ -1006,7 +1082,10 @@ public final class MorpheRemuxer {
                     if (stsd != null) this.stsdBox = slice(trakBytes, stsd.start, stsd.size);
                 }
             }
-            if (this.stsdBox == null) throw new IOException("DASH stbl missing stsd");
+            if (this.stsdBox == null || this.stsdBox.length < 24) throw new IOException("MP4 stbl missing stsd");
+            String codec = new String(this.stsdBox, 20, 4);
+            if (this.isVideo ? !("avc1".equals(codec) || "avc3".equals(codec)) : !"mp4a".equals(codec))
+                throw new IOException("Unsupported Android 4.2 MP4 codec: " + codec);
             if (this.mediaHeaderBox == null) {
                 if (this.isVideo) {
                     byte[] vm = new byte[12];
@@ -1063,144 +1142,68 @@ public final class MorpheRemuxer {
         }
 
         void consumeFragment(Fragment f, RandomAccessFile spool) throws IOException {
-            Box mdatBox = null;
-            for (Box b : boxes(f.mdat, 0, f.mdat.length)) {
-                if ("mdat".equals(b.type)) {
-                    mdatBox = b;
-                    break;
+            Box mdat = findBox(boxes(f.mdat, 0, f.mdat.length), "mdat");
+            if (mdat == null) throw new IOException("MP4 fragment has no mdat");
+            for (Box traf : boxes(f.moof, 8, f.moof.length)) {
+                if (!"traf".equals(traf.type)) continue;
+                List<Box> children = boxes(f.moof, traf.contentStart, traf.contentEnd);
+                Box tfhd = findBox(children, "tfhd");
+                if (tfhd == null || tfhd.contentStart + 8 > tfhd.contentEnd) throw new IOException("Invalid tfhd");
+                if (u32(f.moof, tfhd.contentStart + 4) != originalTrackId) continue;
+                int flags = (int) u32(f.moof, tfhd.contentStart) & 0xffffff;
+                int p = tfhd.contentStart + 8;
+                long base = 0L;
+                if ((flags & 1) != 0) {
+                    if (p + 8 > tfhd.contentEnd) throw new IOException("Truncated tfhd base offset");
+                    base = i64(f.moof, p) - f.sourceOffset; p += 8;
                 }
-            }
-            if (mdatBox == null || mdatBox.contentLen() <= 0) return;
-
-            int samplesInFrag = 0;
-            int expectedBytesInFrag = 0;
-            int firstDataOffset = -1;
-
-            for (Box top : boxes(f.moof, 8, f.moof.length)) {
-                if (!"traf".equals(top.type)) continue;
-                int defDur = trexDefDuration;
-                int defSize = trexDefSize;
-                int defFlags = trexDefFlags;
-                boolean hasTfhdFlags = false;
-
-                List<Box> trafKids = boxes(f.moof, top.contentStart, top.contentEnd);
-                Box tfhd = findBox(trafKids, "tfhd");
-                if (tfhd != null && tfhd.contentStart + 8 <= tfhd.contentEnd) {
-                    int tfhdFlags = ((f.moof[tfhd.contentStart + 1] & 0xFF) << 16)
-                            | ((f.moof[tfhd.contentStart + 2] & 0xFF) << 8)
-                            | (f.moof[tfhd.contentStart + 3] & 0xFF);
-                    int p = tfhd.contentStart + 8;
-                    if ((tfhdFlags & 0x000001) != 0) p += 8;
-                    if ((tfhdFlags & 0x000002) != 0) p += 4;
-                    if ((tfhdFlags & 0x000008) != 0 && p + 4 <= tfhd.contentEnd) {
-                        defDur = (int) u32(f.moof, p);
-                        p += 4;
+                if ((flags & 2) != 0) p += 4;
+                int defDur = trexDefDuration, defSize = trexDefSize, defFlags = trexDefFlags;
+                if ((flags & 8) != 0) { if (p + 4 > tfhd.contentEnd) throw new IOException("Truncated tfhd duration"); defDur = (int) u32(f.moof, p); p += 4; }
+                if ((flags & 16) != 0) { if (p + 4 > tfhd.contentEnd) throw new IOException("Truncated tfhd size"); defSize = (int) u32(f.moof, p); p += 4; }
+                if ((flags & 32) != 0) { if (p + 4 > tfhd.contentEnd) throw new IOException("Truncated tfhd flags"); defFlags = (int) u32(f.moof, p); }
+                long nextData = mdat.contentStart;
+                for (Box run : children) {
+                    if (!"trun".equals(run.type)) continue;
+                    if (run.contentStart + 8 > run.contentEnd) throw new IOException("Truncated trun");
+                    int rf = (int) u32(f.moof, run.contentStart) & 0xffffff;
+                    int count = (int) u32(f.moof, run.contentStart + 4);
+                    if (count < 0 || count > 200000) throw new IOException("Invalid trun sample count");
+                    p = run.contentStart + 8;
+                    long dataStart = nextData;
+                    if ((rf & 1) != 0) {
+                        if (p + 4 > run.contentEnd) throw new IOException("Truncated trun data offset");
+                        dataStart = base + (int) u32(f.moof, p) - f.moof.length; p += 4;
                     }
-                    if ((tfhdFlags & 0x000010) != 0 && p + 4 <= tfhd.contentEnd) {
-                        defSize = (int) u32(f.moof, p);
-                        p += 4;
-                    }
-                    if ((tfhdFlags & 0x000020) != 0 && p + 4 <= tfhd.contentEnd) {
-                        defFlags = (int) u32(f.moof, p);
-                        hasTfhdFlags = true;
-                    }
-                }
-
-                for (Box tb : trafKids) {
-                    if (!"trun".equals(tb.type) || tb.contentStart + 8 > tb.contentEnd) continue;
-                    int trunFlags = ((f.moof[tb.contentStart + 1] & 0xFF) << 16)
-                            | ((f.moof[tb.contentStart + 2] & 0xFF) << 8)
-                            | (f.moof[tb.contentStart + 3] & 0xFF);
-                    int sCount = (int) u32(f.moof, tb.contentStart + 4);
-                    if (sCount <= 0 || sCount > 200000) continue;
-                    int p = tb.contentStart + 8;
-                    if ((trunFlags & 0x000001) != 0 && p + 4 <= tb.contentEnd) {
-                        int dOff = (int) u32(f.moof, p);
-                        if (firstDataOffset < 0) firstDataOffset = dOff;
-                        p += 4;
-                    }
-                    int firstSampleFlags = defFlags;
-                    boolean hasFirstFlags = false;
-                    if ((trunFlags & 0x000004) != 0 && p + 4 <= tb.contentEnd) {
-                        firstSampleFlags = (int) u32(f.moof, p);
-                        hasFirstFlags = true;
-                        p += 4;
-                    }
-
-                    ensureSampleCapacity(sCount);
-                    for (int i = 0; i < sCount; i++) {
-                        int dur = defDur;
-                        int sz = defSize;
-                        int flg = (i == 0 && hasFirstFlags) ? firstSampleFlags : defFlags;
-                        int cts = 0;
-                        if ((trunFlags & 0x000100) != 0 && p + 4 <= tb.contentEnd) {
-                            dur = (int) u32(f.moof, p);
-                            p += 4;
-                        }
-                        if ((trunFlags & 0x000200) != 0 && p + 4 <= tb.contentEnd) {
-                            sz = (int) u32(f.moof, p);
-                            p += 4;
-                        }
-                        if ((trunFlags & 0x000400) != 0 && p + 4 <= tb.contentEnd) {
-                            flg = (int) u32(f.moof, p);
-                            p += 4;
-                        }
-                        if ((trunFlags & 0x000800) != 0 && p + 4 <= tb.contentEnd) {
-                            cts = (int) u32(f.moof, p);
-                            p += 4;
-                        }
-                        if (dur <= 0) {
-                            dur = isVideo ? Math.max(1, timescale / 30) : 1024;
-                        }
-                        if (sz <= 0 && sCount == 1) {
-                            sz = mdatBox.contentLen();
-                        }
-                        if (sz <= 0) continue;
-
-                        boolean sync;
-                        if (!isVideo) {
-                            sync = true;
-                        } else if ((trunFlags & 0x000400) != 0 || (i == 0 && hasFirstFlags) || hasTfhdFlags) {
-                            sync = ((flg & 0x00010000) == 0) && (((flg >>> 24) & 0x03) != 1);
-                            if (i == 0 && samplesInFrag == 0 && !sync && (trunFlags & 0x000400) == 0 && !hasFirstFlags) {
-                                sync = true;
-                            }
-                        } else {
-                            sync = (i == 0);
-                        }
-
-                        sampleDurations[numSamples] = dur;
-                        sampleSizes[numSamples] = sz;
+                    int firstFlags = defFlags;
+                    if ((rf & 4) != 0) { if (p + 4 > run.contentEnd) throw new IOException("Truncated first-sample flags"); firstFlags = (int) u32(f.moof, p); p += 4; }
+                    int fields = ((rf & 0x100) != 0 ? 1 : 0) + ((rf & 0x200) != 0 ? 1 : 0)
+                            + ((rf & 0x400) != 0 ? 1 : 0) + ((rf & 0x800) != 0 ? 1 : 0);
+                    if ((long) p + (long) count * fields * 4L > run.contentEnd) throw new IOException("Truncated trun sample table");
+                    ensureSampleCapacity(count);
+                    long bytes = 0L;
+                    for (int i = 0; i < count; i++) {
+                        int duration = defDur, size = defSize, sf = i == 0 ? firstFlags : defFlags, cts = 0;
+                        if ((rf & 0x100) != 0) { duration = (int) u32(f.moof, p); p += 4; }
+                        if ((rf & 0x200) != 0) { size = (int) u32(f.moof, p); p += 4; }
+                        if ((rf & 0x400) != 0) { sf = (int) u32(f.moof, p); p += 4; }
+                        if ((rf & 0x800) != 0) { cts = (int) u32(f.moof, p); p += 4; }
+                        if (duration <= 0 || size <= 0) throw new IOException("Missing MP4 sample duration/size");
+                        sampleDurations[numSamples] = duration; sampleSizes[numSamples] = size;
                         sampleCts[numSamples] = cts;
-                        sampleSync[numSamples] = sync;
+                        sampleSync[numSamples] = !isVideo || ((sf & 0x10000) == 0 && ((sf >>> 24) & 3) != 1);
                         if (cts != 0) hasNonZeroCts = true;
-                        totalDurationTicks += (long) dur;
-                        numSamples++;
-                        samplesInFrag++;
-                        expectedBytesInFrag += sz;
+                        totalDurationTicks += duration; numSamples++; bytes += size;
                     }
+                    if (dataStart < mdat.contentStart || dataStart + bytes > mdat.contentEnd)
+                        throw new IOException("MP4 sample data lies outside mdat (truncated stream)");
+                    if (count > 0) {
+                        long offset = spool.getFilePointer();
+                        spool.write(f.mdat, (int) dataStart, (int) bytes); addChunk(offset, count);
+                    }
+                    nextData = dataStart + bytes;
                 }
             }
-
-            if (samplesInFrag <= 0 || expectedBytesInFrag <= 0) return;
-
-            int payloadStart = mdatBox.contentStart;
-            if (firstDataOffset > f.moof.length) {
-                int rel = firstDataOffset - f.moof.length;
-                if (rel >= mdatBox.contentStart && rel + expectedBytesInFrag <= mdatBox.contentEnd) {
-                    payloadStart = rel;
-                }
-            }
-            int avail = mdatBox.contentEnd - payloadStart;
-            int toWrite = Math.min(avail, expectedBytesInFrag);
-            if (toWrite <= 0) return;
-
-            long chunkRelOffset = spool.getFilePointer();
-            spool.write(f.mdat, payloadStart, toWrite);
-            if (toWrite < expectedBytesInFrag) {
-                spool.write(new byte[expectedBytesInFrag - toWrite]);
-            }
-            addChunk(chunkRelOffset, samplesInFrag);
         }
 
         long durationMs() {

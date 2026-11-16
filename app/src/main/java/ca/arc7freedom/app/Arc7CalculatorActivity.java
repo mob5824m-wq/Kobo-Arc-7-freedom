@@ -38,7 +38,7 @@ import java.util.Locale;
  *   - Tappable Calculation History Tape + 1-Tap Copy Result
  *   - Built-in Live Unit Converter (`Temperature`, `Length`, `Weight/Mass`, `Digital Storage`, `Speed`)
  */
-public class Arc7CalculatorActivity extends Activity {
+public class Arc7CalculatorActivity extends Arc7Activity {
 
     private StringBuilder expr = new StringBuilder();
     private boolean degreeMode = true;

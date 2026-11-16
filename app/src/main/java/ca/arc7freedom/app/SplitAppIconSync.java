@@ -25,7 +25,7 @@ final class SplitAppIconSync {
 
     /** Re-evaluates every split-app alias. Safe to call from any thread. */
     static void sync(Context context) {
-        if (context == null) return;
+        if (context == null || !SUITE_PACKAGE.equals(context.getPackageName())) return;
         try {
             Context app = context.getApplicationContext() != null
                     ? context.getApplicationContext() : context;

@@ -55,7 +55,7 @@ import java.util.Locale;
  *   - Exposure Compensation (`EV -2 .. +2`) + Sensor Switcher + Instant `Arc7 Photos` link!
  */
 @SuppressWarnings("deprecation")
-public class Arc7CameraActivity extends Activity implements SurfaceHolder.Callback {
+public class Arc7CameraActivity extends Arc7Activity implements SurfaceHolder.Callback {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private SurfaceView surfaceView;

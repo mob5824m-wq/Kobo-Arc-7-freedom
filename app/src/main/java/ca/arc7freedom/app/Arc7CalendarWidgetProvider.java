@@ -59,7 +59,7 @@ public class Arc7CalendarWidgetProvider extends AppWidgetProvider {
 
         Intent openCal = new Intent(ctx, Arc7CalendarActivity.class);
         openCal.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent pi = PendingIntent.getActivity(ctx, 7701, openCal, PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi = PendingIntent.getActivity(ctx, 7701, SplitAppRouter.route(ctx, openCal, -1), PendingIntent.FLAG_UPDATE_CURRENT);
         rv.setOnClickPendingIntent(R.id.cal_widget_root, pi);
         mgr.updateAppWidget(appWidgetId, rv);
     }

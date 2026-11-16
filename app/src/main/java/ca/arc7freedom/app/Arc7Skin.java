@@ -796,6 +796,7 @@ public final class Arc7Skin {
         if ("@boost".equals(tok)) return "Arc7 Boost & Swap";
         if ("@streamdeck".equals(tok)) return "Arc7 Stream Deck";
         if ("@vpn".equals(tok)) return "Arc7 Wi-Fi & VPN";
+        if ("@bluetooth".equals(tok)) return "Bluetooth Internet";
         if ("@secondscreen".equals(tok)) return "Arc7 Second Screen";
         if ("@splitview".equals(tok)) return "Arc7 Split View";
         if ("@wiki".equals(tok)) return "Arc7 Dictionary & Wiki";
@@ -870,6 +871,7 @@ public final class Arc7Skin {
             else if ("@audio".equals(tok)) target = new Intent(ctx, Arc7AudioPlayerActivity.class);
             else if ("@terminal".equals(tok)) target = new Intent(ctx, Arc7TerminalActivity.class);
             else if ("@wired".equals(tok)) target = new Intent(ctx, Arc7WiredInternetActivity.class);
+            else if ("@bluetooth".equals(tok)) target = new Intent(ctx, Arc7BluetoothInternetActivity.class);
             else if ("@freedom".equals(tok)) target = new Intent(ctx, MainActivity.class);
             else if (tok != null && tok.indexOf('/') > 0) {
                 int s = tok.indexOf('/');
@@ -879,7 +881,7 @@ public final class Arc7Skin {
             }
             if (target != null) {
                 target.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-                ctx.startActivity(target);
+                ctx.startActivity(SplitAppRouter.route(ctx, target, -1));
             }
         } catch (Throwable t) {
             Toast.makeText(ctx, "Unable to launch: " + t.getMessage(), Toast.LENGTH_SHORT).show();
@@ -1159,7 +1161,7 @@ public final class Arc7Skin {
                 "@arcade", "@wiki", "@splitview", "@secondscreen", "@shield", "@boost",
                 "@calendar", "@photos", "@camera", "@vlc",
                 "@files", "@notes", "@calculator", "@clock",
-                "@audio", "@wired", "@terminal", "@freedom", "@settings"
+                "@audio", "@wired", "@bluetooth", "@terminal", "@freedom", "@settings"
         };
         for (int i = 0; i < builtins.length; i++) {
             toks.add(builtins[i]);
@@ -1327,6 +1329,7 @@ public final class Arc7Skin {
         if (shouldPreserveOriginalAppIcon(p, c)) return 0;
 
         if ("ca.arc7freedom.app".equals(p)) {
+            if (c.contains("bluetooth")) return R.drawable.ic_bluetooth;
             if (c.contains("pdf")) return R.drawable.ic_pdf;
             if (c.contains("weather")) return R.drawable.ic_weather;
             if (c.contains("radio") || c.contains("rss")) return R.drawable.ic_radio;

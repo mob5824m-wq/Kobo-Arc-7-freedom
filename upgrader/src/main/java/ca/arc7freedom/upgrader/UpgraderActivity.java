@@ -26,6 +26,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
@@ -33,17 +34,10 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
- * 1-Tap Signature-Conflict-Free Root Upgrader (`ca.arc7freedom.upgrader`).
- *
- * Installs cleanly onto ANY Kobo Arc 7 (Android 4.0.3 - 4.2.2) even when an earlier
- * build (`v1.5.0` - `v1.8.0`) was signed with an ephemeral certificate or installed
- * in `/system/app`, and uses the tablet's existing `su` (`uid=0(root)`) + 100% pure
- * `mksh` (`cat`, `chmod`, `ln`, `pm`) to seamlessly install:
- *   1. Multi-call `/sbin/{su,uname,cp}` + `/system/xbin/{su,uname,cp}` applets
- *   2. `KoboArc7Freedom v1.8.1` (`versionCode = 181`, permanent release certificate)
- *   3. `VanillaAndroid4Home v4.2.8` (`versionCode = 48`, Home Widgets + isolated tasks)
- *   4. `FDroidClassicLegacy v1.8.1` (instant HTTP-to-TLS-1.3 `/__https/` repository bridge)
- *   5. All 118 modern 2026 Root CA `.0` certificates in `/system/etc/security/cacerts/`
+ * Separately installable, data-preserving in-place updater (ca.arc7freedom.upgrader).
+ * Uses the existing root shell when available, or opens Android's confirmed installer.
+ * Signature/storage failures are reported; they must not silently uninstall the suite,
+ * Home, media apps or stores. This updater can itself be removed independently.
  */
 public class UpgraderActivity extends Activity {
 
@@ -92,11 +86,22 @@ public class UpgraderActivity extends Activity {
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap v2.5.3 upgrade (playable 2026 DASH streams + separate YouTube / YouTube Music apps + Launcher v55 + Standby Audio + Tailscale Google Auth + F-Droid v1304 + VLC + 118 2026 Root CAs)...");
+        statusSub.setText("Preparing in-place v2.5.3 maintenance updates for Arc7 Freedom, Home and the separate YouTube apps. Signature/storage failures keep installed app data. Update separate Clock/Music/Radio/Recorder APKs too; live YouTube playback still needs tablet testing.");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
         card.addView(statusSub);
+
+        Button ownAppInfo = new Button(this);
+        ownAppInfo.setText("App Info / uninstall this upgrader");
+        ownAppInfo.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                // This package is the updater, NOT the suite embedded inside its assets.
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:ca.arc7freedom.upgrader")));
+            }
+        });
+        card.addView(ownAppInfo);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -362,6 +367,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("echo \"ROOT_ID=$(id)\"\n");
 
                     // Step A: Upgrade `/sbin/su` + `/sbin/uname` + `/sbin/cp` + `/system/xbin/{su,uname,cp}`
+                    sh.append("trap 'mount -o remount,ro /system 2>/dev/null || true; mount -o remount,ro / 2>/dev/null || true' 0\n");
                     sh.append("(mount -o remount,rw / 2>/dev/null || mount -o remount,rw rootfs / 2>/dev/null || true)\n");
                     sh.append("mkdir -p /sbin\n");
                     sh.append("cat '").append(sDir).append("/su_new' > /sbin/su.new && chown 0:0 /sbin/su.new 2>/dev/null; chmod 06755 /sbin/su.new && mv /sbin/su.new /sbin/su\n");
@@ -420,68 +426,31 @@ public class UpgraderActivity extends Activity {
                     sh.append("  chmod 0644 /data/local/arc7_tls_ca/ca.crt /data/local/arc7_tls_ca/ca.key\n");
                     sh.append("fi\n");
 
-                    // Step D: Replace `ca.arc7freedom.app` cleanly even if an older conflicting key was installed!
-                    sh.append("rm -f /system/app/KoboArc7Freedom.apk /system/app/KoboArc7Freedom.odex 2>/dev/null || true\n");
+                    // Upgrade in place only. A signature/storage error must NEVER silently
+                    // uninstall the suite or Home (which would also erase their user data).
                     sh.append("_pm_main=$(pm install -r /data/local/tmp/KoboArc7Freedom.apk 2>&1 || true)\n");
-                    sh.append("case \"$_pm_main\" in\n");
-                    sh.append("  *Success*) echo \"STEP_C_MAIN_INPLACE=$_pm_main\" ;;\n");
-                    sh.append("  *)\n");
-                    sh.append("    echo \"Replacing conflicting old signature on ca.arc7freedom.app...\"\n");
-                    sh.append("    pm uninstall ca.arc7freedom.app 2>/dev/null || true\n");
-                    sh.append("    _pm_main=$(pm install -r /data/local/tmp/KoboArc7Freedom.apk 2>&1 || true)\n");
-                    sh.append("    echo \"STEP_C_MAIN_CLEAN=$_pm_main\"\n");
-                    sh.append("    ;;\n");
-                    sh.append("esac\n");
-
-                    // Step E: Upgrade `ca.arc7freedom.launcher` (`VanillaAndroid4Home` v48 with Widgets + isolated tasks)
+                    sh.append("case \"$_pm_main\" in *Success*) echo \"STEP_C_MAIN_INPLACE=$_pm_main\" ;; *) echo \"UPDATE_FAILED_DATA_PRESERVED ca.arc7freedom.app: $_pm_main\"; exit 21 ;; esac\n");
                     sh.append("_pm_home=$(pm install -r /data/local/tmp/VanillaAndroid4Home.apk 2>&1 || true)\n");
-                    sh.append("case \"$_pm_home\" in\n");
-                    sh.append("  *Success*) echo \"STEP_D_HOME_INPLACE=$_pm_home\" ;;\n");
-                    sh.append("  *)\n");
-                    sh.append("    if [ -f /system/app/VanillaAndroid4Home.apk ]; then\n");
-                    sh.append("      cat /system/app/VanillaAndroid4Home.apk > /data/local/tmp/VanillaHome.prev.apk\n");
-                    sh.append("      cat /data/local/tmp/VanillaAndroid4Home.apk > /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("      chmod 0644 /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("    fi\n");
-                    sh.append("    pm uninstall ca.arc7freedom.launcher 2>/dev/null || true\n");
-                    sh.append("    _pm_home=$(pm install -r /data/local/tmp/VanillaAndroid4Home.apk 2>&1 || true)\n");
-                    sh.append("    case \"$_pm_home\" in\n");
-                    sh.append("      *Success*) echo \"STEP_D_HOME_CLEAN=$_pm_home\" ;;\n");
-                    sh.append("      *)\n");
-                    sh.append("        if [ -f /data/local/tmp/VanillaHome.prev.apk ]; then\n");
-                    sh.append("          cat /data/local/tmp/VanillaHome.prev.apk > /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("          chmod 0644 /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("          pm install -r /data/local/tmp/VanillaHome.prev.apk 2>/dev/null || true\n");
-                    sh.append("        fi\n");
-                    sh.append("        ;;\n");
-                    sh.append("    esac\n");
-                    sh.append("    ;;\n");
-                    sh.append("esac\n");
+                    sh.append("case \"$_pm_home\" in *Success*) echo \"STEP_D_HOME_INPLACE=$_pm_home\" ;; *) echo \"UPDATE_FAILED_DATA_PRESERVED ca.arc7freedom.launcher: $_pm_home\"; exit 22 ;; esac\n");
                     sh.append("appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true\n");
 
-                    // Step F: Replace `eu.bubu1.fdroidclassic.debug` with patched TLS-1.3-bridged `FDroidClassicLegacy`
-                    // and wipe any stale cached 502 files so F-Droid fetches a clean signed index immediately!
+                    // Step F: Update F-Droid in-place. Its own transport migrates old URLs;
+                    // keep repository pins, preferences and the database instead of wiping data.
                     sh.append("_pm_fd=$(pm install -r /data/local/tmp/FDroidClassicLegacy.apk 2>&1 || true)\n");
                     sh.append("case \"$_pm_fd\" in\n");
                     sh.append("  *Success*) echo \"STEP_E_FDROID_INPLACE=$_pm_fd\" ;;\n");
                     sh.append("  *)\n");
-                    sh.append("    pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true\n");
-                    sh.append("    pm uninstall eu.bubu1.fdroidclassic 2>/dev/null || true\n");
-                    sh.append("    _pm_fd=$(pm install -r /data/local/tmp/FDroidClassicLegacy.apk 2>&1 || true)\n");
-                    sh.append("    echo \"STEP_E_FDROID_CLEAN=$_pm_fd\"\n");
+                    sh.append("    echo \"UPDATE_RETAINED eu.bubu1.fdroidclassic.debug: $_pm_fd (data preserved)\"\n");
                     sh.append("    ;;\n");
                     sh.append("esac\n");
                     sh.append("am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
-                    sh.append("pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
 
                     // Step G: Install Aurora Store (`com.aurora.store`, Android 4.2 + TLS 1.3) automatically!
                     sh.append("_pm_aur=$(pm install -r /data/local/tmp/AuroraStore.apk 2>&1 || true)\n");
                     sh.append("case \"$_pm_aur\" in\n");
                     sh.append("  *Success*) echo \"STEP_F_AURORA_INPLACE=$_pm_aur\" ;;\n");
                     sh.append("  *)\n");
-                    sh.append("    pm uninstall com.aurora.store 2>/dev/null || true\n");
-                    sh.append("    _pm_aur=$(pm install -r /data/local/tmp/AuroraStore.apk 2>&1 || true)\n");
-                    sh.append("    echo \"STEP_F_AURORA_CLEAN=$_pm_aur\"\n");
+                    sh.append("    echo \"UPDATE_RETAINED com.aurora.store: $_pm_aur (data preserved)\"\n");
                     sh.append("    ;;\n");
                     sh.append("esac\n");
 
@@ -493,7 +462,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("    _pm_split=$(pm install -r \"/data/local/tmp/$_file\" 2>&1 || true)\n");
                     sh.append("    case \"$_pm_split\" in\n");
                     sh.append("      *Success*) echo \"STEP_SPLIT_INPLACE=$_pkg:$_pm_split\" ;;\n");
-                    sh.append("      *) pm uninstall \"$_pkg\" 2>/dev/null || true; _pm_split=$(pm install -r \"/data/local/tmp/$_file\" 2>&1 || true); echo \"STEP_SPLIT_CLEAN=$_pkg:$_pm_split\" ;;\n");
+                    sh.append("      *) echo \"UPDATE_FAILED_DATA_PRESERVED $_pkg: $_pm_split\"; exit 23 ;;\n");
                     sh.append("    esac\n");
                     sh.append("  fi\n");
                     sh.append("done\n");
@@ -504,9 +473,7 @@ public class UpgraderActivity extends Activity {
                     sh.append("  case \"$_pm_vlc\" in\n");
                     sh.append("    *Success*) echo \"STEP_G_VLC_INPLACE=$_pm_vlc\" ;;\n");
                     sh.append("    *)\n");
-                    sh.append("      pm uninstall org.videolan.vlc 2>/dev/null || true\n");
-                    sh.append("      _pm_vlc=$(pm install -r /data/local/tmp/VLC.apk 2>&1 || true)\n");
-                    sh.append("      echo \"STEP_G_VLC_CLEAN=$_pm_vlc\"\n");
+                    sh.append("    echo \"UPDATE_RETAINED org.videolan.vlc: $_pm_vlc (data preserved)\"\n");
                     sh.append("      ;;\n");
                     sh.append("  esac\n");
                     sh.append("fi\n");
@@ -528,8 +495,8 @@ public class UpgraderActivity extends Activity {
                     sh.append("  pm disable \"$_pkg\" >/dev/null 2>&1 || true\n");
                     sh.append("done\n");
 
-                    // Stop any older `libarc7tls.so` daemon so v1.9.0 binds 127.0.0.1:8118 cleanly
-                    sh.append("for _p in /proc/[0-9]*; do if [ -r \"$_p/cmdline\" ]; then _c=$(tr '\\000' ' ' < \"$_p/cmdline\" 2>/dev/null || true); case \"$_c\" in *arc7tls*proxy*) kill -9 \"${_p##*/}\" 2>/dev/null || true ;; esac; fi; done\n");
+                    // Each APK owns its own gateway. The suite replaces only its legacy
+                    // listener at startup; never scan /proc and kill other apps' processes.
 
                     // Provision `/system/etc/resolv.conf` + clean DNS + mount `/system` clean `ro`
                     sh.append("echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf 2>/dev/null || true\n");
@@ -555,13 +522,16 @@ public class UpgraderActivity extends Activity {
                     String scriptBody = sh.toString();
                     for (int mode = 0; mode < 3; mode++) {
                         combined = runSuScript(suBin, mode, scriptBody, scriptFile);
-                        if (combined.contains("ARC7_UPGRADE_OK")) {
+                        if (combined.contains("ARC7_UPGRADE_OK") || combined.contains("UPDATE_FAILED_DATA_PRESERVED")) {
                             break;
                         }
                     }
 
+                    if (combined.contains("UPDATE_FAILED_DATA_PRESERVED")) {
+                        throw new IOException("In-place update failed; the existing app and its data were preserved. See the package error above.");
+                    }
                     if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v2.5.3 + separate YouTube & YouTube Music apps + Launcher v55 + Tailscale Google Auth + F-Droid v1304 + VLC ready!");
+                        uiProgress(100, "In-place upgrade complete: Arc7 Freedom, Home, YouTube and YouTube Music. See the log for any store/VLC updates that were retained.");
                         uiLog("[7/7] SUCCESS! Launching Kobo Arc 7 Freedom v2.5.3 now...");
                         ui.post(new Runnable() {
                             @Override
@@ -588,7 +558,7 @@ public class UpgraderActivity extends Activity {
                             in2.close();
                         }
                         uiProgress(100, "Root not active yet — opening standard Android Package Installer...");
-                        uiLog("Opening standard installer for " + dl.getAbsolutePath() + " (if an older version is installed without root, uninstall old Kobo Arc 7 Freedom in Settings -> Apps first).");
+                        uiLog("Opening standard installer for " + dl.getAbsolutePath() + " as an update. If Android reports a signature mismatch, stop and back up your data; do not uninstall the suite automatically.");
                         final File dlRef = dl;
                         ui.post(new Runnable() {
                             @Override

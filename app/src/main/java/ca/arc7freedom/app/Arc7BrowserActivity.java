@@ -59,7 +59,7 @@ import java.util.zip.GZIPInputStream;
  *
  * Architecture & Real-Hardware Fixes (`v1.6.1`):
  *  - Completely removes the buggy `Lite` mode toggle & destructive HTML/CSS regex stripping.
- *  - Runs a single persistent multithreaded native `libarc7tls.so` daemon on `127.0.0.1:18119`
+ *  - Runs a single persistent multithreaded native `libarc7tls.so` daemon on its package-specific loopback port
  *    with all 118 modern 2026 Root CAs parsed ONCE in C memory (eliminating per-resource
  *    `fork()/exec()` + 380 ms X.509 PEM re-parsing stalls across CSS/JS/images!).
  *  - Transparently decompresses HTTP `Content-Encoding: gzip` (`0x1F 0x8B`) streams via
@@ -69,10 +69,10 @@ import java.util.zip.GZIPInputStream;
  *    redirects change the document base URL, and passes plain `http://` LAN pages directly through
  *    native WebKit so local LAN uploads & forms work natively.
  */
-public class Arc7BrowserActivity extends Activity {
+public class Arc7BrowserActivity extends Arc7Activity {
 
     private static final String HOME_PORTAL_URL = "arc7://home";
-    private static final int DAEMON_PORT = 18119;
+    private static final int DAEMON_PORT = AppNetworkScope.browserPort();
     public static final String UA_MOBILE =
             "Mozilla/5.0 (Linux; Android 14; Kobo Arc 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36";
     public static final String UA_DESKTOP =
@@ -127,7 +127,7 @@ public class Arc7BrowserActivity extends Activity {
         rootShell = new RootShell(this);
         certManager = new NetworkCertManager(this, rootShell);
 
-        // Pre-warm BOTH persistent TLS 1.3 daemon (:18119) AND global CONNECT gateway (:8118 for WebKit POST forms & Google OAuth!)
+        // Pre-warm this APK's private TLS engines; never borrow the suite's network process.
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -175,7 +175,8 @@ public class Arc7BrowserActivity extends Activity {
                     .openConnection(Proxy.NO_PROXY);
             conn.setConnectTimeout(250);
             conn.setReadTimeout(400);
-            return conn.getResponseCode() == 200;
+            return conn.getResponseCode() == 200
+                    && NetworkCertManager.probeGatewayPing(DAEMON_PORT).contains("\nOWNER=" + getPackageName() + "\n");
         } catch (Throwable ignored) {
             return false;
         } finally {
@@ -196,6 +197,7 @@ public class Arc7BrowserActivity extends Activity {
                         caBundle.getAbsolutePath(),
                         String.valueOf(DAEMON_PORT)
                 );
+                pb.environment().put("ARC7_GATEWAY_OWNER", getPackageName());
                 pb.redirectErrorStream(true);
                 tlsDaemonProc = pb.start();
                 tlsDaemonProc.getOutputStream().close();

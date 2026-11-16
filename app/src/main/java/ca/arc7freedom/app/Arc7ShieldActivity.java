@@ -45,7 +45,7 @@ import java.util.Set;
  *   - Built-in high-impact ad/telemetry domain list + live `StevenBlack/hosts` update over TLS 1.3
  *   - Per-app UID network firewall via kernel `iptables -m owner --uid-owner <uid> -j REJECT`!
  */
-public class Arc7ShieldActivity extends Activity {
+public class Arc7ShieldActivity extends Arc7Activity {
 
     public static final String PREFS = "arc7_shield_prefs";
     public static final String KEY_ADBLOCK_ACTIVE = "adblock_active";

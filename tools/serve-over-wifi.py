@@ -301,7 +301,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.5.3 — PER-DAY ALARM CHECK-OFF + F-Droid v1304 sync-crash fix + playable 2026 DASH streams + TRULY SEPARATE YouTube / YouTube Music apps + Tailscale Google Auth):</div>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.5.3 — IN-PLACE UPDATES + notification ownership / legacy proxy repairs + separate YouTube / YouTube Music HLS/DASH pipeline (live playback needs tablet testing)):</div>"
                 f"<a class='btn primary' href='{link}'>"
                 f"{ico}<span>&#11015; 1-Tap OTA Root &amp; Upgrade — {UPGRADER_APK_NAME} ({size_txt})</span></a>"
                 + (
@@ -412,7 +412,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "shield": "ic_shield", "boost": "ic_boost", "secondscreen": "ic_split",
             "splitview": "ic_splitview", "streamdeck": "ic_streamdeck",
             "dictionarywiki": "ic_wiki", "vpn": "ic_vpn", "wiredinternet": "ic_wired_net",
-            "packageinstaller": "ic_apk_installer",
+            "packageinstaller": "ic_apk_installer", "bluetoothinternet": "ic_bluetooth",
         }.get(key, "ic_apk_installer")
         icon_html = _icon_img(f"{icon_file}.png", label, 32) if resolve_icon_path(f"{icon_file}.png") else ""
         status = "" if present else " <i style='color:#94a3b8;'>(from GitHub release)</i>"
@@ -430,7 +430,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "<h2>&#128230; Separate Apps — Install Only the Ones You Want</h2>"
         "<p>Every built-in app below is now its <b>own installable APK</b> with its own icon, "
         "task, data folder and <i>Settings &rarr; Apps</i> entry — update or uninstall any one of "
-        "them on its own. The suite hides its copy automatically once you install the standalone "
+        "them on its own. Network-enabled apps have their own engines and traffic ownership. The suite hides its shortcut once you install the standalone "
         "app, so you never get two identical icons.</p>"
         + "".join(split_rows)
         + "</div>"

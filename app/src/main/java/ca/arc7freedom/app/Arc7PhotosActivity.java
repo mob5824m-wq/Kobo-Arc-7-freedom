@@ -62,7 +62,7 @@ import java.util.concurrent.Executors;
  *     `Vivid Pop`, `Warm Golden`, `Noir B&W`, `Vintage Sepia`, `Cool Cinema`, `E-Ink Crisp`),
  *     Save High-Res Copy, 1-Tap Set as Arc7 Wallpaper, Slideshow, Delete, & Open Video in VLC!
  */
-public class Arc7PhotosActivity extends Activity {
+public class Arc7PhotosActivity extends Arc7Activity {
 
     private static final String[] FILTER_NAMES = new String[]{
             "Original", "Vivid Pop", "Warm Golden", "Noir B&W",

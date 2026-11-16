@@ -31,7 +31,7 @@ import java.util.Locale;
  * (`PARTIAL_WAKE_LOCK` screen-off playback, automatic audiobook bookmark resume,
  * `-30s / +30s` skip, and 15 / 30 / 60-minute Bedtime Sleep Timer).
  */
-public class Arc7AudioPlayerActivity extends Activity {
+public class Arc7AudioPlayerActivity extends Arc7Activity {
 
     private Arc7AudioService svc;
     private boolean bound = false;

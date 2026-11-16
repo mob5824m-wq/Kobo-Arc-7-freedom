@@ -43,7 +43,7 @@ public class Arc7WeatherWidgetProvider extends AppWidgetProvider {
 
         Intent open = new Intent(ctx, Arc7WeatherActivity.class);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent pi = PendingIntent.getActivity(ctx, 7709, open, PendingIntent.FLAG_UPDATE_CURRENT);
+        PendingIntent pi = PendingIntent.getActivity(ctx, 7709, SplitAppRouter.route(ctx, open, -1), PendingIntent.FLAG_UPDATE_CURRENT);
         rv.setOnClickPendingIntent(R.id.weather_widget_root, pi);
         mgr.updateAppWidget(id, rv);
     }

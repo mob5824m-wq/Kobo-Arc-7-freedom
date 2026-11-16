@@ -35,7 +35,7 @@ import java.util.Map;
  * Built natively against Android 4.2.2 (API 17) with a clean high-contrast slate & Holo-cyan interface
  * designed specifically for the Kobo Arc 7 (1024x600) and Kobo Arc 7HD (1920x1200) screens.
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Arc7Activity {
 
     private int BG_PAGE       = 0xFF0E1319;
     private int BG_SURFACE    = 0xFF161E28;
@@ -133,6 +133,14 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 try {
+                    certManager.migrateLegacySuiteProxy();
+                    if (getSharedPreferences("arc7_optimizer", MODE_PRIVATE).getBoolean("legacy_proxy_cleanup_pending", false)) {
+                        uiHandler.post(new Runnable() {
+                            @Override public void run() {
+                                Toast.makeText(MainActivity.this, "Old proxy cleanup needs permission. See the Network tab for Wi-Fi proxy instructions.", Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    }
                     certManager.startBrowserGateway();
                     // Automatically install all 118 modern 2026 Root CAs + clean DNS + NTP clock sync
                     // on rooted Kobo Arc 7 hardware if not yet populated in /system/etc/security/cacerts!
@@ -173,8 +181,8 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        // Keep persistent `127.0.0.1:8118` TLS 1.3 gateway running via `Arc7TlsGatewayService`
-        // so F-Droid Classic, Chrome, and background apps NEVER lose HTTPS connectivity when leaving MainActivity!
+        // Only this package's optional legacy gateway stays in its service. Other APKs
+        // keep their own engines and do not depend on this activity or process.
         super.onDestroy();
     }
 
@@ -597,19 +605,32 @@ public class MainActivity extends Activity {
         certCard.addView(subRow);
         page.addView(certCard, cardMargin());
 
+        LinearLayout bluetoothCard = makeCard();
+        addCardHeader(bluetoothCard, "Bluetooth Internet — share Wi-Fi without the suite proxy",
+                "Share this Kobo's Wi-Fi over Bluetooth PAN, or receive internet from a paired phone/computer. "
+                + "Requires Bluetooth hardware and ROM PAN support; no root or VPN required.");
+        addToolActionRow(bluetoothCard, "Bluetooth tethering / receive internet",
+                "Opens the separate Bluetooth Internet app with pairing, PAN controls and live connection status.",
+                "Bluetooth Internet", new View.OnClickListener() {
+                    @Override public void onClick(View v) { launchBuiltInActivity(Arc7BluetoothInternetActivity.class); }
+                });
+        page.addView(bluetoothCard, cardMargin());
+
         // NEW v1.3.0 Upgrade #1: System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT 127.0.0.1:8118`)
         LinearLayout sysProxyCard = makeCard();
         addCardHeader(sysProxyCard,
-                "System-Wide TLS 1.3 Upgrade Proxy for All Android 4.2 Apps (127.0.0.1:8118)",
-                "Android 4.2 apps from 2013 fail on modern websites that strictly require TLS 1.3 (X25519 / ECDSA). "
-                + "Generates a unique private per-device Root CA right on your tablet, verifies upstream servers "
-                + "strictly via Mbed-TLS 3.6 TLS 1.3 + our 118 2026 CAs, and upgrades EVERY app on your Kobo Arc 7!");
+                "Old proxy cleanup — independent app networking",
+                getSharedPreferences("arc7_optimizer", MODE_PRIVATE).getString("legacy_proxy_cleanup_message",
+                        "The old Arc7 global/Wi-Fi proxy is disabled automatically on startup where the ROM permits it.") + "\n\n"
+                + "Separate Arc7 APKs have their own network engines and do not need this. "
+                + "Only enable the legacy proxy for third-party Android 4.2 apps that need TLS compatibility. "
+                + "A global proxy or VPN can attribute combined traffic to its owner instead of the original app.");
 
         LinearLayout spRow = new LinearLayout(this);
         spRow.setOrientation(LinearLayout.HORIZONTAL);
         spRow.setPadding(0, dp(10), 0, 0);
 
-        Button enableSysProxyBtn = makePrimaryButton("Enable System-Wide TLS 1.3 Proxy");
+        Button enableSysProxyBtn = makeSecondaryButton("Legacy proxy (optional)");
         enableSysProxyBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -620,7 +641,7 @@ public class MainActivity extends Activity {
 
         spRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
 
-        Button disableSysProxyBtn = makeSecondaryButton("Disable Global Proxy");
+        Button disableSysProxyBtn = makePrimaryButton("Use Independent Networking");
         disableSysProxyBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1058,39 +1079,9 @@ public class MainActivity extends Activity {
         return page;
     }
 
-    /**
-     * Route dashboard shortcuts to the separately installed app package when it exists.
-     * Directly starting the suite's copy of an activity kept all shortcuts in the
-     * Arc7 Freedom process, so an unrelated app crash could surface as an Arc7 Freedom
-     * ANR/crash dialog. The in-suite activity remains a fallback for users who installed
-     * only the main package.
-     */
-    private void launchBuiltInActivity(Class<?> fallbackActivity) {
-        String simpleName = fallbackActivity.getSimpleName();
-        String stem = simpleName.endsWith("Activity")
-                ? simpleName.substring(0, simpleName.length() - "Activity".length())
-                : simpleName;
-        String packageName = null;
-        if ("YouTube".equals(stem)) packageName = "ca.arc7freedom.youtube";
-        else if ("YouTubeMusic".equals(stem)) packageName = "ca.arc7freedom.ytmusic";
-        else {
-            for (String[] row : SplitApps.ALL) {
-                if (row[0].endsWith("." + stem)) {
-                    packageName = row[1];
-                    break;
-                }
-            }
-        }
-        if (packageName != null) {
-            try {
-                Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
-                if (launch != null) {
-                    startActivity(launch);
-                    return;
-                }
-            } catch (Throwable ignored) {}
-        }
-        startActivity(new Intent(this, fallbackActivity));
+    /** Never fall back to running a standalone app inside the suite process. */
+    private void launchBuiltInActivity(Class<?> activity) {
+        startActivity(new Intent(this, activity));
     }
 
     /* ========================== TAB 5: STARTER APPS, STORAGE, SPEED & TOOLS ========================== */

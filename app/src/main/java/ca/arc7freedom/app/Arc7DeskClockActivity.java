@@ -51,7 +51,7 @@ import java.util.Locale;
  *     `Music`, `Radio & Podcasts`, `Voice Recorder`, `VLC`, or any external Android media stream!)
  *   - Live TLS 1.3 Local Weather Station & MicroSD Digital Photo Frame!
  */
-public class Arc7DeskClockActivity extends Activity {
+public class Arc7DeskClockActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_desk_clock";
     private static final String KEY_CITY = "weather_city";

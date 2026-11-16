@@ -7,22 +7,16 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 
-import java.net.HttpURLConnection;
-import java.net.Proxy;
-import java.net.URL;
-
 /**
- * Persistent Background `TLS 1.0–1.3` Gateway Watchdog Service (`127.0.0.1:8118`).
- *
- * Keeps `libarc7tls.so proxy` alive 24/7 even when `MainActivity` is closed, so:
- *   1. F-Droid Classic (`http://127.0.0.1:8118/__https/...`) ALWAYS gets live TLS 1.3 repo index updates!
- *   2. Chrome / Stock Android 4.2 Browser / third-party apps ALWAYS get clean TLS 1.0–1.2 -> TLS 1.3
- *      `CONNECT` upgrades with zero `"SSL connection error"`!
+ * Keeps this APK's unprivileged TLS engine alive on its own loopback port.
+ * Only the suite uses 8118 (optional third-party compatibility).
+ * A standalone app never adopts or starts the suite's service.
  */
 public class Arc7TlsGatewayService extends Service {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private volatile boolean started = false;
+    private volatile boolean destroyed = false;
     private NetworkCertManager gatewayCertMgr;
 
     public static void ensureStarted(Context ctx) {
@@ -33,19 +27,9 @@ public class Arc7TlsGatewayService extends Service {
     }
 
     public static boolean isGatewayAlive() {
-        HttpURLConnection conn = null;
-        try {
-            URL u = new URL("http://127.0.0.1:" + NetworkCertManager.DEFAULT_PROXY_PORT + "/__ping");
-            conn = (HttpURLConnection) u.openConnection(Proxy.NO_PROXY);
-            conn.setConnectTimeout(450);
-            conn.setReadTimeout(750);
-            conn.setInstanceFollowRedirects(false);
-            return conn.getResponseCode() == 200;
-        } catch (Throwable ignored) {
-            return false;
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
+        String ping = NetworkCertManager.probeGatewayPing(NetworkCertManager.DEFAULT_PROXY_PORT);
+        return ping.contains(NetworkCertManager.EXPECTED_GATEWAY_PING)
+                && ping.contains("\nOWNER=" + AppNetworkScope.ownPackage() + "\n");
     }
 
     private final Runnable watchdog = new Runnable() {
@@ -63,11 +47,12 @@ public class Arc7TlsGatewayService extends Service {
 
     private synchronized void ensureNativeGatewayRunning() {
         try {
-            if (isGatewayAlive()) return;
+            if (destroyed || isGatewayAlive()) return;
             if (gatewayCertMgr == null) {
                 gatewayCertMgr = new NetworkCertManager(getApplicationContext(), new RootShell(getApplicationContext()));
             }
             gatewayCertMgr.startBrowserGateway();
+            if (destroyed) { gatewayCertMgr.stopBrowserGateway(); return; }
             Arc7PowerWidgetProvider.refreshAll(getApplicationContext());
         } catch (Throwable ignored) {}
     }
@@ -95,7 +80,9 @@ public class Arc7TlsGatewayService extends Service {
 
     @Override
     public void onDestroy() {
+        destroyed = true;
         handler.removeCallbacks(watchdog);
+        if (gatewayCertMgr != null) gatewayCertMgr.stopBrowserGateway();
         started = false;
         super.onDestroy();
     }

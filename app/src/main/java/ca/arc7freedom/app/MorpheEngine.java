@@ -23,6 +23,7 @@ import java.net.Proxy;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URL;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -44,27 +45,28 @@ public final class MorpheEngine {
     public static final String PREFS = "morphe_settings_v250";
     public static final int STREAM_PROXY_PORT = 18977;
 
-    // Keep playback resolution bounded and avoid the old burst of requests across every
-    // spoofed client/mirror; one preferred client plus one conservative fallback is enough.
-    private static final int MAX_DIRECT_CLIENT_ATTEMPTS = 2;
-    private static final int QUICK_VISITOR_TIMEOUT_MS = 1600;
-    private static final int QUICK_PLAYER_TIMEOUT_MS = 6500;
+    // Bounded, paced attempts using distinct maintained client families, not two obsolete VR versions.
+    private static final int MAX_DIRECT_CLIENT_ATTEMPTS = 3;
+    private static final int QUICK_VISITOR_TIMEOUT_MS = 4000;
+    private static final int QUICK_PLAYER_TIMEOUT_MS = 8000;
     private static final int QUICK_CLOUD_TIMEOUT_MS = 3000;
-    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 1;
-    private static final long QUICK_DIRECT_BUDGET_MS = 21000L;
+    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 2;
+    private static final long QUICK_DIRECT_BUDGET_MS = 38000L;
     private static final Object YOUTUBE_PACE_LOCK = new Object();
     private static long nextYouTubeRequestAtMs = 0L;
+    private static final SecureRandom PLAYBACK_RANDOM = new SecureRandom();
+    private static final String NONCE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
     // User-selectable Morphe Spoof Stream Client modes (`0 = Auto Best Stream`)
     public static final String[] SPOOF_CLIENT_LABELS = new String[]{
-            "Auto (Android VR Quest 3 -> visionOS 1.04 -> TV Simply -> iOS)",
-            "visionOS 1.04 (Apple Vision Pro — 2026 Anonymous, Best H.264)",
-            "TV Simply 1.1 (TVHTML5_SIMPLY — Zero PoToken)",
-            "Android VR 1.64 (Pico 4 — DASH H.264)",
+            "Auto (visionOS HLS/MP4 -> iOS -> TV Simply)",
+            "visionOS 1.04 (H.264/AAC HLS + MP4)",
+            "TV Simply 1.0 (fallback; may require sign-in)",
+            "Legacy Android VR 1.64 (manual only; may be unavailable)",
             "Android Music 7.12 (YouTube Music Native M4A)",
             "Android Creator 26.10 (Studio — 720p cap)",
-            "Android VR 1.61 (Oculus Quest 3 — Progressive + DASH H.264/AAC)",
-            "iOS 20.10 (iPhone 15 Pro — Progressive + DASH H.264/AAC)"
+            "Legacy Android VR 1.61 (manual only; may be unavailable)",
+            "iOS 21.26 (H.264/AAC fallback)"
     };
 
     /**
@@ -82,7 +84,7 @@ public final class MorpheEngine {
                     "WATCH", "MOBILE", "https://youtubei.googleapis.com"
             },
             {
-                    "TV_SIMPLY_1_1", "75", "TVHTML5_SIMPLY", "1.1",
+                    "TV_SIMPLY_1_0", "75", "TVHTML5_SIMPLY", "1.0",
                     "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)",
                     "", "", "", "", "", "",
                     "", "", "https://youtubei.googleapis.com"
@@ -112,8 +114,8 @@ public final class MorpheEngine {
                     "", "", "https://www.youtube.com"
             },
             {
-                    "IOS_20_10", "5", "IOS", "20.10.4",
-                    "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
+                    "IOS_21_26", "5", "IOS", "21.26.4",
+                    "com.google.ios.youtube/21.26.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)",
                     "Apple", "iPhone16,2", "iPhone", "18.3.2.22D82", "", "",
                     "", "MOBILE", "https://youtubei.googleapis.com"
             }
@@ -221,6 +223,8 @@ public final class MorpheEngine {
         public String spoofClientUsed = "";
         public String localVideoProxyUrl = "";
         public String localAudioProxyUrl = "";
+        public String hlsManifestUrl = "";
+        public String hlsUserAgent = WEB_UA;
         /** True when `localVideoProxyUrl` is a locally muxed H.264+AAC MP4 (DASH remux). */
         public boolean muxedLocally = false;
         public String muxNote = "";
@@ -233,7 +237,7 @@ public final class MorpheEngine {
         public long dislikesCount = -1L;
 
         public boolean hasAnyStream() {
-            return !progressiveVideos.isEmpty() || !videoOnlyStreams.isEmpty() || !audioStreams.isEmpty();
+            return hlsManifestUrl.length() > 0 || !progressiveVideos.isEmpty() || !videoOnlyStreams.isEmpty() || !audioStreams.isEmpty();
         }
 
         public int bestHeight() {
@@ -533,6 +537,7 @@ public final class MorpheEngine {
         synchronized (YOUTUBE_PACE_LOCK) {
             long waitMs;
             while ((waitMs = nextYouTubeRequestAtMs - System.currentTimeMillis()) > 0L) {
+                if (waitMs > 10000L) throw new IOException("YouTube rate limited this connection; retry later");
                 try {
                     YOUTUBE_PACE_LOCK.wait(waitMs);
                 } catch (InterruptedException e) {
@@ -547,7 +552,7 @@ public final class MorpheEngine {
     private static void backoffYouTubeOrigin(String url, int statusCode) {
         if (!isYouTubeOrigin(url)) return;
         long delay = statusCode == 429 || statusCode == 503 ? 60000L
-                : (statusCode == 403 ? 30000L : 0L);
+                : 0L;
         if (delay == 0L) return;
         synchronized (YOUTUBE_PACE_LOCK) {
             nextYouTubeRequestAtMs = Math.max(nextYouTubeRequestAtMs,
@@ -562,7 +567,9 @@ public final class MorpheEngine {
                                            Map<String, String> headers,
                                            int timeoutMs,
                                            int maxBytes) throws Exception {
+        checkResolutionCancelled();
         paceYouTubeRequest(httpsUrl);
+        checkResolutionCancelled();
         ensureGatewayWarm(ctx);
         String bridgeUrl = httpsUrl.startsWith("https://")
                 ? ("http://127.0.0.1:" + gatewayPort() + "/__https/" + httpsUrl.substring(8))
@@ -594,6 +601,7 @@ public final class MorpheEngine {
                 os.close();
             }
 
+            checkResolutionCancelled();
             int code = conn.getResponseCode();
             if (code == 403 || code == 429 || code == 503) {
                 backoffYouTubeOrigin(httpsUrl, code);
@@ -606,12 +614,14 @@ public final class MorpheEngine {
             byte[] buf = new byte[16384];
             int n;
             while ((n = in.read(buf)) > 0) {
+                checkResolutionCancelled();
                 bos.write(buf, 0, n);
                 if (bos.size() >= maxBytes) break;
             }
             if (code < 200 || code >= 400) {
                 throw new Exception("HTTP " + code + ": " + new String(bos.toByteArray(), "UTF-8"));
             }
+            checkResolutionCancelled();
             return bos.toByteArray();
         } finally {
             try { if (in != null) in.close(); } catch (Throwable ignored) {}
@@ -651,7 +661,7 @@ public final class MorpheEngine {
     }
 
     private static String ensureClientVisitorData(Context ctx, String[] spec, int timeoutMs) {
-        String cacheKey = "vd_" + spec[2] + "_" + spec[3].replace('.', '_');
+        String cacheKey = "vd_v2_" + spec[2] + "_" + spec[3].replace('.', '_');
         String cached = "";
         long cachedAt = 0L;
         if (ctx != null) {
@@ -660,7 +670,7 @@ public final class MorpheEngine {
                 cachedAt = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong(cacheKey + "_at", 0L);
             } catch (Throwable ignored) {}
         }
-        if (cached != null && cached.length() > 8 && (System.currentTimeMillis() - cachedAt) < 30L * 24L * 3600L * 1000L) {
+        if (cached != null && cached.length() > 8 && (System.currentTimeMillis() - cachedAt) < 6L * 3600L * 1000L) {
             return cached;
         }
 
@@ -693,8 +703,10 @@ public final class MorpheEngine {
             JSONObject client = new JSONObject();
             client.put("clientName", spec[2]);
             client.put("clientVersion", spec[3]);
+            client.put("userAgent", spec[4]);
             client.put("hl", "en");
             client.put("gl", "US");
+            client.put("utcOffsetMinutes", 0);
             if (spec[5].length() > 0) client.put("deviceMake", spec[5]);
             if (spec[6].length() > 0) client.put("deviceModel", spec[6]);
             if (spec[7].length() > 0) client.put("osName", spec[7]);
@@ -733,7 +745,7 @@ public final class MorpheEngine {
         hdrs.put("User-Agent", spec[4]);
         hdrs.put("X-YouTube-Client-Name", spec[1]);
         hdrs.put("X-YouTube-Client-Version", spec[3]);
-        hdrs.put("Origin", host);
+        if (host.contains("youtube.com")) hdrs.put("Origin", host);
         hdrs.put("Accept-Language", "en-US,en;q=0.9");
         hdrs.put("X-Goog-Api-Format-Version", "2");
         if (visitorData != null && visitorData.length() > 0) {
@@ -752,6 +764,7 @@ public final class MorpheEngine {
                                                   String userAgent,
                                                   long startInclusive,
                                                   long endInclusive) throws Exception {
+        checkResolutionCancelled();
         if (startInclusive < 0L) startInclusive = 0L;
         if (endInclusive < startInclusive) endInclusive = startInclusive;
         long want = endInclusive - startInclusive + 1L;
@@ -783,16 +796,19 @@ public final class MorpheEngine {
             long skipped = 0L;
             byte[] sink = new byte[8192];
             while (skipped < skip) {
+                checkResolutionCancelled();
                 int n = in.read(sink, 0, (int) Math.min((long) sink.length, skip - skipped));
                 if (n <= 0) break;
                 skipped += n;
             }
             int off = 0;
             while (off < out.length) {
+                checkResolutionCancelled();
                 int n = in.read(out, off, out.length - off);
                 if (n <= 0) break;
                 off += n;
             }
+            checkResolutionCancelled();
             if (off == out.length) return out;
             byte[] shorter = new byte[off];
             System.arraycopy(out, 0, shorter, 0, off);
@@ -1119,11 +1135,9 @@ public final class MorpheEngine {
         if (prefIdx >= 1 && prefIdx <= CLIENT_SPECS.length) {
             order.add(Integer.valueOf(prefIdx - 1));
         }
-        // Try ANDROID_VR (Quest 3 `1.61.48` & Pico `1.64.34`) first: they return real MP4 progressive
-        // `formats` (`itag 18`) AND H.264/AAC `adaptiveFormats` without PoToken or HLS-only manifests!
-        int[] defaultOrder = preferMusicClient
-                ? new int[]{5, 2, 0, 1, 3, 6, 4}
-                : new int[]{5, 2, 0, 1, 6, 3, 4};
+        // VisionOS serves HLS as well as MP4. Do not spend the entire automatic attempt
+        // budget on obsolete ANDROID_VR variants while never reaching a different family.
+        int[] defaultOrder = new int[]{0, 6, 1};
         for (int i = 0; i < defaultOrder.length; i++) {
             int idx = defaultOrder[i];
             if (idx < CLIENT_SPECS.length && !order.contains(Integer.valueOf(idx))) {
@@ -1140,6 +1154,7 @@ public final class MorpheEngine {
         int directAttempts = 0;
         int directLimit = Math.min(MAX_DIRECT_CLIENT_ATTEMPTS, order.size());
         for (int idx = 0; idx < order.size() && resolved == null; idx++) {
+            checkResolutionCancelled();
             if (directAttempts >= directLimit) break;
             long remaining = quick ? directDeadline - System.currentTimeMillis() : Long.MAX_VALUE;
             if (quick && remaining <= 0L) break;
@@ -1169,10 +1184,12 @@ public final class MorpheEngine {
                 if (attempt != null && attempt.hasAnyStream()) {
                     reportResolutionProgress(listener, "Stream found (" + spec[0] + "); preparing Android 4.2 playback...");
                     bindLocalPlayback(ctx, attempt, preferMusicClient);
+                    if (Thread.currentThread().isInterrupted()) { cancelPlayback(attempt); checkResolutionCancelled(); }
                     String activeProxy = preferMusicClient ? attempt.localAudioProxyUrl : attempt.localVideoProxyUrl;
                     if (activeProxy != null && activeProxy.length() > 0) {
                         resolved = attempt;
                     } else {
+                        cancelPlayback(attempt);
                         failures.append(spec[0]).append(':').append(
                                 attempt.muxNote.length() > 0 ? attempt.muxNote : "unplayable").append(' ');
                     }
@@ -1184,6 +1201,7 @@ public final class MorpheEngine {
             }
         }
 
+        checkResolutionCancelled();
         if (resolved == null) {
             if (quick) reportResolutionProgress(listener, "Direct clients unavailable; trying video mirrors...");
             ResolvedPlayback cloud = quick
@@ -1194,9 +1212,10 @@ public final class MorpheEngine {
                 reportResolutionProgress(listener, "Stream found; preparing Android playback...");
                 bindLocalPlayback(ctx, cloud, preferMusicClient);
                 String activeProxy = preferMusicClient ? cloud.localAudioProxyUrl : cloud.localVideoProxyUrl;
+                if (Thread.currentThread().isInterrupted()) { cancelPlayback(cloud); checkResolutionCancelled(); }
                 if (activeProxy != null && activeProxy.length() > 0) {
                     resolved = cloud;
-                }
+                } else cancelPlayback(cloud);
             }
         }
         if (resolved == null) {
@@ -1209,7 +1228,12 @@ public final class MorpheEngine {
         } else {
             enrichWithNextSponsorBlockAndDislikes(ctx, resolved);
         }
+        if (Thread.currentThread().isInterrupted()) { cancelPlayback(resolved); checkResolutionCancelled(); }
         return resolved;
+    }
+
+    private static void checkResolutionCancelled() throws IOException {
+        if (Thread.currentThread().isInterrupted()) throw new IOException("Playback request cancelled");
     }
 
     private static void reportResolutionProgress(ResolutionProgressListener listener, String message) {
@@ -1237,6 +1261,16 @@ public final class MorpheEngine {
      *     defragments the DASH audio track into a classic non-fragmented `.m4a` file.
      */
     private static void bindLocalPlayback(final Context ctx, final ResolvedPlayback res, boolean audioOnlyPreferred) {
+        if (Thread.currentThread().isInterrupted()) return;
+        if (res.hlsManifestUrl.length() > 0) {
+            try {
+                bindHlsPlayback(ctx, res, audioOnlyPreferred);
+                return;
+            } catch (Exception hlsError) {
+                res.muxNote = "HLS: " + shortError(hlsError);
+            }
+        }
+        if (Thread.currentThread().isInterrupted()) return;
         final StreamVariant videoTrack = pickBestVideoForMux(res);
         final StreamVariant audioTrack = res.audioStreams.isEmpty() ? null : res.audioStreams.get(0);
 
@@ -1247,7 +1281,7 @@ public final class MorpheEngine {
                 if (bestV.isHls) continue;
                 try {
                     byte[] probe = fetchRangeThroughGateway(ctx, bestV.directHttpsUrl, bestV.userAgent, 0L, 63L);
-                    if (probe != null && probe.length >= 8) {
+                    if (isMp4Initialization(probe)) {
                         res.localVideoProxyUrl = registerPlayableStreamSlot(
                                 ctx, bestV.directHttpsUrl, bestV.userAgent, bestV.mimeType);
                         if (audioOnlyPreferred && audioTrack != null && audioTrack.isDashTrack()) {
@@ -1302,7 +1336,7 @@ public final class MorpheEngine {
         }
 
         // 3. Video-only without a usable audio track: defragment into classic MP4.
-        if (res.localVideoProxyUrl.length() == 0 && videoTrack != null) {
+        if (!audioOnlyPreferred && res.localVideoProxyUrl.length() == 0 && videoTrack != null) {
             try {
                 final MorpheRemuxer.Track vT = toRemuxTrack(ctx, videoTrack);
                 byte[] vInit = vT.fetcher.fetch(0L, vT.initEnd);
@@ -1321,25 +1355,96 @@ public final class MorpheEngine {
         }
 
         // 4. Audio-only (YouTube Music) still needs a playable local classic M4A file.
-        if (res.localAudioProxyUrl.length() == 0 && audioTrack != null) {
+        if (res.localAudioProxyUrl.length() == 0 && audioTrack != null
+                && (audioOnlyPreferred || res.localVideoProxyUrl.length() == 0)) {
             if (audioTrack.isDashTrack()) {
                 res.localAudioProxyUrl = spoolAudioTrack(ctx, audioTrack);
             } else {
                 try {
                     byte[] probe = fetchRangeThroughGateway(ctx, audioTrack.directHttpsUrl, audioTrack.userAgent, 0L, 63L);
-                    if (probe != null && probe.length >= 8) {
+                    if (isMp4Initialization(probe)) {
                         res.localAudioProxyUrl = registerPlayableStreamSlot(
                                 ctx, audioTrack.directHttpsUrl, audioTrack.userAgent, audioTrack.mimeType);
                     }
                 } catch (Throwable ignored) {}
             }
         }
-        if (res.localAudioProxyUrl.length() == 0) {
+        if (res.localAudioProxyUrl.length() == 0 && res.muxedLocally) {
             res.localAudioProxyUrl = res.localVideoProxyUrl;
         }
         if (res.localVideoProxyUrl.length() == 0 && res.localAudioProxyUrl.length() > 0) {
             res.localVideoProxyUrl = res.localAudioProxyUrl;
         }
+    }
+
+    private static boolean isMp4Initialization(byte[] probe) {
+        return probe != null && probe.length >= 12 && probe[4] == 'f' && probe[5] == 't'
+                && probe[6] == 'y' && probe[7] == 'p';
+    }
+
+    private static MorpheHls.Transport hlsTransport(final Context ctx, final String userAgent) {
+        return new MorpheHls.Transport() {
+            @Override public MorpheHls.Response open(String url, String range) throws Exception {
+                checkResolutionCancelled();
+                ensureGatewayWarm(ctx);
+                String target = url.startsWith("https://")
+                        ? "http://127.0.0.1:" + gatewayPort() + "/__https/" + url.substring(8) : url;
+                final HttpURLConnection conn = (HttpURLConnection) new URL(target).openConnection(Proxy.NO_PROXY);
+                try {
+                    conn.setConnectTimeout(8000); conn.setReadTimeout(20000);
+                    conn.setRequestProperty("User-Agent", userAgent);
+                    conn.setRequestProperty("Accept", "*/*");
+                    conn.setRequestProperty("Accept-Encoding", "identity");
+                    if (range != null) conn.setRequestProperty("Range", range);
+                    int status = conn.getResponseCode();
+                    long length = -1L;
+                    try { length = Long.parseLong(conn.getHeaderField("Content-Length")); } catch (Exception ignored) {}
+                    InputStream body = status == 200 || status == 206 ? conn.getInputStream() : conn.getErrorStream();
+                    return new MorpheHls.Response(status, conn.getContentType(), length,
+                            conn.getHeaderField("Content-Range"), body) {
+                        @Override public void close() throws IOException {
+                            try { super.close(); } finally { conn.disconnect(); }
+                        }
+                    };
+                } catch (Exception error) { conn.disconnect(); throw error; }
+            }
+        };
+    }
+
+    private static void bindHlsPlayback(final Context ctx, final ResolvedPlayback res,
+                                           final boolean audioOnly) throws Exception {
+        final MorpheHls.Transport transport = hlsTransport(ctx, res.hlsUserAgent);
+        final MorpheHls.Selection selected = MorpheHls.select(transport, res.hlsManifestUrl, audioOnly);
+        MorpheHls.probe(transport, selected.primary());
+        if (selected.video != null && selected.audio != null) MorpheHls.probe(transport, selected.audio);
+        String local;
+        if (selected.fragmented()) {
+            final MorpheRemuxer.SegmentSource video = selected.video != null
+                    ? MorpheHls.source(transport, selected.video) : null;
+            final MorpheRemuxer.SegmentSource audio = selected.audio != null
+                    ? MorpheHls.source(transport, selected.audio) : null;
+            local = MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
+                @Override public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
+                    MorpheRemuxer.remuxHlsClassicMp4(video, audio, out, progress);
+                }
+            }, -1L, audioOnly ? "audio/mp4" : "video/mp4");
+            res.muxedLocally = true;
+            res.muxNote = selected.label + " (preparing classic " + (audioOnly ? "M4A" : "MP4") + ")";
+        } else {
+            local = MorpheHlsRelay.register(selected, transport);
+            res.muxNote = selected.label + " (private TLS relay)";
+        }
+        if (local.length() == 0) throw new IOException("Could not start private HLS playback");
+        res.localVideoProxyUrl = local;
+        res.localAudioProxyUrl = local;
+    }
+
+    public static void cancelPlayback(ResolvedPlayback playback) {
+        if (playback == null) return;
+        MorpheStreamServer.cancel(playback.localVideoProxyUrl);
+        MorpheStreamServer.cancel(playback.localAudioProxyUrl);
+        MorpheHlsRelay.cancel(playback.localVideoProxyUrl);
+        MorpheHlsRelay.cancel(playback.localAudioProxyUrl);
     }
 
     private static MorpheRemuxer.Track toRemuxTrack(final Context ctx, final StreamVariant v) {
@@ -1490,14 +1595,42 @@ public final class MorpheEngine {
         JSONObject payload = new JSONObject();
         payload.put("context", buildClientContext(spec, visitorData, true));
         payload.put("videoId", videoId);
+        String cpn = playbackNonce(16);
+        payload.put("cpn", cpn);
+        payload.put("contentCheckOk", true);
+        payload.put("racyCheckOk", true);
 
         Map<String, String> hdrs = clientHeaders(spec, host, visitorData);
-        // Use the documented request shape. The old implementation appended fabricated,
-        // rotating query tokens and extra content flags; those caused needless request
-        // variability and contributed to rate-limit / unusual-traffic responses.
+        // Match the maintained visionOS request, not a WEB-metadata player request:
+        // mobile t/id query parameters, per-client visitorData, WATCH/MOBILE context,
+        // native app User-Agent and a separate 16-character playback nonce.
         String url = host + "/youtubei/v1/player?prettyPrint=false";
+        if ("VISIONOS".equals(spec[2])) url += "&t=" + playbackNonce(12) + "&id=" + videoId;
         String raw = requestHttpsString(ctx, "POST", url, payload.toString(), hdrs, Math.max(1, timeoutMs));
-        return parseInnerTubePlayerResponse(new JSONObject(raw), videoId, spec[0], spec[4]);
+        JSONObject response = new JSONObject(raw);
+        JSONObject status = response.optJSONObject("playabilityStatus");
+        if (status != null && !"OK".equalsIgnoreCase(status.optString("status", ""))) {
+            throw new IOException(status.optString("status", "UNAVAILABLE") + ": "
+                    + status.optString("reason", "No playable media was returned"));
+        }
+        ResolvedPlayback parsed = parseInnerTubePlayerResponse(response, videoId, spec[0], spec[4]);
+        if (parsed != null) {
+            List<StreamVariant> streams = new ArrayList<StreamVariant>();
+            streams.addAll(parsed.progressiveVideos);
+            streams.addAll(parsed.videoOnlyStreams);
+            streams.addAll(parsed.audioStreams);
+            for (StreamVariant stream : streams) {
+                if (!stream.directHttpsUrl.contains("cpn="))
+                    stream.directHttpsUrl += (stream.directHttpsUrl.contains("?") ? "&" : "?") + "cpn=" + cpn;
+            }
+        }
+        return parsed;
+    }
+
+    private static String playbackNonce(int length) {
+        StringBuilder nonce = new StringBuilder(length);
+        for (int i = 0; i < length; i++) nonce.append(NONCE_ALPHABET.charAt(PLAYBACK_RANDOM.nextInt(64)));
+        return nonce.toString();
     }
 
     public static ResolvedPlayback parseInnerTubePlayerResponse(JSONObject pr,
@@ -1540,7 +1673,9 @@ public final class MorpheEngine {
                 if (url.length() == 0) continue;
                 String mime = f.optString("mimeType", "video/mp4");
                 // MT8125 hardware decoder excels at MP4/H.264 (`avc1` + `mp4a`); avoid AV1 (`av01`) & VP9 (`vp9`)
-                if (mime.contains("av01") || mime.contains("vp9") || mime.contains("webm")) continue;
+                if (!mime.startsWith("video/mp4") || mime.contains("av01") || mime.contains("vp9")
+                        || mime.contains("hvc1") || mime.contains("hev1")
+                        || f.optInt("height", 360) > 720 || f.optInt("fps", 30) > 30) continue;
                 StreamVariant sv = new StreamVariant();
                 sv.itag = f.optInt("itag", 18);
                 sv.directHttpsUrl = url;
@@ -1584,7 +1719,7 @@ public final class MorpheEngine {
                         && (mime.contains("avc1") || mime.contains("avc3"));
                 boolean isAudioMp4 = mime.startsWith("audio/mp4")
                         && (mime.contains("mp4a") || mime.contains("aac"));
-                if (isVideoMp4) {
+                if (isVideoMp4 && sv.height <= 720 && f.optInt("fps", 30) <= 30) {
                     sv.hasVideo = true;
                     sv.label = (sv.height > 0 ? (sv.height + "p") : "Video") + " H.264"
                             + (sv.bitrate > 0 ? (" " + (sv.bitrate / 1000) + "k") : "");
@@ -1603,11 +1738,11 @@ public final class MorpheEngine {
             }
         }
 
-        // 3. Do NOT treat `hlsManifestUrl` as a progressive MP4: Apple `VISIONOS` often returns
-        // an HLS-only manifest whose internal segment URLs are direct TLS 1.3 fMP4 ranges that
-        // Android 4.2 Stagefright cannot open. Leaving `progressiveVideos` empty when only HLS
-        // is present ensures `hasAnyStream()` stays false and our client cascade falls through
-        // to `ANDROID_VR` / `TVHTML5_SIMPLY` / `IOS` which provide real MP4/M4A streams.
+        // HLS is a separate protocol, not a fake progressive MP4. The binder resolves
+        // H.264/AAC renditions, probes actual media and relays EVERY URI through our TLS
+        // engine; finite fMP4 renditions are remuxed to classic MP4/M4A for old Stagefright.
+        out.hlsManifestUrl = sd.optString("hlsManifestUrl", "");
+        out.hlsUserAgent = clientUa != null ? clientUa : WEB_UA;
 
         // Sort progressive video highest-720p-compatible first (`<= 720p` ideal for 1024x600 / 1280x800 IPS panel!)
         Collections.sort(out.progressiveVideos, new Comparator<StreamVariant>() {
@@ -1679,7 +1814,7 @@ public final class MorpheEngine {
     }
 
     private static ResolvedPlayback fetchPlayerFromCloudInstances(Context ctx, String videoId) {
-        return fetchPlayerFromCloudInstances(ctx, videoId, 10000, 1, null);
+        return fetchPlayerFromCloudInstances(ctx, videoId, 10000, 2, null);
     }
 
     private static ResolvedPlayback fetchPlayerFromCloudInstances(Context ctx, String videoId,
@@ -1690,7 +1825,7 @@ public final class MorpheEngine {
         int attempts = 0;
 
         // Tier A: Public Piped API instances
-        for (int i = 0; i < PIPED_INSTANCES.length && attempts < maxAttempts; i++) {
+        for (int i = 0; i < Math.min(1, PIPED_INSTANCES.length) && attempts < maxAttempts; i++) {
             attempts++;
             reportResolutionProgress(listener, "Trying video mirror " + attempts + "/" + maxAttempts + " (Piped)...");
             try {
@@ -1707,6 +1842,7 @@ public final class MorpheEngine {
                 out.dislikesCount = j.optLong("dislikes", -1L);
                 out.thumbnailUrl = j.optString("thumbnailUrl", "https://i.ytimg.com/vi/" + videoId + "/hqdefault.jpg");
                 out.spoofClientUsed = "PIPED_CLOUD";
+                out.hlsManifestUrl = j.optString("hls", "");
 
                 JSONArray vArr = j.optJSONArray("videoStreams");
                 if (vArr != null) {
@@ -1742,7 +1878,7 @@ public final class MorpheEngine {
                         }
                     }
                 }
-                if (!out.progressiveVideos.isEmpty() || !out.audioStreams.isEmpty()) return out;
+                if (out.hasAnyStream()) return out;
             } catch (Throwable ignored) {}
         }
 
@@ -1795,7 +1931,7 @@ public final class MorpheEngine {
                         }
                     }
                 }
-                if (!out.progressiveVideos.isEmpty() || !out.audioStreams.isEmpty()) return out;
+                if (out.hasAnyStream()) return out;
             } catch (Throwable ignored) {}
         }
         return null;

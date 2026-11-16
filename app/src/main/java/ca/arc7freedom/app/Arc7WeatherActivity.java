@@ -27,7 +27,7 @@ import android.widget.Toast;
  *   - 24-hour horizontal hourly strip + 7-day daily High/Low & precipitation probability list
  *   - Global city geocoding search over TLS 1.3 (zero API key!), °C / °F toggle, & offline cache!
  */
-public class Arc7WeatherActivity extends Activity {
+public class Arc7WeatherActivity extends Arc7Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private RootShell shell;

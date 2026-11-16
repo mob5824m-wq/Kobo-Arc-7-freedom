@@ -99,8 +99,8 @@ public class TabletOptimizerManager {
           .append(sdPath != null ? formatDiskUsage(sdPath) : "No MicroSD card detected").append("\n");
 
         boolean sysProxy = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("sys_tls13_proxy", false);
-        sb.append("System-Wide TLS 1.3 Upgrade Proxy: ")
-          .append(sysProxy ? "ENABLED (`127.0.0.1:8118` -> 2026 TLS 1.3)" : "Browser/Gateway mode (`127.0.0.1:8118`)")
+        sb.append("Legacy global proxy (optional): ")
+          .append(sysProxy ? "ENABLED (`127.0.0.1:8118` -> 2026 TLS 1.3)" : "OFF — independent per-app networking")
           .append("\n");
 
         boolean sdBind = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_BIND_SD_BOOT, false);
@@ -188,14 +188,7 @@ public class TabletOptimizerManager {
             if (log != null) {
                 log.onLog("=== Installing Pre-Patched Offline F-Droid Classic (`v1304` — low-memory index streaming + SHA-256 fix + TLS 1.3 Bridge) ===");
             }
-        // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway + system CAs are synced BEFORE F-Droid ever runs!
-        Arc7TlsGatewayService.ensureStarted(ctx);
-        try {
-            NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
-            ncm.ensureSystemCacertsAndLocalCaSynced();
-            ncm.startBrowserGateway();
-        } catch (Throwable ignored) {}
-
+        // F-Droid bundles its own UID-local engine and CA store; no suite gateway is needed.
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
         if (!outDir.exists()) outDir.mkdirs();
         File outApk = new File(outDir, "FDroidClassic-Android4.2-TLS1.3.apk");
@@ -226,10 +219,7 @@ public class TabletOptimizerManager {
 
         if (shell.isRootAvailable()) {
             boolean needCleanUninstall = false;
-            int prevVer = 0;
             try {
-                prevVer = ctx.getPackageManager()
-                        .getPackageInfo("eu.bubu1.fdroidclassic.debug", 0).versionCode;
                 int sigCmp = ctx.getPackageManager().checkSignatures(
                         ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
                 if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
@@ -256,19 +246,9 @@ public class TabletOptimizerManager {
             RootShell.ExecResult pm = shell.execRoot(cmd, null);
             if (log != null) log.onLog(pm.stdout.trim());
             if (pm.stdout.contains("Success")) {
-                // If upgrading from `< 1304`, force-stop and wipe any corrupted pre-`v1304`
-                // repo/cache state once so `v1304` fetches & verifies 2026 `SHA-256` indexes cleanly!
-                if (prevVer < 1304) {
-                    shell.execRoot(
-                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
-                            "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
-                            null);
-                } else {
-                    shell.execRoot(
-                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
-                            "rm -rf /data/data/eu.bubu1.fdroidclassic.debug/cache/* 2>/dev/null || true",
-                            null);
-                }
+                // Preserve repo certificates, enabled repos, preferences and app data. Arc7Bridge
+                // migrates old shared-gateway URLs in-place; an upgrade must not `pm clear` them.
+                shell.execRoot("am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true", null);
                 if (log != null) {
                     log.onLog("SUCCESS: F-Droid Classic (`v1304` — Android 4.2 SHA-256 JarUtils Fix + largeHeap + Throwable Sync Catch + SHA1-RSA APK Signer) is ready!");
                 }
@@ -282,7 +262,7 @@ public class TabletOptimizerManager {
         Intent prompt = new Intent(Intent.ACTION_VIEW);
         prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(prompt);
+        ctx.startActivity(SplitAppRouter.route(ctx, prompt, -1));
         return true;
     }
 
@@ -294,13 +274,7 @@ public class TabletOptimizerManager {
         if (log != null) {
             log.onLog("=== Installing Bundled Aurora Store (`com.aurora.store` v4.8.5-arc7 — Verified Android 4.2 APKs + Auto JAR v1 Signer) ===");
         }
-        Arc7TlsGatewayService.ensureStarted(ctx);
-        try {
-            NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
-            ncm.ensureSystemCacertsAndLocalCaSynced();
-            ncm.startBrowserGateway();
-        } catch (Throwable ignored) {}
-
+        // Aurora bundles its own UID-local engine and CA store, including on first launch.
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
         if (!outDir.exists()) outDir.mkdirs();
         File outApk = new File(outDir, "AuroraStore.apk");
@@ -347,7 +321,7 @@ public class TabletOptimizerManager {
         Intent prompt = new Intent(Intent.ACTION_VIEW);
         prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(prompt);
+        ctx.startActivity(SplitAppRouter.route(ctx, prompt, -1));
         return true;
     }
 
@@ -405,7 +379,7 @@ public class TabletOptimizerManager {
         Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
         prompt.setData(Uri.fromFile(outApk));
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(prompt);
+        ctx.startActivity(SplitAppRouter.route(ctx, prompt, -1));
         return true;
     }
 
@@ -577,7 +551,7 @@ public class TabletOptimizerManager {
         try {
             installed = ctx.getPackageManager().getPackageInfo(pkg, 0).versionCode;
         } catch (Throwable ignored) {}
-        if (installed >= minVersion) return true;
+        if (installed >= minVersion && !needsBundledUpdate(pkg, asset, 253)) return true;
 
         File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
         if (!outDir.exists()) outDir.mkdirs();
@@ -603,9 +577,7 @@ public class TabletOptimizerManager {
             RootShell.ExecResult pm = shell.execRoot(
                     "mkdir -p /data/local/tmp && cat " + RootShell.shellQuote(outApk.getAbsolutePath())
                             + " > /data/local/tmp/" + tmpName + " && chmod 0644 /data/local/tmp/" + tmpName
-                            + " && (pm install -r /data/local/tmp/" + tmpName + " 2>&1"
-                            + " || (pm uninstall " + pkg + " 2>/dev/null || true; pm install -r /data/local/tmp/"
-                            + tmpName + " 2>&1))"
+                            + " && pm install -r /data/local/tmp/" + tmpName + " 2>&1"
                             + "; rm -f /data/local/tmp/" + tmpName + " 2>/dev/null || true",
                     null);
             if (log != null) log.onLog(pm.stdout.trim());
@@ -619,19 +591,41 @@ public class TabletOptimizerManager {
         Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
         prompt.setData(Uri.fromFile(outApk));
         prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try { ctx.startActivity(prompt); } catch (Throwable ignored) {}
+        try { ctx.startActivity(SplitAppRouter.route(ctx, prompt, -1)); } catch (Throwable ignored) {}
         return true;
+    }
+
+    /** Same-version maintenance builds still need updates, but never downgrade newer APKs. */
+    private boolean needsBundledUpdate(String pkg, String asset, int bundledVersion) {
+        android.content.pm.PackageInfo info;
+        try { info = ctx.getPackageManager().getPackageInfo(pkg, 0); }
+        catch (android.content.pm.PackageManager.NameNotFoundException missing) { return true; }
+        if (info.versionCode != bundledVersion) return info.versionCode < bundledVersion;
+        InputStream installed = null, bundled = null;
+        try {
+            installed = new java.io.FileInputStream(ctx.getPackageManager().getApplicationInfo(pkg, 0).sourceDir);
+            bundled = ctx.getAssets().open(asset);
+            return !java.util.Arrays.equals(apkDigest(installed), apkDigest(bundled));
+        } catch (Throwable unreadable) {
+            // Don't erase an app, install blindly, or claim a silent repair when inspection fails.
+            return false;
+        } finally {
+            try { if (installed != null) installed.close(); } catch (Throwable ignored) {}
+            try { if (bundled != null) bundled.close(); } catch (Throwable ignored) {}
+        }
+    }
+
+    private static byte[] apkDigest(InputStream in) throws Exception {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] buffer = new byte[32768]; int n;
+        while ((n = in.read(buffer)) > 0) digest.update(buffer, 0, n);
+        return digest.digest();
     }
 
     public void ensureCompanionAppsUpgradedSilently() {
         if (!shell.isRootAvailable()) return;
         try {
-            int homeVer = 0;
-            try {
-                homeVer = ctx.getPackageManager()
-                        .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
-            } catch (Throwable ignored) {}
-            if (homeVer < 53) {
+            if (needsBundledUpdate("ca.arc7freedom.launcher", "VanillaAndroid4Home.apk", 55)) {
                 File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
                 InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
                 FileOutputStream fos = new FileOutputStream(tmpHome);
@@ -642,42 +636,13 @@ public class TabletOptimizerManager {
                 in.close();
                 tmpHome.setReadable(true, false);
                 String qHome = RootShell.shellQuote(tmpHome.getAbsolutePath());
-                shell.execRoot(
-                        "_out=$(pm install -r " + qHome + " 2>&1 || true)\n" +
-                        "case \"$_out\" in\n" +
-                        "  *Success*) ;;\n" +
-                        "  *)\n" +
-                        "    (mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
-                        "    if [ -f /system/app/VanillaAndroid4Home.apk ]; then\n" +
-                        "      cat /system/app/VanillaAndroid4Home.apk > /data/local/tmp/VanillaHome.bak.apk\n" +
-                        "    fi\n" +
-                        "    cat " + qHome + " > /system/app/VanillaAndroid4Home.apk\n" +
-                        "    chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
-                        "    pm uninstall ca.arc7freedom.launcher 2>/dev/null || true\n" +
-                        "    pm install -r " + qHome + " 2>/dev/null || {\n" +
-                        "      if [ -f /data/local/tmp/VanillaHome.bak.apk ]; then\n" +
-                        "        cat /data/local/tmp/VanillaHome.bak.apk > /system/app/VanillaAndroid4Home.apk\n" +
-                        "        chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
-                        "        pm install -r /data/local/tmp/VanillaHome.bak.apk 2>/dev/null || true\n" +
-                        "      fi\n" +
-                        "    }\n" +
-                        "    sync\n" +
-                        "    mount -o remount,ro /system 2>/dev/null || true\n" +
-                        "    ;;\n" +
-                        "esac\n" +
-                        "appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null" +
-                        " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true",
-                        null);
+                shell.execRoot("pm install -r " + qHome + " 2>&1; "
+                        + "appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null"
+                        + " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true", null);
                 tmpHome.delete();
             }
 
-            // 2. Automatically install / upgrade Aurora Store (`com.aurora.store`, v485)!
-            try {
-                NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
-                ncm.ensureSystemCacertsAndLocalCaSynced();
-                ncm.startBrowserGateway();
-            } catch (Throwable ignored) {}
-
+            // 2. Install/upgrade Aurora independently. No preparatory suite networking.
             int auroraVer = 0;
             try {
                 auroraVer = ctx.getPackageManager()
@@ -722,10 +687,7 @@ public class TabletOptimizerManager {
                     installBundledFDroidClassic(null);
                     prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
                 } else if (!prefs.getBoolean("fdroid_clean_v1304", false)) {
-                    shell.execRoot(
-                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
-                            "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
-                            null);
+                    // Older builds cleared the whole DB here; the new transport migrates it.
                     prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
                 }
             } catch (Throwable ignored) {

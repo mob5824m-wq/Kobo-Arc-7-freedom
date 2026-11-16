@@ -1,9 +1,158 @@
-# Arc7 Freedom (`v2.5.3` — tap-to-turn E-Reader pages + Tailscale sign-in page that opens itself)
+# Arc7 Freedom (`v2.5.3` — Android 4.x maintenance build)
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
 **Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.3`
 (`versionCode=253`).**
+
+## In this branch: notification / playback repairs + independent apps + Bluetooth internet
+
+**Requirement update:** the earlier requirement to have all network traffic go through
+Kobo Arc 7 Freedom is **withdrawn**. This does not require removing existing work.
+Independent per-app networking remains the current default; existing optional proxy,
+VPN and USB-networking tools are retained.
+
+The updated APKs have been **rebuilt and signed locally**, but **not published as a new
+GitHub release**. This development build retains the existing version numbers (suite
+`2.5.3 / 253`), so install the rebuilt APKs explicitly even if Android shows the same version.
+Update **the separate APKs as well as Arc7 Freedom and Home**; installing only the main APK
+cannot replace code in already-installed apps.
+
+- Main app, Home, Aurora, F-Droid, YouTube and YouTube Music: **`releases/`**.
+- All 28 default apps, including **`Bluetooth-Internet.apk`**: **`releases/apps/`**, generated
+  by the build and intentionally excluded from Git. Use the local Wi-Fi portal to install
+  these; the published GitHub “latest” download has not been changed.
+- **`releases/SHA256SUMS.txt`** covers the rebuilt set. Prefer in-place Android updates or
+  `adb install -r path/to/App.apk` with this repository's permanent signing key. Back up
+  data first if a very old installation uses a different signing key; do not uninstall or
+  clear data merely because its version number is unchanged.
+
+### Notification, playback, installer and obsolete-proxy repairs
+
+**Install checklist: [releases/INSTALL-RUNTIME-FIXES.md](releases/INSTALL-RUNTIME-FIXES.md).**
+This is a same-version maintenance build, not a newly published release.
+
+- **VLC and other players own their notifications.** Arc7's external-audio observers update
+  Clock/widgets silently; only a prepared player in the actual owning APK can post Arc7
+  media controls. Update the suite **and installed Clock, Music, Radio & Podcasts, Voice
+  Recorder, YouTube and YouTube Music APKs**, then reboot/force-stop their old processes.
+  Updating only the suite cannot remove watchers running older standalone code. Keep
+  official VLC and its own notification; it does not need replacing for this repair.
+- **YouTube playback is separate from metadata.** The resolver uses the maintained native
+  visionOS 1.04 request shape (matching UA/device/WATCH/MOBILE context, per-client visitor
+  data, mobile `t`/`id` parameters and playback nonce), then iOS / TV fallbacks. HLS is
+  parsed/probed and relayed through the owning APK's TLS engine, not handed to old
+  Stagefright as an HTTPS MP4. Finite fMP4 HLS and DASH are disk-spooled into classic MP4/M4A
+  with H.264/AAC tracks. Unsupported codecs/DRM and failed streams are reported honestly.
+  An unknown-length preparation never advertises partial output as a finished file; a
+  stalled preparation returns an error. Playback readiness follows player preparation and
+  start, with generation guards, cancellation and a 125-second preparation timeout.
+- **App Info/uninstall targets the real app.** Updated Home canonicalizes legacy Package
+  Installer shortcuts to `ca.arc7freedom.packageinstaller`, without substituting the suite
+  if that separate app is absent. The optional updater is `ca.arc7freedom.upgrader` and has
+  its own **App Info / uninstall this upgrader** button. In-place suite/Home/media/store
+  updates no longer silently uninstall on signature/storage errors. The explicitly
+  destructive **Clean Reinstall** action has an additional package-specific confirmation.
+- **The suite retries obsolete global and saved-Wi-Fi proxy removal automatically.** Only
+  `localhost:8118` / `127.0.0.1:8118` are matched. Other proxies, credentials, static IP/DNS,
+  VPNs and USB routes are preserved. Cleared Wi-Fi entries do not hide a remaining global
+  proxy; denied/unverifiable cleanup remains pending and shows manual instructions.
+
+**Validation boundary:** offline tests exercise actual visitor/player HTTP requests against
+an enforcing fixture gateway, real synthetic H.264/AAC media, MP4/M4A decoding with FFmpeg,
+Range/HEAD/error behavior, pending-file/cancellation races and fake Android ownership/proxy
+APIs. **They do not prove live YouTube access or playback/notifications on a physical Kobo.**
+Those still require a tablet test; age/sign-in restrictions, server changes, codecs and ROM
+permissions can prevent playback. Finite fMP4 needs cache space and may take time to prepare.
+
+### No more shared network funnel
+
+- The 28 default apps and YouTube / YouTube Music launch their **own packages**, including
+  from Home's dock, the shared app bar, file-open shortcuts and widgets. An absent app shows
+  installation help instead of silently running another copy inside Arc7 Freedom.
+- Each network-enabled APK starts its own native TLS engine **under its own Android UID**,
+  on a stable package-specific loopback port. Sharing Java source/class names does not share
+  a process, private data directory, permissions or network accounting. Offline apps such as
+  Calculator and Notes do not even request `INTERNET` or run a gateway.
+- Aurora Store and patched F-Droid also bundle their **own** native engine and CA bundle
+  (`21118` and `21120`, respectively); neither needs the suite running. F-Droid migrates old
+  `8118` repository addresses without changing repository certificate pins. Official VLC
+  already owns its network stack; the optional fallback player now owns its TLS bridge too.
+- Certificate installation no longer enables a global HTTP proxy. On startup/upgrade the
+  suite retries removal of **only its old `localhost:8118` / `127.0.0.1:8118` global and saved
+  Wi-Fi proxies**. Global changes normally require root; saved Wi-Fi cleanup uses the ROM's
+  Wi-Fi API where permitted. **Use Independent Networking** retries manually. If cleanup
+  remains pending, change only networks with that old proxy to **None** in Android settings;
+  unrelated work/school proxies are left alone.
+- The optional **legacy global proxy**, an explicitly enabled VPN, or the userspace USB
+  internet tunnel can still combine traffic under their owner's UID on Android 4.x. Turn
+  those modes off when you want direct per-app Wi-Fi/Bluetooth accounting. Port `8118`
+  remains available for third-party apps that you deliberately configure to use it.
+- Existing standalone app data is retained by in-place APK updates. Data from old *in-suite*
+  copies stays in the suite and is **not silently shared, deleted or moved**. Export/import
+  anything you need from those old copies. Clock/Calendar schedules and Clock/Calendar/
+  Weather/Music widgets now belong to their own apps; replace legacy suite widgets with the
+  corresponding standalone widget to see that app's data.
+
+### Share Wi-Fi by Bluetooth
+
+Install **`Bluetooth-Internet.apk`** (`ca.arc7freedom.bluetoothinternet`). Open it from the
+app drawer, Arc7 Freedom's network tab, or Wi-Fi & VPN's Bluetooth button.
+
+**Kobo Wi-Fi → another device:**
+
+1. Connect the Kobo to Wi-Fi and enable Bluetooth.
+2. Use **Pair devices / Bluetooth settings** to pair the phone/computer.
+3. Tap **Share Kobo Wi-Fi via Bluetooth**, or enable **Bluetooth tethering** in **Android
+   tethering settings** if the ROM restricts app control.
+4. On the receiving device, select the Kobo and enable **Internet access / Connect to network**.
+
+**Phone/computer → Kobo:** enable Bluetooth tethering on the other device, pair it, select
+it in Bluetooth Internet, and tap **Connect to selected device's internet**. Some phones
+share mobile data only, rather than their Wi-Fi; some Kobo ROMs support sharing but not
+receiving Bluetooth PAN. Follow the settings fallback when the ROM denies the hidden PAN API.
+
+**Hardware limit:** some Kobo Arc variants have **no Bluetooth adapter**. The app checks for
+this and says so; software cannot add the missing radio. Use Wi-Fi or USB Internet instead.
+A paired device or connected PAN link alone is **not proof of internet access**. The UI
+reports OS connection/tethering state, not a fabricated successful internet test. Routing
+and DHCP are handled by Android PAN, **not an Arc7 proxy or VPN**. No root is required for
+the settings-based flow, but the ROM must actually support PAN/tethering.
+
+### Regression checks and device acceptance
+
+```sh
+make test-isolation
+make test-runtime
+# Stronger host media validation with an available FFmpeg binary:
+FFMPEG=/path/to/ffmpeg make test-runtime
+# Optionally test two native gateways concurrently after building a host TLS binary:
+python3 scripts/test-app-isolation.py --native build/native/host/arc7tls
+# Normal release build (includes Bluetooth Internet and the independent store transports):
+./scripts/build-all.sh
+make verify
+```
+
+**Validation performed on 2026-11-16:** full ARMv7/API-17 APK build and permanent-certificate
+signing; `make verify` (including live TLS 1.3, signed APK/DEX/manifest/payload checks and
+host-native independent gateways); Morphe HLS/remux/real-request-fixture regressions,
+FFmpeg decoding and all e-reader paging checks passed. Aurora, F-Droid's injected Java and the fallback VLC transport also compile
+against API 17. No Android device, Bluetooth radio or PAN internet connection was available
+for hardware verification.
+
+The offline suite checks generated manifests/permissions, stable non-colliding ports,
+URI/extras/grant-preserving navigation, legacy shortcut migration, owner-scoped proxy
+cleanup, F-Droid DB migration and fake Bluetooth hardware/PAN failures. Host tests do not
+replace testing the actual tablet's radio, ROM permissions or Android data counters.
+
+On the tablet: update the main APK, Home, stores and the standalone apps you use **without
+uninstalling or clearing data**; disable the old suite proxy/optional VPN; open Browser and
+Weather; force-stop Arc7 Freedom; confirm both apps still fetch over Wi-Fi or Bluetooth PAN
+and appear separately in Settings → Apps / Data usage. Also test simultaneous apps, app
+force-stop/restart, Clock alarms after reboot, file-open hand-offs and both Bluetooth
+sharing directions on supported devices.
+
+---
 
 `v2.5.3` fixes what was reported on the tablet:
 
@@ -32,7 +181,7 @@
    Each has its own package id (`ca.arc7freedom.browser`, `ca.arc7freedom.clock`, …), launcher
    icon/label, task stack, data directory and row in *Settings → Apps* — install, update or
    uninstall any of them on its own. Standalone apps retain their declared names and logos; similar
-   stock apps keep their original icon. The suite keeps a hidden `<activity-alias>` fallback and
+   stock apps keep their original icon. The suite keeps a forwarding/install-help `<activity-alias>` shortcut and
    `SplitAppPackageReceiver` + `SplitAppIconSync` update it immediately on standalone install/removal,
    so duplicate Camera or other twin entries do not linger until reboot.
 4. **The over-the-air installer website works again.** Download buttons are plain
@@ -76,25 +225,14 @@
 
 Since `v2.5.0` (still included):
 
-1. **YouTube & YouTube Music actually play now.** Since 2026 YouTube answers every working
-   anonymous InnerTube client with an **empty `formats` array** — only video-only H.264 and
-   audio-only AAC **DASH** tracks (`adaptiveFormats` + `initRange`/`indexRange`) and HLS are
-   returned. The old code searched for a progressive muxed MP4, found nothing, handed
-   `VideoView` an empty URL and died with `MediaPlayer error (1, -1004)` — metadata loaded,
-   playback never started.
-   * New on-device **ISO-BMFF remuxer** (`MorpheRemuxer`) merges the video-only and audio-only
-     DASH tracks into **one fragmented MP4**: two `trak`s, interleaved `moof`/`mdat`, rewritten
-     `tkhd` / `tfhd` / `trex` / `mfhd` / `base_data_offset` / `trun` offsets.
-   * `MorpheStreamServer` serves it from `127.0.0.1` with an **exact `Content-Length`** and full
-     `Range: bytes=…` → `206 Partial Content` support, so Stagefright starts instantly and can seek.
-   * Foreground resolution is bounded and reports the active YouTube client/mirror; the stream opens
-     before recommendations, SponsorBlock and dislike metadata load in the background.
-   * Correct **2026 client cascade**: `visionOS 1.04` → `TVHTML5_SIMPLY 1.1` → `Android VR 1.64`
-     → `Android Music 7.12` → `Android Creator 26.10`, each with its **own**
-     `/youtubei/v1/visitor_id` visitor id (sharing one id across clients raised the bot score and
-     403'd every stream) and the `X-Goog-Api-Format-Version: 2` header.
-   * Audio-only playback (YouTube Music background / screen-off) spools the AAC `mp4a` DASH track
-     into a playable fragmented MP4 — no video downloaded, ~90 % less bandwidth.
+1. **YouTube & YouTube Music media pipeline.** Metadata can load even when no media URL
+   is usable. The current binder handles H.264/AAC progressive MP4, separate DASH tracks,
+   MPEG-TS/AAC HLS and finite fMP4 HLS independently, probes media bytes and builds classic
+   non-fragmented MP4/M4A for Android 4.2. Unknown output lengths wait for full preparation
+   rather than guessing a `Content-Length` from input downloads. Foreground metadata
+   enrichment is asynchronous and client attempts are bounded. See the maintenance notes
+   above for current request profiles and the explicit live/device-test limitation; the
+   original blanket claim of working 2026 streams was not established by host tests.
 2. **Custom apps are genuinely separate applications.** `YouTube` and `YouTube Music` are now
    their **own installable APKs with their own package ids** — `ca.arc7freedom.youtube`
    (`releases/YouTube.apk`) and `ca.arc7freedom.ytmusic` (`releases/YouTubeMusic.apk`). Each has
@@ -104,7 +242,7 @@ Since `v2.5.0` (still included):
    Upgrader and the silent companion updater install and refresh both standalone APKs.
 
 Everything from `v2.4.1` and earlier is still included: Launcher `v55` with effortless widget
-removal, universal Now Playing notification + Clock Standby, Official Tailscale Google sign-in,
+removal, owned-player Now Playing controls + silent external Clock Standby metadata, Official Tailscale Google sign-in,
 patched F-Droid `v1304`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
 Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
@@ -137,7 +275,10 @@ Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ---
 
-## Direct Zero-Redirect `v2.5.3` Downloads (GitHub Releases + Raw CDN)
+## Published `v2.5.3` downloads (historical GitHub release / main-branch links)
+
+**These published links have not been refreshed with this branch's maintenance build.**
+Use the local `releases/` files and install checklist above for the current repairs.
 
 All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3**
 signed with the permanent release certificate
@@ -181,10 +322,10 @@ signed with the permanent release certificate
 
 ## What's New in `v2.5.0` (still included)
 
-1. **`YouTube` — playable 2026 streams (`MorpheRemuxer` + `MorpheStreamServer` + `MorpheEngine`):**
-   - Empty-`formats` DASH handling, video-only `avc1` + audio-only `mp4a` merge into one seekable
-     fragmented MP4, exact-length local `206` server, H.264-only codec filter for the MT8125
-     decoder, 1080p/720p/480p/360p/240p/144p quality picker that re-muxes on the fly, plus the
+1. **`YouTube` media pipeline (`MorpheRemuxer` + `MorpheStreamServer` + `MorpheEngine`):**
+   - Empty-`formats` DASH handling, video-only `avc1` + audio-only `mp4a` merge into seekable
+     classic MP4, exact-output-length local `206` server and H.264/AAC ≤720p/30fps filtering
+     for the MT8125 decoder, quality selection and error reporting, plus the
      existing SponsorBlock auto-skip, Return YouTube Dislike, comments, background audio and
      offline `.mp4` downloads.
 2. **`YouTube Music` — real background audio:** audio-only DASH spool (no video download),
@@ -196,7 +337,7 @@ signed with the permanent release certificate
      manifests, with their own icons, labels, tasks, services and data directories.
    - The suite keeps only compatibility/deep-link entries (no duplicate launcher icons); the
      launcher, 1-Tap Upgrader and silent updater all prefer the standalone packages with a
-     graceful in-suite fallback.
+     install help when the separate package is absent (no hidden in-suite copy).
 4. **Verification:** new `verify_v250_streaming_and_standalone_apps()` gate (package ids, labels,
    launcher filters, v1+v2+v3 signatures, embedded CA bundle + TLS engine, 2026 InnerTube strings,
    upgrader nesting) and a host-JVM suite `scripts/test-morphe-remux.py` that proves the remuxer
@@ -206,14 +347,19 @@ signed with the permanent release certificate
 
 ## What's New in `v2.4.0`
 
-1. **Fixed `YouTube` App — Morphe Edition (`YouTubeActivity` + `MorpheEngine`):**
-   - Full standalone **YouTube** launcher app with working Oct 2026 non-SABR InnerTube cascade (`ANDROID_VR 1.64.34`, `VISIONOS 1.03`, `ANDROID_XR 1.69.27`, `ANDROID_MUSIC 7.12.52`, `IOS 21.26.4` + Piped/Invidious fallback), local `http://127.0.0.1:18977` `206 Partial Content` `Range: bytes=...` TLS 1.3 stream proxy (eliminating Android `4.2.2` Stagefright `MediaPlayer error (1, -1004)` and `googlevideo.com` throttling), ad-free hardware H.264/AAC playback (`360p`/`720p` + Audio-Only Screen-Off mode), **SponsorBlock** auto-skip, **Return YouTube Dislike** counts, channels, comments, and offline `.mp4`/`.m4a` downloads.
+1. **`YouTube` App — Morphe Edition (`YouTubeActivity` + `MorpheEngine`):**
+   - Introduced the local Range/TLS stream proxy, hardware H.264/AAC playback path, SponsorBlock,
+     dislike counts, channels, comments and offline downloads. Original client versions in
+     this historical release are not a guarantee of current service access; use the
+     maintenance profiles/pipeline and testing caveats above.
 2. **New Standalone `YouTube Music` Morphe App (`YouTubeMusicActivity`):**
    - Dedicated launcher app with AMOLED dark UI, song/album/artist/playlist search & quick picks, `128–160 kbps` M4A screen-off background playback (`PARTIAL_WAKE_LOCK` + `WIFI_MODE_FULL_HIGH_PERF`), SponsorBlock non-music skip, synced LRC lyrics, queue/shuffle/repeat, 5-band `Equalizer` + `BassBoost`, and offline `.m4a` downloads.
 3. **Effortless Home Screen Widget Removal (`VanillaAndroid4Home v54`):**
    - Custom `InterceptingWidgetHostView.onInterceptTouchEvent` intercepts `420ms` long-presses before clickable child `RemoteViews` swallow them, **`Rearrange`** mode highlights every widget with 1-tap **`✕ Remove`** + **`↕ Size`** badges, and Home long-press shows active page widgets right at the top with 1-tap **`✕ Remove`** (`AppWidgetHost.deleteAppWidgetId` + persisted removal).
 4. **System-Wide Audio Notification + Live Clock Standby Display (`NowPlayingManager` + `Arc7AudioService` + `Arc7DeskClockActivity`):**
-   - Any audio playing across **`YouTube Music`**, **`YouTube`**, **`Music`**, **`Radio & Podcasts`**, **`Voice Recorder`**, or external players like **`VLC`** automatically posts an Android `4.2` compact + expanded media notification (`Prev / Play-Pause / Next / Stop`) AND renders live cover art, track title, artist, source badge, progress bar, and transport controls right on **Clock Standby**!
+   - Prepared Arc7 players post their own compact/expanded controls. External players such as
+     **VLC** keep their official notifications; observers only feed metadata to **Clock
+     Standby** and widgets. The old duplicate system-wide observer notification is removed.
 5. **Clean System App Naming (`Arc7 Freedom` Only):**
    - Only **`Arc7 Freedom`** carries `"Arc7"` in its name — every other built-in app, widget, launcher, store, and utility uses clean human names (`YouTube`, `YouTube Music`, `Browser`, `Clock`, `Books`, `Music`, `Calendar`, `Notes`, `Files`, `Photos`, `Camera`, `Calculator`, `Weather`, `PDF Reader`, `Radio & Podcasts`, `Voice Recorder`, `Games`, `Stream Deck`, `Wi-Fi & VPN`, `Home`, `Aurora Store`, etc.).
 6. **Official Tailscale Auth with Google Sign-In (`TailscaleManager` + `QrCodeEncoder` + `Arc7VpnActivity`):**

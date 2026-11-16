@@ -78,6 +78,15 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
         PendingIntent piFwd = PendingIntent.getService(
                 context, 7204, fwd, PendingIntent.FLAG_UPDATE_CURRENT);
 
+        if (AppNetworkScope.SUITE_PACKAGE.equals(context.getPackageName())) {
+            // Old suite widget IDs survive an APK update. Do not resume the old in-suite
+            // player from those controls; open the real app and explain how to replace it.
+            piRew = piOpen;
+            piToggle = piOpen;
+            piFwd = piOpen;
+            sub = "Legacy widget — replace with the separate Music app's widget";
+        }
+
         for (int i = 0; i < ids.length; i++) {
             RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_arc7_audio);
             rv.setTextViewText(R.id.widget_audio_title, title);

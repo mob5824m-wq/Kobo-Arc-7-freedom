@@ -262,9 +262,6 @@ public class VlcMainActivity extends Activity {
                     @Override
                     public void onClick(DialogInterface d, int w) {
                         String u = et.getText().toString().trim();
-                        if (u.startsWith("https://")) {
-                            u = "http://127.0.0.1:8118/__arc7_raw?u=" + Uri.encode(u);
-                        }
                         if (u.length() > 0) playUri(Uri.parse(u), u);
                     }
                 })
@@ -272,7 +269,28 @@ public class VlcMainActivity extends Activity {
                 .show();
     }
 
-    private void playUri(Uri uri, String title) {
+    private void playUri(final Uri uri, final String title) {
+        if ("https".equalsIgnoreCase(uri.getScheme())) {
+            new Thread(new Runnable() {
+                @Override public void run() {
+                    try {
+                        ca.arc7freedom.net.OwnTlsGateway.ensureRunning(VlcMainActivity.this,
+                                ca.arc7freedom.net.OwnTlsGateway.VLC_PORT);
+                        final Uri local = Uri.parse("http://127.0.0.1:21122/__arc7_raw?u=" + Uri.encode(uri.toString()));
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() { if (!isFinishing()) playUri(local, title); }
+                        });
+                    } catch (final Exception error) {
+                        runOnUiThread(new Runnable() {
+                            @Override public void run() {
+                                Toast.makeText(VlcMainActivity.this, "Own TLS engine: " + error.getMessage(), Toast.LENGTH_LONG).show();
+                            }
+                        });
+                    }
+                }
+            }, "VlcOwnTls").start();
+            return;
+        }
         try {
             loopA = -1L;
             loopB = -1L;

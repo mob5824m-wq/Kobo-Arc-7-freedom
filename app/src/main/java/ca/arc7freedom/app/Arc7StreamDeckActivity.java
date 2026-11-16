@@ -60,7 +60,7 @@ import java.util.Locale;
  *   - Works over Wi-Fi LAN (`UDP/TCP :18991` auto-discovery), USB ADB (PC host :18992 → Kobo :18991),
  *     AND Remote Tailscale Mesh (`100.x.y.z:18991`)!
  */
-public class Arc7StreamDeckActivity extends Activity {
+public class Arc7StreamDeckActivity extends Arc7Activity {
 
     public static final int STREAM_DECK_PORT = 18991;
     private static final int AUTO_DISCOVERY_TIMEOUT_MS = 1600;

@@ -74,7 +74,7 @@ import java.util.zip.ZipInputStream;
  * Aurora Store v3 (`minSdk=21`) and v4 (`minSdk=23`) cannot install on API 17.
  *
  * Features:
- *   - Routes HTTPS seamlessly over Arc7's local Mbed-TLS 3.6 `TLS 1.3` bridge (`127.0.0.1:8118/__https/...`)
+ *   - Routes HTTPS over this APK's own UID-local Mbed-TLS 3.6 `TLS 1.3` bridge (`127.0.0.1:21118/__https/...`)
  *   - Live Anonymous Aurora Token Dispenser session (`https://auroraoss.com/api/auth` or custom URL)
  *     + Google Play `fdfe` search/delivery + Live F-Droid Search API + Verified Android 4.2 Catalog
  *   - 1-tap silent root installation via `su -c "pm install -r ..."` with automatic fallback to
@@ -91,7 +91,7 @@ public class AuroraStoreActivity extends Activity {
     private static final String KEY_SPOOF_IDX = "spoof_idx";
 
     private static final String DEFAULT_DISPENSER = "https://auroraoss.com/api/auth";
-    private static final String LOCAL_TLS_BRIDGE = "http://127.0.0.1:8118/__https/";
+    private static final String LOCAL_TLS_BRIDGE = "http://127.0.0.1:21118/__https/";
 
     private static final String[] SPOOF_LABELS = new String[]{
             "Kobo Arc 7 (Android 4.2.2 • API 17 • ARMv7 — Filter Compatible APKs)",
@@ -1193,7 +1193,10 @@ public class AuroraStoreActivity extends Activity {
         }
     }
 
-    private static HttpURLConnection openSmartConnection(String urlStr) throws Exception {
+    private HttpURLConnection openSmartConnection(String urlStr) throws Exception {
+        if (urlStr.startsWith(LOCAL_TLS_BRIDGE)) {
+            ca.arc7freedom.net.OwnTlsGateway.ensureRunning(this, ca.arc7freedom.net.OwnTlsGateway.AURORA_PORT);
+        }
         URL u = new URL(urlStr);
         if (urlStr.startsWith("http://127.0.0.1:") || urlStr.startsWith("http://localhost:")) {
             return (HttpURLConnection) u.openConnection(Proxy.NO_PROXY);

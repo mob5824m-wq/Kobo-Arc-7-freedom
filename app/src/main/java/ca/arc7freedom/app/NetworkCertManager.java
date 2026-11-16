@@ -56,7 +56,8 @@ import javax.net.ssl.TrustManagerFactory;
  */
 public class NetworkCertManager {
 
-    public static final int DEFAULT_PROXY_PORT = 8118;
+    // Initialized after Arc7Application establishes the owning package, never a shared port.
+    public static final int DEFAULT_PROXY_PORT = AppNetworkScope.gatewayPort();
     public static final int BROWSER_GATEWAY_PORT = DEFAULT_PROXY_PORT;
     // Build floor timestamp (2026-10-21 00:00:00 UTC = 1792540800000L) used solely to detect
     // expired pre-2026 system certificates even before clock sync finishes.
@@ -102,7 +103,8 @@ public class NetworkCertManager {
 
     private final Context appContext;
     private final RootShell shell;
-    private Process proxyProcess;
+    private static final Object GATEWAY_LOCK = new Object();
+    private static Process proxyProcess;
 
     public NetworkCertManager(Context ctx) {
         this(ctx, ctx != null ? new RootShell(ctx) : null);
@@ -405,13 +407,10 @@ public class NetworkCertManager {
             // Refresh Java TLS 1.2 + 2026 CA trust store
             installProcessTls12TrustStore();
 
-            // Step 5: Install per-device Local TLS 1.0->1.3 Upgrade CA & start persistent 24/7 Gateway (:8118)
-            listener.onProgress(80, "Activating System-Wide TLS 1.3 Upgrade Proxy & Persistent Gateway (127.0.0.1:8118)...");
-            if (hasRoot) {
-                setSystemWideTls13ProxyEnabled(true, listener);
-            } else {
-                startBrowserGateway();
-            }
+            // Installing root certificates must NOT opt every app into a central proxy.
+            listener.onProgress(80, "Starting this app's local TLS 1.3 engine (independent networking)...");
+            migrateLegacySuiteProxy();
+            startBrowserGateway();
             Arc7TlsGatewayService.ensureStarted(appContext);
 
             listener.onProgress(90, "Testing live modern HTTPS (TLS 1.3 + 2026 CAs) over Wi-Fi...");
@@ -453,10 +452,10 @@ public class NetworkCertManager {
 
     public String detectAndApplyLocalTimezone(boolean hasRoot, final ProgressListener listener) {
         String[] endpoints = new String[]{
-                "http://127.0.0.1:8118/__https/ipwho.is/?fields=timezone",
+                "http://127.0.0.1:" + DEFAULT_PROXY_PORT + "/__https/ipwho.is/?fields=timezone",
                 "http://ip-api.com/json/?fields=status,timezone",
-                "http://127.0.0.1:8118/__https/timeapi.io/api/time/current/ip",
-                "http://127.0.0.1:8118/__https/worldtimeapi.org/api/ip"
+                "http://127.0.0.1:" + DEFAULT_PROXY_PORT + "/__https/timeapi.io/api/time/current/ip",
+                "http://127.0.0.1:" + DEFAULT_PROXY_PORT + "/__https/worldtimeapi.org/api/ip"
         };
         String foundTz = null;
         for (int i = 0; i < endpoints.length && foundTz == null; i++) {
@@ -752,6 +751,8 @@ public class NetworkCertManager {
     public synchronized File ensureLocalUpgradeCaDir() {
         File caDir = new File(appContext.getFilesDir(), "local_tls13_ca");
         caDir.mkdirs();
+        // Standalone apps use the verified upstream portal, not a shared MITM root CA.
+        if (!AppNetworkScope.isSuite()) return caDir;
         File crt = new File(caDir, "local-ca.crt");
         File key = new File(caDir, "local-ca.key");
         if (crt.exists() && key.exists() && crt.length() > 200 && key.length() > 200) {
@@ -804,7 +805,7 @@ public class NetworkCertManager {
     }
 
     public synchronized void ensureSystemCacertsAndLocalCaSynced(File localCaDir) {
-        if (shell == null || !shell.isRootAvailable()) return;
+        if (!AppNetworkScope.isSuite() || shell == null || !shell.isRootAvailable()) return;
         try {
             File hashedLocalCa = null;
             if (localCaDir != null) {
@@ -925,7 +926,7 @@ public class NetworkCertManager {
             byte[] buf = new byte[512];
             StringBuilder sb = new StringBuilder();
             int n;
-            while ((n = in.read(buf)) > 0) {
+            while (sb.length() < 4096 && (n = in.read(buf)) > 0) {
                 sb.append(new String(buf, 0, n, "UTF-8"));
             }
             return sb.toString();
@@ -936,48 +937,47 @@ public class NetworkCertManager {
         }
     }
 
+    private boolean ownsGateway(String ping) {
+        return ping.contains("\nOWNER=" + appContext.getPackageName() + "\n");
+    }
+
     private void shutdownAnyStaleGateway(int port) {
+        String ping = probeGatewayPing(port);
+        // Only the suite may replace its OLD owner-less daemon, and only at its legacy port.
+        boolean legacySuite = AppNetworkScope.isSuite() && port == AppNetworkScope.LEGACY_SUITE_PORT
+                && ping.contains("ARC7_TLS13_READY_") && !ping.contains("\nOWNER=");
+        if (!ownsGateway(ping) && !legacySuite) return;
         stopBrowserGateway();
-        // Ask any previous daemon supporting `/__shutdown` to exit cleanly
-        Socket s = new Socket();
+        Socket socket = new Socket();
         try {
-            s.connect(new InetSocketAddress("127.0.0.1", port), 200);
-            s.setSoTimeout(250);
-            s.getOutputStream().write("GET /__shutdown HTTP/1.0\r\nConnection: close\r\n\r\n".getBytes("UTF-8"));
-            s.getOutputStream().flush();
-        } catch (Throwable ignored) {
+            socket.connect(new InetSocketAddress("127.0.0.1", port), 200);
+            socket.getOutputStream().write("GET /__shutdown HTTP/1.0\r\nConnection: close\r\n\r\n".getBytes("UTF-8"));
+            socket.getOutputStream().flush();
+        } catch (IOException ignored) {
         } finally {
-            try { s.close(); } catch (Throwable ignored) {}
+            try { socket.close(); } catch (IOException ignored) {}
         }
-        // Also terminate any pre-v1.8.2 `libarc7tls.so` orphan PIDs via pure `/proc` scan (no `pkill` needed!)
-        String killLoop =
-                "for _p in /proc/[0-9]*; do " +
-                "  if [ -r \"$_p/cmdline\" ]; then " +
-                "    _cmd=$(tr '\\000' ' ' < \"$_p/cmdline\" 2>/dev/null || cat \"$_p/cmdline\" 2>/dev/null || true); " +
-                "    case \"$_cmd\" in *arc7tls*proxy*) kill -9 \"${_p##*/}\" 2>/dev/null || true ;; esac; " +
-                "  fi; " +
-                "done";
-        try {
-            shell.execSh(killLoop, null);
-            if (shell.isRootAvailable()) {
-                shell.execRoot(killLoop, null);
-            }
-        } catch (Throwable ignored) {}
+        // Never scan /proc or kill other APKs' TLS daemons, even when root is available.
         for (int i = 0; i < 10; i++) {
             if (!isLocalProxyListening(port)) break;
-            try { Thread.sleep(80); } catch (Throwable ignored) {}
+            try { Thread.sleep(80); } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                break;
+            }
         }
     }
 
-    public synchronized boolean startBrowserGateway() {
+    public boolean startBrowserGateway() {
+        synchronized (GATEWAY_LOCK) { return startOwnedGatewayLocked(); }
+    }
+
+    private boolean startOwnedGatewayLocked() {
         if (isLocalProxyListening(DEFAULT_PROXY_PORT)) {
             String ping = probeGatewayPing(DEFAULT_PROXY_PORT);
-            if (ping.contains(EXPECTED_GATEWAY_PING)) {
-                ensureSystemCacertsAndLocalCaSynced(ensureLocalUpgradeCaDir());
-                return true;
-            }
-            // Older daemon binary is holding port 8118 across an in-place APK update — hot-swap it now!
+            if (ping.contains(EXPECTED_GATEWAY_PING) && ownsGateway(ping)) return true;
             shutdownAnyStaleGateway(DEFAULT_PROXY_PORT);
+            // An unrelated listener is not our gateway. Fail instead of borrowing/killing it.
+            if (isLocalProxyListening(DEFAULT_PROXY_PORT)) return false;
         }
         try {
             File bundleFile = ensureCaBundleFile();
@@ -988,7 +988,7 @@ public class NetworkCertManager {
             File localKey = new File(localCaDir, "local-ca.key");
 
             // Also ensure `/system/etc/resolv.conf` exists on rooted Android 4.2 devices so CLI tools work too
-            if (shell.isRootAvailable() && !new File("/system/etc/resolv.conf").exists()) {
+            if (AppNetworkScope.isSuite() && shell.isRootAvailable() && !new File("/system/etc/resolv.conf").exists()) {
                 try {
                     shell.execRoot(
                             RootShell.remountSystemRwCmd() + " && " +
@@ -1002,7 +1002,7 @@ public class NetworkCertManager {
             }
 
             ProcessBuilder pb;
-            if (localCrt.exists() && localKey.exists()) {
+            if (AppNetworkScope.isSuite() && localCrt.exists() && localKey.exists()) {
                 pb = new ProcessBuilder(
                         tlsBin.getAbsolutePath(),
                         "proxy",
@@ -1019,9 +1019,11 @@ public class NetworkCertManager {
                         String.valueOf(DEFAULT_PROXY_PORT)
                 );
             }
+            pb.environment().put("ARC7_GATEWAY_OWNER", appContext.getPackageName());
             pb.redirectErrorStream(true);
             final Process started = pb.start();
             proxyProcess = started;
+            started.getOutputStream().close();
             Thread drain = new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -1035,12 +1037,67 @@ public class NetworkCertManager {
             drain.setDaemon(true);
             drain.start();
             for (int i = 0; i < 20; i++) {
-                if (isLocalProxyListening(DEFAULT_PROXY_PORT)) return true;
+                if (Arc7TlsGatewayService.isGatewayAlive()) return true;
                 Thread.sleep(100);
             }
         } catch (Throwable ignored) {
         }
-        return isLocalProxyListening(DEFAULT_PROXY_PORT);
+        return Arc7TlsGatewayService.isGatewayAlive();
+    }
+
+    private static final Object LEGACY_PROXY_LOCK = new Object();
+
+    /** Retry on every suite startup/upgrade/network change, even after an earlier success. */
+    public void migrateLegacySuiteProxy() {
+        if (!AppNetworkScope.isSuite()) return;
+        synchronized (LEGACY_PROXY_LOCK) {
+            boolean cleared = clearLegacySuiteProxy(null);
+            appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE).edit()
+                    .putBoolean("independent_networking_v1", cleared)
+                    .putBoolean("sys_tls13_proxy", false).commit();
+        }
+    }
+
+    private boolean recordLegacyProxyCleanup(boolean ok, String message, ProgressListener listener) {
+        appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE).edit()
+                .putBoolean("legacy_proxy_cleanup_pending", !ok)
+                .putString("legacy_proxy_cleanup_message", message).commit();
+        if (listener != null) listener.onLog(message);
+        return ok;
+    }
+
+    private boolean clearLegacySuiteProxy(ProgressListener listener) {
+        LegacyWifiProxyCleanup.Result wifi = LegacyWifiProxyCleanup.clear(appContext);
+        if (!shell.isRootAvailable()) {
+            boolean ok = wifi.complete() && LegacyWifiProxyCleanup.globalAndActiveProxyAreClear(appContext);
+            return recordLegacyProxyCleanup(ok, ok
+                    ? "Old Arc7 proxy disabled. Independent app networking is active; unrelated proxies were preserved."
+                    : "Could not fully remove the old Arc7 proxy on this ROM without permission. "
+                        + "In Wi-Fi > Modify network > Advanced, set Proxy to None for networks using localhost/127.0.0.1:8118. "
+                        + "Root may be needed for a global proxy. Cleanup will retry automatically.", listener);
+        }
+        // Read again in the root shell to avoid a stale Java proxy cache. Clear only OUR proxy.
+        String cmd = "_p=$(settings get global http_proxy 2>/dev/null) || exit 41; "
+                + "_h=$(settings get global global_http_proxy_host 2>/dev/null) || exit 42; "
+                + "_n=$(settings get global global_http_proxy_port 2>/dev/null) || exit 43; _ours=0; "
+                + "case \"$_p\" in 127.0.0.1:8118|[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]:8118) _ours=1 ;; "
+                + "null|:0|'') case \"$_h:$_n\" in 127.0.0.1:8118|[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]:8118) _ours=1 ;; esac ;; esac; "
+                + "if [ \"$_ours\" = 1 ]; then "
+                + "settings put global http_proxy :0 && "
+                + "settings delete global global_http_proxy_host && settings delete global global_http_proxy_port || exit 44; "
+                + "_p=$(settings get global http_proxy 2>/dev/null) || exit 45; "
+                + "_h=$(settings get global global_http_proxy_host 2>/dev/null) || exit 46; "
+                + "_n=$(settings get global global_http_proxy_port 2>/dev/null) || exit 47; "
+                + "case \"$_p|$_h:$_n\" in *127.0.0.1:8118*|*[Ll][Oo][Cc][Aa][Ll][Hh][Oo][Ss][Tt]:8118*) exit 48 ;; esac; "
+                + "echo ARC7_PROXY_CLEARED; else echo ARC7_PROXY_NOT_SELECTED; fi";
+        RootShell.ExecResult result = shell.execRoot(cmd, null);
+        boolean ok = result.exitCode == 0 && (result.stdout.contains("ARC7_PROXY_CLEARED")
+                || result.stdout.contains("ARC7_PROXY_NOT_SELECTED"));
+        ok = ok && wifi.complete();
+        return recordLegacyProxyCleanup(ok, ok
+                ? "Old Arc7 global/Wi-Fi proxy disabled. Independent app networking is active; unrelated proxies, VPNs and USB routes were preserved."
+                : "Old Arc7 proxy cleanup needs attention: set Wi-Fi > Modify network > Proxy to None "
+                    + "only for localhost/127.0.0.1:8118. The ROM blocked part of automatic cleanup; it will retry.", listener);
     }
 
     /**
@@ -1048,22 +1105,16 @@ public class NetworkCertManager {
      * so EVERY legacy Android 4.2 app on the tablet transparently connects to modern 2026 TLS 1.3 servers!
      */
     public boolean setSystemWideTls13ProxyEnabled(boolean enable, final ProgressListener listener) {
+        if (!AppNetworkScope.isSuite()) {
+            if (listener != null) listener.onLog("Only the suite can manage its optional legacy global proxy.");
+            return false;
+        }
         if (!enable) {
-            if (shell.isRootAvailable()) {
-                shell.execRoot(
-                        "settings delete global http_proxy >/dev/null 2>&1 || true; " +
-                        "settings put global http_proxy :0 >/dev/null 2>&1 || true; " +
-                        "settings delete global global_http_proxy_host >/dev/null 2>&1 || true; " +
-                        "settings delete global global_http_proxy_port >/dev/null 2>&1 || true",
-                        null
-                );
-            }
-            appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE)
-                    .edit().putBoolean("sys_tls13_proxy", false).commit();
-            if (listener != null) {
-                listener.onLog("Disabled global Android HTTP proxy (`settings delete global http_proxy`). Local browser gateway on 127.0.0.1:8118 remains ready anytime.");
-            }
-            return true;
+            boolean cleared = clearLegacySuiteProxy(listener);
+            if (cleared) appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE)
+                    .edit().putBoolean("sys_tls13_proxy", false)
+                    .putBoolean("independent_networking_v1", true).commit();
+            return cleared;
         }
 
         // Restart gateway fresh to ensure per-device Local CA (`CONNECT_TLS13=ENABLED`) is loaded
@@ -1083,6 +1134,7 @@ public class NetworkCertManager {
         } catch (Throwable ignored) {}
 
         boolean hasRoot = shell.isRootAvailable();
+        boolean globalConfigured = false;
         if (hasRoot) {
             String hashedName = null;
             String hashedPath = null;
@@ -1108,6 +1160,7 @@ public class NetworkCertManager {
                     "settings put global global_http_proxy_port " + DEFAULT_PROXY_PORT + " && " +
                     "echo SYS_TLS13_PROXY_OK";
             RootShell.ExecResult r = shell.execRoot(cmd, null);
+            globalConfigured = r.exitCode == 0 && r.stdout.contains("SYS_TLS13_PROXY_OK");
             if (listener != null) listener.onLog(r.stdout.trim());
         } else if (listener != null) {
             listener.onLog("Unrooted mode: saved `/sdcard/Download/Arc7-Local-TLS13-CA.crt`. Install it via Settings -> Security -> Install from SD card and set Wi-Fi Proxy to `127.0.0.1` port `8118` (or root first on Tab 1 for zero-prompt system-wide trust!).");
@@ -1116,17 +1169,20 @@ public class NetworkCertManager {
         boolean up = startBrowserGateway();
         Arc7TlsGatewayService.ensureStarted(appContext);
         appContext.getSharedPreferences("arc7_optimizer", Context.MODE_PRIVATE)
-                .edit().putBoolean("sys_tls13_proxy", up).commit();
-        if (listener != null && up) {
+                .edit().putBoolean("sys_tls13_proxy", up && globalConfigured)
+                .putBoolean("independent_networking_v1", true).commit();
+        if (listener != null && up && globalConfigured) {
             listener.onLog("SUCCESS: System-Wide TLS 1.3 Upgrade Proxy is LIVE on `127.0.0.1:" + DEFAULT_PROXY_PORT + "` (`CONNECT_TLS13=ENABLED`)! All legacy Android 4.2 apps now handshake locally & tunnel upstream over verified 2026 TLS 1.3!");
         }
-        return up;
+        return up && globalConfigured;
     }
 
-    public synchronized void stopBrowserGateway() {
-        if (proxyProcess != null) {
-            proxyProcess.destroy();
-            proxyProcess = null;
+    public void stopBrowserGateway() {
+        synchronized (GATEWAY_LOCK) {
+            if (proxyProcess != null) {
+                proxyProcess.destroy();
+                proxyProcess = null;
+            }
         }
     }
 

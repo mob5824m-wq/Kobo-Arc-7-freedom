@@ -7,7 +7,7 @@ minSdk=15 Android 4.0.3–4.2.2) completely and idempotently for Kobo Arc 7 (`v1
      - Bumps `android:versionCode` (`0x0101021b`) to `1302` so upgrades trigger automatic
        installation and clean repository database migration.
   2. Binary `resources.arsc` (`array/default_repos`):
-     - Fixes every repository's exact unique non-colliding `127.0.0.1:8118/__https/<host>/...`
+     - Fixes every repository's exact unique non-colliding `127.0.0.1:21120/__https/<host>/...`
        address matched 1-to-1 against its exact pinned X.509 certificate (eliminating the
        `F-Droid Classic` `CN=marcus-tux` collision onto `f-droid.org/repo` that threw
        `SigningException("Signing certificate does not match!")` / `"certificates invalid"`!).
@@ -16,9 +16,9 @@ minSdk=15 Android 4.0.3–4.2.2) completely and idempotently for Kobo Arc 7 (`v1
        expired `Briar` disabled (`inuse=0`).
   3. Full Dalvik `DEX 035` Bytecode Upgrade (`ecj` + `d8 --min-api 15` -> `classes5.dex`):
      - `NetCipher`: Dynamically routes EVERY `https://` mirror URL from `index-v1.json` AND
-       any user-added custom `https://` repository URL through `http://127.0.0.1:8118/__https/...`
+       any user-added custom `https://` repository URL through `http://127.0.0.1:21120/__https/...`
        using `Proxy.NO_PROXY`!
-     - `BaseImageDownloader`: Routes EVERY app icon & screenshot over `127.0.0.1:8118/__https/...`!
+     - `BaseImageDownloader`: Routes EVERY app icon & screenshot over `127.0.0.1:21120/__https/...`!
      - `IndexUpdater`: Adds full cryptographic PKCS#7 `SHA-256` / `SHA256withRSA` fallback
        when Android <= 4.2.2's `JarVerifier` returns `getCodeSigners() == null` (AOSP Bug #38321)!
      - `DefaultInstallerActivity`: Validates APKs, repairs `SHA-256-Digest` / `v2`-only APKs
@@ -483,32 +483,32 @@ def patch_arsc_bytes(arsc: bytes):
                 # raw upstream `app-debug.apk` AND previously-patched APKs map cleanly with
                 # ZERO duplicate URL collisions across different certificates!
                 if "F-Droid Classic app" in desc:
-                    strings[url_si] = "http://127.0.0.1:8118/__https/bubu1.eu/fdroidclassic/fdroid/repo"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/bubu1.eu/fdroidclassic/fdroid/repo"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, zero_str_idx)
                     fixed_repos += 1
                 elif desc.startswith("The official F-Droid repository"):
-                    strings[url_si] = "http://127.0.0.1:8118/__https/f-droid.org/repo"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/f-droid.org/repo"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, one_str_idx)
                     fixed_repos += 1
                 elif desc.startswith("The archive repository of the F-Droid client"):
-                    strings[url_si] = "http://127.0.0.1:8118/__https/f-droid.org/archive"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/f-droid.org/archive"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, one_str_idx)
                     fixed_repos += 1
                 elif "The Guardian Project" in desc and "older versions" in desc:
-                    strings[url_si] = "http://127.0.0.1:8118/__https/guardianproject.info/fdroid/archive"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/guardianproject.info/fdroid/archive"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, zero_str_idx)
                     fixed_repos += 1
                 elif "The Guardian Project" in desc:
-                    strings[url_si] = "http://127.0.0.1:8118/__https/guardianproject.info/fdroid/repo"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/guardianproject.info/fdroid/repo"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, zero_str_idx)
                     fixed_repos += 1
                 elif "NewPipe" in desc:
-                    strings[url_si] = "http://127.0.0.1:8118/__https/archive.newpipe.net/fdroid/repo"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/archive.newpipe.net/fdroid/repo"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, zero_str_idx)
                     fixed_repos += 1
                 else:
                     # Briar repository (expired 2022 cert — keep bridged & disabled by default)
-                    strings[url_si] = "http://127.0.0.1:8118/__https/briarproject.org/fdroid/repo"
+                    strings[url_si] = "http://127.0.0.1:21120/__https/briarproject.org/fdroid/repo"
                     struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, zero_str_idx)
                     fixed_repos += 1
             pos = idx + 8
@@ -1265,7 +1265,7 @@ import java.util.zip.ZipFile;
 /**
  * Kobo Arc 7 Freedom (`v2.3.1` / `FDroidClassicLegacy v1303`) Runtime Bridge:
  *   1. Rewrites ALL dynamic `https://...` mirror & custom repo URLs to
- *      `http://127.0.0.1:8118/__https/<host>/<path>` with `Proxy.NO_PROXY`.
+ *      `http://127.0.0.1:21120/__https/<host>/<path>` with `Proxy.NO_PROXY`.
  *   2. Resolves Android <= 4.2.2 Harmony `JarUtils.verifySignature()` `SecurityException("Incorrect signature")`
  *      (where AOSP `JarUtils.java` builds hyphenated `"SHA-256withRSA"`, misses JCA `"SHA256withRSA"`,
  *      falls back to `"RSA"` / `NONEwithRSA`, and throws `"Incorrect signature"`) across BOTH
@@ -1276,7 +1276,7 @@ import java.util.zip.ZipFile;
  */
 public final class Arc7Bridge {
 
-    public static final String LOCAL_BRIDGE_PREFIX = "http://127.0.0.1:8118/__https/";
+    public static final String LOCAL_BRIDGE_PREFIX = "http://127.0.0.1:21120/__https/";
     private static final ThreadLocal<Context> CURRENT_CTX = new ThreadLocal<Context>();
     private static volatile Context LAST_APP_CTX = null;
     private static final AtomicBoolean DB_SANITIZED = new AtomicBoolean(false);
@@ -1425,6 +1425,8 @@ public final class Arc7Bridge {
             if (dbFile != null && dbFile.isFile() && dbFile.length() > 0) {
                 db = SQLiteDatabase.openDatabase(
                         dbFile.getAbsolutePath(), null, SQLiteDatabase.OPEN_READWRITE);
+                db.execSQL("UPDATE fdroid_repo SET address = replace(address, 'http://127.0.0.1:8118/__https/', '"
+                        + LOCAL_BRIDGE_PREFIX + "') WHERE address LIKE 'http://127.0.0.1:8118/__https/%'");
                 db.execSQL(
                         "UPDATE fdroid_repo SET address = '" + LOCAL_BRIDGE_PREFIX + "' || substr(address, 9) "
                         + "WHERE address LIKE 'https://%'");
@@ -1451,6 +1453,8 @@ public final class Arc7Bridge {
     public static String rewriteUrlString(String raw) {
         if (raw == null) return null;
         String trimmed = raw.trim();
+        String legacyPrefix = "http://127.0.0.1:" + 8118 + "/__https/";
+        if (trimmed.startsWith(legacyPrefix)) return LOCAL_BRIDGE_PREFIX + trimmed.substring(legacyPrefix.length());
         if (trimmed.regionMatches(true, 0, "https://", 0, 8)) {
             return LOCAL_BRIDGE_PREFIX + trimmed.substring(8);
         }
@@ -1463,6 +1467,9 @@ public final class Arc7Bridge {
         String rewritten = rewriteUrlString(s);
         URL target = rewritten.equals(s) ? url : new URL(rewritten);
         String ts = target.toString();
+        if (ts.startsWith(LOCAL_BRIDGE_PREFIX)) {
+            ca.arc7freedom.net.OwnTlsGateway.ensureRunning(LAST_APP_CTX, ca.arc7freedom.net.OwnTlsGateway.FDROID_PORT);
+        }
         if (!ts.startsWith("http://") && !ts.startsWith("https://")) {
             throw new IOException("Unsupported scheme for F-Droid HTTP bridge: " + ts);
         }
@@ -2715,6 +2722,9 @@ public class DefaultInstallerActivity extends FragmentActivity {
 }
 """),
     ]
+    shared_transport = os.path.join(repo_root, "common/src/main/java/ca/arc7freedom/net/OwnTlsGateway.java")
+    with open(shared_transport, encoding="utf-8") as source:
+        impl_files.append(write_java(impl_dir, "ca/arc7freedom/net/OwnTlsGateway.java", source.read()))
     return stub_files, impl_files
 
 
@@ -2826,6 +2836,8 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
     all_managed_classes = {
+        "Lca/arc7freedom/net/OwnTlsGateway;",
+        "Lca/arc7freedom/net/OwnTlsGateway$1;",
         "Linfo/guardianproject/netcipher/NetCipher;",
         "Lcom/nostra13/universalimageloader/core/download/BaseImageDownloader;",
         "Lcom/nostra13/universalimageloader/core/download/BaseImageDownloader$1;",
@@ -2847,6 +2859,14 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
         "Lorg/fdroid/fdroid/Arc7ApkKit$RootInstallOutcome;",
         "Lorg/fdroid/fdroid/Arc7ApkKit$SignerMaterial;",
     }
+
+    own_payload = {
+        "assets/cacerts/ca-bundle-2026.crt": os.path.join(repo_root, "app/src/main/assets/cacerts/ca-bundle-2026.crt"),
+        "lib/armeabi-v7a/libarc7tls.so": os.path.join(repo_root, "build/native/armeabi-v7a/libarc7tls.so"),
+        "lib/armeabi/libarc7tls.so": os.path.join(repo_root, "build/native/armeabi/libarc7tls.so"),
+    }
+    for payload in own_payload.values():
+        assert os.path.isfile(payload), f"Build the native TLS engine before patching F-Droid: {payload}"
 
     with zipfile.ZipFile(apk_path, "r") as zf_in, tempfile.TemporaryDirectory() as tmp:
         manifest_patched = patch_manifest_add_large_heap(
@@ -2884,7 +2904,7 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
         with zipfile.ZipFile(unsigned_apk, "w") as zf_out:
             for info in zf_in.infolist():
                 fn = info.filename
-                if fn.startswith("META-INF/") or fn == "classes5.dex":
+                if fn.startswith("META-INF/") or fn == "classes5.dex" or fn in own_payload:
                     continue
                 new_info = zipfile.ZipInfo(filename=fn, date_time=info.date_time)
                 new_info.external_attr = info.external_attr
@@ -2903,6 +2923,8 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
                 else:
                     new_info.compress_type = info.compress_type
                     zf_out.writestr(new_info, zf_in.read(fn))
+            for name, source in own_payload.items():
+                zf_out.write(source, name, compress_type=zipfile.ZIP_STORED)
 
         env = os.environ.copy()
         env["LD_LIBRARY_PATH"] = "/opt/toolchain/lib64:" + env.get("LD_LIBRARY_PATH", "")

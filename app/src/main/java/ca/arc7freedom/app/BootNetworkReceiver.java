@@ -36,7 +36,7 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     .getBoolean("auto_dock_on_charge", false)) {
                 Intent dock = new Intent(context, Arc7DeskClockActivity.class);
                 dock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                try { context.startActivity(dock); } catch (Throwable ignored) {}
+                try { context.startActivity(SplitAppRouter.route(context, dock, -1)); } catch (Throwable ignored) {}
             }
             return;
         }
@@ -90,6 +90,7 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     Arc7CalendarStore.scheduleReminders(context, Arc7CalendarStore.loadSavedEvents(context));
                     NetworkCertManager certMgr = new NetworkCertManager(context, shell);
                     certMgr.ensureCaBundleFile();
+                    certMgr.migrateLegacySuiteProxy();
                     certMgr.startBrowserGateway();
 
                     // Always ensure Aurora Store, VLC Media Player, Launcher v50, Python 3, `apt`, & Default Launcher / Kobo Care removal stay applied!

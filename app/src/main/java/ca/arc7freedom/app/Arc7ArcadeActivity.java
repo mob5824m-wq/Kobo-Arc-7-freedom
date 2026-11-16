@@ -29,7 +29,7 @@ import java.util.Random;
  *   4. **Minesweeper** (9x9 safe-first-click minefield + Flag Mode toggle + win counter)
  *   5. **Klondike Solitaire** (7 tableau columns + stock/waste draw + 4 suit foundations!)
  */
-public class Arc7ArcadeActivity extends Activity {
+public class Arc7ArcadeActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_arcade";
     private Arc7Skin.Palette pal;

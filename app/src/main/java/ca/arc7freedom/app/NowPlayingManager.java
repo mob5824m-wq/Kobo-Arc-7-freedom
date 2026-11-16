@@ -30,7 +30,7 @@ import java.util.Locale;
  *     `com.android.music.*` metadata broadcasts AND live `AudioManager.isMusicActive()` polling!
  *
  * Automatically feeds BOTH:
- *   1. Rich Android 4.2 Foreground/Ongoing Media Notification (`notif_media_compact` + `notif_media_expanded`)
+ *   1. OWNED playback only: Android 4.2 Foreground/Ongoing Media Notification (`notif_media_compact` + `notif_media_expanded`)
  *   2. Live Clock Standby Now-Playing Display (`Arc7DeskClockActivity` & `Arc7ClockActivity`)
  *   3. Home Screen `Now Playing Media` AppWidget (`Arc7AudioWidgetProvider`)
  */
@@ -199,10 +199,10 @@ public final class NowPlayingManager {
 
     /**
      * Polls `AudioManager.isMusicActive()` so ANY playing audio on the tablet (including VLC,
-     * third-party apps, games, or web streams) immediately surfaces in BOTH the Android
-     * Notification shade AND the Clock Standby screen!
+     * third-party apps, games, or web streams) surfaces in the Clock and widgets only.
+     * The source app already owns its notification; observers must remain silent.
      */
-    public static boolean syncExternalAudioIfNeeded(Context ctx, boolean triggerServiceNotification) {
+    public static boolean syncExternalAudioIfNeeded(Context ctx, boolean refreshWidgets) {
         if (ctx == null) return false;
         Context appCtx = ctx.getApplicationContext();
 
@@ -235,7 +235,7 @@ public final class NowPlayingManager {
                 current.active = true;
                 current.playing = true;
                 current.sourceApp = appLabel;
-                current.sourcePkg = detectedPkg.length() > 0 ? detectedPkg : "org.videolan.vlc";
+                current.sourcePkg = detectedPkg.length() > 0 ? detectedPkg : "external.audio";
                 current.launchClass = "";
                 current.title = title;
                 current.artist = artist;
@@ -245,10 +245,9 @@ public final class NowPlayingManager {
                 current.updatedRealtimeMs = SystemClock.elapsedRealtime();
                 persistSnapshotLocked(appCtx);
             }
-            if (triggerServiceNotification) {
-                notifyEverywhere(appCtx);
-            } else {
-                appCtx.sendBroadcast(new Intent(ACTION_NOW_PLAYING_CHANGED));
+            appCtx.sendBroadcast(new Intent(ACTION_NOW_PLAYING_CHANGED));
+            if (refreshWidgets) {
+                Arc7AudioWidgetProvider.refreshAll(appCtx, title + " • " + artist, true);
             }
             return true;
         } else {
@@ -311,7 +310,7 @@ public final class NowPlayingManager {
                 : "ca.arc7freedom.app.Arc7AudioPlayerActivity";
         open.setClassName(ctx.getPackageName(), cls);
         open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        return open;
+        return SplitAppRouter.route(ctx, open, -1);
     }
 
     public static void dispatchTransportAction(Context ctx, String action) {
@@ -367,6 +366,9 @@ public final class NowPlayingManager {
         Arc7AudioWidgetProvider.refreshAll(appCtx,
                 s.artist.length() > 0 ? (s.title + " • " + s.artist) : s.title,
                 s.playing);
+        // Artwork, external broadcasts and global music polling must never start a
+        // notification for VLC (or for any other separately installed Arc7 APK).
+        if (!MediaNotificationPolicy.ownsSession(appCtx.getPackageName(), s.sourcePkg, s.active)) return;
         Intent svc = new Intent(appCtx, Arc7AudioService.class);
         svc.setAction(Arc7AudioService.ACTION_REFRESH_NOTIFICATION);
         try {

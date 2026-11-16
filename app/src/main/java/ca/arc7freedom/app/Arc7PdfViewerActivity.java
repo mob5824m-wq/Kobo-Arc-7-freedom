@@ -40,7 +40,7 @@ import java.util.Locale;
  *   - Built-in **Multi-Page Camera & Photo Document Scanner -> ISO `%PDF-1.4` Exporter** with automatic
  *     adaptive paper-whitening & high-contrast ink enhancement!
  */
-public class Arc7PdfViewerActivity extends Activity {
+public class Arc7PdfViewerActivity extends Arc7Activity {
 
     private static final int REQ_SCAN_CAMERA = 4101;
     public static final String EXTRA_AUTO_SCAN = "auto_start_scan";

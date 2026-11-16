@@ -47,7 +47,7 @@ import java.util.List;
  *   - Up-Next Radio Mix Queue, Shuffle, Repeat, Liked Songs, 5-Band Hardware Equalizer, Sleep Timer & Offline `.m4a` Downloads
  *   - Full live Android Media Notification + Clock Standby Now-Playing integration!
  */
-public class YouTubeMusicActivity extends Activity {
+public class YouTubeMusicActivity extends Arc7Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private volatile boolean alive = true;
@@ -466,24 +466,11 @@ public class YouTubeMusicActivity extends Activity {
     }
 
 
-    /**
-     * Opens the SEPARATE `ca.arc7freedom.youtube` app (own package/task/icon) with the current
-     * track, falling back to the in-suite activity.
-     */
+    /** Launch the video APK with the same URL; never run a second copy in this app. */
     private void openYouTubeApp(String watchUrl) {
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setData(android.net.Uri.parse(watchUrl));
-        i.setComponent(new ComponentName("ca.arc7freedom.youtube", "ca.arc7freedom.app.YouTubeActivity"));
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            startActivity(i);
-            return;
-        } catch (Throwable ignored) {}
-        try {
-            Intent fallback = new Intent(this, YouTubeActivity.class);
-            fallback.setData(android.net.Uri.parse(watchUrl));
-            Arc7UiAnimator.startAnimated(this, fallback);
-        } catch (Throwable ignored) {}
+        Intent intent = new Intent(this, YouTubeActivity.class);
+        intent.setData(android.net.Uri.parse(watchUrl));
+        Arc7UiAnimator.startAnimated(this, intent);
     }
 
     private void performMusicSearch(final String query, final String mode) {
@@ -685,7 +672,7 @@ public class YouTubeMusicActivity extends Activity {
                 liveLyricBannerTv.setText("\u266A " + currentLyrics.get(activeLine).text);
             }
         }
-        if (snap.active && snap.title.length() > 0) {
+        if (snap.active && getPackageName().equals(snap.sourcePkg) && snap.title.length() > 0) {
             trackTitleTv.setText(snap.title);
             trackArtistTv.setText(snap.artist.length() > 0 ? snap.artist : snap.sourceApp);
             Bitmap bmp = snap.artwork;
@@ -715,6 +702,11 @@ public class YouTubeMusicActivity extends Activity {
                     }
                 }).start();
             }
+        }
+        if (audioService != null && audioService.getPlaybackStatus().length() > 0) {
+            MorpheEngine.MediaItem pending = audioService.getCurrentMorpheItem();
+            if (pending != null) trackTitleTv.setText(pending.title);
+            trackArtistTv.setText(audioService.getPlaybackStatus());
         }
     }
 

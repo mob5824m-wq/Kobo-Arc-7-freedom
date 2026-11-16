@@ -53,7 +53,7 @@ import java.util.zip.ZipOutputStream;
  *       * `.mp3/.ogg/.flac/.m4a` -> `Arc7 Audio Player`
  *       * `.ics` -> `Arc7 Calendar`
  */
-public class Arc7FileManagerActivity extends Activity {
+public class Arc7FileManagerActivity extends Arc7Activity {
 
     private File currentDir;
     private final List<File> entries = new ArrayList<File>();

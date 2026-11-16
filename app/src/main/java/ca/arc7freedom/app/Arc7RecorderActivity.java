@@ -48,7 +48,7 @@ import java.util.Locale;
  *       3. **Sample-Accurate Lossless `.wav` Trim (`[Start % .. End %]`)** right on the tablet!
  *       4. **Instant Playback in `Arc7 Audio` + Share / Open Folder**!
  */
-public class Arc7RecorderActivity extends Activity {
+public class Arc7RecorderActivity extends Arc7Activity {
 
     private static final int SAMPLE_RATE = 44100;
 
