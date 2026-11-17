@@ -60,7 +60,7 @@ APP_META = {
     "bluetoothinternet": ("Bluetooth-Internet.apk", "Share Wi-Fi over Bluetooth PAN, or receive tethered internet"),
     "packageinstaller": ("Package-Installer.apk", "APK installer with signature checks"),
     "pdfviewer": ("PDF-Reader.apk", "PDF reader with page jump + night mode"),
-    "weather": ("Weather.apk", "7-day forecast without any API key"),
+    "weather": ("Weather.apk", "48-hour + 14-day weather, saved cities, air quality, alerts, radar & widget"),
     "radiorss": ("Radio-Podcasts.apk", "Internet radio + podcast/RSS player"),
     "recorder": ("Voice-Recorder.apk", "Voice recorder with playback + share"),
     "arcade": ("Games.apk", "Built-in arcade games"),
@@ -105,6 +105,7 @@ for key in ("wallpaperpicker", "photos"):
 APP_PERMISSIONS["camera"].update(("CAMERA", "RECORD_AUDIO", "WAKE_LOCK"))
 APP_PERMISSIONS["recorder"].add("RECORD_AUDIO")
 APP_PERMISSIONS["clock"].add("SET_TIME_ZONE")
+APP_PERMISSIONS["weather"].update(("ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "RECEIVE_BOOT_COMPLETED", "WAKE_LOCK"))
 APP_PERMISSIONS["bluetoothinternet"].update(("BLUETOOTH", "BLUETOOTH_ADMIN", "ACCESS_NETWORK_STATE"))
 
 # Only private support components of this app. Cross-app activities are launched via
@@ -120,7 +121,8 @@ APP_EXTRAS = {
               ("receiver", "Arc7ClockWidgetProvider"), ("service", "Arc7AudioService")),
     "calendar": (("activity", "Arc7AlarmAlertActivity"), ("receiver", "Arc7AlarmReceiver"),
                  ("receiver", "Arc7ScheduleBootReceiver"), ("receiver", "Arc7CalendarWidgetProvider")),
-    "weather": (("receiver", "Arc7WeatherWidgetProvider"),),
+    "weather": (("receiver", "Arc7WeatherWidgetProvider"), ("receiver", "Arc7WeatherBootReceiver"),
+                ("service", "Arc7WeatherService")),
 }
 for key in NETWORK_APPS:
     APP_EXTRAS[key] = APP_EXTRAS.get(key, ()) + (("service", "Arc7TlsGatewayService"),)
@@ -236,6 +238,9 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     lines.append("")
     if key == "bluetoothinternet":
         lines.append('    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />')
+    if key == "weather":
+        for feature in ("location", "location.gps", "location.network"):
+            lines.append(f'    <uses-feature android:name="android.hardware.{feature}" android:required="false" />')
     for permission in sorted(APP_PERMISSIONS[key]):
         lines.append(f'    <uses-permission android:name="android.permission.{permission}" />')
     lines.append("")

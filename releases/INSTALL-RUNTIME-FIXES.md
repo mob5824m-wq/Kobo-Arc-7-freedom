@@ -49,8 +49,9 @@ F-Droid **1305** fixes `java.util.ArrayList cannot be cast to java.lang.String[]
 
 [FDroidClassicLegacy.apk](FDroidClassicLegacy.apk) can also be installed on its own as an in-place update. Keep repository pins, preferences and databases; do **not** clear data to repair this exception. The full bundle installs the same pre-patched signed APK offline—no runtime patch download is needed.
 
-## Earlier repairs retained
+## Expanded Weather and earlier repairs retained
 
+- The full bundle also includes the [expanded Weather app](WEATHER-FEATURES.md): 48-hour / 14-day forecasts, saved cities, optional one-time location, air quality, official CA/US alerts, past radar and a refreshing widget. The standalone Weather APK updates only Weather; it does not change the earlier repair requirements.
 - VLC retains its own media notification. Arc7 observers update Clock/widgets silently, rather than creating duplicate controls. The full bundle now updates all old standalone observer APKs too.
 - Home's App Info/uninstall targets the actual owning package. Package Installer is `ca.arc7freedom.packageinstaller`; the updater is `ca.arc7freedom.upgrader`, with its own App Info button.
 - YouTube/Music announce Playing only after prepare/start. Finite compatible HLS/DASH media can be prepared as classic MP4/M4A through each owning app's TLS engine. Metadata resolution alone is not playback success.

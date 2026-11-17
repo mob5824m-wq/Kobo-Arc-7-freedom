@@ -3980,6 +3980,44 @@ def verify_requested_runtime_hardening() -> None:
           "separate ADB bridge port, vk.com badbrowser fix, and classic MP4 YouTube/YTM preparation paths verified offline")
 
 
+def verify_expanded_weather() -> None:
+    """Check the shipped standalone payload as well as the executable source regressions."""
+    from androguard.core.axml import AXMLPrinter
+    from androguard.core.dex import DEX
+
+    path = os.path.join(ROOT, "releases/apps/Weather.apk")
+    weather = APK(path)
+    assert weather.get_package() == "ca.arc7freedom.weather"
+    assert set(weather.get_services()) == {
+        "ca.arc7freedom.app.Arc7WeatherService", "ca.arc7freedom.app.Arc7TlsGatewayService"}
+    assert set(weather.get_receivers()) == {
+        "ca.arc7freedom.app.Arc7WeatherWidgetProvider", "ca.arc7freedom.app.Arc7WeatherBootReceiver"}
+    assert {"android.permission.ACCESS_COARSE_LOCATION", "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.RECEIVE_BOOT_COMPLETED", "android.permission.WAKE_LOCK"} <= set(weather.get_permissions())
+    ns = "{http://schemas.android.com/apk/res/android}"
+    features = {f.get(ns + "name"): f.get(ns + "required")
+                for f in weather.get_android_manifest_xml().findall("uses-feature")}
+    for feature in ("location", "location.gps", "location.network"):
+        assert features["android.hardware." + feature] == "false", feature
+    with zipfile.ZipFile(path) as archive:
+        dex = DEX(archive.read("classes.dex"))
+        classes = {c.get_name() for c in dex.get_classes()}
+        for name in ("Arc7WeatherData", "Arc7WeatherStore", "Arc7WeatherTransport", "Arc7WeatherService",
+                     "Arc7WeatherBootReceiver", "Arc7WeatherRadar", "Arc7WeatherRadarMath", "Arc7WeatherViews"):
+            assert "Lca/arc7freedom/app/" + name + ";" in classes, name
+        strings = set(dex.get_strings())
+        for needle in ("forecast_days=14", "count=10", "weather-alerts/items", "alerts/active?point=",
+                       "https://api.rainviewer.com/public/weather-maps.json"):
+            assert any(needle in s for s in strings), needle
+        widget = AXMLPrinter(archive.read("res/xml/widget_arc7_weather_info.xml")).get_xml_obj()
+        assert int(widget.get(ns + "updatePeriodMillis"), 0) == 0
+        layout = AXMLPrinter(archive.read("res/layout/widget_arc7_weather.xml")).get_xml_obj()
+        defaults = [node.get(ns + "text", "") for node in layout.iter()]
+        assert "—" in defaults and "14°" not in defaults and "KITCHENER, ON" not in defaults
+    print("  [PASS] Shipped Weather APK: expanded models/UI/radar and provider contracts, own update components, "
+          "optional location hardware, configurable widget scheduling, no sample widget readings")
+
+
 def main() -> None:
     upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.4.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
@@ -4038,6 +4076,7 @@ def main() -> None:
     verify_v240_all_6_upgrades(main_apk, home_apk, aurora_apk, upgrader_apk)
     verify_v250_streaming_and_standalone_apps(main_apk, upgrader_apk)
     verify_v253_split_apps_and_ota_portal(main_apk)
+    verify_expanded_weather()
     verify_independent_companion_transports()
     verify_repository_layout_and_app_manager(main_apk)
     verify_requested_runtime_hardening()
@@ -4051,6 +4090,7 @@ def main() -> None:
                     "--native", os.path.join(ROOT, "build/host-test/arc7tls")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-runtime-repairs.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-install-maintenance.py"), "--apks"], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-weather.py")], check=True)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

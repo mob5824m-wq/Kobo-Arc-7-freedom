@@ -23,6 +23,6 @@ terminal	Terminal.apk	Terminal	Root shell terminal with python3 + apt
 wiredinternet	USB-Internet.apk	USB Internet	Share your PC internet to the tablet over USB
 recorder	Voice-Recorder.apk	Voice Recorder	Voice recorder with playback + share
 wallpaperpicker	Wallpapers.apk	Wallpapers	Wallpaper picker with 40+ built-in skins
-weather	Weather.apk	Weather	7-day forecast without any API key
+weather	Weather.apk	Weather	48-hour + 14-day weather, saved cities, air quality, alerts, radar & widget
 vpn	Wi-Fi-VPN.apk	Wi-Fi & VPN	Wi-Fi fix, official Tailscale Google sign-in, VPN manager
 dictionarywiki	Wikipedia.apk	Wikipedia	Wikipedia + dictionary reader

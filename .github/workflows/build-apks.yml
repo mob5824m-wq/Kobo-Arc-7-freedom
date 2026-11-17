@@ -92,6 +92,9 @@ jobs:
         with:
           name: kobo-arc-7-freedom-v2.5.4-apks
           path: |
+            releases/apps/*.apk
+            releases/WEATHER-FEATURES.md
+            releases/INSTALL-RUNTIME-FIXES.md
             releases/Upgrade-My-Kobo-To-v2.5.4.apk
             releases/YouTube.apk
             releases/YouTubeMusic.apk

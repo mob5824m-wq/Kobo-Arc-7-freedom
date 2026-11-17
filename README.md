@@ -5,6 +5,40 @@
 **Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.4`
 (`versionCode=254`).**
 
+## In this branch: expanded Weather app
+
+**[Weather features, installation and testing guide](releases/WEATHER-FEATURES.md).**
+The independent **Weather** app now includes:
+
+- Current conditions and feels-like, humidity, wind/direction/gusts, pressure, cloud
+  cover, visibility, dew point, precipitation and UV (with hourly fields labelled).
+- **48 upcoming hours**, interactive temperature/rain-chance/wind charts, and a
+  **14-day outlook** with high/low ranges and detailed daily/hourly breakdowns.
+- Search with multiple city matches, **12 saved places**, rename/remove/reorder,
+  manual coordinates and an optional **one-time** Android network/GPS lookup.
+- Air quality (US/European AQI, pollutant details and outlook), regional pollen,
+  sunrise/sunset/daylight/sunshine, and a labelled approximate moon phase.
+- **Official Canada (ECCC) / US (NWS) alerts**, instructions and optional deduplicated
+  notifications; other regions and failed/incomplete/stale checks are explicitly marked.
+- On-demand, native **past-radar** map with frame playback, pan/zoom and a bounded tile
+  cache. Public RainViewer supports past precipitation only, at zoom levels up to 7;
+  blank radar is not an all-clear. No future radar or satellite imagery is promised.
+- Configurable units/time, share forecast, refresh intervals/network policy, and a
+  home-screen widget with real refresh, today's range and timestamp/stale status.
+
+No fabricated weather defaults, account, API key, Play Services or root requirement.
+Each city has its own private offline cache, provider errors cannot overwrite the last
+usable response, and old-city/cancelled requests cannot replace the selected city.
+Location is opt-in and never tracked in the background. Pollen and forecast variables
+have provider-dependent coverage; notifications are **polled, not emergency broadcasts**.
+The existing API15/17 / ARMv7 / DEX035 and independent-UID networking design is retained.
+
+The rebuilt suite/upgrader still use **v2.5.4 / 254** and the same signing certificate;
+the maintenance pipeline recognises same-version changes by verified APK hashes. No new
+GitHub release is published by this branch work. `make test-weather` runs the new offline
+executable regressions; `make verify` also includes them. See the guide for limitations
+and the remaining real-device checks.
+
 ## In this branch: every install method applies the same patches + F-Droid fix
 
 **Requirement update:** the earlier requirement to have all network traffic go through
@@ -421,7 +455,7 @@ signed with the permanent release certificate
 2. **Native Offline PDF Reader & Multi-Page Camera Document Scanner (`Arc7 PDF & Scanner`):**
    - Read `.pdf` textbooks/manuals offline OR scan multi-page documents straight from the Kobo camera to `%PDF-1.4` files in `/sdcard/Documents/Scans/`.
 3. **Live `Open-Meteo` Weather App + Home Screen Weather Widget (`Arc7 Weather`):**
-   - Zero-API-key TLS 1.3 city search, current conditions, 24-hour strip, 7-day forecast, °C/°F toggle, offline cache, and Home Screen AppWidget.
+   - Expanded on this branch: 48-hour / 14-day forecasts and charts, saved cities, one-time location, AQI/pollen, sun/moon, official CA/US alerts, past radar, configurable units, private offline caches and a refreshing Home Screen AppWidget. See [Weather features](releases/WEATHER-FEATURES.md).
 4. **Live Radio-Browser, Podcast `.mp3` Downloader & Offline RSS Reader (`Radio & Podcasts`):**
    - Top-voted and searched stations come from the Radio-Browser directory (`radio-browser.info`), with HTTPS streams relayed through the TLS 1.3 gateway for screen-off playback; includes Podcast search/downloads and an RSS 2.0 / Atom offline reader.
 5. **Studio 44.1 kHz Waveform Voice Recorder & Lossless WAV Trimmer (`Arc7 Recorder`):**
