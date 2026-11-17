@@ -60,12 +60,12 @@ public class Arc7ClockWidgetProvider extends AppWidgetProvider {
         Intent openClock = new Intent(context, Arc7ClockActivity.class);
         openClock.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent piClock = PendingIntent.getActivity(
-                context, 7101, openClock, PendingIntent.FLAG_UPDATE_CURRENT);
+                context, 7101, SplitAppRouter.route(context, openClock, -1), PendingIntent.FLAG_UPDATE_CURRENT);
 
         Intent openFlip = new Intent(context, Arc7DeskClockActivity.class);
         openFlip.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         PendingIntent piFlip = PendingIntent.getActivity(
-                context, 7102, openFlip, PendingIntent.FLAG_UPDATE_CURRENT);
+                context, 7102, SplitAppRouter.route(context, openFlip, -1), PendingIntent.FLAG_UPDATE_CURRENT);
 
         for (int i = 0; i < ids.length; i++) {
             RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_arc7_clock);

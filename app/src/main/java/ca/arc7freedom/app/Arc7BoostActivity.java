@@ -36,7 +36,7 @@ import java.util.Locale;
  *   - **3 Live CPU Governor & VM Profiles:** *E-Reader Battery Saver*, *Balanced Daily*, *Quad-Core Max*
  *   - **Battery Fuel-Gauge Doctor & Background RAM Reclaimer**!
  */
-public class Arc7BoostActivity extends Activity {
+public class Arc7BoostActivity extends Arc7Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private RootShell shell;

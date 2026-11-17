@@ -35,7 +35,7 @@ import java.util.Map;
  *   - Fast zero-bloat Wikipedia Encyclopedia (`en.wikipedia.org/api/rest_v1/page/summary/...` +
  *     MediaWiki full extract over TLS 1.3) with **1-Tap Save Article Offline**!
  */
-public class Arc7DictionaryWikiActivity extends Activity {
+public class Arc7DictionaryWikiActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_dict_wiki";
     private static final String KEY_SAVED = "saved_wiki_articles";

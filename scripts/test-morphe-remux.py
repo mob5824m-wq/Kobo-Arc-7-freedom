@@ -83,7 +83,7 @@ def stsd(fourcc):
 def trak(track_id, timescale, fourcc, width, height):
     stbl = box("stbl", stsd(fourcc))
     minf = box("minf", stbl)
-    return box("trak", tkhd(track_id, width, height) + box("mdia", mdhd(timescale) + hdlr("vide") + minf))
+    return box("trak", tkhd(track_id, width, height) + box("mdia", mdhd(timescale) + hdlr("vide" if width else "soun") + minf))
 
 
 def trex(track_id):
@@ -121,6 +121,12 @@ def fragment(seq, track_id, decode_time, samples, base_data_offset=None):
     traf = box("traf", tfhd + tfdt + trun)
     moof = full("mfhd", 0, 0, struct.pack(">I", seq)) + traf
     moof = box("moof", moof)
+    # Offset is relative to the complete moof, including mfhd/traf/trun headers,
+    # and points past the 8-byte mdat header (the old fixture omitted those bytes).
+    trun_start = moof.index(b"trun") - 4
+    moof = bytearray(moof)
+    struct.pack_into(">i", moof, trun_start + 16, len(moof) + 8)
+    moof = bytes(moof)
     mdat = box("mdat", b"".join(bytes(((seq * 31 + i * 17) & 0xFF,)) * s
                                 for i, (d, s) in enumerate(samples)))
     return moof + mdat

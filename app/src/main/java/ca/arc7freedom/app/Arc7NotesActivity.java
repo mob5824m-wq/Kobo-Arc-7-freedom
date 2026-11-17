@@ -47,7 +47,7 @@ import java.util.Locale;
  *   - Full Finger/Stylus Color Sketchpad Canvas (`Save Sketch to Arc7 Photos`)
  *   - 1-Tap `.md` Export to `/sdcard/Arc7Freedom/notes/` + Live Search Filter
  */
-public class Arc7NotesActivity extends Activity {
+public class Arc7NotesActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_notes_v200";
     private static final String KEY_NOTES = "notes_json";

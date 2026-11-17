@@ -38,7 +38,7 @@ import java.util.Locale;
  * Upgrade #5: Built-In Root App Manager, Bloatware Freezer & APK Backup Extractor
  * (`Arc7 App Manager`).
  */
-public class Arc7AppManagerActivity extends Activity {
+public class Arc7AppManagerActivity extends Arc7Activity {
 
     private static final int REQUEST_UNINSTALL = 0xA741;
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Kobo Arc 7 Freedom v1.8.1 — 1-Click Direct USB ADB Auto-Upgrade + Backup
-# Automatically upgrades any older conflicting-signature install to v1.8.1
+# Kobo Arc 7 Freedom v2.5.4 — 1-Click Direct USB ADB Auto-Upgrade + Backup
+# Automatically upgrades any older conflicting-signature install to v2.5.4
 # over USB AND streams raw partitions & files using ZERO MB tablet storage!
 # ============================================================================
 set -euo pipefail
@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "====================================================================="
-echo "  KOBO ARC 7 FREEDOM v1.8.1 — DIRECT USB ADB AUTO-UPGRADE & BACKUP"
+echo "  KOBO ARC 7 FREEDOM v2.5.4 — DIRECT USB ADB AUTO-UPGRADE & BACKUP"
 echo "  Auto-upgrades older APKs + streams backups using 0 MB tablet space!"
 echo "====================================================================="
 echo
@@ -33,34 +33,29 @@ adb start-server >/dev/null
 adb wait-for-device
 echo "  Connected device: $(adb get-serialno)"
 
-echo "[2/5] Checking Kobo Arc 7 Freedom app version on tablet..."
-PKG_DUMP="$(adb shell 'dumpsys package ca.arc7freedom.app' 2>/dev/null || true)"
-case "$PKG_DUMP" in
-    *"versionCode=181"*)
-        echo "  KoboArc7Freedom v1.8.1 is already up to date!"
-        ;;
-    *)
-        echo "  Older or missing KoboArc7Freedom detected — automatically upgrading tablet to v1.8.1..."
-        LOCAL_APK="$SCRIPT_DIR/KoboArc7Freedom.apk"
-        if [ ! -s "$LOCAL_APK" ] && [ -s "$SCRIPT_DIR/../releases/KoboArc7Freedom.apk" ]; then
-            LOCAL_APK="$SCRIPT_DIR/../releases/KoboArc7Freedom.apk"
-        fi
-        if [ ! -s "$LOCAL_APK" ]; then
-            LOCAL_APK="$HOME/.cache/kobo-arc7-adb/KoboArc7Freedom-v1.8.1.apk"
-            mkdir -p "$(dirname "$LOCAL_APK")"
-            curl -fL "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk" -o "$LOCAL_APK"
-        fi
-        if ! adb install -r "$LOCAL_APK" 2>/dev/null | grep -q "Success"; then
-            echo "  Replacing old signing key cleanly via tablet root (su)..."
-            adb push "$LOCAL_APK" /data/local/tmp/KoboArc7Freedom.apk >/dev/null
-            printf "mount -o remount,rw /system 2>/dev/null || true\nrm -f /system/app/KoboArc7Freedom.apk 2>/dev/null || true\npm uninstall ca.arc7freedom.app 2>/dev/null || true\npm install -r /data/local/tmp/KoboArc7Freedom.apk\nrm -f /data/local/tmp/KoboArc7Freedom.apk\nexit\n" | adb shell su || {
-                adb uninstall ca.arc7freedom.app >/dev/null 2>&1 || true
-                adb install -r "$LOCAL_APK"
-            }
-        fi
-        echo "  Upgraded Kobo Arc 7 to KoboArc7Freedom v1.8.1!"
-        ;;
+echo "[2/5] Installing/checking the complete offline patch bundle (in-place, data preserved)..."
+LOCAL_APK="$SCRIPT_DIR/KoboArc7Freedom.apk"
+if [ ! -s "$LOCAL_APK" ] && [ -s "$SCRIPT_DIR/../releases/KoboArc7Freedom.apk" ]; then
+    LOCAL_APK="$SCRIPT_DIR/../releases/KoboArc7Freedom.apk"
+fi
+if [ ! -s "$LOCAL_APK" ]; then
+    LOCAL_APK="$HOME/.cache/kobo-arc7-adb/KoboArc7Freedom.apk"
+    mkdir -p "$(dirname "$LOCAL_APK")"
+    curl -fL "https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk" -o "$LOCAL_APK"
+fi
+# Install even the same version: a maintenance build can contain different patched bytes.
+# Android rejects downgrades/signature conflicts. NEVER uninstall or remove system APKs to retry.
+INSTALL_OUT="$(adb install -r "$LOCAL_APK" 2>&1)" || {
+    echo "$INSTALL_OUT"
+    echo "ERROR: in-place update failed; existing app/data retained. Resolve the error before retrying."
+    exit 1
+}
+case "$INSTALL_OUT" in
+    *Success*) echo "$INSTALL_OUT" ;;
+    *) echo "$INSTALL_OUT"; echo "ERROR: update not confirmed; data retained."; exit 1 ;;
 esac
+adb shell am start -n ca.arc7freedom.app/.MainActivity --ez show_install_patches true
+echo "  Shared patch pipeline started. Review pending/root/Android confirmations on the tablet."
 
 echo "[3/5] Starting streaming backup server on Kobo Arc 7 (:18777)..."
 adb shell "am startservice -n ca.arc7freedom.app/.Arc7AdbBackupService >/dev/null 2>&1 || am start -n ca.arc7freedom.app/.MainActivity >/dev/null 2>&1" || true

@@ -99,8 +99,8 @@ public class TabletOptimizerManager {
           .append(sdPath != null ? formatDiskUsage(sdPath) : "No MicroSD card detected").append("\n");
 
         boolean sysProxy = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("sys_tls13_proxy", false);
-        sb.append("System-Wide TLS 1.3 Upgrade Proxy: ")
-          .append(sysProxy ? "ENABLED (`127.0.0.1:8118` -> 2026 TLS 1.3)" : "Browser/Gateway mode (`127.0.0.1:8118`)")
+        sb.append("Legacy global proxy (optional): ")
+          .append(sysProxy ? "ENABLED (`127.0.0.1:8118` -> 2026 TLS 1.3)" : "OFF — independent per-app networking")
           .append("\n");
 
         boolean sdBind = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_BIND_SD_BOOT, false);
@@ -185,228 +185,15 @@ public class TabletOptimizerManager {
      * ======================================================================== */
 
     public boolean installBundledFDroidClassic(LogSink log) {
-            if (log != null) {
-                log.onLog("=== Installing Pre-Patched Offline F-Droid Classic (`v1304` — low-memory index streaming + SHA-256 fix + TLS 1.3 Bridge) ===");
-            }
-        // Ensure persistent `127.0.0.1:8118` TLS 1.3 repo gateway + system CAs are synced BEFORE F-Droid ever runs!
-        Arc7TlsGatewayService.ensureStarted(ctx);
-        try {
-            NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
-            ncm.ensureSystemCacertsAndLocalCaSynced();
-            ncm.startBrowserGateway();
-        } catch (Throwable ignored) {}
-
-        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
-        if (!outDir.exists()) outDir.mkdirs();
-        File outApk = new File(outDir, "FDroidClassic-Android4.2-TLS1.3.apk");
-
-        InputStream in = null;
-        FileOutputStream fos = null;
-        try {
-            in = ctx.getAssets().open(FDROID_ASSET);
-            fos = new FileOutputStream(outApk);
-            byte[] buf = new byte[65536];
-            int r;
-            long total = 0;
-            while ((r = in.read(buf)) > 0) {
-                fos.write(buf, 0, r);
-                total += r;
-            }
-            fos.flush();
-            if (log != null) {
-                log.onLog("Extracted patched TLS-1.3 F-Droid store APK (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
-            }
-        } catch (Throwable t) {
-            if (log != null) log.onLog("ERROR extracting bundled F-Droid Classic APK: " + t.getMessage());
-            return false;
-        } finally {
-            try { if (in != null) in.close(); } catch (Throwable ignored) {}
-            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
-        }
-
-        if (shell.isRootAvailable()) {
-            boolean needCleanUninstall = false;
-            int prevVer = 0;
-            try {
-                prevVer = ctx.getPackageManager()
-                        .getPackageInfo("eu.bubu1.fdroidclassic.debug", 0).versionCode;
-                int sigCmp = ctx.getPackageManager().checkSignatures(
-                        ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
-                if (sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
-                    needCleanUninstall = true;
-                }
-            } catch (Throwable ignored) {}
-
-            // Stage in `/data/local/tmp/` (`0644`) so Android 4.2 multi-user FUSE mount namespaces never fail!
-            String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
-            String cmd = "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/fdroid_arc7_v1304.apk" +
-                    " && chmod 0644 /data/local/tmp/fdroid_arc7_v1304.apk\n" +
-                    (needCleanUninstall
-                            ? "pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true\n"
-                            : "") +
-                    "_fd_pm=$(pm install -r /data/local/tmp/fdroid_arc7_v1304.apk 2>&1 || true)\n" +
-                    "case \"$_fd_pm\" in\n" +
-                    "  *Success*) echo \"$_fd_pm\" ;;\n" +
-                    "  *) pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true; pm install -r /data/local/tmp/fdroid_arc7_v1304.apk 2>&1 || true ;;\n" +
-                    "esac\n" +
-                    "rm -f /data/local/tmp/fdroid_arc7_v1304.apk 2>/dev/null || true\n";
-            if (log != null) {
-                log.onLog("Root detected — installing F-Droid Classic `v1304` cleanly via `/data/local/tmp/`...");
-            }
-            RootShell.ExecResult pm = shell.execRoot(cmd, null);
-            if (log != null) log.onLog(pm.stdout.trim());
-            if (pm.stdout.contains("Success")) {
-                // If upgrading from `< 1304`, force-stop and wipe any corrupted pre-`v1304`
-                // repo/cache state once so `v1304` fetches & verifies 2026 `SHA-256` indexes cleanly!
-                if (prevVer < 1304) {
-                    shell.execRoot(
-                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
-                            "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
-                            null);
-                } else {
-                    shell.execRoot(
-                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
-                            "rm -rf /data/data/eu.bubu1.fdroidclassic.debug/cache/* 2>/dev/null || true",
-                            null);
-                }
-                if (log != null) {
-                    log.onLog("SUCCESS: F-Droid Classic (`v1304` — Android 4.2 SHA-256 JarUtils Fix + largeHeap + Throwable Sync Catch + SHA1-RSA APK Signer) is ready!");
-                }
-                return true;
-            }
-        }
-
-        if (log != null) {
-            log.onLog("Opening Android 4.2 Package Installer prompt...");
-        }
-        Intent prompt = new Intent(Intent.ACTION_VIEW);
-        prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
-        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(prompt);
-        return true;
+        return new BundledAppInstaller(ctx, shell).installRequested("eu.bubu1.fdroidclassic.debug", log);
     }
 
-    /**
-     * Installs our native Android 4.2 (`minSdk=15`, `DEX 035`, `TLS 1.3`) **Aurora Store**
-     * (`com.aurora.store`, `v4.8.5-arc7`, `versionCode=485`) cleanly via `/data/local/tmp/` `pm install -r`!
-     */
     public boolean installBundledAuroraStore(LogSink log) {
-        if (log != null) {
-            log.onLog("=== Installing Bundled Aurora Store (`com.aurora.store` v4.8.5-arc7 — Verified Android 4.2 APKs + Auto JAR v1 Signer) ===");
-        }
-        Arc7TlsGatewayService.ensureStarted(ctx);
-        try {
-            NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
-            ncm.ensureSystemCacertsAndLocalCaSynced();
-            ncm.startBrowserGateway();
-        } catch (Throwable ignored) {}
-
-        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
-        if (!outDir.exists()) outDir.mkdirs();
-        File outApk = new File(outDir, "AuroraStore.apk");
-
-        InputStream in = null;
-        FileOutputStream fos = null;
-        try {
-            in = ctx.getAssets().open(AURORA_ASSET);
-            fos = new FileOutputStream(outApk);
-            byte[] buf = new byte[65536];
-            int r;
-            long total = 0;
-            while ((r = in.read(buf)) > 0) {
-                fos.write(buf, 0, r);
-                total += r;
-            }
-            fos.flush();
-            if (log != null) {
-                log.onLog("Extracted AuroraStore.apk (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
-            }
-        } catch (Throwable t) {
-            if (log != null) log.onLog("ERROR extracting AuroraStore.apk: " + t.getMessage());
-            return false;
-        } finally {
-            try { if (in != null) in.close(); } catch (Throwable ignored) {}
-            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
-        }
-
-        if (shell.isRootAvailable()) {
-            String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
-            RootShell.ExecResult pm = shell.execRoot(
-                    "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/aurora_arc7_v485.apk" +
-                    " && chmod 0644 /data/local/tmp/aurora_arc7_v485.apk" +
-                    " && (pm install -r /data/local/tmp/aurora_arc7_v485.apk 2>&1" +
-                    " || (pm uninstall com.aurora.store 2>/dev/null || true; pm install -r /data/local/tmp/aurora_arc7_v485.apk 2>&1))" +
-                    "; rm -f /data/local/tmp/aurora_arc7_v485.apk 2>/dev/null || true",
-                    null);
-            if (log != null) log.onLog(pm.stdout.trim());
-            if (pm.stdout.contains("Success")) {
-                if (log != null) log.onLog("SUCCESS: Aurora Store (`com.aurora.store` v4.8.5-arc7) installed!");
-                return true;
-            }
-        }
-        Intent prompt = new Intent(Intent.ACTION_VIEW);
-        prompt.setDataAndType(Uri.fromFile(outApk), "application/vnd.android.package-archive");
-        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(prompt);
-        return true;
+        return new BundledAppInstaller(ctx, shell).installRequested("com.aurora.store", log);
     }
 
-    /**
-     * Installs our pre-bundled offline **VLC Media Player** (`org.videolan.vlc`, Android 4.2 ARMv7)
-     * cleanly via `/data/local/tmp/vlc_arc7.apk` (`pm install -r`), or via `Arc7PackageInstallerActivity`.
-     */
     public boolean installBundledVlcMediaPlayer(LogSink log) {
-        if (log != null) {
-            log.onLog("=== Installing Bundled VLC Media Player (`org.videolan.vlc` — MKV / MP4 / FLAC / Network Streams) ===");
-        }
-        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
-        if (!outDir.exists()) outDir.mkdirs();
-        File outApk = new File(outDir, "VLC.apk");
-
-        InputStream in = null;
-        FileOutputStream fos = null;
-        try {
-            in = ctx.getAssets().open(VLC_ASSET);
-            fos = new FileOutputStream(outApk);
-            byte[] buf = new byte[65536];
-            int r;
-            long total = 0;
-            while ((r = in.read(buf)) > 0) {
-                fos.write(buf, 0, r);
-                total += r;
-            }
-            fos.flush();
-            if (log != null) {
-                log.onLog("Extracted bundled VLC.apk (" + (total / 1024) + " KB) -> " + outApk.getAbsolutePath());
-            }
-        } catch (Throwable t) {
-            if (log != null) log.onLog("ERROR extracting bundled VLC.apk: " + t.getMessage());
-            return false;
-        } finally {
-            try { if (in != null) in.close(); } catch (Throwable ignored) {}
-            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
-        }
-
-        if (shell.isRootAvailable()) {
-            String qSrc = RootShell.shellQuote(outApk.getAbsolutePath());
-            RootShell.ExecResult pm = shell.execRoot(
-                    "mkdir -p /data/local/tmp && cat " + qSrc + " > /data/local/tmp/vlc_arc7.apk" +
-                    " && chmod 0644 /data/local/tmp/vlc_arc7.apk" +
-                    " && (pm install -r /data/local/tmp/vlc_arc7.apk 2>&1" +
-                    " || (pm uninstall org.videolan.vlc 2>/dev/null || true; pm install -r /data/local/tmp/vlc_arc7.apk 2>&1))" +
-                    "; rm -f /data/local/tmp/vlc_arc7.apk 2>/dev/null || true",
-                    null);
-            if (log != null) log.onLog(pm.stdout.trim());
-            if (pm.stdout.contains("Success")) {
-                if (log != null) log.onLog("SUCCESS: VLC Media Player (`org.videolan.vlc`) installed!");
-                return true;
-            }
-        }
-        Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
-        prompt.setData(Uri.fromFile(outApk));
-        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        ctx.startActivity(prompt);
-        return true;
+        return new BundledAppInstaller(ctx, shell).installRequested("org.videolan.vlc", log);
     }
 
     /**
@@ -436,7 +223,8 @@ public class TabletOptimizerManager {
             String qCa = (caFile != null && caFile.exists()) ? RootShell.shellQuote(caFile.getAbsolutePath()) : "''";
 
             String cmd =
-                    "(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
+                    "set -e\ntrap 'mount -o remount,ro /system 2>/dev/null || true' 0\n" +
+                    "(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null)\n" +
                     "mkdir -p /system/xbin /data/local/arc7linux/bin /data/local/arc7linux/etc/ssl /data/local/arc7linux/var/cache/apt\n" +
                     "cat " + qPy + " > /system/xbin/python3 && chmod 0755 /system/xbin/python3\n" +
                     "ln -sf /system/xbin/python3 /system/xbin/python 2>/dev/null || cat " + qPy + " > /system/xbin/python\n" +
@@ -454,10 +242,12 @@ public class TabletOptimizerManager {
                     "fi\n" +
                     "sync\n" +
                     "mount -o remount,ro /system 2>/dev/null || true";
-            shell.execRoot(cmd, null);
-            if (log != null) {
-                log.onLog("Installed `/system/xbin/python3`, `/system/xbin/python`, `/system/xbin/apt`, `/system/xbin/apt-get`, & `/system/xbin/apt-cache`!");
-            }
+            boolean current = systemToolsMatch(pyBin, aptBin, tlsBin);
+            RootShell.ExecResult result = current ? null : shell.execRoot(cmd, null);
+            boolean verified = (current || result.exitCode == 0) && systemToolsMatch(pyBin, aptBin, tlsBin);
+            if (log != null) log.onLog((verified ? "CURRENT " : "BLOCKED ")
+                    + "system Python / apt / TLS tools: " + (verified ? "installed bytes verified" : "root/system write not verified; retry required"));
+            if (!verified) return false;
 
             if (allowBackgroundOnlineSync) {
                 final android.content.SharedPreferences prefs =
@@ -478,6 +268,21 @@ public class TabletOptimizerManager {
             }
         }
         return true;
+    }
+
+    private static boolean systemToolsMatch(File python, File apt, File tls) {
+        return sameFile(python, new File("/system/xbin/python3"))
+                && sameFile(python, new File("/system/xbin/python"))
+                && sameFile(apt, new File("/system/xbin/apt"))
+                && sameFile(apt, new File("/system/xbin/apt-get"))
+                && sameFile(apt, new File("/system/xbin/apt-cache"))
+                && sameFile(tls, new File("/system/xbin/arc7tls"));
+    }
+
+    private static boolean sameFile(File a, File b) {
+        if (a == null || !a.isFile() || !b.isFile()) return false;
+        try { return BundledApk.digest(new java.io.FileInputStream(a)).equals(BundledApk.digest(new java.io.FileInputStream(b))); }
+        catch (Exception unreadable) { return false; }
     }
 
     /**
@@ -546,193 +351,16 @@ public class TabletOptimizerManager {
         }
     }
 
-    /**
-     * Silently upgrades ALL companion APKs & tools right on boot / package update (`v1.9.0`):
-     *   1. Upgrades `VanillaAndroid4Home.apk` -> `versionCode >= 49` (Long-Press Widgets, zero `+ Widget` clutter)
-     *   2. Installs/updates `AuroraStore.apk` (`com.aurora.store` `versionCode >= 484`) automatically
-     *   3. Installs `/system/xbin/python3` & `/system/xbin/apt` + triggers background `apt` sync
-     *   4. Archives & removes Default Stock Launcher + `Kobo Care` + Discontinued Apps automatically
-     *   5. Keeps `FDroidClassicLegacy.apk` clean on TLS 1.3 bridge!
-     */
-
-    /**
-     * Installs / upgrades the standalone, separately-packaged apps:
-     *   • `ca.arc7freedom.youtube`   (`releases/YouTube.apk`)
-     *   • `ca.arc7freedom.ytmusic`   (`releases/YouTubeMusic.apk`)
-     *
-     * They are genuinely separate applications (own package id, own launcher entry, own task
-     * stack, own data dir) instead of extra activities hidden inside the suite package.
-     */
+    /** Legacy callers join the same content-aware pipeline as every full install method. */
     public boolean installBundledStandaloneApps(LogSink log) {
-        boolean ok = installStandaloneApp(log, "ca.arc7freedom.youtube",
-                "starter-apps/YouTube.apk", "YouTube.apk", 250, "YouTube");
-        boolean ok2 = installStandaloneApp(log, "ca.arc7freedom.ytmusic",
-                "starter-apps/YouTubeMusic.apk", "YouTubeMusic.apk", 250, "YouTube Music");
-        return ok || ok2;
-    }
-
-    private boolean installStandaloneApp(LogSink log, String pkg, String asset,
-                                         String tmpName, int minVersion, String label) {
-        int installed = 0;
-        try {
-            installed = ctx.getPackageManager().getPackageInfo(pkg, 0).versionCode;
-        } catch (Throwable ignored) {}
-        if (installed >= minVersion) return true;
-
-        File outDir = new File(Environment.getExternalStorageDirectory(), "Download");
-        if (!outDir.exists()) outDir.mkdirs();
-        File outApk = new File(outDir, tmpName);
-        InputStream in = null;
-        FileOutputStream fos = null;
-        try {
-            in = ctx.getAssets().open(asset);
-            fos = new FileOutputStream(outApk);
-            byte[] buf = new byte[65536];
-            int r;
-            while ((r = in.read(buf)) > 0) fos.write(buf, 0, r);
-            fos.flush();
-        } catch (Throwable t) {
-            if (log != null) log.onLog("WARNING: standalone " + label + " asset missing: " + t.getMessage());
-            return false;
-        } finally {
-            try { if (in != null) in.close(); } catch (Throwable ignored) {}
-            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
-        }
-
-        if (shell.isRootAvailable()) {
-            RootShell.ExecResult pm = shell.execRoot(
-                    "mkdir -p /data/local/tmp && cat " + RootShell.shellQuote(outApk.getAbsolutePath())
-                            + " > /data/local/tmp/" + tmpName + " && chmod 0644 /data/local/tmp/" + tmpName
-                            + " && (pm install -r /data/local/tmp/" + tmpName + " 2>&1"
-                            + " || (pm uninstall " + pkg + " 2>/dev/null || true; pm install -r /data/local/tmp/"
-                            + tmpName + " 2>&1))"
-                            + "; rm -f /data/local/tmp/" + tmpName + " 2>/dev/null || true",
-                    null);
-            if (log != null) log.onLog(pm.stdout.trim());
-            if (pm.stdout.contains("Success")) {
-                if (log != null) log.onLog("SUCCESS: separate " + label + " app (`" + pkg + "`) installed!");
-                return true;
-            }
-            return false;
-        }
-
-        Intent prompt = new Intent(ctx, Arc7PackageInstallerActivity.class);
-        prompt.setData(Uri.fromFile(outApk));
-        prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try { ctx.startActivity(prompt); } catch (Throwable ignored) {}
-        return true;
+        BundledAppInstaller installer = new BundledAppInstaller(ctx, shell);
+        boolean youtube = installer.installRequested("ca.arc7freedom.youtube", log);
+        boolean music = installer.installRequested("ca.arc7freedom.ytmusic", log);
+        return youtube && music;
     }
 
     public void ensureCompanionAppsUpgradedSilently() {
-        if (!shell.isRootAvailable()) return;
-        try {
-            int homeVer = 0;
-            try {
-                homeVer = ctx.getPackageManager()
-                        .getPackageInfo("ca.arc7freedom.launcher", 0).versionCode;
-            } catch (Throwable ignored) {}
-            if (homeVer < 53) {
-                File tmpHome = new File(ctx.getCacheDir(), "VanillaAndroid4Home-upgrade.apk");
-                InputStream in = ctx.getAssets().open("VanillaAndroid4Home.apk");
-                FileOutputStream fos = new FileOutputStream(tmpHome);
-                byte[] buf = new byte[32768];
-                int n;
-                while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
-                fos.close();
-                in.close();
-                tmpHome.setReadable(true, false);
-                String qHome = RootShell.shellQuote(tmpHome.getAbsolutePath());
-                shell.execRoot(
-                        "_out=$(pm install -r " + qHome + " 2>&1 || true)\n" +
-                        "case \"$_out\" in\n" +
-                        "  *Success*) ;;\n" +
-                        "  *)\n" +
-                        "    (mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n" +
-                        "    if [ -f /system/app/VanillaAndroid4Home.apk ]; then\n" +
-                        "      cat /system/app/VanillaAndroid4Home.apk > /data/local/tmp/VanillaHome.bak.apk\n" +
-                        "    fi\n" +
-                        "    cat " + qHome + " > /system/app/VanillaAndroid4Home.apk\n" +
-                        "    chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
-                        "    pm uninstall ca.arc7freedom.launcher 2>/dev/null || true\n" +
-                        "    pm install -r " + qHome + " 2>/dev/null || {\n" +
-                        "      if [ -f /data/local/tmp/VanillaHome.bak.apk ]; then\n" +
-                        "        cat /data/local/tmp/VanillaHome.bak.apk > /system/app/VanillaAndroid4Home.apk\n" +
-                        "        chmod 0644 /system/app/VanillaAndroid4Home.apk\n" +
-                        "        pm install -r /data/local/tmp/VanillaHome.bak.apk 2>/dev/null || true\n" +
-                        "      fi\n" +
-                        "    }\n" +
-                        "    sync\n" +
-                        "    mount -o remount,ro /system 2>/dev/null || true\n" +
-                        "    ;;\n" +
-                        "esac\n" +
-                        "appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null" +
-                        " || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true",
-                        null);
-                tmpHome.delete();
-            }
-
-            // 2. Automatically install / upgrade Aurora Store (`com.aurora.store`, v485)!
-            try {
-                NetworkCertManager ncm = new NetworkCertManager(ctx, shell);
-                ncm.ensureSystemCacertsAndLocalCaSynced();
-                ncm.startBrowserGateway();
-            } catch (Throwable ignored) {}
-
-            int auroraVer = 0;
-            try {
-                auroraVer = ctx.getPackageManager()
-                        .getPackageInfo("com.aurora.store", 0).versionCode;
-            } catch (Throwable ignored) {}
-            if (auroraVer < 485) {
-                installBundledAuroraStore(null);
-            }
-
-            // 2b. Automatically install bundled VLC Media Player (`org.videolan.vlc`) if not yet installed!
-            boolean vlcInstalled = false;
-            try {
-                vlcInstalled = ctx.getPackageManager()
-                        .getPackageInfo("org.videolan.vlc", 0) != null;
-            } catch (Throwable ignored) {}
-            if (!vlcInstalled) {
-                installBundledVlcMediaPlayer(null);
-            }
-
-            // 2c. Install / upgrade the standalone `YouTube` & `YouTube Music` apps (own packages).
-            installBundledStandaloneApps(null);
-
-            // 3. Automatically install native ARMv7 `python3` + `apt` + kick off background `apt` sync!
-            provisionPython3AndAptSystemWide(null, true);
-
-            // 4. Automatically remove stock Default Launcher, Kobo Care, & discontinued dead apps once!
-            android.content.SharedPreferences prefs =
-                    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-            if (!prefs.getBoolean("default_launcher_and_bloat_cleaned_v190", false)) {
-                removeDefaultLauncherAndDiscontinuedApps(null);
-                prefs.edit().putBoolean("default_launcher_and_bloat_cleaned_v190", true).commit();
-            }
-
-            // 5. Automatically upgrade F-Droid Classic to `v1304` (Android 4.2 SHA-256 JarUtils fix +
-            //    pure-Java BER/DER PKCS#7 verifier + non-colliding certs + SHA1-RSA APK signer)!
-            try {
-                int fdroidVer = ctx.getPackageManager()
-                        .getPackageInfo("eu.bubu1.fdroidclassic.debug", 0).versionCode;
-                int sigCmp = ctx.getPackageManager().checkSignatures(
-                        ctx.getPackageName(), "eu.bubu1.fdroidclassic.debug");
-                if (fdroidVer < 1304 || sigCmp != android.content.pm.PackageManager.SIGNATURE_MATCH) {
-                    installBundledFDroidClassic(null);
-                    prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
-                } else if (!prefs.getBoolean("fdroid_clean_v1304", false)) {
-                    shell.execRoot(
-                            "am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true; " +
-                            "pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true",
-                            null);
-                    prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
-                }
-            } catch (Throwable ignored) {
-                installBundledFDroidClassic(null);
-                prefs.edit().putBoolean("fdroid_clean_v1304", true).commit();
-            }
-        } catch (Throwable ignored) {}
+        InstallMaintenanceService.request(ctx, "legacy companion installer");
     }
 
     /* ========================================================================

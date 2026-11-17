@@ -39,7 +39,7 @@ import java.util.TimeZone;
  *   3. TIMERS (Background `AlarmManager.RTC_WAKEUP` countdown timers + quick `+1m..+1h` presets)
  *   4. STOPWATCH (Centisecond `00:00.00` split/lap timer)
  */
-public class Arc7ClockActivity extends Activity {
+public class Arc7ClockActivity extends Arc7Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
 

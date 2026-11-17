@@ -340,6 +340,15 @@ def draw_ic_wired_net(c):
     c.circle(0.50, 0.77, 0.068, W)
 
 
+def draw_ic_bluetooth(c):
+    c.rounded_tile((37, 99, 235), (30, 58, 138), (96, 165, 250))
+    c.line(0.49, 0.17, 0.49, 0.83, 0.055, W)
+    c.line(0.49, 0.17, 0.70, 0.35, 0.055, W)
+    c.line(0.70, 0.35, 0.29, 0.68, 0.055, W)
+    c.line(0.29, 0.32, 0.70, 0.65, 0.055, W)
+    c.line(0.70, 0.65, 0.49, 0.83, 0.055, W)
+
+
 def draw_ic_calendar(c):
     c.rounded_tile((248, 250, 252), (226, 232, 240), (203, 213, 225))
     # Crisp red calendar header bar + binder rings + bold '22' bars
@@ -648,6 +657,7 @@ ALL_ICONS = [
     ("ic_appmgr.png", draw_ic_appmgr),
     ("ic_terminal.png", draw_ic_terminal),
     ("ic_wired_net.png", draw_ic_wired_net),
+    ("ic_bluetooth.png", draw_ic_bluetooth),
     ("ic_calendar.png", draw_ic_calendar),
     ("ic_calculator.png", draw_ic_calculator),
     ("ic_notes.png", draw_ic_notes),

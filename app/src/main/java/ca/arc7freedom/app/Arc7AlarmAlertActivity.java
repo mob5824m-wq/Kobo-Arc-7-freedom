@@ -28,7 +28,7 @@ import java.util.Date;
  * with 12-hour/24-hour live clock, nostalgic Apple/Android chime + per-alarm volume playback,
  * smooth pulse animation, and large bedside SNOOZE / DISMISS controls.
  */
-public class Arc7AlarmAlertActivity extends Activity {
+public class Arc7AlarmAlertActivity extends Arc7Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView kindBadge;

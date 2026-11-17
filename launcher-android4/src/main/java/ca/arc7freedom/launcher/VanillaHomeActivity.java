@@ -971,7 +971,7 @@ public class VanillaHomeActivity extends Activity {
                     refreshCurrentPageShortcuts();
                     Toast.makeText(this, "Removed " + dragged.label + " from Home", Toast.LENGTH_SHORT).show();
                 } else {
-                    openAppDetails(dragged.pkg);
+                    openAppDetails(dragged);
                 }
                 return true;
             }
@@ -989,7 +989,7 @@ public class VanillaHomeActivity extends Activity {
                 return true;
             }
             if (isPointInsideView(dropInfoBtn, rx, ry)) {
-                if (dragged.folderToken == null) openAppDetails(dragged.pkg);
+                if (dragged.folderToken == null) openAppDetails(dragged);
                 refreshCurrentPageShortcuts();
                 return true;
             }
@@ -1050,7 +1050,22 @@ public class VanillaHomeActivity extends Activity {
         return false;
     }
 
-    private void openAppDetails(String pkg) {
+    private void openAppDetails(AppEntry entry) {
+        if (entry == null || entry.folderToken != null || entry.emptySlot) return;
+        String pkg = BuiltinApps.managementPackage(entry.pkg, entry.cls);
+        if (pkg == null || pkg.length() == 0) return;
+        try {
+            getPackageManager().getApplicationInfo(pkg, 0);
+        } catch (PackageManager.NameNotFoundException missing) {
+            // A legacy suite alias is an install shortcut, not the suite itself.
+            // NEVER fall back to package:ca.arc7freedom.app for uninstall/App Info.
+            new AlertDialog.Builder(this).setTitle(entry.label + " is not installed separately")
+                    .setMessage("This is an old shortcut. Install the separate " + entry.label
+                            + " APK to manage or uninstall it independently.\n\nPackage: " + pkg
+                            + "\n\nKobo Arc 7 Freedom has not been selected for removal.")
+                    .setPositiveButton("OK", null).show();
+            return;
+        }
         Intent info = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg));
         info.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         safeStart(info);
@@ -1792,6 +1807,7 @@ public class VanillaHomeActivity extends Activity {
 
         allApps.clear();
         String myPkg = getPackageName();
+        java.util.HashSet<String> seen = new java.util.HashSet<String>();
         for (int i = 0; i < raw.size(); i++) {
             ResolveInfo ri = raw.get(i);
             String pkg = ri.activityInfo.packageName;
@@ -1801,6 +1817,18 @@ public class VanillaHomeActivity extends Activity {
             AppEntry e = new AppEntry();
             e.pkg = pkg;
             e.cls = ri.activityInfo.name;
+            Intent routed = BuiltinApps.route(new Intent().setComponent(new ComponentName(e.pkg, e.cls)));
+            ComponentName owner = routed.getComponent();
+            if (!owner.getPackageName().equals(e.pkg)) {
+                try {
+                    pm.getActivityInfo(owner, 0);
+                    e.pkg = owner.getPackageName();
+                    e.cls = owner.getClassName();
+                } catch (PackageManager.NameNotFoundException missing) {
+                    // Keep install-help shortcuts usable; management still targets the real owner.
+                }
+            }
+            if (!seen.add(owner.flattenToString())) continue;
             CharSequence cs = ri.loadLabel(pm);
             e.label = cs != null ? cs.toString() : pkg;
             e.icon = Arc7LauncherSkin.reskinAppIcon(this, pkg, e.cls, ri.loadIcon(pm));
@@ -2141,6 +2169,13 @@ public class VanillaHomeActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     if (!launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.Arc7TerminalActivity")) openDrawer();
+                }
+            });
+        }
+        if ("@bluetooth".equals(token)) {
+            return makeBuiltinSlot(token, "Bluetooth Internet", R.drawable.ic_bluetooth, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    launchExplicitOrPackage("ca.arc7freedom.bluetoothinternet", "ca.arc7freedom.app.Arc7BluetoothInternetActivity");
                 }
             });
         }
@@ -2710,6 +2745,7 @@ public class VanillaHomeActivity extends Activity {
                 { "@boost", "System Boost & Swap" },
                 { "@audio", "Music Player" },
                 { "@wired", "Wired USB Internet" },
+                { "@bluetooth", "Bluetooth Internet" },
                 { "@terminal", "Terminal (Python 3 + apt)" },
                 { "@freedom", "Arc7 Freedom" },
                 { "@settings", "Settings" }
@@ -3292,20 +3328,13 @@ public class VanillaHomeActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
     }
 
-    /**
-     * Prefers the standalone `ca.arc7freedom.youtube` package (its own app, its own task and
-     * its own icon in Settings -> Apps) and falls back to the in-suite activity for tablets
-     * that have not been upgraded yet.
-     */
+    /** Each app is required as a separate APK, never a suite-process fallback. */
     private boolean launchYouTubeApp() {
-        return launchExplicitOrPackage("ca.arc7freedom.youtube", "ca.arc7freedom.app.YouTubeActivity")
-                || launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeActivity");
+        return launchExplicitOrPackage("ca.arc7freedom.youtube", "ca.arc7freedom.app.YouTubeActivity");
     }
 
-    /** Prefers the standalone `ca.arc7freedom.ytmusic` package, with in-suite fallback. */
     private boolean launchYouTubeMusicApp() {
-        return launchExplicitOrPackage("ca.arc7freedom.ytmusic", "ca.arc7freedom.app.YouTubeMusicActivity")
-                || launchExplicitOrPackage("ca.arc7freedom.app", "ca.arc7freedom.app.YouTubeMusicActivity");
+        return launchExplicitOrPackage("ca.arc7freedom.ytmusic", "ca.arc7freedom.app.YouTubeMusicActivity");
     }
 
     private boolean launchExplicitOrPackage(String pkg, String cls) {
@@ -3314,9 +3343,13 @@ public class VanillaHomeActivity extends Activity {
             i.addCategory(Intent.CATEGORY_LAUNCHER);
             i.setComponent(new ComponentName(pkg, cls));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
-            startActivity(i);
+            startActivity(BuiltinApps.route(i));
             return true;
-        } catch (Throwable ignored) {
+        } catch (android.content.ActivityNotFoundException missing) {
+            Toast.makeText(this, "Install the separate app from the Wi-Fi installer portal or GitHub release.", Toast.LENGTH_LONG).show();
+            return false;
+        } catch (SecurityException disabled) {
+            Toast.makeText(this, "Enable the separate app in Settings > Apps.", Toast.LENGTH_LONG).show();
             return false;
         }
     }
@@ -3582,7 +3615,7 @@ public class VanillaHomeActivity extends Activity {
                             } else if (which == 8) {
                                 showAppBarCustomizerDialog();
                             } else if (which == 9) {
-                                openAppDetails(e.pkg);
+                                openAppDetails(e);
                             }
                             return;
                         }
@@ -3604,7 +3637,7 @@ public class VanillaHomeActivity extends Activity {
                         } else if (which == 5) {
                             showAppBarCustomizerDialog();
                         } else {
-                            openAppDetails(e.pkg);
+                            openAppDetails(e);
                         }
                     }
                 })
@@ -3642,7 +3675,7 @@ public class VanillaHomeActivity extends Activity {
 
     private void safeStart(Intent i) {
         try {
-            startActivity(i);
+            startActivity(BuiltinApps.route(i));
             overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
         } catch (Throwable t) {
             Toast.makeText(this, "Cannot launch: " + t.getMessage(), Toast.LENGTH_SHORT).show();

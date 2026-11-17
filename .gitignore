@@ -18,3 +18,6 @@ Unselected files/
 # Separately installable default apps (built by scripts/build-all.sh, published as
 # GitHub release assets + served from the Wi-Fi OTA portal — not committed to git).
 releases/apps/
+
+# Generated offline default-app recipes/chunks (embedded in the signed suite/upgrader).
+/app/src/main/assets/maintenance/

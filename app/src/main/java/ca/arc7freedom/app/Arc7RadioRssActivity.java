@@ -50,7 +50,7 @@ import java.util.Set;
  *   - **Tab 3 — Offline RSS / Atom Reader:**
  *       Syncs ad-free readable tech/world news feeds offline (plus custom feed URLs)!
  */
-public class Arc7RadioRssActivity extends Activity {
+public class Arc7RadioRssActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_radio_rss";
     private static final String KEY_CUSTOM_FEEDS = "custom_rss_urls";

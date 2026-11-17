@@ -27,7 +27,7 @@ import java.util.Locale;
  * Full-screen **Arc7 Wallpapers** Studio (`12 Built-In HD Themes + Custom Photo Picker`).
  * Handles BOTH App Drawer launches AND Android's system-wide `android.intent.action.SET_WALLPAPER` chooser!
  */
-public class Arc7WallpaperPickerActivity extends Activity {
+public class Arc7WallpaperPickerActivity extends Arc7Activity {
 
     private int selectedIndex = 0;
     private ImageView previewImageView;

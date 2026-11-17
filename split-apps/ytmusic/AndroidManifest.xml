@@ -9,8 +9,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.ytmusic"
-    android:versionCode="253"
-    android:versionName="2.5.3"
+    android:versionCode="254"
+    android:versionName="2.5.4"
     android:installLocation="internalOnly">
 
     <uses-sdk android:minSdkVersion="15" android:targetSdkVersion="17" />
@@ -30,6 +30,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
+        android:name="ca.arc7freedom.app.Arc7Application"
         android:icon="@drawable/ic_ytmusic"
         android:label="YouTube Music"
         android:hardwareAccelerated="true"
@@ -60,8 +61,8 @@
             </intent-filter>
         </activity>
 
-        <service android:name="ca.arc7freedom.app.Arc7TlsGatewayService" android:exported="true" />
-        <service android:name="ca.arc7freedom.app.Arc7AudioService" android:exported="true" />
+        <service android:name="ca.arc7freedom.app.Arc7TlsGatewayService" android:exported="false" />
+        <service android:name="ca.arc7freedom.app.Arc7AudioService" android:exported="false" />
 
     </application>
 </manifest>

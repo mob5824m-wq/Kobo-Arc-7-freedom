@@ -47,7 +47,7 @@ import java.util.Locale;
  *   5. Fast silent Root `/data/local/tmp/` installation + Clean Signature-Conflict Reinstall
  *   6. Built-in `.apk` scanner across `Download/` & MicroSD when opened from the Home Launcher!
  */
-public class Arc7PackageInstallerActivity extends Activity {
+public class Arc7PackageInstallerActivity extends Arc7Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private RootShell rootShell;
@@ -183,7 +183,16 @@ public class Arc7PackageInstallerActivity extends Activity {
         cleanReinstallBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startInstallAsync(true);
+                if (activePackageName == null || activePackageName.length() == 0) return;
+                new android.app.AlertDialog.Builder(Arc7PackageInstallerActivity.this)
+                        .setTitle("Erase and reinstall " + activePackageName + "?")
+                        .setMessage("This removes the selected app and its saved data before reinstalling it. "
+                                + "Normal same-signature updates should use Install App instead.")
+                        .setPositiveButton("Erase and reinstall", new android.content.DialogInterface.OnClickListener() {
+                            @Override public void onClick(android.content.DialogInterface dialog, int which) {
+                                startInstallAsync(true);
+                            }
+                        }).setNegativeButton("Cancel", null).show();
             }
         });
         LinearLayout.LayoutParams a2 = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);

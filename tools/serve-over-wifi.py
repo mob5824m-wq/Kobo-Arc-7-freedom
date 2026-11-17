@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Zero-Cable, Zero-Driver, Zero-SSL Local Home Wi-Fi & Live Web Installer Server
-for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.5.3`).
+for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.5.4`).
 
 Fixes all common home-network, OS firewall, WSL2/container, and 2013 Android 4.2
 Stock Browser (`DownloadManager`) failure modes:
@@ -41,7 +41,7 @@ RELEASES_DIR = os.environ.get("ARC7_SERVE_DIR") or os.path.join(ROOT_DIR, "relea
 TOOLS_DIR = os.path.join(ROOT_DIR, "tools")
 APP_ICON_DIR = os.path.join(ROOT_DIR, "app", "src", "main", "res", "drawable-xhdpi")
 DEFAULT_PORT = 8000
-UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.5.3.apk"
+UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.5.4.apk"
 GITHUB_REPO = "mob5824m-wq/Kobo-Arc-7-freedom"
 GITHUB_LATEST_BASE = f"https://github.com/{GITHUB_REPO}/releases/latest/download"
 GITHUB_RAW_ROOT = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
@@ -301,7 +301,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.5.3 — PER-DAY ALARM CHECK-OFF + F-Droid v1304 sync-crash fix + playable 2026 DASH streams + TRULY SEPARATE YouTube / YouTube Music apps + Tailscale Google Auth):</div>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.5.4 — IN-PLACE UPDATES + notification ownership / legacy proxy repairs + separate YouTube / YouTube Music HLS/DASH pipeline (live playback needs tablet testing)):</div>"
                 f"<a class='btn primary' href='{link}'>"
                 f"{ico}<span>&#11015; 1-Tap OTA Root &amp; Upgrade — {UPGRADER_APK_NAME} ({size_txt})</span></a>"
                 + (
@@ -317,7 +317,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}'>"
-                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.5.3 ({size_txt}) — per-day alarm check-off + F-Droid fix + separate YouTube &amp; YouTube Music apps + Tailscale Google Auth + Launcher v55 + VLC</span></a>"
+                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.5.4 ({size_txt}) — complete offline patch bundle: Home + stores + YouTube + all 28 default apps</span></a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
@@ -330,13 +330,13 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             ico = _icon_img("ic_youtube.png", "YouTube", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}'>"
-                f"{ico}<span>&#11015; Download the SEPARATE YouTube app (`ca.arc7freedom.youtube`, v2.5.3 — 2026 DASH remux playback) — YouTube.apk ({size_txt})</span></a>"
+                f"{ico}<span>&#11015; Download the SEPARATE YouTube app (`ca.arc7freedom.youtube`, v2.5.4 — 2026 DASH remux playback) — YouTube.apk ({size_txt})</span></a>"
             )
         elif fname == "YouTubeMusic.apk":
             ico = _icon_img("ic_ytmusic.png", "YouTube Music", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}'>"
-                f"{ico}<span>&#11015; Download the SEPARATE YouTube Music app (`ca.arc7freedom.ytmusic`, v2.5.3 — screen-off AAC) — YouTubeMusic.apk ({size_txt})</span></a>"
+                f"{ico}<span>&#11015; Download the SEPARATE YouTube Music app (`ca.arc7freedom.ytmusic`, v2.5.4 — screen-off AAC) — YouTubeMusic.apk ({size_txt})</span></a>"
             )
         elif fname == "VLC.apk":
             ico = _icon_img("ic_vlc.png", "VLC", 32)
@@ -354,7 +354,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             ico = _icon_img("ic_fdroid.png", "F-Droid", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}'>"
-                f"{ico}<span>&#11015; Download Patched F-Droid Classic v1304 (Android 4.2 SHA-256 Index &amp; APK Fix + largeHeap + Throwable Sync Catch + TLS 1.3 Bridge) — FDroidClassicLegacy.apk ({size_txt})</span></a>"
+                f"{ico}<span>&#11015; Download Patched F-Droid Classic v1305 (ArrayList/String[] mirrors &amp; requests fix + low-memory parser + signature/TLS fixes) — FDroidClassicLegacy.apk ({size_txt})</span></a>"
             )
         elif fname == "VanillaAndroid4Home.apk":
             ico = _icon_img("ic_wallpaper.png", "Home", 32)
@@ -412,7 +412,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "shield": "ic_shield", "boost": "ic_boost", "secondscreen": "ic_split",
             "splitview": "ic_splitview", "streamdeck": "ic_streamdeck",
             "dictionarywiki": "ic_wiki", "vpn": "ic_vpn", "wiredinternet": "ic_wired_net",
-            "packageinstaller": "ic_apk_installer",
+            "packageinstaller": "ic_apk_installer", "bluetoothinternet": "ic_bluetooth",
         }.get(key, "ic_apk_installer")
         icon_html = _icon_img(f"{icon_file}.png", label, 32) if resolve_icon_path(f"{icon_file}.png") else ""
         status = "" if present else " <i style='color:#94a3b8;'>(from GitHub release)</i>"
@@ -430,7 +430,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "<h2>&#128230; Separate Apps — Install Only the Ones You Want</h2>"
         "<p>Every built-in app below is now its <b>own installable APK</b> with its own icon, "
         "task, data folder and <i>Settings &rarr; Apps</i> entry — update or uninstall any one of "
-        "them on its own. The suite hides its copy automatically once you install the standalone "
+        "them on its own. Network-enabled apps have their own engines and traffic ownership. The suite hides its shortcut once you install the standalone "
         "app, so you never get two identical icons.</p>"
         + "".join(split_rows)
         + "</div>"
@@ -622,14 +622,20 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v2.5.3 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
+        "<h1>Kobo Arc 7 Freedom v2.5.4 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
         "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; YouTube &amp; YouTube Music (Morphe Edition) &bull; "
-        "Official Tailscale Google Sign-In &bull; Universal Standby Audio &bull; Fixed F-Droid v1304 &bull; VLC &amp; Aurora Store v4.8.5</p>"
+        "Official Tailscale Google Sign-In &bull; Universal Standby Audio &bull; Fixed F-Droid v1305 &bull; VLC &amp; Aurora Store v4.8.5</p>"
         + featured_apps_strip
         + live_progress_widget
         + "".join(apk_buttons)
         + ("".join(other_buttons) if other_buttons else "")
         + "</div>"
+        + "<div class='card'><h2>Every full install method runs the same patches</h2>"
+        "<p>After Wi-Fi/OTA, microSD, direct APK, USB/ADB or backup-tool installation, <b>open Arc7 Freedom once</b> and tap "
+        "<b>Install / Repair All Patches</b>. The upgrader opens this screen too. Home, F-Droid v1305, Aurora, VLC, YouTube and all 28 default-app patches "
+        "are bundled offline. Root applies in-place updates automatically; without root, tap <b>Install pending apps</b> and confirm each APK in Android. "
+        "System/root restrictions and signing/storage failures stay visible in the report; no automatic uninstall or wipe. "
+        "Individual app downloads update only that app. Third-party ROMs need the full suite reinstalled afterward.</p></div>"
         + split_apps_html
         + top_banner
         + upload_section
@@ -661,7 +667,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "<li>Click <b>Download KoboArc7Freedom.apk</b> at the top of this page and copy it to the root of any FAT32 microSD card.</li>"
         "<li>Insert the microSD card into your Kobo Arc 7, open Browser, and type:<br>"
         "<code>file:///storage/sdcard1/KoboArc7Freedom.apk</code></li>"
-        "<li>Tap <b>Install</b> — you're in!</li>"
+        "<li>Tap <b>Install</b>, then <b>Open Arc7 Freedom &rarr; Install / Repair All Patches</b>.</li>"
         "</ol>"
         "</div>"
         "<div class='card'>"
@@ -1050,7 +1056,7 @@ def main() -> None:
 
     lan_ips, env_kind = detect_environment_and_lan_ips()
     print("=" * 70)
-    print("  Kobo Arc 7 Freedom v2.5.3 — Zero-SSL Local Web Installer READY!")
+    print("  Kobo Arc 7 Freedom v2.5.4 — Zero-SSL Local Web Installer READY!")
     if env_kind == "lan" and lan_ips:
         print("  Open Browser on your Kobo Arc 7 and type (plain http://):")
         for ip in lan_ips:

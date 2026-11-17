@@ -65,7 +65,7 @@ public class RootShell {
         for (String name : libs) {
             File src = new File(nativeDirPath, name);
             File dst = new File(binDir, name);
-            if (src.exists() && (!dst.exists() || dst.length() != src.length())) {
+            if (src.exists() && !sameBinary(src, dst)) {
                 copyFile(src, dst);
             }
             if (dst.exists()) {
@@ -83,8 +83,20 @@ public class RootShell {
         linkAliasQuietly(new File(binDir, "libarc7tls.so"), new File(binDir, "arc7tls"));
     }
 
+    private static boolean sameBinary(File source, File target) {
+        if (!target.isFile() || source.length() != target.length()) return false;
+        try { return BundledApk.digest(new java.io.FileInputStream(source))
+                .equals(BundledApk.digest(new java.io.FileInputStream(target))); }
+        catch (java.io.IOException unreadable) { return false; }
+    }
+
     private static void linkAliasQuietly(File target, File link) {
-        if (!target.exists() || link.exists()) return;
+        if (!target.exists()) return;
+        if (link.exists()) {
+            if (!sameBinary(target, link)) copyFile(target, link);
+            link.setReadable(true, false); link.setExecutable(true, false);
+            return;
+        }
         try {
             Runtime.getRuntime().exec(new String[]{"ln", "-s", target.getAbsolutePath(), link.getAbsolutePath()}).waitFor();
         } catch (Throwable ignored) {}

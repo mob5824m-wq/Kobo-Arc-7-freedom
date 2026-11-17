@@ -7,13 +7,14 @@
   Settings -> Apps, so it can be installed, updated and uninstalled on its own.
 
   Java classes are shared with the `Arc7 Freedom` suite (`ca.arc7freedom.app.*`), exactly
-  like the `YouTube` / `YouTube Music` split apps, so behaviour stays byte-identical.
+  like the `YouTube` / `YouTube Music` apps. Each APK runs under its OWN Android UID,
+  with its OWN network engine/ports and only its own permissions and support components.
   Do not edit by hand — re-run `python3 scripts/gen-split-apps.py`.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.clock"
-    android:versionCode="253"
-    android:versionName="2.5.3"
+    android:versionCode="254"
+    android:versionName="2.5.4"
     android:installLocation="internalOnly">
 
     <uses-sdk android:minSdkVersion="15" android:targetSdkVersion="17" />
@@ -21,26 +22,18 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
-    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.VIBRATE" />
-    <uses-permission android:name="android.permission.SET_TIME_ZONE" />
-    <uses-permission android:name="android.permission.SET_WALLPAPER" />
-    <uses-permission android:name="android.permission.SET_WALLPAPER_HINTS" />
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
+    <uses-permission android:name="android.permission.SET_TIME_ZONE" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
+        android:name="ca.arc7freedom.app.Arc7Application"
+        android:taskAffinity="ca.arc7freedom.clock.task.main"
         android:icon="@drawable/ic_clock"
         android:label="Clock"
         android:hardwareAccelerated="true"
@@ -67,15 +60,53 @@
             android:label="Alarm"
             android:icon="@drawable/ic_clock"
             android:launchMode="singleTask"
-            android:taskAffinity="ca.arc7freedom.clock.task.alarm"
+            android:taskAffinity="ca.arc7freedom.clock.task.arc7alarmalertactivity"
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen"
             android:exported="false" />
 
+        <activity
+            android:name="ca.arc7freedom.app.Arc7DeskClockActivity"
+            android:label="Clock Standby"
+            android:icon="@drawable/ic_clock"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.clock.task.arc7deskclockactivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@android:style/Theme.Holo.NoActionBar.Fullscreen"
+            android:exported="true" />
+
         <receiver
             android:name="ca.arc7freedom.app.Arc7AlarmReceiver"
-            android:exported="true" />
+            android:exported="false" />
+
+        <receiver
+            android:name="ca.arc7freedom.app.Arc7ScheduleBootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="ca.arc7freedom.app.Arc7ClockWidgetProvider"
+            android:label="Digital Clock &amp; Alarm"
+            android:icon="@drawable/ic_clock"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_arc7_clock_info" />
+        </receiver>
+
+        <service
+            android:name="ca.arc7freedom.app.Arc7AudioService"
+            android:exported="false" />
+
+        <service
+            android:name="ca.arc7freedom.app.Arc7TlsGatewayService"
+            android:exported="false" />
 
     </application>
 </manifest>

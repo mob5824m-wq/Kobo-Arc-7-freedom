@@ -35,7 +35,7 @@ import java.util.Map;
  * Built natively against Android 4.2.2 (API 17) with a clean high-contrast slate & Holo-cyan interface
  * designed specifically for the Kobo Arc 7 (1024x600) and Kobo Arc 7HD (1920x1200) screens.
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Arc7Activity {
 
     private int BG_PAGE       = 0xFF0E1319;
     private int BG_SURFACE    = 0xFF161E28;
@@ -129,52 +129,30 @@ public class MainActivity extends Activity {
         Arc7ChromebookUsbService.ensureStarted(this);
         Arc7AdbBackupService.ensureStarted(this);
         Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    certManager.startBrowserGateway();
-                    // Automatically install all 118 modern 2026 Root CAs + clean DNS + NTP clock sync
-                    // on rooted Kobo Arc 7 hardware if not yet populated in /system/etc/security/cacerts!
-                    android.content.SharedPreferences bootPrefs = getSharedPreferences("arc7_boot_init", MODE_PRIVATE);
-                    File sysCaProbe = new File("/system/etc/security/cacerts");
-                    String[] existingCas = sysCaProbe.list();
-                    int caCount = existingCas != null ? existingCas.length : 0;
-                    boolean hasRootNow = rootShell.isRootAvailable();
-                    if (hasRootNow
-                            && (!bootPrefs.getBoolean("ca_v181_installed", false) || caCount < 140)) {
-                        boolean caOk = certManager.installCertsAndFixNetwork(
-                                Environment.getExternalStorageDirectory(),
-                                new NetworkCertManager.ProgressListener() {
-                                    @Override public void onProgress(int pct, String msg) {}
-                                    @Override public void onLog(String line) { appendLog(line); }
-                                });
-                        if (caOk) {
-                            bootPrefs.edit().putBoolean("ca_v181_installed", true).commit();
-                        }
-                    }
-                    // Always auto-detect local IANA timezone + sync atomic clock + provision
-                    // Aurora Store, Launcher v49, Python 3, `apt`, & Default Launcher / Kobo Care cleanup!
-                    certManager.syncTimeAndTimezoneAutomatically(hasRootNow,
-                            new NetworkCertManager.ProgressListener() {
-                                @Override public void onProgress(int pct, String msg) {}
-                                @Override public void onLog(String line) { appendLog(line); }
-                            });
-                    optimizerManager.ensureCompanionAppsUpgradedSilently();
-                    Arc7ClockStore.autoSyncInternetArchiveChimes(MainActivity.this, null);
-                } catch (Throwable ignored) {}
-            }
-        }).start();
+        InstallMaintenanceService.request(this, "suite opened after install/update");
 
-        appendLog("Kobo Arc 7 Freedom v2.0.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v2.5.4 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Custom Arc7 OS Skin + Reskinned Icons + Chromebook Wired USB Internet + Bundled VLC + Calendar + Photos + Camera + Calculator + Notes + Files + Archive.org Chimes + Custom APK Installer).");
         refreshDeviceSnapshotAsync();
+        if (getIntent().getBooleanExtra("show_install_patches", false)) {
+            getIntent().removeExtra("show_install_patches");
+            startActivity(new Intent(this, InstallMaintenanceActivity.class));
+        }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent);
+        InstallMaintenanceService.request(this, "installer returned to suite");
+        if (intent.getBooleanExtra("show_install_patches", false)) {
+            intent.removeExtra("show_install_patches");
+            startActivity(new Intent(this, InstallMaintenanceActivity.class));
+        }
     }
 
     @Override
     protected void onDestroy() {
-        // Keep persistent `127.0.0.1:8118` TLS 1.3 gateway running via `Arc7TlsGatewayService`
-        // so F-Droid Classic, Chrome, and background apps NEVER lose HTTPS connectivity when leaving MainActivity!
+        // Only this package's optional legacy gateway stays in its service. Other APKs
+        // keep their own engines and do not depend on this activity or process.
         super.onDestroy();
     }
 
@@ -517,6 +495,20 @@ public class MainActivity extends Activity {
         heroCard.addView(btnRow);
         page.addView(heroCard, cardMargin());
 
+        LinearLayout patches = makeCard();
+        addCardHeader(patches, "All Install Methods — Same Patches",
+                "Home, F-Droid, stores, YouTube and ALL 28 default-app APKs are bundled offline. "
+                + "Root applies in-place updates automatically. Without root, confirm pending apps here. "
+                + "No silent uninstall, wipe, firmware flash or compulsory proxy.");
+        Button repair = makePrimaryButton("Install / Repair All Patches — Status & Retry");
+        repair.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                startActivity(new Intent(MainActivity.this, InstallMaintenanceActivity.class));
+            }
+        });
+        patches.addView(repair);
+        page.addView(patches, cardMargin());
+
         LinearLayout hwCard = makeCard();
         addCardHeader(hwCard, "Detected Tablet Hardware, Kernel & eMMC Partition Map",
                 "Live readings from /proc/dumchar_info, /proc/emmc, /proc/mounts, and kernel exploit probes:");
@@ -597,19 +589,32 @@ public class MainActivity extends Activity {
         certCard.addView(subRow);
         page.addView(certCard, cardMargin());
 
+        LinearLayout bluetoothCard = makeCard();
+        addCardHeader(bluetoothCard, "Bluetooth Internet — share Wi-Fi without the suite proxy",
+                "Share this Kobo's Wi-Fi over Bluetooth PAN, or receive internet from a paired phone/computer. "
+                + "Requires Bluetooth hardware and ROM PAN support; no root or VPN required.");
+        addToolActionRow(bluetoothCard, "Bluetooth tethering / receive internet",
+                "Opens the separate Bluetooth Internet app with pairing, PAN controls and live connection status.",
+                "Bluetooth Internet", new View.OnClickListener() {
+                    @Override public void onClick(View v) { launchBuiltInActivity(Arc7BluetoothInternetActivity.class); }
+                });
+        page.addView(bluetoothCard, cardMargin());
+
         // NEW v1.3.0 Upgrade #1: System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT 127.0.0.1:8118`)
         LinearLayout sysProxyCard = makeCard();
         addCardHeader(sysProxyCard,
-                "System-Wide TLS 1.3 Upgrade Proxy for All Android 4.2 Apps (127.0.0.1:8118)",
-                "Android 4.2 apps from 2013 fail on modern websites that strictly require TLS 1.3 (X25519 / ECDSA). "
-                + "Generates a unique private per-device Root CA right on your tablet, verifies upstream servers "
-                + "strictly via Mbed-TLS 3.6 TLS 1.3 + our 118 2026 CAs, and upgrades EVERY app on your Kobo Arc 7!");
+                "Old proxy cleanup — independent app networking",
+                getSharedPreferences("arc7_optimizer", MODE_PRIVATE).getString("legacy_proxy_cleanup_message",
+                        "The old Arc7 global/Wi-Fi proxy is disabled automatically on startup where the ROM permits it.") + "\n\n"
+                + "Separate Arc7 APKs have their own network engines and do not need this. "
+                + "Only enable the legacy proxy for third-party Android 4.2 apps that need TLS compatibility. "
+                + "A global proxy or VPN can attribute combined traffic to its owner instead of the original app.");
 
         LinearLayout spRow = new LinearLayout(this);
         spRow.setOrientation(LinearLayout.HORIZONTAL);
         spRow.setPadding(0, dp(10), 0, 0);
 
-        Button enableSysProxyBtn = makePrimaryButton("Enable System-Wide TLS 1.3 Proxy");
+        Button enableSysProxyBtn = makeSecondaryButton("Legacy proxy (optional)");
         enableSysProxyBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -620,7 +625,7 @@ public class MainActivity extends Activity {
 
         spRow.addView(new View(this), new LinearLayout.LayoutParams(dp(8), dp(1)));
 
-        Button disableSysProxyBtn = makeSecondaryButton("Disable Global Proxy");
+        Button disableSysProxyBtn = makePrimaryButton("Use Independent Networking");
         disableSysProxyBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -1058,39 +1063,9 @@ public class MainActivity extends Activity {
         return page;
     }
 
-    /**
-     * Route dashboard shortcuts to the separately installed app package when it exists.
-     * Directly starting the suite's copy of an activity kept all shortcuts in the
-     * Arc7 Freedom process, so an unrelated app crash could surface as an Arc7 Freedom
-     * ANR/crash dialog. The in-suite activity remains a fallback for users who installed
-     * only the main package.
-     */
-    private void launchBuiltInActivity(Class<?> fallbackActivity) {
-        String simpleName = fallbackActivity.getSimpleName();
-        String stem = simpleName.endsWith("Activity")
-                ? simpleName.substring(0, simpleName.length() - "Activity".length())
-                : simpleName;
-        String packageName = null;
-        if ("YouTube".equals(stem)) packageName = "ca.arc7freedom.youtube";
-        else if ("YouTubeMusic".equals(stem)) packageName = "ca.arc7freedom.ytmusic";
-        else {
-            for (String[] row : SplitApps.ALL) {
-                if (row[0].endsWith("." + stem)) {
-                    packageName = row[1];
-                    break;
-                }
-            }
-        }
-        if (packageName != null) {
-            try {
-                Intent launch = getPackageManager().getLaunchIntentForPackage(packageName);
-                if (launch != null) {
-                    startActivity(launch);
-                    return;
-                }
-            } catch (Throwable ignored) {}
-        }
-        startActivity(new Intent(this, fallbackActivity));
+    /** Never fall back to running a standalone app inside the suite process. */
+    private void launchBuiltInActivity(Class<?> activity) {
+        startActivity(new Intent(this, activity));
     }
 
     /* ========================== TAB 5: STARTER APPS, STORAGE, SPEED & TOOLS ========================== */
@@ -1127,7 +1102,7 @@ public class MainActivity extends Activity {
         // Card 1: Complete v2.5.3 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
         addCardHeader(packCard, "Arc7 Freedom v2.5.3 — Daily-Driver App & Media Suite",
-                "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1304 sync-crash fix. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
+                "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1305 collection + sync-crash fixes. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
                 + "Effortless Home Widget Removal (Launcher v55), Clean App Names, Official Tailscale Google Sign-In, "
                 + "Stream Deck Pro, 4-Store Books Reader, PDF Reader, Weather, Radio & Podcasts, Games, Ad Blocker, System Boost & VLC!");
 
@@ -1870,6 +1845,7 @@ public class MainActivity extends Activity {
                         snapshot = updated;
                         renderSnapshot();
                         if (res.exitCode == 0 && updated.rooted) {
+                            InstallMaintenanceService.request(MainActivity.this, "root granted");
                             setProgressUi(false, 100, "");
                             showInfoDialog("Root Complete (uid=0 Verified)!",
                                     "Your tablet now has persistent root access installed at /system/xbin/su.\n\n"

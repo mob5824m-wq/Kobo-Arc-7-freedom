@@ -34,7 +34,7 @@ import java.util.concurrent.Executors;
  * Standalone Interactive Root (`#`) & User (`$`) Linux Terminal Emulator (`Arc7 Terminal`)
  * built natively for the Kobo Arc 7 (`1024x600`, Android 4.2.2 `API 17`).
  */
-public class Arc7TerminalActivity extends Activity {
+public class Arc7TerminalActivity extends Arc7Activity {
 
     private final ExecutorService shellPool = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());

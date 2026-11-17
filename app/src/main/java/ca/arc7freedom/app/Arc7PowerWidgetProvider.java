@@ -32,7 +32,7 @@ public class Arc7PowerWidgetProvider extends AppWidgetProvider {
     private static PendingIntent actPi(Context ctx, int code, Class<?> cls) {
         Intent i = new Intent(ctx, cls);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        return PendingIntent.getActivity(ctx, code, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        return PendingIntent.getActivity(ctx, code, SplitAppRouter.route(ctx, i, -1), PendingIntent.FLAG_UPDATE_CURRENT);
     }
 
     private static void updateAll(Context context, AppWidgetManager mgr, int[] ids) {

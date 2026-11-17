@@ -221,7 +221,7 @@ public class Arc7ClockStore {
         if (ctx != null) {
             Arc7TlsGatewayService.ensureStarted(ctx);
         }
-        String gatewayUrl = "http://127.0.0.1:8118/__arc7_raw?u=" + Uri.encode(httpsUrl);
+        String gatewayUrl = "http://127.0.0.1:" + NetworkCertManager.DEFAULT_PROXY_PORT + "/__arc7_raw?u=" + Uri.encode(httpsUrl);
         HttpURLConnection conn = (HttpURLConnection) new URL(gatewayUrl).openConnection();
         conn.setConnectTimeout(timeoutMs);
         conn.setReadTimeout(timeoutMs);

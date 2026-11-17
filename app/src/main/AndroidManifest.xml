@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="253"
-    android:versionName="2.5.3"
+    android:versionCode="254"
+    android:versionName="2.5.4"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -24,6 +24,11 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
+    <!-- Optional Bluetooth PAN; devices with no Bluetooth still install and show guidance. -->
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+
     <!-- Storage, Camera, HD Video Audio, Wallpapers, Alarms & Boot -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
@@ -39,12 +44,20 @@
     <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
 
     <application
+        android:name=".Arc7Application"
         android:icon="@drawable/ic_launcher"
         android:label="Arc7 Freedom"
         android:hardwareAccelerated="true"
         android:largeHeap="true"
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
+
+        <service android:name=".InstallMaintenanceService" android:exported="false" />
+        <activity android:name=".InstallMaintenanceActivity"
+            android:label="Install / Repair All Patches"
+            android:taskAffinity="ca.arc7freedom.task.maintenance"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false" />
 
         <!-- 1. Main OS Suite (`Arc7 Freedom` — THE ONLY APP LABELED `Arc7`!) -->
         <activity
@@ -62,6 +75,28 @@
             </intent-filter>
         </activity>
 
+        <!-- Legacy aliases below open the owning APK (or installation help), never suite copies. -->
+        <activity android:name=".SplitAppLaunchActivity"
+            android:label="Separate app shortcut"
+            android:taskAffinity="ca.arc7freedom.task.shortcuts"
+            android:exported="false" />
+
+        <activity android:name=".Arc7BluetoothInternetActivity"
+            android:label="Bluetooth Internet"
+            android:icon="@drawable/ic_bluetooth"
+            android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.bluetoothinternet"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false">
+        </activity>
+
+        <receiver android:name=".Arc7ScheduleBootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <!-- 2. `YouTube` deep-link/compat entry.
              The REAL user-facing app now ships as its own package `ca.arc7freedom.youtube`
              (`releases/YouTube.apk`) with its own icon, task and data directory, so it shows
@@ -76,18 +111,7 @@
             android:taskAffinity="ca.arc7freedom.task.youtube"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" />
-                <data android:scheme="https" />
-                <data android:host="youtube.com" />
-                <data android:host="www.youtube.com" />
-                <data android:host="m.youtube.com" />
-                <data android:host="youtu.be" />
-            </intent-filter>
+            android:exported="false">
         </activity>
 
         <!-- 3. `YouTube Music` deep-link/compat entry.
@@ -100,15 +124,7 @@
             android:taskAffinity="ca.arc7freedom.task.ytmusic"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="http" />
-                <data android:scheme="https" />
-                <data android:host="music.youtube.com" />
-            </intent-filter>
+            android:exported="false">
         </activity>
 
         <!-- 4. Standalone Modern TLS 1.3 + 2026 CA Web Browser (`Browser` — OWN TASK!) -->
@@ -120,7 +136,7 @@
             android:taskAffinity="ca.arc7freedom.task.browser"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 5. Standalone Offline EPUB / CBZ / FB2 / PDF E-Book Reader (`Books` — OWN TASK!) -->
@@ -131,7 +147,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.ereader"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 6. Standalone Screen-Off Music & Audiobook Player (`Music` — OWN TASK!) -->
@@ -142,7 +158,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.audio"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 7. Standalone `Clock` (Internet Archive Chimes, World Clock, Timer, Stopwatch — OWN TASK!) -->
@@ -153,7 +169,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.clock"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 8. Clock Standby Split-Flap Flip Clock, Live Now-Playing & Weather Display (OWN TASK!) -->
@@ -187,7 +203,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.wallpaper"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 11. Standalone `App Manager` (OWN TASK!) -->
@@ -199,7 +215,7 @@
             android:taskAffinity="ca.arc7freedom.task.appmgr"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 12. Standalone `Terminal` Root/Shell Emulator (OWN TASK!) -->
@@ -211,7 +227,7 @@
             android:taskAffinity="ca.arc7freedom.task.terminal"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 13. `Calendar` App (Month + Agenda + Reminders + .ics Sync — OWN TASK!) -->
@@ -223,7 +239,7 @@
             android:taskAffinity="ca.arc7freedom.task.calendar"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 14. `Photos` Gallery & Photo Filter Studio (OWN TASK!) -->
@@ -234,7 +250,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.photos"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 15. `Camera` HD Photo & Video Studio with Front Screen Flash (OWN TASK!) -->
@@ -245,7 +261,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.camera"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 16. `Calculator` Scientific Calculator & Unit Converter (OWN TASK!) -->
@@ -256,7 +272,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.calc"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 17. `Notes` Notes, Checklists & Color Sketchpad (OWN TASK!) -->
@@ -268,7 +284,7 @@
             android:taskAffinity="ca.arc7freedom.task.notes"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 18. `Files` Internal, MicroSD & ZIP Explorer (OWN TASK!) -->
@@ -279,7 +295,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.files"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 19. `USB Internet` Two-Way Chromebook / Laptop Wired Internet Control Center (OWN TASK!) -->
@@ -290,7 +306,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.usbnet"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 20. `Package Installer` (Manifest Audit + Auto JAR v1 Signer + Fast Root Install — OWN TASK!) -->
@@ -301,7 +317,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.apkinstaller"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 21. `PDF Reader` Native Offline PDF Reader + Camera Document Scanner (OWN TASK!) -->
@@ -312,7 +328,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.pdf"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 22. `Weather` Live Open-Meteo Forecast (OWN TASK!) -->
@@ -323,7 +339,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.weather"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 23. `Radio & Podcasts` 30k World Radio, Podcasts & Offline RSS (OWN TASK!) -->
@@ -334,7 +350,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.radio"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 24. `Voice Recorder` 44.1 kHz Studio Voice Recorder & Lossless WAV Trimmer (OWN TASK!) -->
@@ -345,7 +361,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.recorder"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 25. `Games` Chess vs AI, 2048, Sudoku, Minesweeper & Solitaire (OWN TASK!) -->
@@ -356,7 +372,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.arcade"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 26. `Ad Blocker` System-Wide Hosts AdBlocker & Root Firewall (OWN TASK!) -->
@@ -367,7 +383,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.shield"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 27. `System Boost` +384 MB zRAM/Swap, CPU Governor & Battery Doctor (OWN TASK!) -->
@@ -378,7 +394,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.boost"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 28. `Second Screen` Chromebook / PC Extended Monitor & Macro Deck (OWN TASK!) -->
@@ -389,7 +405,7 @@
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.secondscreen"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 29. `Split View` Landscape Dual-Pane Multitasking (OWN TASK!) -->
@@ -401,7 +417,7 @@
             android:taskAffinity="ca.arc7freedom.task.splitview"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 30. `Wikipedia` Offline Lexicon + Clean Wikipedia Reader (OWN TASK!) -->
@@ -413,7 +429,7 @@
             android:taskAffinity="ca.arc7freedom.task.wiki"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 31. `Stream Deck` 1280x800 Full LCD Stream Deck Pro for PC / Mac / Linux (OWN TASK!) -->
@@ -425,7 +441,7 @@
             android:taskAffinity="ca.arc7freedom.task.streamdeck"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- 32. `Wi-Fi & VPN` Official Tailscale Google Sign-In + School Wi-Fi Shield + Stealth Tunnel (OWN TASK!) -->
@@ -437,7 +453,7 @@
             android:taskAffinity="ca.arc7freedom.task.vpn"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:windowSoftInputMode="stateHidden|adjustResize"
-            android:exported="true">
+            android:exported="false">
         </activity>
 
         <!-- Native Android 4.2 VpnService (`/dev/tun` + `libarc7vpn.so` + Official Tailscale + DoH) -->
@@ -525,6 +541,17 @@
                 android:resource="@xml/widget_arc7_weather_info" />
         </receiver>
 
+        <service android:name=".Arc7WeatherService" android:exported="false" />
+        <receiver android:name=".Arc7WeatherBootReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.net.conn.CONNECTIVITY_CHANGE" />
+            </intent-filter>
+        </receiver>
+
         <!-- Boot / Wi-Fi / Self-Upgrade / Smart Charging Dock / Universal Media Broadcast Receiver -->
         <receiver android:name=".BootNetworkReceiver" android:exported="true">
             <intent-filter>
@@ -560,12 +587,23 @@
         <!--
           Each default app now ships as its own installable APK (`releases/apps/<Name>.apk`,
           packages `ca.arc7freedom.<key>`).  These aliases keep the old suite launcher entry
-          AND its deep links alive ONLY while the standalone app is not installed;
+          AND its deep links as installation-help shortcuts while the app is not installed;
           `SplitAppIconSync` disables them as soon as the real app is present, so the launcher
-          and the `Open with` chooser never show the same app twice.
+          and the `Open with` chooser never show the same app twice. Aliases NEVER run suite copies.
         -->
+        <activity-alias android:name=".launch.Arc7BluetoothInternet"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_bluetooth"
+            android:label="Bluetooth Internet">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <activity-alias android:name=".launch.Arc7Browser"
-            android:targetActivity=".Arc7BrowserActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_browser"
@@ -583,7 +621,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7EbookReader"
-            android:targetActivity=".Arc7EbookReaderActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_ereader"
@@ -606,7 +644,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7AudioPlayer"
-            android:targetActivity=".Arc7AudioPlayerActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_audio"
@@ -623,7 +661,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Clock"
-            android:targetActivity=".Arc7ClockActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_clock"
@@ -634,7 +672,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7WallpaperPicker"
-            android:targetActivity=".Arc7WallpaperPickerActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_wallpaper"
@@ -649,7 +687,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7AppManager"
-            android:targetActivity=".Arc7AppManagerActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_appmgr"
@@ -660,7 +698,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Terminal"
-            android:targetActivity=".Arc7TerminalActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_terminal"
@@ -671,7 +709,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Calendar"
-            android:targetActivity=".Arc7CalendarActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_calendar"
@@ -687,7 +725,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Photos"
-            android:targetActivity=".Arc7PhotosActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_photos"
@@ -703,7 +741,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Camera"
-            android:targetActivity=".Arc7CameraActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_camera"
@@ -720,7 +758,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Calculator"
-            android:targetActivity=".Arc7CalculatorActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_calculator"
@@ -731,7 +769,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Notes"
-            android:targetActivity=".Arc7NotesActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_notes"
@@ -742,7 +780,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7FileManager"
-            android:targetActivity=".Arc7FileManagerActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_files"
@@ -753,7 +791,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7WiredInternet"
-            android:targetActivity=".Arc7WiredInternetActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_wired_net"
@@ -764,7 +802,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7PackageInstaller"
-            android:targetActivity=".Arc7PackageInstallerActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_apk_installer"
@@ -782,7 +820,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7PdfViewer"
-            android:targetActivity=".Arc7PdfViewerActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_pdf"
@@ -798,7 +836,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Weather"
-            android:targetActivity=".Arc7WeatherActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_weather"
@@ -809,7 +847,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7RadioRss"
-            android:targetActivity=".Arc7RadioRssActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_radio"
@@ -820,7 +858,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Recorder"
-            android:targetActivity=".Arc7RecorderActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_recorder"
@@ -831,7 +869,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Arcade"
-            android:targetActivity=".Arc7ArcadeActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_arcade"
@@ -842,7 +880,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Shield"
-            android:targetActivity=".Arc7ShieldActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_shield"
@@ -853,7 +891,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Boost"
-            android:targetActivity=".Arc7BoostActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_boost"
@@ -864,7 +902,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7SecondScreen"
-            android:targetActivity=".Arc7SecondScreenActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_display"
@@ -875,7 +913,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7SplitView"
-            android:targetActivity=".Arc7SplitViewActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_splitview"
@@ -886,7 +924,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7DictionaryWiki"
-            android:targetActivity=".Arc7DictionaryWikiActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_wiki"
@@ -902,7 +940,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7StreamDeck"
-            android:targetActivity=".Arc7StreamDeckActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_streamdeck"
@@ -913,7 +951,7 @@
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Vpn"
-            android:targetActivity=".Arc7VpnActivity"
+            android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_vpn"
@@ -926,6 +964,39 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="application/x-openvpn-profile" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.YouTube"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_youtube"
+            android:label="YouTube">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="youtube.com" />
+                <data android:host="www.youtube.com" />
+                <data android:host="m.youtube.com" />
+                <data android:host="youtu.be" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.YouTubeMusic"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_ytmusic"
+            android:label="YouTube Music">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" />
+                <data android:scheme="https" />
+                <data android:host="music.youtube.com" />
             </intent-filter>
         </activity-alias>
         <!-- SPLIT-APPS:END -->

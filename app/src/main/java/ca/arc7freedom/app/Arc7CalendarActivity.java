@@ -37,7 +37,7 @@ import java.util.Locale;
  *   - Built-in Canadian / US / International Holidays
  *   - 1-Tap RFC 5545 `.ics` iCalendar Export & Import
  */
-public class Arc7CalendarActivity extends Activity {
+public class Arc7CalendarActivity extends Arc7Activity {
 
     private int viewYear;
     private int viewMonth; // 0-based

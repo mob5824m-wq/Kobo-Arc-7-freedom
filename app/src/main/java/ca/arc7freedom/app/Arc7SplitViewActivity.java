@@ -43,7 +43,7 @@ import java.util.List;
  *
  *   Includes 1-tap `30% / 50% / 70%` width presets + `⇄ Swap Panes`!
  */
-public class Arc7SplitViewActivity extends Activity {
+public class Arc7SplitViewActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_split_view";
     private static final String[] PANE_NAMES = new String[]{

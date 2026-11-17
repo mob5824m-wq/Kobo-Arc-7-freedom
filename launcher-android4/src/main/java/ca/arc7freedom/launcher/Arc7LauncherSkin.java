@@ -155,6 +155,7 @@ public final class Arc7LauncherSkin {
         if (shouldPreserveOriginalAppIcon(p, c)) return 0;
 
         if ("ca.arc7freedom.app".equals(p)) {
+            if (c.contains("bluetooth")) return R.drawable.ic_bluetooth;
             if (c.contains("youtubemusic")) return R.drawable.ic_ytmusic;
             if (c.contains("youtube")) return R.drawable.ic_youtube;
             if (c.contains("pdf")) return R.drawable.ic_pdf;

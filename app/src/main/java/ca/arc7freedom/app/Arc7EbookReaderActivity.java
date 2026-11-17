@@ -74,7 +74,7 @@ import java.util.zip.ZipFile;
  *   - **Bookmarks, Reading Progress %, 4 Reading Paper Themes** (*Paper*, *Kobo Sepia*, *Slate Dusk*,
  *     *AMOLED True Black*), **& Instant Word Dictionary / Wikipedia Lookup (`Define`)**!
  */
-public class Arc7EbookReaderActivity extends Activity {
+public class Arc7EbookReaderActivity extends Arc7Activity {
 
     private static final String PREFS = "arc7_ereader";
     private static final String KEY_LAST_BOOK = "last_book_path";

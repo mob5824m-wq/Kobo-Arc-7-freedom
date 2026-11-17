@@ -12,6 +12,14 @@ android {
         versionName "3.0-arc7"
     }
 
+    sourceSets {
+        main {
+            java.srcDirs += ["${rootProject.projectDir}/common/src/main/java"]
+            assets.srcDirs += ["${rootProject.projectDir}/build/companion-tls/assets"]
+            jniLibs.srcDirs += ["${rootProject.projectDir}/build/companion-tls/lib"]
+        }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_7
         targetCompatibility JavaVersion.VERSION_1_7

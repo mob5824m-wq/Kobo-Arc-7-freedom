@@ -65,16 +65,16 @@ if [ ! -s "${TOOLCHAIN_DIR}/jars/d8.jar" ] || [ ! -s "${TOOLCHAIN_DIR}/jars/apks
 fi
 
 if [ ! -x "${TOOLCHAIN_DIR}/jdk/bin/javac" ] && [ -s "${TOOLCHAIN_DIR}/jars/ecj-3.45.0.jar" ]; then
-    cat > "${TOOLCHAIN_DIR}/jdk/bin/javac" << 'JAVACEOF'
+    cat > "${TOOLCHAIN_DIR}/jdk/bin/javac" << JAVACEOF
 #!/usr/bin/env bash
 ARGS=()
-for a in "$@"; do
-    case "$a" in
+for a in "\$@"; do
+    case "\$a" in
         -Xlint*) ;;
-        *) ARGS+=("$a") ;;
+        *) ARGS+=("\$a") ;;
     esac
 done
-exec "/opt/toolchain/jdk/bin/java" -jar "/opt/toolchain/jars/ecj-3.45.0.jar" -1.8 -nowarn "${ARGS[@]}"
+exec "${TOOLCHAIN_DIR}/jdk/bin/java" -jar "${TOOLCHAIN_DIR}/jars/ecj-3.45.0.jar" -1.8 -nowarn "\${ARGS[@]}"
 JAVACEOF
     chmod +x "${TOOLCHAIN_DIR}/jdk/bin/javac"
 fi

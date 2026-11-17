@@ -5,39 +5,42 @@ package ca.arc7freedom.app;
  *
  * One row per built-in app that now also ships as its own installable APK
  * (`releases/apps/<Name>.apk`, package `ca.arc7freedom.<key>`):
- * { activity alias in the suite, standalone package, human readable label }.
+ * { activity alias in the suite, standalone package, human readable label, activity class }.
  */
 final class SplitApps {
 
     private SplitApps() {}
 
     static final String[][] ALL = {
-            { ".launch.Arc7Browser", "ca.arc7freedom.browser", "Browser" },
-            { ".launch.Arc7EbookReader", "ca.arc7freedom.ebookreader", "Books" },
-            { ".launch.Arc7AudioPlayer", "ca.arc7freedom.audioplayer", "Music" },
-            { ".launch.Arc7Clock", "ca.arc7freedom.clock", "Clock" },
-            { ".launch.Arc7WallpaperPicker", "ca.arc7freedom.wallpaperpicker", "Wallpapers" },
-            { ".launch.Arc7AppManager", "ca.arc7freedom.appmanager", "App Manager" },
-            { ".launch.Arc7Terminal", "ca.arc7freedom.terminal", "Terminal" },
-            { ".launch.Arc7Calendar", "ca.arc7freedom.calendar", "Calendar" },
-            { ".launch.Arc7Photos", "ca.arc7freedom.photos", "Photos" },
-            { ".launch.Arc7Camera", "ca.arc7freedom.camera", "Camera" },
-            { ".launch.Arc7Calculator", "ca.arc7freedom.calculator", "Calculator" },
-            { ".launch.Arc7Notes", "ca.arc7freedom.notes", "Notes" },
-            { ".launch.Arc7FileManager", "ca.arc7freedom.filemanager", "Files" },
-            { ".launch.Arc7WiredInternet", "ca.arc7freedom.wiredinternet", "USB Internet" },
-            { ".launch.Arc7PackageInstaller", "ca.arc7freedom.packageinstaller", "Package Installer" },
-            { ".launch.Arc7PdfViewer", "ca.arc7freedom.pdfviewer", "PDF Reader" },
-            { ".launch.Arc7Weather", "ca.arc7freedom.weather", "Weather" },
-            { ".launch.Arc7RadioRss", "ca.arc7freedom.radiorss", "Radio & Podcasts" },
-            { ".launch.Arc7Recorder", "ca.arc7freedom.recorder", "Voice Recorder" },
-            { ".launch.Arc7Arcade", "ca.arc7freedom.arcade", "Games" },
-            { ".launch.Arc7Shield", "ca.arc7freedom.shield", "Ad Blocker" },
-            { ".launch.Arc7Boost", "ca.arc7freedom.boost", "System Boost" },
-            { ".launch.Arc7SecondScreen", "ca.arc7freedom.secondscreen", "Second Screen" },
-            { ".launch.Arc7SplitView", "ca.arc7freedom.splitview", "Split View" },
-            { ".launch.Arc7DictionaryWiki", "ca.arc7freedom.dictionarywiki", "Wikipedia" },
-            { ".launch.Arc7StreamDeck", "ca.arc7freedom.streamdeck", "Stream Deck" },
-            { ".launch.Arc7Vpn", "ca.arc7freedom.vpn", "Wi-Fi & VPN" },
+            { ".launch.Arc7BluetoothInternet", "ca.arc7freedom.bluetoothinternet", "Bluetooth Internet", "ca.arc7freedom.app.Arc7BluetoothInternetActivity" },
+            { ".launch.Arc7Browser", "ca.arc7freedom.browser", "Browser", "ca.arc7freedom.app.Arc7BrowserActivity" },
+            { ".launch.Arc7EbookReader", "ca.arc7freedom.ebookreader", "Books", "ca.arc7freedom.app.Arc7EbookReaderActivity" },
+            { ".launch.Arc7AudioPlayer", "ca.arc7freedom.audioplayer", "Music", "ca.arc7freedom.app.Arc7AudioPlayerActivity" },
+            { ".launch.Arc7Clock", "ca.arc7freedom.clock", "Clock", "ca.arc7freedom.app.Arc7ClockActivity" },
+            { ".launch.Arc7WallpaperPicker", "ca.arc7freedom.wallpaperpicker", "Wallpapers", "ca.arc7freedom.app.Arc7WallpaperPickerActivity" },
+            { ".launch.Arc7AppManager", "ca.arc7freedom.appmanager", "App Manager", "ca.arc7freedom.app.Arc7AppManagerActivity" },
+            { ".launch.Arc7Terminal", "ca.arc7freedom.terminal", "Terminal", "ca.arc7freedom.app.Arc7TerminalActivity" },
+            { ".launch.Arc7Calendar", "ca.arc7freedom.calendar", "Calendar", "ca.arc7freedom.app.Arc7CalendarActivity" },
+            { ".launch.Arc7Photos", "ca.arc7freedom.photos", "Photos", "ca.arc7freedom.app.Arc7PhotosActivity" },
+            { ".launch.Arc7Camera", "ca.arc7freedom.camera", "Camera", "ca.arc7freedom.app.Arc7CameraActivity" },
+            { ".launch.Arc7Calculator", "ca.arc7freedom.calculator", "Calculator", "ca.arc7freedom.app.Arc7CalculatorActivity" },
+            { ".launch.Arc7Notes", "ca.arc7freedom.notes", "Notes", "ca.arc7freedom.app.Arc7NotesActivity" },
+            { ".launch.Arc7FileManager", "ca.arc7freedom.filemanager", "Files", "ca.arc7freedom.app.Arc7FileManagerActivity" },
+            { ".launch.Arc7WiredInternet", "ca.arc7freedom.wiredinternet", "USB Internet", "ca.arc7freedom.app.Arc7WiredInternetActivity" },
+            { ".launch.Arc7PackageInstaller", "ca.arc7freedom.packageinstaller", "Package Installer", "ca.arc7freedom.app.Arc7PackageInstallerActivity" },
+            { ".launch.Arc7PdfViewer", "ca.arc7freedom.pdfviewer", "PDF Reader", "ca.arc7freedom.app.Arc7PdfViewerActivity" },
+            { ".launch.Arc7Weather", "ca.arc7freedom.weather", "Weather", "ca.arc7freedom.app.Arc7WeatherActivity" },
+            { ".launch.Arc7RadioRss", "ca.arc7freedom.radiorss", "Radio & Podcasts", "ca.arc7freedom.app.Arc7RadioRssActivity" },
+            { ".launch.Arc7Recorder", "ca.arc7freedom.recorder", "Voice Recorder", "ca.arc7freedom.app.Arc7RecorderActivity" },
+            { ".launch.Arc7Arcade", "ca.arc7freedom.arcade", "Games", "ca.arc7freedom.app.Arc7ArcadeActivity" },
+            { ".launch.Arc7Shield", "ca.arc7freedom.shield", "Ad Blocker", "ca.arc7freedom.app.Arc7ShieldActivity" },
+            { ".launch.Arc7Boost", "ca.arc7freedom.boost", "System Boost", "ca.arc7freedom.app.Arc7BoostActivity" },
+            { ".launch.Arc7SecondScreen", "ca.arc7freedom.secondscreen", "Second Screen", "ca.arc7freedom.app.Arc7SecondScreenActivity" },
+            { ".launch.Arc7SplitView", "ca.arc7freedom.splitview", "Split View", "ca.arc7freedom.app.Arc7SplitViewActivity" },
+            { ".launch.Arc7DictionaryWiki", "ca.arc7freedom.dictionarywiki", "Wikipedia", "ca.arc7freedom.app.Arc7DictionaryWikiActivity" },
+            { ".launch.Arc7StreamDeck", "ca.arc7freedom.streamdeck", "Stream Deck", "ca.arc7freedom.app.Arc7StreamDeckActivity" },
+            { ".launch.Arc7Vpn", "ca.arc7freedom.vpn", "Wi-Fi & VPN", "ca.arc7freedom.app.Arc7VpnActivity" },
+            { ".launch.YouTube", "ca.arc7freedom.youtube", "YouTube", "ca.arc7freedom.app.YouTubeActivity" },
+            { ".launch.YouTubeMusic", "ca.arc7freedom.ytmusic", "YouTube Music", "ca.arc7freedom.app.YouTubeMusicActivity" },
     };
 }

@@ -31,7 +31,7 @@ import java.util.Locale;
  *   3. Kobo Wi-Fi -> Chromebook Plug-and-Play USB RNDIS Tethering (`192.168.42.129/24` +
  *      built-in RFC 2131 UDP `:67` DHCPv4 Server so ChromeOS connects instantly with zero setup!).
  */
-public class Arc7WiredInternetActivity extends Activity {
+public class Arc7WiredInternetActivity extends Arc7Activity {
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private RootShell rootShell;

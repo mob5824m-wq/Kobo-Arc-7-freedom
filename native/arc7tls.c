@@ -2794,7 +2794,10 @@ static void *handle_proxy_client(void *arg) {
 
     /* 2. Fast Versioned Liveness Probe & Hot-Upgrade Shutdown Endpoint */
     if (strcmp(target, "/__ping") == 0) {
-        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nARC7_TLS13_READY_V191\n");
+        const char *owner = getenv("ARC7_GATEWAY_OWNER");
+        dprintf(fd, "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n"
+                    "ARC7_TLS13_READY_V191\nOWNER=%s\nUID=%lu\n",
+                owner ? owner : "legacy", (unsigned long)getuid());
         free(req);
         close(fd);
         free(job);

@@ -26,24 +26,18 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
+import ca.arc7freedom.app.BundledApk;
+import java.io.FileInputStream;
 
 /**
- * 1-Tap Signature-Conflict-Free Root Upgrader (`ca.arc7freedom.upgrader`).
- *
- * Installs cleanly onto ANY Kobo Arc 7 (Android 4.0.3 - 4.2.2) even when an earlier
- * build (`v1.5.0` - `v1.8.0`) was signed with an ephemeral certificate or installed
- * in `/system/app`, and uses the tablet's existing `su` (`uid=0(root)`) + 100% pure
- * `mksh` (`cat`, `chmod`, `ln`, `pm`) to seamlessly install:
- *   1. Multi-call `/sbin/{su,uname,cp}` + `/system/xbin/{su,uname,cp}` applets
- *   2. `KoboArc7Freedom v1.8.1` (`versionCode = 181`, permanent release certificate)
- *   3. `VanillaAndroid4Home v4.2.8` (`versionCode = 48`, Home Widgets + isolated tasks)
- *   4. `FDroidClassicLegacy v1.8.1` (instant HTTP-to-TLS-1.3 `/__https/` repository bridge)
- *   5. All 118 modern 2026 Root CA `.0` certificates in `/system/etc/security/cacerts/`
+ * Separately installable, data-preserving in-place updater (ca.arc7freedom.upgrader).
+ * Uses the existing root shell when available, or opens Android's confirmed installer.
+ * Signature/storage failures are reported; they must not silently uninstall the suite,
+ * Home, media apps or stores. This updater can itself be removed independently.
  */
 public class UpgraderActivity extends Activity {
 
@@ -56,6 +50,8 @@ public class UpgraderActivity extends Activity {
     private Button actionBtn;
     private Button launchBtn;
     private volatile boolean running = false;
+    private String expectedMainHash;
+    private boolean awaitingInstall;
 
     private int dp(int v) {
         return Math.round(TypedValue.applyDimension(
@@ -73,6 +69,10 @@ public class UpgraderActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (savedInstanceState != null) {
+            expectedMainHash = savedInstanceState.getString("expected_main_hash");
+            awaitingInstall = savedInstanceState.getBoolean("awaiting_install", false);
+        }
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -85,18 +85,29 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v2.5.3 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v2.5.4 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         card.addView(statusTitle);
 
         statusSub = new TextView(this);
-        statusSub.setText("Preparing 1-tap v2.5.3 upgrade (playable 2026 DASH streams + separate YouTube / YouTube Music apps + Launcher v55 + Standby Audio + Tailscale Google Auth + F-Droid v1304 + VLC + 118 2026 Root CAs)...");
+        statusSub.setText("Installs Arc7 Freedom in place, then opens the SAME offline patch pipeline as USB, SD and OTA installs: Home, F-Droid, stores, YouTube and all 28 default apps. No app uninstall, stock-app removal or wipe. Without root, confirm each pending APK in the patch screen.");
         statusSub.setTextColor(Color.parseColor("#94A3B8"));
         statusSub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         statusSub.setPadding(0, dp(6), 0, dp(12));
         card.addView(statusSub);
+
+        Button ownAppInfo = new Button(this);
+        ownAppInfo.setText("App Info / uninstall this upgrader");
+        ownAppInfo.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                // This package is the updater, NOT the suite embedded inside its assets.
+                startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:ca.arc7freedom.upgrader")));
+            }
+        });
+        card.addView(ownAppInfo);
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -109,7 +120,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v2.5.3 Upgrade Again");
+        actionBtn.setText("Run v2.5.4 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -126,7 +137,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v2.5.3 ->");
+        launchBtn.setText("Open Freedom v2.5.4 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -161,7 +172,8 @@ public class UpgraderActivity extends Activity {
         root.addView(logScroll, scrollLp);
 
         setContentView(root);
-        startUpgradeAsync();
+        if (!awaitingInstall) startUpgradeAsync();
+        else uiProgress(40, "Waiting for Android's suite install confirmation...");
     }
 
     private void uiLog(final String msg) {
@@ -272,349 +284,101 @@ public class UpgraderActivity extends Activity {
 
     private void startUpgradeAsync() {
         if (running) return;
-        running = true;
-        actionBtn.setEnabled(false);
-
+        running = true; actionBtn.setEnabled(false);
         new Thread(new Runnable() {
-            @Override
-            public void run() {
+            @Override public void run() {
                 try {
-                    uiProgress(10, "Unpacking v2.5.3 APKs, separate YouTube & YouTube Music apps, Launcher v55, Tailscale Google Auth, F-Droid v1304, VLC, Aurora Store v4.8.5, Python 3, apt & 118 2026 Root CAs...");
-                    uiLog("=== Starting 1-Tap Kobo Arc 7 Upgrade to v2.5.3 ===");
-
+                    uiProgress(10, "Unpacking complete offline patch bundle...");
                     File appFiles = getFilesDir();
-                    makeWorldReadableDir(appFiles != null ? appFiles.getParentFile() : null);
+                    makeWorldReadableDir(appFiles == null ? null : appFiles.getParentFile());
                     makeWorldReadableDir(appFiles);
-
-                    File stageDir = new File(appFiles, "up210");
+                    File stageDir = new File(appFiles, "maintenance");
                     makeWorldReadableDir(stageDir);
-                    File caDir = new File(stageDir, "cacerts");
-                    makeWorldReadableDir(caDir);
-
-                    // 1. Extract main KoboArc7Freedom.apk (v2.4.1)
-                    File mainApk = new File(stageDir, "KoboArc7Freedom.apk");
-                    InputStream mainIn = getAssets().open("KoboArc7Freedom.apk");
+                    final File mainApk = new File(stageDir, "KoboArc7Freedom.apk");
+                    InputStream in = getAssets().open("KoboArc7Freedom.apk");
+                    try { writeStreamToWorldFile(in, mainApk, false); } finally { in.close(); }
+                    expectedMainHash = BundledApk.digest(new FileInputStream(mainApk));
+                    android.content.pm.PackageInfo bundled = getPackageManager().getPackageArchiveInfo(mainApk.getAbsolutePath(), 0);
+                    if (bundled == null || !"ca.arc7freedom.app".equals(bundled.packageName)) throw new IOException("Invalid embedded suite APK");
                     try {
-                        writeStreamToWorldFile(mainIn, mainApk, false);
-                    } finally {
-                        mainIn.close();
-                    }
-                    uiLog("[1/7] Unpacked KoboArc7Freedom v2.5.3 (" + (mainApk.length() / 1024) + " KB)");
-
-                    File suNew = new File(stageDir, "su_new");
-                    File pyNew = new File(stageDir, "py3_new");
-                    File aptNew = new File(stageDir, "apt_new");
-                    File homeApk = new File(stageDir, "VanillaAndroid4Home.apk");
-                    File auroraApk = new File(stageDir, "AuroraStore.apk");
-                    File fdroidApk = new File(stageDir, "FDroidClassicLegacy.apk");
-                    File vlcApk = new File(stageDir, "VLC.apk");
-                    File youtubeApk = new File(stageDir, "YouTube.apk");
-                    File ytMusicApk = new File(stageDir, "YouTubeMusic.apk");
-                    int caCount = 0;
-
-                    InputStream zipRaw = getAssets().open("KoboArc7Freedom.apk");
-                    ZipInputStream zis = new ZipInputStream(zipRaw);
-                    try {
-                        ZipEntry ze;
-                        while ((ze = zis.getNextEntry()) != null) {
-                            String name = ze.getName();
-                            if ("lib/armeabi-v7a/libarc7su.so".equals(name)) {
-                                writeStreamToWorldFile(zis, suNew, true);
-                            } else if ("lib/armeabi-v7a/libarc7py3.so".equals(name)) {
-                                writeStreamToWorldFile(zis, pyNew, true);
-                            } else if ("lib/armeabi-v7a/libarc7apt.so".equals(name)) {
-                                writeStreamToWorldFile(zis, aptNew, true);
-                            } else if ("assets/VanillaAndroid4Home.apk".equals(name)) {
-                                writeStreamToWorldFile(zis, homeApk, false);
-                            } else if ("assets/starter-apps/AuroraStore.apk".equals(name)) {
-                                writeStreamToWorldFile(zis, auroraApk, false);
-                            } else if ("assets/starter-apps/FDroidClassicLegacy.apk".equals(name)) {
-                                writeStreamToWorldFile(zis, fdroidApk, false);
-                            } else if ("assets/starter-apps/VLC.apk".equals(name)) {
-                                writeStreamToWorldFile(zis, vlcApk, false);
-                            } else if ("assets/starter-apps/YouTube.apk".equals(name)) {
-                                writeStreamToWorldFile(zis, youtubeApk, false);
-                            } else if ("assets/starter-apps/YouTubeMusic.apk".equals(name)) {
-                                writeStreamToWorldFile(zis, ytMusicApk, false);
-                            } else if (name.startsWith("assets/cacerts/android-hashed/")
-                                    && !ze.isDirectory() && name.endsWith(".0")) {
-                                String base = new File(name).getName();
-                                File outCa = new File(caDir, base);
-                                writeStreamToWorldFile(zis, outCa, false);
-                                caCount++;
-                            }
+                        if (getPackageManager().getPackageInfo("ca.arc7freedom.app", 0).versionCode > bundled.versionCode) {
+                            uiLog("Newer suite installed; keeping it and opening its patch pipeline.");
+                            ui.post(new Runnable() { @Override public void run() { launchMainApp(); } });
+                            return;
                         }
-                    } finally {
-                        zis.close();
-                    }
-                    if (!fdroidApk.isFile() || fdroidApk.length() < 1024L * 1024L) {
-                        throw new IllegalStateException("Patched F-Droid APK is missing from the installer bundle");
-                    }
-                    uiLog("[F-Droid] Installer bundle contains the pre-patched APK (low-memory index parser + TLS/signature fixes); the root installer will install it automatically.");
-                    uiLog("[2/7] Extracted VLC Media Player (" + (vlcApk.length() / 1024) + " KB), Aurora Store, patched F-Droid Classic, VanillaAndroid4Home v50, Python 3, apt & " + caCount + " 2026 Root CAs");
+                    } catch (android.content.pm.PackageManager.NameNotFoundException missing) {}
 
-                    uiProgress(40, "Running root package swap & installing 2026 CA store...");
-
-                    // Build 100% pure Android 4.2 `mksh` + `toolbox` script (ZERO cp / grep / uname / printf!)
-                    String sDir = stageDir.getAbsolutePath();
-                    StringBuilder sh = new StringBuilder();
-                    sh.append("#!/system/bin/sh\n");
-                    sh.append("echo \"ROOT_ID=$(id)\"\n");
-
-                    // Step A: Upgrade `/sbin/su` + `/sbin/uname` + `/sbin/cp` + `/system/xbin/{su,uname,cp}`
-                    sh.append("(mount -o remount,rw / 2>/dev/null || mount -o remount,rw rootfs / 2>/dev/null || true)\n");
-                    sh.append("mkdir -p /sbin\n");
-                    sh.append("cat '").append(sDir).append("/su_new' > /sbin/su.new && chown 0:0 /sbin/su.new 2>/dev/null; chmod 06755 /sbin/su.new && mv /sbin/su.new /sbin/su\n");
-                    sh.append("ln -s /sbin/su /sbin/uname 2>/dev/null || true\n");
-                    sh.append("ln -s /sbin/su /sbin/cp 2>/dev/null || true\n");
-
-                    sh.append("(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null || true)\n");
-                    sh.append("if [ -d /system/xbin ]; then\n");
-                    sh.append("  cat '").append(sDir).append("/su_new' > /system/xbin/su.new && chown 0:0 /system/xbin/su.new 2>/dev/null; chmod 06755 /system/xbin/su.new && mv /system/xbin/su.new /system/xbin/su\n");
-                    sh.append("  ln -s /system/xbin/su /system/xbin/uname 2>/dev/null || true\n");
-                    sh.append("  ln -s /system/xbin/su /system/xbin/cp 2>/dev/null || true\n");
-                    sh.append("fi\n");
-                    sh.append("echo \"STEP_A_SU_APPLETS=OK (uname: $(/sbin/uname -sr 2>/dev/null))\"\n");
-
-                    // Step B: Install all 118 modern 2026 Root CAs into `/system/etc/security/cacerts/` via pure `cat`!
-                    sh.append("mkdir -p /data/misc/keychain/cacerts-added\n");
-                    sh.append("for _cf in '").append(caDir.getAbsolutePath()).append("'/*.0; do\n");
-                    sh.append("  if [ -f \"$_cf\" ]; then\n");
-                    sh.append("    _bn=\"${_cf##*/}\"\n");
-                    sh.append("    cat \"$_cf\" > \"/system/etc/security/cacerts/$_bn\"\n");
-                    sh.append("    cat \"$_cf\" > \"/data/misc/keychain/cacerts-added/$_bn\"\n");
-                    sh.append("  fi\n");
-                    sh.append("done\n");
-                    sh.append("chmod 0644 /system/etc/security/cacerts/* 2>/dev/null || true\n");
-                    sh.append("chown 0:0 /system/etc/security/cacerts/* 2>/dev/null || true\n");
-                    sh.append("chmod 0644 /data/misc/keychain/cacerts-added/* 2>/dev/null || true\n");
-                    sh.append("echo 'STEP_B_2026_CAS=OK'\n");
-
-                    // Step C: Stage APKs + Python3/apt binaries into `/data/local/tmp/` + `/system/xbin/`
-                    sh.append("mkdir -p /data/local/tmp /system/xbin /data/local/arc7linux/etc/ssl /data/local/arc7_kobo_archive\n");
-                    sh.append("if [ -f '").append(pyNew.getAbsolutePath()).append("' ]; then\n");
-                    sh.append("  cat '").append(pyNew.getAbsolutePath()).append("' > /system/xbin/python3 && chmod 0755 /system/xbin/python3\n");
-                    sh.append("  ln -sf /system/xbin/python3 /system/xbin/python 2>/dev/null || cat '").append(pyNew.getAbsolutePath()).append("' > /system/xbin/python\n");
-                    sh.append("  chmod 0755 /system/xbin/python\n");
-                    sh.append("fi\n");
-                    sh.append("if [ -f '").append(aptNew.getAbsolutePath()).append("' ]; then\n");
-                    sh.append("  cat '").append(aptNew.getAbsolutePath()).append("' > /system/xbin/apt && chmod 0755 /system/xbin/apt\n");
-                    sh.append("  ln -sf /system/xbin/apt /system/xbin/apt-get 2>/dev/null || cat '").append(aptNew.getAbsolutePath()).append("' > /system/xbin/apt-get\n");
-                    sh.append("  ln -sf /system/xbin/apt /system/xbin/apt-cache 2>/dev/null || cat '").append(aptNew.getAbsolutePath()).append("' > /system/xbin/apt-cache\n");
-                    sh.append("  chmod 0755 /system/xbin/apt-get /system/xbin/apt-cache\n");
-                    sh.append("fi\n");
-                    sh.append("echo 'STEP_PY3_APT=OK'\n");
-                    sh.append("cat '").append(mainApk.getAbsolutePath()).append("' > /data/local/tmp/KoboArc7Freedom.apk && chmod 0644 /data/local/tmp/KoboArc7Freedom.apk\n");
-                    sh.append("cat '").append(homeApk.getAbsolutePath()).append("' > /data/local/tmp/VanillaAndroid4Home.apk && chmod 0644 /data/local/tmp/VanillaAndroid4Home.apk\n");
-                    sh.append("cat '").append(auroraApk.getAbsolutePath()).append("' > /data/local/tmp/AuroraStore.apk && chmod 0644 /data/local/tmp/AuroraStore.apk\n");
-                    sh.append("cat '").append(fdroidApk.getAbsolutePath()).append("' > /data/local/tmp/FDroidClassicLegacy.apk && chmod 0644 /data/local/tmp/FDroidClassicLegacy.apk\n");
-                    sh.append("if [ -s '").append(vlcApk.getAbsolutePath()).append("' ]; then cat '").append(vlcApk.getAbsolutePath()).append("' > /data/local/tmp/VLC.apk && chmod 0644 /data/local/tmp/VLC.apk; fi\n");
-                    sh.append("if [ -s '").append(youtubeApk.getAbsolutePath()).append("' ]; then cat '").append(youtubeApk.getAbsolutePath()).append("' > /data/local/tmp/YouTube.apk && chmod 0644 /data/local/tmp/YouTube.apk; fi\n");
-                    sh.append("if [ -s '").append(ytMusicApk.getAbsolutePath()).append("' ]; then cat '").append(ytMusicApk.getAbsolutePath()).append("' > /data/local/tmp/YouTubeMusic.apk && chmod 0644 /data/local/tmp/YouTubeMusic.apk; fi\n");
-
-                    // Preserve any existing local TLS 1.3 CA keypair across reinstalls so Zygote's in-RAM CA stays valid!
-                    sh.append("mkdir -p /data/local/arc7_tls_ca && chmod 0755 /data/local/arc7_tls_ca\n");
-                    sh.append("if [ -s /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.crt ] && [ -s /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.key ]; then\n");
-                    sh.append("  cat /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.crt > /data/local/arc7_tls_ca/ca.crt\n");
-                    sh.append("  cat /data/data/ca.arc7freedom.app/files/local_tls13_ca/ca.key > /data/local/arc7_tls_ca/ca.key\n");
-                    sh.append("  chmod 0644 /data/local/arc7_tls_ca/ca.crt /data/local/arc7_tls_ca/ca.key\n");
-                    sh.append("fi\n");
-
-                    // Step D: Replace `ca.arc7freedom.app` cleanly even if an older conflicting key was installed!
-                    sh.append("rm -f /system/app/KoboArc7Freedom.apk /system/app/KoboArc7Freedom.odex 2>/dev/null || true\n");
-                    sh.append("_pm_main=$(pm install -r /data/local/tmp/KoboArc7Freedom.apk 2>&1 || true)\n");
-                    sh.append("case \"$_pm_main\" in\n");
-                    sh.append("  *Success*) echo \"STEP_C_MAIN_INPLACE=$_pm_main\" ;;\n");
-                    sh.append("  *)\n");
-                    sh.append("    echo \"Replacing conflicting old signature on ca.arc7freedom.app...\"\n");
-                    sh.append("    pm uninstall ca.arc7freedom.app 2>/dev/null || true\n");
-                    sh.append("    _pm_main=$(pm install -r /data/local/tmp/KoboArc7Freedom.apk 2>&1 || true)\n");
-                    sh.append("    echo \"STEP_C_MAIN_CLEAN=$_pm_main\"\n");
-                    sh.append("    ;;\n");
-                    sh.append("esac\n");
-
-                    // Step E: Upgrade `ca.arc7freedom.launcher` (`VanillaAndroid4Home` v48 with Widgets + isolated tasks)
-                    sh.append("_pm_home=$(pm install -r /data/local/tmp/VanillaAndroid4Home.apk 2>&1 || true)\n");
-                    sh.append("case \"$_pm_home\" in\n");
-                    sh.append("  *Success*) echo \"STEP_D_HOME_INPLACE=$_pm_home\" ;;\n");
-                    sh.append("  *)\n");
-                    sh.append("    if [ -f /system/app/VanillaAndroid4Home.apk ]; then\n");
-                    sh.append("      cat /system/app/VanillaAndroid4Home.apk > /data/local/tmp/VanillaHome.prev.apk\n");
-                    sh.append("      cat /data/local/tmp/VanillaAndroid4Home.apk > /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("      chmod 0644 /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("    fi\n");
-                    sh.append("    pm uninstall ca.arc7freedom.launcher 2>/dev/null || true\n");
-                    sh.append("    _pm_home=$(pm install -r /data/local/tmp/VanillaAndroid4Home.apk 2>&1 || true)\n");
-                    sh.append("    case \"$_pm_home\" in\n");
-                    sh.append("      *Success*) echo \"STEP_D_HOME_CLEAN=$_pm_home\" ;;\n");
-                    sh.append("      *)\n");
-                    sh.append("        if [ -f /data/local/tmp/VanillaHome.prev.apk ]; then\n");
-                    sh.append("          cat /data/local/tmp/VanillaHome.prev.apk > /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("          chmod 0644 /system/app/VanillaAndroid4Home.apk\n");
-                    sh.append("          pm install -r /data/local/tmp/VanillaHome.prev.apk 2>/dev/null || true\n");
-                    sh.append("        fi\n");
-                    sh.append("        ;;\n");
-                    sh.append("    esac\n");
-                    sh.append("    ;;\n");
-                    sh.append("esac\n");
-                    sh.append("appwidget grantbind --package ca.arc7freedom.launcher --user 0 2>/dev/null || appwidget grantbind --package ca.arc7freedom.launcher 2>/dev/null || true\n");
-
-                    // Step F: Replace `eu.bubu1.fdroidclassic.debug` with patched TLS-1.3-bridged `FDroidClassicLegacy`
-                    // and wipe any stale cached 502 files so F-Droid fetches a clean signed index immediately!
-                    sh.append("_pm_fd=$(pm install -r /data/local/tmp/FDroidClassicLegacy.apk 2>&1 || true)\n");
-                    sh.append("case \"$_pm_fd\" in\n");
-                    sh.append("  *Success*) echo \"STEP_E_FDROID_INPLACE=$_pm_fd\" ;;\n");
-                    sh.append("  *)\n");
-                    sh.append("    pm uninstall eu.bubu1.fdroidclassic.debug 2>/dev/null || true\n");
-                    sh.append("    pm uninstall eu.bubu1.fdroidclassic 2>/dev/null || true\n");
-                    sh.append("    _pm_fd=$(pm install -r /data/local/tmp/FDroidClassicLegacy.apk 2>&1 || true)\n");
-                    sh.append("    echo \"STEP_E_FDROID_CLEAN=$_pm_fd\"\n");
-                    sh.append("    ;;\n");
-                    sh.append("esac\n");
-                    sh.append("am force-stop eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
-                    sh.append("pm clear eu.bubu1.fdroidclassic.debug >/dev/null 2>&1 || true\n");
-
-                    // Step G: Install Aurora Store (`com.aurora.store`, Android 4.2 + TLS 1.3) automatically!
-                    sh.append("_pm_aur=$(pm install -r /data/local/tmp/AuroraStore.apk 2>&1 || true)\n");
-                    sh.append("case \"$_pm_aur\" in\n");
-                    sh.append("  *Success*) echo \"STEP_F_AURORA_INPLACE=$_pm_aur\" ;;\n");
-                    sh.append("  *)\n");
-                    sh.append("    pm uninstall com.aurora.store 2>/dev/null || true\n");
-                    sh.append("    _pm_aur=$(pm install -r /data/local/tmp/AuroraStore.apk 2>&1 || true)\n");
-                    sh.append("    echo \"STEP_F_AURORA_CLEAN=$_pm_aur\"\n");
-                    sh.append("    ;;\n");
-                    sh.append("esac\n");
-
-                    // Step G1: Install the TRULY SEPARATE standalone `YouTube` & `YouTube Music` apps
-                    // (`ca.arc7freedom.youtube` / `ca.arc7freedom.ytmusic` — own icons, own tasks, own data)!
-                    sh.append("for _pair in 'YouTube.apk:ca.arc7freedom.youtube' 'YouTubeMusic.apk:ca.arc7freedom.ytmusic'; do\n");
-                    sh.append("  _file=\"${_pair%%:*}\"; _pkg=\"${_pair##*:}\"\n");
-                    sh.append("  if [ -s \"/data/local/tmp/$_file\" ]; then\n");
-                    sh.append("    _pm_split=$(pm install -r \"/data/local/tmp/$_file\" 2>&1 || true)\n");
-                    sh.append("    case \"$_pm_split\" in\n");
-                    sh.append("      *Success*) echo \"STEP_SPLIT_INPLACE=$_pkg:$_pm_split\" ;;\n");
-                    sh.append("      *) pm uninstall \"$_pkg\" 2>/dev/null || true; _pm_split=$(pm install -r \"/data/local/tmp/$_file\" 2>&1 || true); echo \"STEP_SPLIT_CLEAN=$_pkg:$_pm_split\" ;;\n");
-                    sh.append("    esac\n");
-                    sh.append("  fi\n");
-                    sh.append("done\n");
-
-                    // Step G2: Install Bundled VLC Media Player (`org.videolan.vlc`) automatically!
-                    sh.append("if [ -s /data/local/tmp/VLC.apk ]; then\n");
-                    sh.append("  _pm_vlc=$(pm install -r /data/local/tmp/VLC.apk 2>&1 || true)\n");
-                    sh.append("  case \"$_pm_vlc\" in\n");
-                    sh.append("    *Success*) echo \"STEP_G_VLC_INPLACE=$_pm_vlc\" ;;\n");
-                    sh.append("    *)\n");
-                    sh.append("      pm uninstall org.videolan.vlc 2>/dev/null || true\n");
-                    sh.append("      _pm_vlc=$(pm install -r /data/local/tmp/VLC.apk 2>&1 || true)\n");
-                    sh.append("      echo \"STEP_G_VLC_CLEAN=$_pm_vlc\"\n");
-                    sh.append("      ;;\n");
-                    sh.append("  esac\n");
-                    sh.append("fi\n");
-
-                    // Step H: Archive & uninstall Default Launcher + Kobo Care + Discontinued Apps!
-                    sh.append("for _apk in /system/app/*.apk; do\n");
-                    sh.append("  [ -e \"$_apk\" ] || continue\n");
-                    sh.append("  _bn=\"${_apk##*/}\"\n");
-                    sh.append("  case \"$_bn\" in\n");
-                    sh.append("    *VanillaAndroid4*|*Arc7Freedom*|*KoboReader.apk) continue ;;\n");
-                    sh.append("    Launcher.apk|Launcher2.apk|Launcher3.apk|*Launcher2*|*ArcHome*|*Tapestry*|*KoboCare*|*KoboSupport*|*KoboDiagnostics*|*KoboSetup*|*KoboOTA*|*KoboUpdater*|*Pocket*|*ReadItLater*|*Zinio*|*7digital*|*SevenDigital*|*Rdio*|*PlusOne*|*Talk.apk|*Hangouts*|*Magazines*|*Currents*|*GoogleEars*|*Videos.apk|*GenieWidget*)\n");
-                    sh.append("      mv \"$_apk\" \"/data/local/arc7_kobo_archive/$_bn\" 2>/dev/null || rm -f \"$_apk\"\n");
-                    sh.append("      _ox=\"${_apk%.apk}.odex\"; [ -e \"$_ox\" ] && (mv \"$_ox\" \"/data/local/arc7_kobo_archive/${_ox##*/}\" 2>/dev/null || rm -f \"$_ox\")\n");
-                    sh.append("      ;;\n");
-                    sh.append("  esac\n");
-                    sh.append("done\n");
-                    sh.append("for _pkg in com.android.launcher com.android.launcher2 com.android.launcher3 com.kobo.home com.kobo.launcher com.kobo.tapestry com.kobo.arc.home com.kobo.care com.kobo.support com.kobo.help com.kobo.diagnostics com.kobo.analytics com.ideashower.readitlater.pro com.pocket.app com.zinio.mobile.android.reader uk.co.sevendigital.android com.rdio.android.ui com.google.android.apps.plus com.google.android.talk com.google.android.apps.magazines com.google.android.ears com.google.android.videos com.google.android.apps.genie.geniewidget; do\n");
-                    sh.append("  pm uninstall \"$_pkg\" >/dev/null 2>&1 || true\n");
-                    sh.append("  pm disable \"$_pkg\" >/dev/null 2>&1 || true\n");
-                    sh.append("done\n");
-
-                    // Stop any older `libarc7tls.so` daemon so v1.9.0 binds 127.0.0.1:8118 cleanly
-                    sh.append("for _p in /proc/[0-9]*; do if [ -r \"$_p/cmdline\" ]; then _c=$(tr '\\000' ' ' < \"$_p/cmdline\" 2>/dev/null || true); case \"$_c\" in *arc7tls*proxy*) kill -9 \"${_p##*/}\" 2>/dev/null || true ;; esac; fi; done\n");
-
-                    // Provision `/system/etc/resolv.conf` + clean DNS + mount `/system` clean `ro`
-                    sh.append("echo 'nameserver 1.1.1.1' > /system/etc/resolv.conf 2>/dev/null || true\n");
-                    sh.append("echo 'nameserver 8.8.8.8' >> /system/etc/resolv.conf 2>/dev/null || true\n");
-                    sh.append("chmod 0644 /system/etc/resolv.conf 2>/dev/null || true\n");
-                    sh.append("setprop net.dns1 1.1.1.1; setprop net.dns2 8.8.8.8\n");
-                    sh.append("settings put global captive_portal_detection_enabled 0 >/dev/null 2>&1 || true\n");
-                    sh.append("sync\n");
-                    sh.append("mount -o remount,ro /system 2>/dev/null || true\n");
-                    sh.append("mount -o remount,ro / 2>/dev/null || true\n");
-                    sh.append("rm -f /data/local/tmp/KoboArc7Freedom.apk /data/local/tmp/VanillaAndroid4Home.apk /data/local/tmp/AuroraStore.apk /data/local/tmp/FDroidClassicLegacy.apk /data/local/tmp/VLC.apk /data/local/tmp/YouTube.apk /data/local/tmp/YouTubeMusic.apk /data/local/tmp/VanillaHome.prev.apk\n");
-                    sh.append("echo 'ARC7_UPGRADE_OK'\n");
-
-                    File scriptFile = new File(stageDir, "run_upgrade.sh");
-                    writeStreamToWorldFile(
-                            new ByteArrayInputStream(sh.toString().getBytes("UTF-8")),
-                            scriptFile,
-                            true);
-
-                    String suBin = findExistingSu();
-                    uiLog("[4/7] Executing root upgrade via " + suBin + "...");
+                    // Exactly the same tested in-place pm wrapper as the suite's companion installer.
+                    String body = BundledApk.installScript(mainApk.getAbsolutePath(),
+                            "/data/local/tmp/arc7-maintenance-suite.apk", "ca.arc7freedom.app");
+                    File script = new File(stageDir, "install.sh");
+                    writeStreamToWorldFile(new ByteArrayInputStream(body.getBytes("UTF-8")), script, true);
                     String combined = "";
-                    String scriptBody = sh.toString();
                     for (int mode = 0; mode < 3; mode++) {
-                        combined = runSuScript(suBin, mode, scriptBody, scriptFile);
-                        if (combined.contains("ARC7_UPGRADE_OK")) {
-                            break;
-                        }
+                        combined = runSuScript(findExistingSu(), mode, body, script);
+                        if (combined.contains("ARC7_APK_INSTALL_OK") || combined.contains("UPDATE_FAILED_DATA_PRESERVED")) break;
                     }
-
-                    if (combined.contains("ARC7_UPGRADE_OK")) {
-                        uiProgress(100, "UPGRADE COMPLETE! Kobo Arc 7 Freedom v2.5.3 + separate YouTube & YouTube Music apps + Launcher v55 + Tailscale Google Auth + F-Droid v1304 + VLC ready!");
-                        uiLog("[7/7] SUCCESS! Launching Kobo Arc 7 Freedom v2.5.3 now...");
-                        ui.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                statusTitle.setText("SUCCESS — Upgraded to Kobo Arc 7 Freedom v2.5.3!");
-                                launchBtn.setVisibility(View.VISIBLE);
-                                actionBtn.setEnabled(true);
-                            }
-                        });
-                        ui.postDelayed(new Runnable() {
-                            @Override
-                            public void run() {
-                                launchMainApp();
-                            }
-                        }, 900);
+                    if (combined.contains("UPDATE_FAILED_DATA_PRESERVED")) {
+                        throw new IOException("In-place suite update failed. Existing app/data retained; back up before a signing-key migration. See package error above.");
+                    }
+                    if (combined.contains("ARC7_APK_INSTALL_OK")) {
+                        if (!installedMainMatches()) throw new IOException("Installed suite checksum not verified; not claiming success. Existing data retained.");
+                        uiProgress(100, "Suite update verified. Opening shared patch pipeline for ALL companion/default apps and system repairs...");
+                        uiLog("Suite APK verified. Remaining patch results and any root/signature/storage restrictions appear in Install / Repair All Patches.");
+                        ui.post(new Runnable() { @Override public void run() { launchMainApp(); } });
                     } else {
-                        // Tablet not yet rooted at all -> export to Download and open standard PackageInstaller
-                        File dl = new File(Environment.getExternalStorageDirectory(), "Download/KoboArc7Freedom-v2.5.3.apk");
-                        if (dl.getParentFile() != null) dl.getParentFile().mkdirs();
-                        InputStream in2 = getAssets().open("KoboArc7Freedom.apk");
-                        try {
-                            writeStreamToWorldFile(in2, dl, false);
-                        } finally {
-                            in2.close();
-                        }
-                        uiProgress(100, "Root not active yet — opening standard Android Package Installer...");
-                        uiLog("Opening standard installer for " + dl.getAbsolutePath() + " (if an older version is installed without root, uninstall old Kobo Arc 7 Freedom in Settings -> Apps first).");
-                        final File dlRef = dl;
+                        uiProgress(40, "Root unavailable — Android must confirm the suite update first.");
+                        uiLog("After installing, open Arc7 Freedom > Install / Repair All Patches. Android confirmations are still required for each companion without root.");
                         ui.post(new Runnable() {
-                            @Override
-                            public void run() {
+                            @Override public void run() {
                                 actionBtn.setEnabled(true);
-                                Intent prompt = new Intent(Intent.ACTION_VIEW);
-                                prompt.setDataAndType(Uri.fromFile(dlRef), "application/vnd.android.package-archive");
-                                prompt.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                                startActivity(prompt);
+                                Intent prompt = new Intent(Intent.ACTION_INSTALL_PACKAGE);
+                                prompt.setDataAndType(Uri.fromFile(mainApk), "application/vnd.android.package-archive");
+                                prompt.putExtra(Intent.EXTRA_RETURN_RESULT, true);
+                                try {
+                                    awaitingInstall = true; actionBtn.setEnabled(false);
+                                    startActivityForResult(prompt, 73);
+                                } catch (RuntimeException error) {
+                                    awaitingInstall = false; actionBtn.setEnabled(true);
+                                    uiLog("Could not open Android installer: " + error.getMessage() + ". Open the staged APK manually.");
+                                }
                             }
                         });
                     }
-                } catch (final Throwable t) {
-                    uiLog("ERROR: " + t.getMessage());
-                    uiProgress(100, "Error: " + t.getMessage());
-                    ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            actionBtn.setEnabled(true);
-                        }
-                    });
-                } finally {
-                    running = false;
-                }
+                } catch (final Exception error) {
+                    uiLog("ERROR: " + error.getMessage()); uiProgress(100, "Not complete: " + error.getMessage());
+                    ui.post(new Runnable() { @Override public void run() { actionBtn.setEnabled(true); } });
+                } finally { running = false; }
             }
-        }).start();
+        }, "Arc7UpgradeSuite").start();
+    }
+
+    private boolean installedMainMatches() {
+        try { return expectedMainHash != null && expectedMainHash.equals(BundledApk.digest(new FileInputStream(
+                getPackageManager().getApplicationInfo("ca.arc7freedom.app", 0).sourceDir))); }
+        catch (Exception unavailable) { return false; }
+    }
+
+    @Override protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putString("expected_main_hash", expectedMainHash); out.putBoolean("awaiting_install", awaitingInstall);
+    }
+
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != 73) return;
+        awaitingInstall = false;
+        new Thread(new Runnable() {
+            @Override public void run() {
+                final boolean verified = installedMainMatches();
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        if (verified) launchMainApp();
+                        else { uiLog("Suite install cancelled or not verified. No app was uninstalled. Retry after resolving the Android installer error."); actionBtn.setEnabled(true); }
+                    }
+                });
+            }
+        }, "VerifySuiteInstall").start();
     }
 
     private void launchMainApp() {
@@ -622,6 +386,7 @@ public class UpgraderActivity extends Activity {
             Intent i = new Intent();
             i.setComponent(new ComponentName("ca.arc7freedom.app", "ca.arc7freedom.app.MainActivity"));
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            i.putExtra("show_install_patches", true);
             startActivity(i);
             finish();
         } catch (Throwable t) {

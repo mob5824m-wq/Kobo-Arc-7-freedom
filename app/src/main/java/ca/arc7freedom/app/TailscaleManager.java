@@ -647,21 +647,21 @@ public final class TailscaleManager {
                 Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
                 it.setPackage(external[i]);
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                ctx.startActivity(it);
+                ctx.startActivity(SplitAppRouter.route(ctx, it, -1));
                 return "Opened the Tailscale sign-in page in " + external[i];
             } catch (Throwable ignored) {}
         }
         try {
             Intent it = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(it);
+            ctx.startActivity(SplitAppRouter.route(ctx, it, -1));
             return "Opened the Tailscale sign-in page in the system browser";
         } catch (Throwable ignored) {}
         try {
             Intent it = new Intent(ctx, Arc7BrowserActivity.class);
             it.setData(Uri.parse(url));
             it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            ctx.startActivity(it);
+            ctx.startActivity(SplitAppRouter.route(ctx, it, -1));
             return "Opened the Tailscale sign-in page in Arc7 Browser (TLS 1.3 bridge)";
         } catch (Throwable t) {
             return "Could not open the sign-in page automatically (" + t.getMessage()

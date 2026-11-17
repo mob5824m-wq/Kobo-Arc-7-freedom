@@ -20,15 +20,13 @@ import java.util.UUID;
  * Local `127.0.0.1` HTTP media server that exposes finished, playable MP4 files for
  * Android 4.2's Stagefright `MediaPlayer` (`VideoView`) and `Arc7AudioService`.
  *
- * Stagefright cannot speak TLS 1.3, cannot play DASH manifests, and cannot mux separate
- * video / audio tracks. This server therefore:
- *   1. Runs a background job that downloads YouTube's DASH tracks through the local
- *      TLS 1.3 gateway and merges them with {@link MorpheRemuxer} into one fMP4.
- *   2. Announces the *exact* final `Content-Length` up front (the remuxer computes it
- *      before the first media byte is fetched), so `MediaPlayer` can seek freely.
- *   3. Serves `Range: bytes=a-b` / `bytes=a-` / `bytes=-n` with `206 Partial Content`
- *      while the file is still downloading, blocking the reader until the requested
- *      bytes exist. Playback therefore starts within a second or two.
+ * Stagefright cannot negotiate modern HTTPS or combine separate DASH tracks. Jobs
+ * download/remux through this APK's TLS transport and expose a classic MP4/M4A. If
+ * the exact OUTPUT length is supplied at registration, readers may stream committed
+ * bytes as they arrive. Otherwise readers must wait for successful completion:
+ * input-download progress and a partial cache file are not a final Content-Length.
+ * Finite fMP4 HLS and classic DASH remux therefore need preparation time/cache space.
+ * Range/HEAD requests use the final output length, never the upstream track length.
  *
  * Pure `java.io` / `java.net` — no `android.*` imports so the host JVM suite can test it.
  */
@@ -46,12 +44,15 @@ public final class MorpheStreamServer {
     private static volatile ServerSocket server;
     private static volatile int port = DEFAULT_PORT;
     private static volatile File cacheDir;
+    // Package-private so the offline HTTP regression can exercise the deadline quickly.
+    static volatile long preparationWaitMs = 120000L;
 
     private MorpheStreamServer() {}
 
     /** @param dir directory used for partial downloads (`Context.getCacheDir()`). */
     public static void setCacheDir(File dir) {
         cacheDir = dir;
+        MorpheRemuxer.setCacheDir(dir);
     }
 
     public static synchronized int ensureStarted() {
@@ -122,8 +123,10 @@ public final class MorpheStreamServer {
             public void run() {
                 RandomAccessFile raf = null;
                 try {
+                    if (job.cancelled) return;
                     raf = new RandomAccessFile(file, "rw");
                     raf.setLength(0L);
+                    if (job.cancelled) return;
                     body.run(raf, new MorpheRemuxer.Progress() {
                         @Override
                         public void onBytes(long absoluteOffset, long totalBytes) {
@@ -142,12 +145,29 @@ public final class MorpheStreamServer {
                     if (raf != null) {
                         try { raf.close(); } catch (Throwable ignored) {}
                     }
+                    // Cancellation can race worker startup, before the file even exists.
+                    if (job.cancelled) try { file.delete(); } catch (Throwable ignored) {}
                 }
             }
         }, "MorpheMediaJob");
+        job.worker = t;
         t.setDaemon(true);
         t.start();
         return "http://127.0.0.1:" + p + "/play/" + id;
+    }
+
+    private static Job jobFor(String url) {
+        if (url == null) return null;
+        int index = url.lastIndexOf("/play/");
+        synchronized (LOCK) { return index < 0 ? null : JOBS.get(url.substring(index + 6)); }
+    }
+    public static String getPreparationStatus(String url) {
+        Job job = jobFor(url);
+        return job == null || job.done ? "" : job.stage;
+    }
+    public static String getFailure(String url) {
+        Job job = jobFor(url);
+        return job != null && job.failed && job.error != null ? job.error : "";
     }
 
     public static String urlFor(String playUrl) {
@@ -199,56 +219,77 @@ public final class MorpheStreamServer {
     private static final class Job {
         final File file;
         final String mimeType;
+        final boolean needsCompletedFile;
+        final List<Socket> clients = new ArrayList<Socket>();
         volatile long total;
         volatile boolean done;
         volatile boolean failed;
         volatile boolean cancelled;
         volatile String stage = "queued";
         volatile String error;
-        volatile long written;
+        volatile Thread worker;
 
         Job(File file, long total, String mimeType) {
             this.file = file;
             this.total = total;
+            this.needsCompletedFile = total <= 0L;
             this.mimeType = (mimeType == null || mimeType.length() == 0) ? "video/mp4" : mimeType;
         }
 
         synchronized void publish(long newWritten, long reportedTotal) {
-            if (newWritten > written) written = newWritten;
-            if (reportedTotal > 0L) total = reportedTotal;
+            if (cancelled) throw new IllegalStateException("Media preparation cancelled");
+            // Unknown-output-length jobs can report INPUT/spool progress here. Do not
+            // promote that to a promise to Stagefright or count unwritten output bytes.
+            if (!needsCompletedFile && reportedTotal > 0L && reportedTotal != total)
+                throw new IllegalStateException("Media output length changed during streaming");
             notifyAll();
         }
 
         synchronized void setStage(String s) {
+            if (cancelled) throw new IllegalStateException("Media preparation cancelled");
             stage = s == null ? "" : s;
             notifyAll();
         }
 
         synchronized void finish(Throwable e) {
+            if (cancelled) { notifyAll(); return; }
+            long length = file.length();
+            if (e == null && !needsCompletedFile && length != total)
+                e = new IOException("Incomplete media output: " + length + " of " + total + " bytes");
             if (e != null) {
                 failed = true;
                 error = e.getClass().getSimpleName() + ": " + e.getMessage();
+            } else {
+                total = length;
             }
             done = true;
-            if (total <= 0L) {
-                try { total = file.length(); } catch (Throwable ignored) {}
-            }
             notifyAll();
         }
 
-        synchronized void cancel() {
-            cancelled = true;
-            done = true;
-            notifyAll();
+        synchronized boolean attach(Socket client) {
+            if (cancelled) return false;
+            clients.add(client);
+            return true;
+        }
+
+        synchronized void detach(Socket client) { clients.remove(client); }
+
+        void cancel() {
+            List<Socket> toClose;
+            Thread toInterrupt;
+            synchronized (this) {
+                cancelled = true;
+                done = true;
+                toInterrupt = worker;
+                toClose = new ArrayList<Socket>(clients);
+                notifyAll();
+            }
+            if (toInterrupt != null) toInterrupt.interrupt();
+            for (Socket client : toClose) try { client.close(); } catch (IOException ignored) {}
         }
 
         synchronized long available() {
-            try {
-                long len = file.length();
-                return Math.max(len, written);
-            } catch (Throwable t) {
-                return written;
-            }
+            return file.length();
         }
 
         synchronized boolean awaitMore(long pos, long timeoutMs) {
@@ -277,8 +318,7 @@ public final class MorpheStreamServer {
         }
 
         synchronized long totalOrLength() {
-            if (total > 0L) return total;
-            try { return file.length(); } catch (Throwable t) { return 0L; }
+            return total > 0L ? total : 0L;
         }
     }
 
@@ -288,6 +328,7 @@ public final class MorpheStreamServer {
 
     private static void serve(Socket client) {
         RandomAccessFile raf = null;
+        Job attachedJob = null;
         try {
             client.setSoTimeout(60000);
             InputStream in = client.getInputStream();
@@ -320,9 +361,16 @@ public final class MorpheStreamServer {
                 writeAscii(out, "HTTP/1.1 404 Not Found\r\nContent-Length: 11\r\nConnection: close\r\n\r\nNo Such Job");
                 return;
             }
-            if (job.total <= 0L) {
-                // Length unknown: wait for the muxer to finish so Content-Length is exact.
-                job.awaitDone(120000L);
+            if (!job.attach(client)) return;
+            attachedJob = job;
+            if (job.needsCompletedFile && !job.awaitDone(preparationWaitMs)) {
+                // Never fall through to the size of an unfinished file on timeout.
+                writeAscii(out, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                return;
+            }
+            if (job.failed || job.cancelled) {
+                writeAscii(out, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                return;
             }
             long total = job.totalOrLength();
             if (total <= 0L) {
@@ -385,7 +433,7 @@ public final class MorpheStreamServer {
             raf = new RandomAccessFile(job.file, "r");
             byte[] buf = new byte[65536];
             long pos = start;
-            while (pos <= end) {
+            while (pos <= end && !job.cancelled && !job.failed) {
                 long avail = job.available();
                 if (avail <= pos) {
                     if (job.done) break;
@@ -406,6 +454,7 @@ public final class MorpheStreamServer {
             }
         } catch (Throwable ignored) {
         } finally {
+            if (attachedJob != null) attachedJob.detach(client);
             try { if (raf != null) raf.close(); } catch (Throwable ignored) {}
             try { client.close(); } catch (Throwable ignored) {}
         }

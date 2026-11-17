@@ -14,14 +14,14 @@ script emits `split-apps/<key>/AndroidManifest.xml` for every app, giving each o
   * its own row in *Settings → Apps* (installable / updatable / uninstallable on its own).
 
 The Java classes stay shared (`ca.arc7freedom.app.*`) — exactly like the `YouTube` /
-`YouTube Music` split apps — so behaviour is byte-identical to the suite version.  Every
-manifest declares **only the one launcher activity plus the activities it statically launches**
-(so a standalone app never drags the whole suite in), and only the services/receivers it needs.
+`YouTube Music` apps — but shared source does not mean a shared Android UID or network
+process. Each manifest declares only its own entry point and explicitly owned support
+components. Cross-app navigation launches the owning APK, never a bundled suite copy.
 
 The suite manifest gets a generated `<activity-alias>` block (between the `SPLIT-APPS`
 markers) that keeps the old launcher entries alive **only while the standalone app is not
-installed** — `SplitAppIconSync` flips them off once it is, so the drawer shows exactly one
-icon per app.
+installed** — these are now forwarding/installation-help shortcuts, not copies of the apps.
+`SplitAppIconSync` flips them off once the real app is installed, preventing duplicate icons.
 
 Usage: python3 scripts/gen-split-apps.py [--check]
 """
@@ -57,9 +57,10 @@ APP_META = {
     "notes": ("Notes.apk", "Notes / notepad with autosave"),
     "filemanager": ("Files.apk", "Two-pane file manager (copy / move / rename / zip)"),
     "wiredinternet": ("USB-Internet.apk", "Share your PC internet to the tablet over USB"),
+    "bluetoothinternet": ("Bluetooth-Internet.apk", "Share Wi-Fi over Bluetooth PAN, or receive tethered internet"),
     "packageinstaller": ("Package-Installer.apk", "APK installer with signature checks"),
     "pdfviewer": ("PDF-Reader.apk", "PDF reader with page jump + night mode"),
-    "weather": ("Weather.apk", "7-day forecast without any API key"),
+    "weather": ("Weather.apk", "48-hour + 14-day weather, saved cities, air quality, alerts, radar & widget"),
     "radiorss": ("Radio-Podcasts.apk", "Internet radio + podcast/RSS player"),
     "recorder": ("Voice-Recorder.apk", "Voice recorder with playback + share"),
     "arcade": ("Games.apk", "Built-in arcade games"),
@@ -72,17 +73,59 @@ APP_META = {
     "vpn": ("Wi-Fi-VPN.apk", "Wi-Fi fix, official Tailscale Google sign-in, VPN manager"),
 }
 
-# Extra manifest components each standalone app needs (activities / services / receivers).
-# Everything else is deliberately left out: 27 apps each booting the suite's networking
-# receivers would be brutal on a 2013 tablet.
+# Network engines and permissions belong to the APK making the request, never the suite.
+NETWORK_APPS = {
+    "browser", "ebookreader", "audioplayer", "clock", "calendar", "appmanager", "terminal",
+    "filemanager", "wiredinternet", "packageinstaller", "weather", "radiorss", "shield",
+    "secondscreen", "splitview", "dictionarywiki", "streamdeck", "vpn",
+}
+
+# Explicit permission allowlists; e.g. Calculator/Notes cannot open Internet sockets or a mic.
+APP_PERMISSIONS = {key: {"READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"} for key in APP_META}
+for key in NETWORK_APPS:
+    APP_PERMISSIONS[key].update(("INTERNET", "ACCESS_NETWORK_STATE"))
+for key in ("browser", "audioplayer", "radiorss", "secondscreen", "streamdeck", "filemanager",
+            "wiredinternet", "vpn", "bluetoothinternet"):
+    APP_PERMISSIONS[key].add("ACCESS_WIFI_STATE")
+for key in ("audioplayer", "radiorss", "recorder", "clock", "calendar", "secondscreen",
+            "streamdeck", "wiredinternet", "vpn", "ebookreader"):
+    APP_PERMISSIONS[key].add("WAKE_LOCK")
+for key in ("wiredinternet", "vpn", "bluetoothinternet"):
+    APP_PERMISSIONS[key].add("CHANGE_NETWORK_STATE")
+for key in ("wiredinternet", "vpn"):
+    APP_PERMISSIONS[key].add("CHANGE_WIFI_STATE")
+for key in ("filemanager", "streamdeck", "secondscreen"):
+    APP_PERMISSIONS[key].add("CHANGE_WIFI_MULTICAST_STATE")
+for key in ("clock", "calendar", "arcade"):
+    APP_PERMISSIONS[key].add("VIBRATE")
+for key in ("clock", "calendar"):
+    APP_PERMISSIONS[key].add("RECEIVE_BOOT_COMPLETED")
+for key in ("wallpaperpicker", "photos"):
+    APP_PERMISSIONS[key].update(("SET_WALLPAPER", "SET_WALLPAPER_HINTS"))
+APP_PERMISSIONS["camera"].update(("CAMERA", "RECORD_AUDIO", "WAKE_LOCK"))
+APP_PERMISSIONS["recorder"].add("RECORD_AUDIO")
+APP_PERMISSIONS["clock"].add("SET_TIME_ZONE")
+APP_PERMISSIONS["weather"].update(("ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "RECEIVE_BOOT_COMPLETED", "WAKE_LOCK"))
+APP_PERMISSIONS["bluetoothinternet"].update(("BLUETOOTH", "BLUETOOTH_ADMIN", "ACCESS_NETWORK_STATE"))
+
+# Only private support components of this app. Cross-app activities are launched via
+# SplitAppRouter, not copied into the caller's manifest/process/data directory.
 APP_EXTRAS = {
-    "browser": (("service", "Arc7TlsGatewayService"),),
-    "vpn": (("service", "Arc7TlsGatewayService"), ("service", "Arc7VpnService")),
-    "audioplayer": (("service", "Arc7AudioService"),),
+    "vpn": (("service", "Arc7VpnService"),),
+    "wiredinternet": (("service", "Arc7ChromebookUsbService"),),
+    "audioplayer": (("service", "Arc7AudioService"), ("receiver", "Arc7AudioWidgetProvider")),
     "radiorss": (("service", "Arc7AudioService"),),
     "recorder": (("service", "Arc7AudioService"),),
-    "clock": (("activity", "Arc7AlarmAlertActivity"), ("receiver", "Arc7AlarmReceiver")),
+    "clock": (("activity", "Arc7AlarmAlertActivity"), ("activity", "Arc7DeskClockActivity"),
+              ("receiver", "Arc7AlarmReceiver"), ("receiver", "Arc7ScheduleBootReceiver"),
+              ("receiver", "Arc7ClockWidgetProvider"), ("service", "Arc7AudioService")),
+    "calendar": (("activity", "Arc7AlarmAlertActivity"), ("receiver", "Arc7AlarmReceiver"),
+                 ("receiver", "Arc7ScheduleBootReceiver"), ("receiver", "Arc7CalendarWidgetProvider")),
+    "weather": (("receiver", "Arc7WeatherWidgetProvider"), ("receiver", "Arc7WeatherBootReceiver"),
+                ("service", "Arc7WeatherService")),
 }
+for key in NETWORK_APPS:
+    APP_EXTRAS[key] = APP_EXTRAS.get(key, ()) + (("service", "Arc7TlsGatewayService"),)
 
 SUITE_HEADER = """<?xml version="1.0" encoding="utf-8"?>
 <!--
@@ -93,7 +136,8 @@ SUITE_HEADER = """<?xml version="1.0" encoding="utf-8"?>
   Settings -> Apps, so it can be installed, updated and uninstalled on its own.
 
   Java classes are shared with the `Arc7 Freedom` suite (`ca.arc7freedom.app.*`), exactly
-  like the `YouTube` / `YouTube Music` split apps, so behaviour stays byte-identical.
+  like the `YouTube` / `YouTube Music` apps. Each APK runs under its OWN Android UID,
+  with its OWN network engine/ports and only its own permissions and support components.
   Do not edit by hand — re-run `python3 scripts/gen-split-apps.py`.
 -->
 """
@@ -160,10 +204,9 @@ def render_component(tag: str, src, *, name: str, override: dict | None = None,
         if child.tag in ("intent-filter",):
             continue
         if child.tag == "meta-data":
-            body.append(
-                f'<meta-data android:name="{attr(child, "name")}" '
-                f'android:value="{xml_escape(attr(child, "value"))}" />'
-            )
+            attributes = " ".join(f'android:{k.replace(NS, "")}="{xml_escape(v)}"'
+                                  for k, v in child.attrib.items())
+            body.append(f"<meta-data {attributes} />")
     if not body:
         lines[-1] += " />"
         return lines
@@ -173,41 +216,11 @@ def render_component(tag: str, src, *, name: str, override: dict | None = None,
     return lines
 
 
-def java_activity_closure() -> dict[str, set[str]]:
-    """Maps each activity class file to the `*Activity.class` names it references."""
-    refs: dict[str, set[str]] = {}
-    pat = re.compile(r"\b([A-Za-z0-9_]+Activity)\.class\b")
-    for fname in sorted(os.listdir(JAVA_DIR)):
-        if not fname.endswith("Activity.java"):
-            continue
-        with open(os.path.join(JAVA_DIR, fname), "r", encoding="utf-8", errors="replace") as fp:
-            body = fp.read()
-        refs[fname[:-5]] = set(pat.findall(body))
-    return refs
-
-
-def closure_for(root_cls: str, refs: dict[str, set[str]]) -> set[str]:
-    seen: set[str] = set()
-    stack = [root_cls]
-    while stack:
-        cur = stack.pop()
-        if cur in seen:
-            continue
-        seen.add(cur)
-        for nxt in refs.get(cur, ()):  # noqa: E501 - simple static closure
-            if nxt not in seen:
-                stack.append(nxt)
-    return seen
-
-
 def build_app(key: str, meta, version_code: str, version_name: str, target_activity,
-              by_class: dict, services, receivers, refs) -> str:
-    fname, _desc = meta
+              by_class: dict, services, receivers) -> str:
     pkg = f"ca.arc7freedom.{key}"
     label = attr(target_activity, "label") or key.title()
     icon = attr(target_activity, "icon") or "@drawable/ic_launcher"
-    root_cls = activity_label(attr(target_activity, "name"))
-    needed = closure_for(root_cls, refs)
 
     lines: list[str] = [SUITE_HEADER.format(label=xml_escape(label), pkg=pkg).rstrip()]
     lines.append(
@@ -223,12 +236,17 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     lines.append('    <uses-feature android:name="android.hardware.camera" android:required="false" />')
     lines.append('    <uses-feature android:name="android.hardware.microphone" android:required="false" />')
     lines.append("")
-    with open(SUITE_MANIFEST, "r", encoding="utf-8") as fp:
-        for line in fp:
-            if "<uses-permission" in line:
-                lines.append("    " + line.strip())
+    if key == "bluetoothinternet":
+        lines.append('    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />')
+    if key == "weather":
+        for feature in ("location", "location.gps", "location.network"):
+            lines.append(f'    <uses-feature android:name="android.hardware.{feature}" android:required="false" />')
+    for permission in sorted(APP_PERMISSIONS[key]):
+        lines.append(f'    <uses-permission android:name="android.permission.{permission}" />')
     lines.append("")
     lines.append("    <application")
+    lines.append('        android:name="ca.arc7freedom.app.Arc7Application"')
+    lines.append(f'        android:taskAffinity="{pkg}.task.main"')
     lines.append(f'        android:icon="{icon}"')
     lines.append(f'        android:label="{xml_escape(label)}"')
     lines.append('        android:hardwareAccelerated="true"')
@@ -245,18 +263,6 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     ), 8)
     lines.append("")
 
-    for cls in sorted(needed):
-        if cls == root_cls or cls not in by_class:
-            continue
-        act = by_class[cls]
-        lines += indent(render_component(
-            "activity", act,
-            name="ca.arc7freedom.app." + attr(act, "name").lstrip("."),
-            override={"exported": "false"},
-            keep_filters=False,
-        ), 8)
-        lines.append("")
-
     for tag, comp_name in APP_EXTRAS.get(key, ()):
         src = None
         if tag == "service":
@@ -272,8 +278,11 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
                 src = cand
                 break
         assert src is not None, f"{key}: {tag} {comp_name} missing from the suite manifest"
-        extra_override = ({"exported": "false", "taskAffinity": f"{pkg}.task.alarm"}
-                          if tag == "activity" else None)
+        extra_override = {"exported": "false"}
+        if tag == "activity":
+            extra_override["taskAffinity"] = f"{pkg}.task.{comp_name.lower()}"
+            if comp_name == "Arc7DeskClockActivity":
+                extra_override["exported"] = "true"  # suite dock/widget shortcut -> Clock APK
         lines += indent(render_component(
             tag, src,
             name="ca.arc7freedom.app." + comp_name,
@@ -305,9 +314,9 @@ def patch_suite_manifest(alias_entries: list[tuple[str, str, str, str, str]]) ->
         "<!--",
         "  Each default app now ships as its own installable APK (`releases/apps/<Name>.apk`,",
         "  packages `ca.arc7freedom.<key>`).  These aliases keep the old suite launcher entry",
-        "  AND its deep links alive ONLY while the standalone app is not installed;",
+        "  AND its deep links as installation-help shortcuts while the app is not installed;",
         "  `SplitAppIconSync` disables them as soon as the real app is present, so the launcher",
-        "  and the `Open with` chooser never show the same app twice.",
+        "  and the `Open with` chooser never show the same app twice. Aliases NEVER run suite copies.",
         "-->",
     ]
 
@@ -315,7 +324,7 @@ def patch_suite_manifest(alias_entries: list[tuple[str, str, str, str, str]]) ->
         alias = activity_label(act_name)
         block_lines += [
             f'<activity-alias android:name=".launch.{alias}"',
-            f'    android:targetActivity="{act_name}"',
+            '    android:targetActivity=".SplitAppLaunchActivity"',
             '    android:enabled="true"',
             '    android:exported="true"',
             f'    android:icon="{icon}"',
@@ -359,7 +368,7 @@ def write_java_keys(entries: list[tuple[str, str, str, str]]) -> None:
     """Generates `SplitApps.java` so `SplitAppIconSync` knows every alias <-> package pair."""
     path = os.path.join(JAVA_DIR, "SplitApps.java")
     rows = "\n".join(
-        f'            {{ ".launch.{activity_label(act)}", "ca.arc7freedom.{key}", "{label}" }},'
+        f'            {{ ".launch.{activity_label(act)}", "ca.arc7freedom.{key}", "{label}", "ca.arc7freedom.app.{act.lstrip(".")}" }},'
         for act, key, label, _icon in entries
     )
     body = f'''package ca.arc7freedom.app;
@@ -369,7 +378,7 @@ def write_java_keys(entries: list[tuple[str, str, str, str]]) -> None:
  *
  * One row per built-in app that now also ships as its own installable APK
  * (`releases/apps/<Name>.apk`, package `ca.arc7freedom.<key>`):
- * {{ activity alias in the suite, standalone package, human readable label }}.
+ * {{ activity alias in the suite, standalone package, human readable label, activity class }}.
  */
 final class SplitApps {{
 
@@ -383,20 +392,68 @@ final class SplitApps {{
     with open(path, "w", encoding="utf-8") as fp:
         fp.write(body)
 
+    launcher_path = os.path.join(ROOT, "launcher-android4/src/main/java/ca/arc7freedom/launcher/BuiltinApps.java")
+    launcher = """package ca.arc7freedom.launcher;
+
+import android.content.ComponentName;
+import android.content.Intent;
+
+/** GENERATED by scripts/gen-split-apps.py. Never route built-in shortcuts through the suite. */
+final class BuiltinApps {
+    private BuiltinApps() {}
+    private static final String[][] ALL = {
+""" + rows + """
+    };
+
+    /** Resolve management actions as well as launches, including old pinned suite aliases. */
+    static String managementPackage(String pkg, String cls) {
+        if (pkg == null) return null;
+        if (cls != null && cls.startsWith(".")) cls = pkg + cls;
+        if ("ca.arc7freedom.app".equals(pkg)
+                && "ca.arc7freedom.app.Arc7DeskClockActivity".equals(cls)) return "ca.arc7freedom.clock";
+        for (String[] row : ALL) {
+            if (("ca.arc7freedom.app".equals(pkg) || row[1].equals(pkg))
+                    && (row[3].equals(cls) || ("ca.arc7freedom.app" + row[0]).equals(cls))) return row[1];
+        }
+        return pkg;
+    }
+
+    static Intent route(Intent original) {
+        if (original == null || original.getComponent() == null) return original;
+        String pkg = original.getComponent().getPackageName();
+        String cls = original.getComponent().getClassName();
+        if (cls.startsWith(".")) cls = pkg + cls;
+        if ("ca.arc7freedom.app".equals(pkg)
+                && "ca.arc7freedom.app.Arc7DeskClockActivity".equals(cls)) {
+            return new Intent(original).setComponent(new ComponentName("ca.arc7freedom.clock", cls))
+                    .setPackage("ca.arc7freedom.clock");
+        }
+        for (String[] row : ALL) {
+            if (("ca.arc7freedom.app".equals(pkg) || row[1].equals(pkg))
+                    && (row[3].equals(cls) || ("ca.arc7freedom.app" + row[0]).equals(cls))) {
+                return new Intent(original).setComponent(new ComponentName(row[1], row[3])).setPackage(row[1]);
+            }
+        }
+        return original;
+    }
+}
+"""
+    with open(launcher_path, "w", encoding="utf-8") as fp:
+        fp.write(launcher)
+
 
 def main() -> None:
     tree = ET.parse(SUITE_MANIFEST)
     manifest = tree.getroot()
-    version_code = manifest.get(NS + "versionCode", "251")
-    version_name = manifest.get(NS + "versionName", "2.5.3")
+    version_code = manifest.get(NS + "versionCode", "254")
+    version_name = manifest.get(NS + "versionName", "2.5.4")
     android = manifest.find("application")
     assert android is not None
 
     all_activities = android.findall("activity")
-    by_class = {activity_label(attr(a, "name")): a for a in all_activities}
+    by_class = {attr(a, "name").lstrip("."): a for a in all_activities}
     services = android.findall("service")
     receivers = android.findall("receiver")
-    refs = java_activity_closure()
 
     # Sources of truth for "which apps to split":
     #   * activities that still carry a LAUNCHER filter (first run), and
@@ -405,6 +462,8 @@ def main() -> None:
     alias_by_target = {}
     for alias_el in android.findall("activity-alias"):
         target = attr(alias_el, "targetActivity")
+        if target == ".SplitAppLaunchActivity":
+            target = "." + attr(alias_el, "name").rsplit(".", 1)[-1] + "Activity"
         if target and not target.startswith(".launch"):
             alias_by_target[target] = alias_el
 
@@ -439,7 +498,7 @@ def main() -> None:
         icon = attr(src, "icon") or "@drawable/ic_launcher"
 
         text = build_app(key, APP_META[key], version_code, version_name,
-                         src, by_class, services, receivers, refs)
+                         src, by_class, services, receivers)
         out_dir = os.path.join(OUT_DIR, key)
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, "AndroidManifest.xml"), "w", encoding="utf-8") as fp:
@@ -448,6 +507,16 @@ def main() -> None:
         alias_entries.append((act_name, key, label, icon, render_filters(src)))
         java_entries.append((act_name, key, label, icon))
         generated.append((key, APP_META[key][0], label, APP_META[key][1]))
+
+    for act in all_activities:
+        act_name = attr(act, "name")
+        if act_name not in (".YouTubeActivity", ".YouTubeMusicActivity"):
+            continue
+        src = merged_source(act)
+        key = "youtube" if act_name == ".YouTubeActivity" else "ytmusic"
+        label, icon = attr(src, "label"), attr(src, "icon")
+        alias_entries.append((act_name, key, label, icon, render_filters(src)))
+        java_entries.append((act_name, key, label, icon))
 
     patch_suite_manifest(alias_entries)
     write_java_keys(java_entries)

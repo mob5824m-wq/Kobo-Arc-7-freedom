@@ -5,7 +5,6 @@ REM ============================================================================
 setlocal
 set "ROOT_DIR=%~dp0.."
 set "MAIN_APK=%ROOT_DIR%\releases\KoboArc7Freedom.apk"
-set "HOME_APK=%ROOT_DIR%\releases\VanillaAndroid4Home.apk"
 
 where adb >nul 2>nul
 if errorlevel 1 (
@@ -25,7 +24,7 @@ if not exist "%MAIN_APK%" (
 echo === Waiting for Kobo Arc 7 over USB ADB... ===
 adb wait-for-device
 
-echo === [1/3] Installing KoboArc7Freedom.apk ===
+echo === [1/2] Installing complete offline patch bundle in place ===
 adb install -r "%MAIN_APK%"
 if errorlevel 1 (
     echo [ERROR] APK installation failed.
@@ -33,17 +32,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if exist "%HOME_APK%" (
-    echo === [2/3] Installing VanillaAndroid4Home.apk ===
-    adb install -r "%HOME_APK%"
-)
-
-echo === [3/3] Launching Kobo Arc 7 Freedom directly over Kobo UI ===
-adb shell am start -n ca.arc7freedom.app/.MainActivity
+echo === [2/2] Opening shared Install / Repair All Patches pipeline ===
+adb shell am start -n ca.arc7freedom.app/.MainActivity --ez show_install_patches true
+if errorlevel 1 exit /b 1
 
 echo.
-echo SUCCESS! Look at your Kobo Arc 7 tablet screen now:
-echo   1. Tap "ROOT TABLET NOW" in Tab 1
-echo   2. Back up your stock Kobo OS to microSD in Tab 2
-echo   3. Convert to Clean Stock Android 4.2 in Tab 3!
+echo Suite installed. Check Install / Repair All Patches on the tablet.
+echo   Rooted: bundled Home, stores, media and all 28 default apps update automatically.
+echo   No root: use Install pending apps and confirm each APK in Android.
+echo   Signing/storage/root restrictions stay pending; no automatic uninstall or wipe.
 pause

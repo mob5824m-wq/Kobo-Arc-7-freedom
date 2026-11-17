@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v2.5.3 — Reproducible Android 4.2.2 (API 17 / DEX 035) release build
+# Kobo Arc 7 Freedom v2.5.4 — Reproducible Android 4.2.2 (API 17 / DEX 035) release build
 #
 # `scripts/build-all.sh` builds and signs the complete release set:
 #   1. Generates the offline CA bundle, app icons, split-app manifests, and patched F-Droid APK.
 #   2. Cross-compiles the static ARMv7 root, TLS, VPN, Python, apt, and partition utilities.
-#   3. Builds Home, Aurora Store, VLC fallback, YouTube, YouTube Music, 27 default-app APKs,
+#   3. Builds Home, Aurora Store, VLC fallback, YouTube, YouTube Music, 28 default-app APKs,
 #      Arc7 Freedom, and the 1-tap upgrader with the permanent v1/v2/v3 release certificate.
 #   4. Generates the local Wi-Fi release portal and `releases/SHA256SUMS.txt`.
 #
@@ -17,21 +17,30 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+# bootstrap-toolchain.sh accepts the same override. Prefer /opt on CI, otherwise
+# reuse a repository-local install (no writable /opt or global PATH changes required).
+if [ -z "${TOOLCHAIN_DIR:-}" ]; then
+    if [ -x /opt/toolchain/jdk/bin/java ]; then
+        TOOLCHAIN_DIR=/opt/toolchain
+    else
+        TOOLCHAIN_DIR="$ROOT_DIR/build/toolchain"
+    fi
+fi
+SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$TOOLCHAIN_DIR/sdk}}"
 LATEST_BUILD_TOOLS=""
 if [ -n "$SDK_ROOT" ] && [ -d "$SDK_ROOT/build-tools" ]; then
     LATEST_BUILD_TOOLS="$(ls -1d "$SDK_ROOT"/build-tools/* 2>/dev/null | sort -V | tail -n 1 || true)"
 fi
 
-if [ -d "/opt/toolchain/lib64" ]; then
-    export LD_LIBRARY_PATH="/opt/toolchain/lib64:${LD_LIBRARY_PATH:-}"
+if [ -d "$TOOLCHAIN_DIR/lib64" ]; then
+    export LD_LIBRARY_PATH="$TOOLCHAIN_DIR/lib64:${LD_LIBRARY_PATH:-}"
 fi
 
 # Resolve JDK tools
-if [ -x "/opt/toolchain/jdk/bin/java" ]; then
-    JAVA_BIN="${JAVA:-/opt/toolchain/jdk/bin/java}"
-    JAVAC_BIN="${JAVAC:-/opt/toolchain/jdk/bin/javac}"
-    KEYTOOL_BIN="${KEYTOOL:-/opt/toolchain/jdk/bin/keytool}"
+if [ -x "$TOOLCHAIN_DIR/jdk/bin/java" ]; then
+    JAVA_BIN="${JAVA:-$TOOLCHAIN_DIR/jdk/bin/java}"
+    JAVAC_BIN="${JAVAC:-$TOOLCHAIN_DIR/jdk/bin/javac}"
+    KEYTOOL_BIN="${KEYTOOL:-$TOOLCHAIN_DIR/jdk/bin/keytool}"
 else
     JAVA_BIN="${JAVA:-java}"
     JAVAC_BIN="${JAVAC:-javac}"
@@ -39,9 +48,9 @@ else
 fi
 
 # Resolve Android SDK tools (aapt2, zipalign, android.jar, d8/dfoda, apksigner)
-if [ -x "/opt/toolchain/bin/aapt2" ]; then
-    AAPT2="${AAPT2:-/opt/toolchain/bin/aapt2}"
-    ZIPALIGN="${ZIPALIGN:-/opt/toolchain/bin/zipalign}"
+if [ -x "$TOOLCHAIN_DIR/bin/aapt2" ]; then
+    AAPT2="${AAPT2:-$TOOLCHAIN_DIR/bin/aapt2}"
+    ZIPALIGN="${ZIPALIGN:-$TOOLCHAIN_DIR/bin/zipalign}"
 elif [ -n "$LATEST_BUILD_TOOLS" ]; then
     AAPT2="${AAPT2:-$LATEST_BUILD_TOOLS/aapt2}"
     ZIPALIGN="${ZIPALIGN:-$LATEST_BUILD_TOOLS/zipalign}"
@@ -50,8 +59,8 @@ else
     ZIPALIGN="${ZIPALIGN:-zipalign}"
 fi
 
-if [ -f "/opt/toolchain/sdk/platforms/android-17/android.jar" ]; then
-    ANDROID_JAR="${ANDROID_JAR:-/opt/toolchain/sdk/platforms/android-17/android.jar}"
+if [ -f "$TOOLCHAIN_DIR/sdk/platforms/android-17/android.jar" ]; then
+    ANDROID_JAR="${ANDROID_JAR:-$TOOLCHAIN_DIR/sdk/platforms/android-17/android.jar}"
 elif [ -n "$SDK_ROOT" ] && [ -f "$SDK_ROOT/platforms/android-17/android.jar" ]; then
     ANDROID_JAR="${ANDROID_JAR:-$SDK_ROOT/platforms/android-17/android.jar}"
 else
@@ -61,25 +70,25 @@ fi
 
 D8_BIN=""
 D8_JAR=""
-if [ -x "/opt/toolchain/sdk/build-tools/34.0.0/d8" ]; then
-    D8_BIN="/opt/toolchain/sdk/build-tools/34.0.0/d8"
+if [ -x "$TOOLCHAIN_DIR/sdk/build-tools/34.0.0/d8" ]; then
+    D8_BIN="$TOOLCHAIN_DIR/sdk/build-tools/34.0.0/d8"
 elif [ -n "$LATEST_BUILD_TOOLS" ] && [ -x "$LATEST_BUILD_TOOLS/d8" ]; then
     D8_BIN="$LATEST_BUILD_TOOLS/d8"
-elif [ -f "/opt/toolchain/jars/d8.jar" ]; then
-    D8_JAR="/opt/toolchain/jars/d8.jar"
+elif [ -f "$TOOLCHAIN_DIR/jars/d8.jar" ]; then
+    D8_JAR="$TOOLCHAIN_DIR/jars/d8.jar"
 fi
 
-if [ -f "/opt/toolchain/jars/ecj-3.45.0.jar" ]; then
-    ECJ="${ECJ:-/opt/toolchain/jars/ecj-3.45.0.jar}"
+if [ -f "$TOOLCHAIN_DIR/jars/ecj-3.45.0.jar" ]; then
+    ECJ="${ECJ:-$TOOLCHAIN_DIR/jars/ecj-3.45.0.jar}"
 else
-    ECJ="${ECJ:-/opt/toolchain/jars/ecj-4.8.jar}"
+    ECJ="${ECJ:-$TOOLCHAIN_DIR/jars/ecj-4.8.jar}"
 fi
-DFODA="${DFODA:-/opt/toolchain/jars/dfoda0.0.9.jar}"
+DFODA="${DFODA:-$TOOLCHAIN_DIR/jars/dfoda0.0.9.jar}"
 
-if [ -f "/opt/toolchain/jars/apksigner.jar" ]; then
-    APKSIGNER_JAR="${APKSIGNER:-/opt/toolchain/jars/apksigner.jar}"
-elif [ -f "/opt/toolchain/sdk/build-tools/34.0.0/lib/apksigner.jar" ]; then
-    APKSIGNER_JAR="${APKSIGNER:-/opt/toolchain/sdk/build-tools/34.0.0/lib/apksigner.jar}"
+if [ -f "$TOOLCHAIN_DIR/jars/apksigner.jar" ]; then
+    APKSIGNER_JAR="${APKSIGNER:-$TOOLCHAIN_DIR/jars/apksigner.jar}"
+elif [ -f "$TOOLCHAIN_DIR/sdk/build-tools/34.0.0/lib/apksigner.jar" ]; then
+    APKSIGNER_JAR="${APKSIGNER:-$TOOLCHAIN_DIR/sdk/build-tools/34.0.0/lib/apksigner.jar}"
 elif [ -n "$LATEST_BUILD_TOOLS" ] && [ -f "$LATEST_BUILD_TOOLS/lib/apksigner.jar" ]; then
     APKSIGNER_JAR="${APKSIGNER:-$LATEST_BUILD_TOOLS/lib/apksigner.jar}"
 else
@@ -87,9 +96,12 @@ else
     exit 1
 fi
 
+# The F-Droid subprocess compiles the same common Java transport with these tools.
+export ECJ D8_JAR ANDROID_JAR
+
 # Resolve Python & Zig C cross-compiler
-if [ -x "/opt/toolchain/venv/bin/python" ]; then
-    PY_BIN="/opt/toolchain/venv/bin/python"
+if [ -x "$TOOLCHAIN_DIR/venv/bin/python" ]; then
+    PY_BIN="$TOOLCHAIN_DIR/venv/bin/python"
 else
     PY_BIN="${PYTHON:-python3}"
 fi
@@ -152,47 +164,10 @@ compile_java_and_dex() {
     fi
 }
 
-echo "==> [1/7] Pre-packaging offline 2026 CAs, patching F-Droid Classic TLS 1.3 Index Bridge & icons..."
+echo "==> [1/7] Pre-packaging offline 2026 CAs & icons..."
 "$PY_BIN" scripts/generate-cacerts.py
 "$PY_BIN" scripts/generate-icons.py
 
-mkdir -p app/src/main/assets/starter-apps
-FDROID_RAW="/tmp/fdroid-upstream-raw.apk"
-FDROID_APK="app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"
-FDROID_URL="https://github.com/Smu1zel/fdroidclassiclegacy/releases/download/v1.3-beta2-PATCH/app-debug.apk"
-if [ ! -s "$FDROID_RAW" ]; then
-    echo "    Fetching upstream F-Droid Classic Legacy base APK..."
-    if ! curl -fsSL "$FDROID_URL" -o "$FDROID_RAW" 2>/dev/null; then
-        cp -f "$FDROID_APK" "$FDROID_RAW"
-    fi
-fi
-cp -f "$FDROID_RAW" "$FDROID_APK"
-"$PY_BIN" scripts/patch-fdroid-apk.py \
-    "$FDROID_APK" \
-    "$ZIPALIGN" \
-    "$JAVA_BIN" \
-    "$APKSIGNER_JAR" \
-    "$KEYSTORE_PATH" \
-    "$KEYSTORE_PASS" \
-    "$KEYSTORE_ALIAS"
-# Fail the installer build if it would bundle an upstream/stale F-Droid APK instead of the
-# result of the current patch step (disk-backed two-pass index parser + heap-safe updates).
-"$PY_BIN" - "$FDROID_APK" <<'PYFDROIDCHECK'
-import sys, zipfile
-apk = sys.argv[1]
-markers = (b"processIndexV1Streaming", b"dl-arc7-index-v1-", b"512 MiB safety limit")
-with zipfile.ZipFile(apk, "r") as zf:
-    dex_names = sorted(n for n in zf.namelist()
-                       if n == "classes.dex" or (n.startswith("classes") and n.endswith(".dex")))
-    if not dex_names:
-        raise SystemExit("F-Droid patch check failed: no DEX files in APK")
-    dex_files = [zf.read(n) for n in dex_names]
-missing = [m.decode("ascii") for m in markers if not any(m in dex for dex in dex_files)]
-if missing:
-    raise SystemExit("F-Droid patch check failed; installer would bundle unpatched APK: " + ", ".join(missing))
-print("Verified installer F-Droid payload has the low-memory streaming patch:", apk)
-PYFDROIDCHECK
-ls -lh "$FDROID_APK"
 
 echo "==> [2/7] Cross-compiling static ARMv7 EABI5 native binaries (su, arc7root, arc7tool, arc7tls w/ BearSSL+MbedTLS)..."
 if [ ! -d "$ZLIB_DIR" ]; then
@@ -367,8 +342,53 @@ $ZIG_CMD cc $CFLAGS_ARM -ffunction-sections -fdata-sections -Wl,--gc-sections \
 cp build/native/armeabi-v7a/*.so build/native/armeabi/
 
 
+# Companion stores run their OWN TLS processes. Build their engine first, then inject it
+# into F-Droid; fresh builds must never require a previously installed suite gateway.
+mkdir -p build/companion-tls/assets/cacerts build/companion-tls/lib/armeabi-v7a build/companion-tls/lib/armeabi
+cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt build/companion-tls/assets/cacerts/
+cp -f build/native/armeabi-v7a/libarc7tls.so build/companion-tls/lib/armeabi-v7a/
+cp -f build/native/armeabi/libarc7tls.so build/companion-tls/lib/armeabi/
+
+mkdir -p app/src/main/assets/starter-apps
+FDROID_RAW="/tmp/fdroid-upstream-raw.apk"
+FDROID_APK="app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"
+FDROID_URL="https://github.com/Smu1zel/fdroidclassiclegacy/releases/download/v1.3-beta2-PATCH/app-debug.apk"
+if [ ! -s "$FDROID_RAW" ]; then
+    echo "    Fetching upstream F-Droid Classic Legacy base APK..."
+    if ! curl -fsSL "$FDROID_URL" -o "$FDROID_RAW" 2>/dev/null; then
+        cp -f "$FDROID_APK" "$FDROID_RAW"
+    fi
+fi
+cp -f "$FDROID_RAW" "$FDROID_APK"
+"$PY_BIN" scripts/patch-fdroid-apk.py \
+    "$FDROID_APK" \
+    "$ZIPALIGN" \
+    "$JAVA_BIN" \
+    "$APKSIGNER_JAR" \
+    "$KEYSTORE_PATH" \
+    "$KEYSTORE_PASS" \
+    "$KEYSTORE_ALIAS"
+# Fail the installer build if it would bundle an upstream/stale F-Droid APK instead of the
+# result of the current patch step (disk-backed two-pass index parser + heap-safe updates).
+"$PY_BIN" - "$FDROID_APK" <<'PYFDROIDCHECK'
+import sys, zipfile
+apk = sys.argv[1]
+markers = (b"processIndexV1Streaming", b"dl-arc7-index-v1-", b"512 MiB safety limit")
+with zipfile.ZipFile(apk, "r") as zf:
+    dex_names = sorted(n for n in zf.namelist()
+                       if n == "classes.dex" or (n.startswith("classes") and n.endswith(".dex")))
+    if not dex_names:
+        raise SystemExit("F-Droid patch check failed: no DEX files in APK")
+    dex_files = [zf.read(n) for n in dex_names]
+missing = [m.decode("ascii") for m in markers if not any(m in dex for dex in dex_files)]
+if missing:
+    raise SystemExit("F-Droid patch check failed; installer would bundle unpatched APK: " + ", ".join(missing))
+print("Verified installer F-Droid payload has the low-memory streaming patch:", apk)
+PYFDROIDCHECK
+ls -lh "$FDROID_APK"
+
 # ------------------------------------------------------------------------------
-# Standalone "truly separate app" builder (v2.5.3)
+# Standalone "truly separate app" builder (v2.5.4)
 #
 # Every custom app that used to be just an extra <activity> inside the suite package is now
 # built as its OWN signed APK with its own package id, launcher label/icon and task stack:
@@ -385,8 +405,8 @@ build_standalone_app() {
     mkdir -p "$work/res_compiled" "$work/gen" "$work/classes" "$work/dex" \
              "$work/assets/cacerts" "$work/stage/lib/armeabi-v7a" "$work/stage/lib/armeabi"
 
-    cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/" 2>/dev/null || true
-    cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/" 2>/dev/null || true
+    cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
+    cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -411,8 +431,8 @@ build_standalone_app() {
         "$work/gen/ca/arc7freedom/app/R.java" \
         app/src/main/java/ca/arc7freedom/app/*.java
 
-    cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/" 2>/dev/null || true
-    cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/" 2>/dev/null || true
+    cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/"
+    cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/"
 
     (cd "$work/dex" && zip -qj ../unsigned.apk classes.dex)
     if [ -d "$work/stage/lib" ]; then
@@ -435,10 +455,10 @@ build_standalone_app() {
 }
 
 build_default_split_apps() {
-    # 27 separately installable default apps (Browser, Clock, Calculator, …).
+    # 28 separately installable default apps (Browser, Clock, Calculator, …).
     #
     # The shared Java sources are compiled to ONE `classes.dex`; every app then only pays for
-    # one `aapt2 link` + zip + signature, so publishing all 27 stays fast.
+    # one `aapt2 link` + zip + signature, so publishing all 28 stays fast.
     local repo_root="$PWD"
     local work="build/split-defaults"
     rm -rf "$work"
@@ -446,8 +466,8 @@ build_default_split_apps() {
              "$work/assets/cacerts" "$work/stage/lib/armeabi-v7a" "$work/stage/lib/armeabi" \
              releases/apps
 
-    cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/" 2>/dev/null || true
-    cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/" 2>/dev/null || true
+    cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
+    cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -475,12 +495,13 @@ build_default_split_apps() {
         "$work/gen/ca/arc7freedom/app/R.java" \
         app/src/main/java/ca/arc7freedom/app/*.java
 
-    cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/" 2>/dev/null || true
-    cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/" 2>/dev/null || true
+    cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/"
+    cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/"
 
     # Apps that actually speak TLS need the local `libarc7tls.so` gateway + the 2026 CA store;
-    # Calculator / Notes / Clock / Photos / … stay tiny without them.
-    local network_apps=" browser vpn terminal appmanager streamdeck secondscreen weather radiorss dictionarywiki ebookreader packageinstaller audioplayer filemanager "
+    # Calculator / Notes / Photos / … stay tiny without them.
+    local network_apps
+    network_apps=" $("$PY_BIN" -c 'import runpy; print(" ".join(sorted(runpy.run_path("scripts/gen-split-apps.py")["NETWORK_APPS"])))') "
     local empty_assets="$work/empty_assets"
     mkdir -p "$empty_assets"
 
@@ -488,7 +509,7 @@ build_default_split_apps() {
     while IFS=$'\t' read -r key fname label desc; do
         [ -n "$key" ] || continue
         local manifest="split-apps/$key/AndroidManifest.xml"
-        [ -f "$manifest" ] || { echo "    MISSING $manifest"; continue; }
+        [ -f "$manifest" ] || { echo "ERROR: Missing $manifest"; return 1; }
         rm -f "$work/app-unsigned.apk" "$work/app-aligned.apk"
         local assets_dir="$work/assets"
         local with_libs=1
@@ -508,8 +529,16 @@ build_default_split_apps() {
             "$work/res_compiled/res.zip"
         (cd "$work/dex" && zip -qj "$repo_root/$work/app-unsigned.apk" classes.dex)
         if [ "$with_libs" -eq 1 ]; then
-            (cd "$work/stage" && zip -qr -0 "$repo_root/$work/app-unsigned.apk" lib 2>/dev/null || true)
+            (cd "$work/stage" && zip -qr -0 "$repo_root/$work/app-unsigned.apk" lib)
         fi
+        local helper
+        for helper in $("$PY_BIN" -c 'import sys; print("libarc7vpn.so" if sys.argv[1] == "vpn" else "libarc7py3.so libarc7apt.so libarc7root.so libarc7su.so libarc7tool.so" if sys.argv[1] == "terminal" else "")' "$key"); do
+            for abi in armeabi-v7a armeabi; do
+                mkdir -p "$work/helpers/lib/$abi"
+                cp -f "build/native/$abi/$helper" "$work/helpers/lib/$abi/"
+                (cd "$work/helpers" && zip -q -0 "$repo_root/$work/app-unsigned.apk" "lib/$abi/$helper")
+            done
+        done
         "$ZIPALIGN" -f -p 4 "$work/app-unsigned.apk" "$work/app-aligned.apk"
         "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
             --ks "$KEYSTORE_PATH" \
@@ -568,6 +597,7 @@ rm -rf build/aurora && mkdir -p build/aurora/{res_compiled,gen,classes,dex}
 "$AAPT2" link \
     -I "$ANDROID_JAR" \
     --manifest aurora-store/src/main/AndroidManifest.xml \
+    -A build/companion-tls/assets \
     --java build/aurora/gen \
     --min-sdk-version 15 \
     --target-sdk-version 17 \
@@ -579,9 +609,11 @@ compile_java_and_dex \
     build/aurora/classes \
     build/aurora/dex \
     build/aurora/gen/com/aurora/store/R.java \
-    aurora-store/src/main/java/com/aurora/store/*.java
+    aurora-store/src/main/java/com/aurora/store/*.java \
+    common/src/main/java/ca/arc7freedom/net/*.java
 
 (cd build/aurora/dex && zip -qj ../unsigned.apk classes.dex)
+(cd build/companion-tls && zip -qr -0 ../aurora/unsigned.apk lib)
 "$ZIPALIGN" -f -p 4 build/aurora/unsigned.apk build/aurora/aligned.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
@@ -602,7 +634,7 @@ mkdir -p app/src/main/assets/starter-apps
 cp -f releases/YouTube.apk app/src/main/assets/starter-apps/YouTube.apk
 cp -f releases/YouTubeMusic.apk app/src/main/assets/starter-apps/YouTubeMusic.apk
 
-echo "==> [3c/9] Building 27 separately installable default apps (releases/apps/*.apk)..."
+echo "==> [3c/9] Building 28 separately installable default apps (releases/apps/*.apk)..."
 "$PY_BIN" scripts/gen-split-apps.py
 build_default_split_apps
 
@@ -629,6 +661,7 @@ if [ "$VLC_RC" -ne 0 ]; then
     "$AAPT2" link \
         -I "$ANDROID_JAR" \
         --manifest vlc-player/src/main/AndroidManifest.xml \
+        -A build/companion-tls/assets \
         --java build/vlc/gen \
         --min-sdk-version 15 \
         --target-sdk-version 17 \
@@ -639,8 +672,10 @@ if [ "$VLC_RC" -ne 0 ]; then
         build/vlc/classes \
         build/vlc/dex \
         build/vlc/gen/org/videolan/vlc/R.java \
-        vlc-player/src/main/java/org/videolan/vlc/*.java
+        vlc-player/src/main/java/org/videolan/vlc/*.java \
+        common/src/main/java/ca/arc7freedom/net/*.java
     (cd build/vlc/dex && zip -qj ../unsigned.apk classes.dex)
+    (cd build/companion-tls && zip -qr -0 ../vlc/unsigned.apk lib)
     "$ZIPALIGN" -f -p 4 build/vlc/unsigned.apk build/vlc/aligned.apk
     "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
         --ks "$KEYSTORE_PATH" \
@@ -666,7 +701,11 @@ cp -f tools/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-Stre
 cp -f tools/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.3 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1304 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
+# One offline, hash-verified catalog for every install path, including all 28 defaults.
+# Shared ZIP-entry bytes are stored once; installed APKs remain fully independent.
+"$PY_BIN" scripts/bundle-maintenance.py
+
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.5.4 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1305 (largeHeap + Throwable sync catch) + Launcher v55 + VLC)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -706,7 +745,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building 1-Tap Signature-Conflict-Free Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.3.apk)..."
+echo "==> [6/8] Building data-preserving in-place Root Upgrader (releases/Upgrade-My-Kobo-To-v2.5.4.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -726,11 +765,12 @@ compile_java_and_dex \
     build/upgrader/classes \
     build/upgrader/dex \
     build/upgrader/gen/ca/arc7freedom/upgrader/R.java \
-    upgrader/src/main/java/ca/arc7freedom/upgrader/*.java
+    upgrader/src/main/java/ca/arc7freedom/upgrader/*.java \
+    app/src/main/java/ca/arc7freedom/app/BundledApk.java
 
 (cd build/upgrader/dex && zip -qj ../unsigned.apk classes.dex)
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
-rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.apk releases/Upgrade-My-Kobo-To-v2.1.*.apk releases/Upgrade-My-Kobo-To-v2.2.*.apk releases/Upgrade-My-Kobo-To-v2.3.*.apk releases/Upgrade-My-Kobo-To-v2.4.*.apk
+rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.apk releases/Upgrade-My-Kobo-To-v2.1.*.apk releases/Upgrade-My-Kobo-To-v2.2.*.apk releases/Upgrade-My-Kobo-To-v2.3.*.apk releases/Upgrade-My-Kobo-To-v2.4.*.apk releases/Upgrade-My-Kobo-To-v2.5.3.apk
 "$JAVA_BIN" -jar "$APKSIGNER_JAR" sign \
     --ks "$KEYSTORE_PATH" \
     --ks-pass "pass:$KEYSTORE_PASS" \
@@ -740,7 +780,7 @@ rm -f releases/Upgrade-My-Kobo-To-v1.*.apk releases/Upgrade-My-Kobo-To-v2.0.*.ap
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v2.5.3.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.5.4.apk \
     build/upgrader/aligned.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
@@ -750,7 +790,7 @@ rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v2.5.3.apk \
+    Upgrade-My-Kobo-To-v2.5.4.apk \
     KoboArc7Freedom.apk \
     YouTube.apk \
     YouTubeMusic.apk \
@@ -772,7 +812,7 @@ chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Interne
     Start-Kobo-WiFi-Server.bat \
     Start-Kobo-WiFi-Server.sh) >> releases/SHA256SUMS.txt
 (cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
-# Fold the 27 standalone-app hashes into the top-level checksum file so a single
+# Fold the 28 standalone-app hashes into the top-level checksum file so a single
 # releases/latest/download/SHA256SUMS.txt verifies the whole release.
 (cd releases/apps && sha256sum *.apk) >> releases/SHA256SUMS.txt
 python3 - <<'PYCHECK'
@@ -791,12 +831,12 @@ for name in sorted(os.listdir(os.path.join(root, "apps"))):
         bad.append(name)
 if bad:
     raise SystemExit(f"checksum mismatch for {bad}")
-print(f"Verified {len(sums)} release checksums (incl. 27 standalone apps)")
+print(f"Verified {len(sums)} release checksums (incl. 28 standalone apps)")
 PYCHECK
 
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v2.5.3.apk \
+    releases/Upgrade-My-Kobo-To-v2.5.4.apk \
     releases/KoboArc7Freedom.apk \
     releases/YouTube.apk \
     releases/YouTubeMusic.apk \

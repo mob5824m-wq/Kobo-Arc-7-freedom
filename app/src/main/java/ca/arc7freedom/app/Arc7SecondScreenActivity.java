@@ -39,7 +39,7 @@ import java.util.Locale;
  *     `tools/Start-Kobo-Second-Screen.py`!
  *   - **Mode 2 — 12-Key Touch Macro Pad:** Instant hardware/desktop shortcut triggers!
  */
-public class Arc7SecondScreenActivity extends Activity {
+public class Arc7SecondScreenActivity extends Arc7Activity {
 
     public static final int PORT = 18900;
 

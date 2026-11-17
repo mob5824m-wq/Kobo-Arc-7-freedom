@@ -49,7 +49,7 @@ import java.util.Map;
  *     HTTP-CONNECT Proxy VPN, WireGuard `.conf` importer + Curve25519 Keygen, OpenVPN `.ovpn` importer,
  *     and Root `iptables` Kill Switch!
  */
-public class Arc7VpnActivity extends Activity {
+public class Arc7VpnActivity extends Arc7Activity {
 
     private static final int REQ_VPN_PERMISSION = 7201;
 
@@ -164,6 +164,17 @@ public class Arc7VpnActivity extends Activity {
     /* ==================== TAB 1: SCHOOL STRICT WI-FI FIXER ==================== */
 
     private void buildSchoolWifiTab() {
+        LinearLayout bluetoothCard = makeCard();
+        bluetoothCard.addView(sectionTitle("Bluetooth Internet — share or receive Wi-Fi"));
+        Button bluetoothButton = Arc7Skin.actionButton(this, "Open Bluetooth Internet", 0xFF2563EB);
+        bluetoothButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(new Intent(Arc7VpnActivity.this, Arc7BluetoothInternetActivity.class));
+            }
+        });
+        bluetoothCard.addView(bluetoothButton);
+        contentPane.addView(bluetoothCard);
+
         LinearLayout card1 = makeCard();
         card1.addView(sectionTitle("1. Why Your School Wi-Fi Isn't Showing Up — Live Radio Scan & Instant Fix"));
         final TextView reportTv = monoBox(Arc7SchoolWifiHelper.buildLiveSchoolWifiDiagnosticReport(this));

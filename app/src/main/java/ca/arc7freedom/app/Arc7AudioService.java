@@ -35,7 +35,7 @@ import java.util.Locale;
 
 /**
  * Universal Background Screen-Off Music, YouTube Music (Morphe), YouTube Background Audio,
- * Live Internet Radio, Audiobook & System-Wide Media Notification Service (`v2.4.0`).
+ * Live Internet Radio, Audiobook & Owned Media Notification Service (`v2.4.0`).
  */
 public class Arc7AudioService extends Service {
 
@@ -85,6 +85,7 @@ public class Arc7AudioService extends Service {
     private final IBinder binder = new LocalBinder();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private MediaPlayer player;
+    private volatile boolean playerPrepared = false;
     private WifiManager.WifiLock wifiLock;
     private Equalizer equalizer;
     private BassBoost bassBoost;
@@ -101,6 +102,11 @@ public class Arc7AudioService extends Service {
     private int repeatMode = REPEAT_OFF;
     private final List<MorpheEngine.SkipSegment> activeSkipSegments = new ArrayList<MorpheEngine.SkipSegment>();
     private volatile boolean resolvingMorpheTrack = false;
+    private volatile String playbackStatus = "";
+    private int playbackGeneration;
+    private Thread resolutionThread;
+    private String activeDataSource = "";
+    private Runnable prepareTimeout;
 
     private String activeStreamTitle = null;
     private String activeStreamArtist = "";
@@ -127,11 +133,9 @@ public class Arc7AudioService extends Service {
             if (isPlaying()) {
                 publishOwnPlaybackState(true);
             } else {
-                // Detect any external app audio (`VLC`, browser HTML5, games, etc.) automatically!
-                boolean ext = NowPlayingManager.syncExternalAudioIfNeeded(getApplicationContext(), false);
-                if (ext || NowPlayingManager.getSnapshot(null).active) {
-                    updateMediaNotificationFromSnapshot();
-                }
+                // External metadata is for Clock/widgets only. Never mirror another APK's notification.
+                NowPlayingManager.syncExternalAudioIfNeeded(getApplicationContext(), false);
+                updateMediaNotificationFromSnapshot();
             }
             handler.postDelayed(this, 1000L);
         }
@@ -204,6 +208,8 @@ public class Arc7AudioService extends Service {
             registerReceiver(externalMediaReceiver, f);
         } catch (Throwable ignored) {}
 
+        // Remove a notification left by a pre-fix watcher or a killed playback process.
+        updateMediaNotificationFromSnapshot();
         handler.postDelayed(checkpointTask, 1000L);
     }
 
@@ -284,7 +290,8 @@ public class Arc7AudioService extends Service {
             NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (nm == null) return;
 
-            if (!snap.active) {
+            if (!MediaNotificationPolicy.mayPost(getPackageName(), snap.sourcePkg, snap.active,
+                    playerPrepared, NowPlayingManager.isYouTubeForegroundVideoActive())) {
                 if (foregroundActive) {
                     foregroundActive = false;
                     stopForeground(true);
@@ -370,8 +377,12 @@ public class Arc7AudioService extends Service {
             }
 
             if (snap.playing) {
-                startForeground(NOTIF_ID_MEDIA, n);
-                foregroundActive = true;
+                if (!foregroundActive) {
+                    startForeground(NOTIF_ID_MEDIA, n);
+                    foregroundActive = true;
+                } else {
+                    nm.notify(NOTIF_ID_MEDIA, n);
+                }
             } else {
                 if (foregroundActive) {
                     foregroundActive = false;
@@ -416,6 +427,10 @@ public class Arc7AudioService extends Service {
     }
 
     public synchronized void stopAndDismissNotification() {
+        ++playbackGeneration;
+        if (resolutionThread != null) resolutionThread.interrupt();
+        resolvingMorpheTrack = false;
+        playbackStatus = "Stopped";
         pausePlayback();
         releasePlayer();
         morpheIndex = -1;
@@ -483,89 +498,89 @@ public class Arc7AudioService extends Service {
 
     public void startMorpheQueueAt(final int idx) {
         final MorpheEngine.MediaItem item;
+        final int request;
+        final String source, launch;
         synchronized (this) {
             if (idx < 0 || idx >= morpheQueue.size()) return;
-            morpheIndex = idx;
-            currentIndex = -1;
+            request = ++playbackGeneration;
+            if (resolutionThread != null) resolutionThread.interrupt();
+            saveCurrentPosition(); releasePlayer();
+            morpheIndex = idx; currentIndex = -1;
             item = morpheQueue.get(idx);
+            source = activeSourceApp; launch = activeLaunchClass;
             activeStreamTitle = item.title;
             activeStreamArtist = item.author != null ? item.author : "";
             activeArtworkUrl = item.bestThumb();
             activeSkipSegments.clear();
+            resolvingMorpheTrack = true;
+            playbackStatus = "Resolving playable audio...";
+            publishOwnPlaybackState(false);
         }
-        resolvingMorpheTrack = true;
-        publishOwnPlaybackState(true);
-
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
+        resolutionThread = new Thread(new Runnable() {
+            @Override public void run() {
                 try {
-                    // Play downloaded offline `.m4a` / `.mp4` instantly if present!
                     if (item.localFilePath != null && item.localFilePath.length() > 0
                             && new File(item.localFilePath).exists()) {
-                        resolvingMorpheTrack = false;
                         playPreparedDataSource(item.localFilePath, item.title, item.author,
-                                activeSourceApp, item.bestThumb(), activeLaunchClass, true);
+                                source, item.bestThumb(), launch, true, request);
                         return;
                     }
                     final MorpheEngine.ResolvedPlayback res = MorpheEngine.resolveStreams(
-                            getApplicationContext(), item.videoId, true, null);
-                    if (res.author != null && res.author.length() > 0 && item.author.length() == 0) {
-                        item.author = res.author;
+                            getApplicationContext(), item.videoId, true, new MorpheEngine.ResolutionProgressListener() {
+                                @Override public void onProgress(String message) {
+                                    synchronized (Arc7AudioService.this) {
+                                        if (request == playbackGeneration) playbackStatus = message;
+                                    }
+                                }
+                            });
+                    synchronized (Arc7AudioService.this) {
+                        if (request != playbackGeneration) { MorpheEngine.cancelPlayback(res); return; }
                     }
-                    if (res.title != null && res.title.length() > 0) {
-                        item.title = res.title;
-                    }
-                    resolvingMorpheTrack = false;
+                    if (res.author != null && res.author.length() > 0 && (item.author == null || item.author.length() == 0)) item.author = res.author;
+                    if (res.title != null && res.title.length() > 0) item.title = res.title;
                     String playable = res.localAudioProxyUrl;
-                    if (playable == null || playable.length() == 0) {
-                        playable = res.localVideoProxyUrl;
-                    }
-                    if (playable == null || playable.length() == 0) {
-                        throw new Exception("No playable stream" + (res.muxNote.length() > 0 ? " (" + res.muxNote + ")" : ""));
-                    }
-                    playPreparedDataSource(
-                            playable,
-                            item.title,
-                            item.author,
-                            activeSourceApp,
-                            res.thumbnailUrl.length() > 0 ? res.thumbnailUrl : item.bestThumb(),
-                            activeLaunchClass,
-                            true);
-                    // Enrich SponsorBlock segments and Up-Next automix asynchronously so playback starts first!
+                    if (playable == null || playable.length() == 0) playable = res.localVideoProxyUrl;
+                    if (playable == null || playable.length() == 0) throw new Exception("No playable audio stream");
+                    playPreparedDataSource(playable, item.title, item.author, source,
+                            res.thumbnailUrl.length() > 0 ? res.thumbnailUrl : item.bestThumb(), launch, true, request);
                     new Thread(new Runnable() {
-                        @Override
-                        public void run() {
+                        @Override public void run() {
                             try {
                                 MorpheEngine.enrichPlaybackMetadata(getApplicationContext(), res);
                                 synchronized (Arc7AudioService.this) {
-                                    activeSkipSegments.clear();
-                                    activeSkipSegments.addAll(res.skipSegments);
-                                    if (morpheQueue.size() == 1 && !res.relatedItems.isEmpty()) {
-                                        for (int i = 0; i < res.relatedItems.size() && morpheQueue.size() < 25; i++) {
-                                            morpheQueue.add(res.relatedItems.get(i));
-                                        }
+                                    if (request != playbackGeneration) return;
+                                    activeSkipSegments.clear(); activeSkipSegments.addAll(res.skipSegments);
+                                    if (morpheQueue.size() == 1) {
+                                        for (int i = 0; i < res.relatedItems.size() && morpheQueue.size() < 25; i++) morpheQueue.add(res.relatedItems.get(i));
                                     }
                                 }
                             } catch (Throwable ignored) {}
                         }
                     }, "Arc7-Audio-Metadata").start();
-                } catch (final Throwable t) {
-                    resolvingMorpheTrack = false;
-                    handler.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(getApplicationContext(),
-                                    "Stream error: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                        }
-                    });
-                }
+                } catch (Throwable error) { failPlayback(request, error); }
             }
-        }).start();
+        }, "Arc7-Audio-Resolve");
+        resolutionThread.start();
     }
 
-    public boolean isResolvingMorpheTrack() {
-        return resolvingMorpheTrack;
+    public boolean isResolvingMorpheTrack() { return resolvingMorpheTrack; }
+    public String getPlaybackStatus() {
+        String preparing = MorpheStreamServer.getPreparationStatus(activeDataSource);
+        return resolvingMorpheTrack && preparing.length() > 0 ? preparing : playbackStatus;
+    }
+
+    private synchronized void failPlayback(int request, final Throwable error) {
+        if (request != playbackGeneration) return;
+        String preparationError = MorpheStreamServer.getFailure(activeDataSource);
+        releasePlayer(); resolvingMorpheTrack = false;
+        playbackStatus = "Playback failed: " + (preparationError.length() > 0 ? preparationError
+                : (error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName()));
+        NowPlayingManager.clearSession(getApplicationContext());
+        updateMediaNotificationFromSnapshot();
+        final String message = playbackStatus;
+        handler.post(new Runnable() {
+            @Override public void run() { Toast.makeText(getApplicationContext(), message, Toast.LENGTH_LONG).show(); }
+        });
     }
 
     public boolean isShuffleEnabled() { return shuffleEnabled; }
@@ -629,6 +644,11 @@ public class Arc7AudioService extends Service {
                                                final String thumbUrl,
                                                final String launchCls) {
         if (streamUrl == null || streamUrl.length() == 0) return;
+        final int request = ++playbackGeneration;
+        if (resolutionThread != null) resolutionThread.interrupt();
+        saveCurrentPosition(); releasePlayer();
+        resolvingMorpheTrack = true;
+        playbackStatus = "Preparing audio...";
         morpheIndex = -1;
         currentIndex = -1;
         activeStreamTitle = title == null || title.isEmpty() ? "Live Internet Stream" : title;
@@ -636,14 +656,15 @@ public class Arc7AudioService extends Service {
         activeSourceApp = sourceApp != null ? sourceApp : "Radio & Podcasts";
         activeArtworkUrl = thumbUrl != null ? thumbUrl : "";
         activeLaunchClass = launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity";
-        publishOwnPlaybackState(true);
+        publishOwnPlaybackState(false);
 
         new Thread(new Runnable() {
             @Override
             public void run() {
                 String effectiveUrl = streamUrl;
                 try {
-                    if (streamUrl.startsWith("https://") || streamUrl.startsWith("http://")) {
+                    if (streamUrl.startsWith("https://") || (streamUrl.startsWith("http://")
+                            && !streamUrl.startsWith("http://127.0.0.1:") && !streamUrl.startsWith("http://localhost:"))) {
                         RootShell sh = new RootShell(getApplicationContext());
                         NetworkCertManager cm = new NetworkCertManager(getApplicationContext(), sh);
                         cm.ensureCaBundleFile();
@@ -665,81 +686,91 @@ public class Arc7AudioService extends Service {
                         sourceApp != null ? sourceApp : "Radio & Podcasts",
                         thumbUrl != null ? thumbUrl : "",
                         launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity",
-                        false);
+                        false, request);
             }
         }, "Arc7-Radio-Prepare").start();
     }
 
     private synchronized void playPreparedDataSource(final String dataSource,
-                                                     final String title,
-                                                     final String artist,
-                                                     final String sourceApp,
-                                                     final String thumbUrl,
+                                                     final String title, final String artist,
+                                                     final String sourceApp, final String thumbUrl,
                                                      final String launchCls,
-                                                     final boolean autoAdvanceQueueOnComplete) {
-        saveCurrentPosition();
-        releasePlayer();
+                                                     final boolean autoAdvanceQueueOnComplete,
+                                                     final int request) {
+        if (request != playbackGeneration) {
+            MorpheStreamServer.cancel(dataSource); MorpheHlsRelay.cancel(dataSource); return;
+        }
+        saveCurrentPosition(); releasePlayer();
+        activeDataSource = dataSource;
         activeStreamTitle = title;
         activeStreamArtist = artist != null ? artist : "";
         activeSourceApp = sourceApp != null ? sourceApp : "Music";
         activeArtworkUrl = thumbUrl != null ? thumbUrl : "";
         activeLaunchClass = launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7AudioPlayerActivity";
-
+        playbackStatus = "Preparing Android 4.2 audio...";
+        resolvingMorpheTrack = true;
         FileInputStream localFis = null;
         try {
             acquireWifiLockSafe();
-            player = new MediaPlayer();
-            player.setAudioStreamType(AudioManager.STREAM_MUSIC);
-            player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
-            if (dataSource != null && !dataSource.startsWith("http://") && !dataSource.startsWith("https://")) {
-                File f = new File(dataSource);
-                if (f.isFile()) {
-                    localFis = new FileInputStream(f);
-                    player.setDataSource(localFis.getFD());
-                } else {
-                    player.setDataSource(dataSource);
-                }
-            } else {
-                player.setDataSource(dataSource);
-            }
-            player.setVolume(1.0f, 1.0f);
-            player.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
-                @Override
-                public void onCompletion(MediaPlayer mp) {
-                    if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty()) {
-                        if (repeatMode == REPEAT_ONE) {
-                            startMorpheQueueAt(morpheIndex);
-                        } else if (morpheIndex + 1 < morpheQueue.size()) {
-                            startMorpheQueueAt(morpheIndex + 1);
-                        } else if (repeatMode == REPEAT_ALL) {
-                            startMorpheQueueAt(0);
-                        } else {
-                            publishOwnPlaybackState(false);
-                        }
-                    } else {
-                        publishOwnPlaybackState(false);
+            final MediaPlayer preparing = new MediaPlayer();
+            player = preparing;
+            preparing.setAudioStreamType(AudioManager.STREAM_MUSIC);
+            preparing.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
+            preparing.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                @Override public void onPrepared(MediaPlayer mp) {
+                    synchronized (Arc7AudioService.this) {
+                        if (request != playbackGeneration || player != mp) return;
+                        if (prepareTimeout != null) handler.removeCallbacks(prepareTimeout);
+                        try {
+                            playerPrepared = true;
+                            applyEqualizerPreset(currentEqPreset);
+                            mp.start();
+                            resolvingMorpheTrack = false; playbackStatus = "";
+                            // Publish PLAYING only after prepare AND start have succeeded.
+                            publishOwnPlaybackState(true);
+                        } catch (Throwable error) { failPlayback(request, error); }
                     }
                 }
             });
-            player.prepare();
-            applyEqualizerPreset(currentEqPreset);
-            player.start();
-            publishOwnPlaybackState(true);
-        } catch (final Throwable t) {
-            releasePlayer();
-            handler.post(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(getApplicationContext(),
-                            "Audio playback error: " + (t.getMessage() != null ? t.getMessage() : t.getClass().getSimpleName()),
-                            Toast.LENGTH_SHORT).show();
+            preparing.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                @Override public boolean onError(MediaPlayer mp, int what, int extra) {
+                    synchronized (Arc7AudioService.this) {
+                        if (player == mp) failPlayback(request, new Exception("MediaPlayer " + what + "/" + extra));
+                    }
+                    return true;
                 }
             });
-        } finally {
-            if (localFis != null) {
-                try { localFis.close(); } catch (Throwable ignored) {}
-            }
-        }
+            preparing.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override public void onCompletion(MediaPlayer mp) {
+                    synchronized (Arc7AudioService.this) {
+                        if (request != playbackGeneration || player != mp) return;
+                        if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty()) {
+                            if (repeatMode == REPEAT_ONE) startMorpheQueueAt(morpheIndex);
+                            else if (morpheIndex + 1 < morpheQueue.size()) startMorpheQueueAt(morpheIndex + 1);
+                            else if (repeatMode == REPEAT_ALL) startMorpheQueueAt(0);
+                            else publishOwnPlaybackState(false);
+                        } else publishOwnPlaybackState(false);
+                    }
+                }
+            });
+            if (dataSource != null && !dataSource.startsWith("http://") && !dataSource.startsWith("https://")) {
+                File f = new File(dataSource);
+                if (f.isFile()) { localFis = new FileInputStream(f); preparing.setDataSource(localFis.getFD()); }
+                else preparing.setDataSource(dataSource);
+            } else preparing.setDataSource(dataSource);
+            preparing.setVolume(1.0f, 1.0f);
+            preparing.prepareAsync();
+            prepareTimeout = new Runnable() {
+                @Override public void run() {
+                    synchronized (Arc7AudioService.this) {
+                        if (player == preparing && !playerPrepared) failPlayback(request,
+                                new Exception("Audio preparation timed out; no playable media was received"));
+                    }
+                }
+            };
+            handler.postDelayed(prepareTimeout, 125000L);
+        } catch (Throwable error) { failPlayback(request, error); }
+        finally { if (localFis != null) try { localFis.close(); } catch (Throwable ignored) {} }
     }
 
     public synchronized void loadTrackAndFolderQueue(File pickedAudioFile) {
@@ -788,6 +819,10 @@ public class Arc7AudioService extends Service {
 
     public synchronized void startTrackAtIndex(int idx, boolean restoreBookmark) {
         if (idx < 0 || idx >= playlist.size()) return;
+        ++playbackGeneration;
+        if (resolutionThread != null) resolutionThread.interrupt();
+        resolvingMorpheTrack = false;
+        playbackStatus = "";
         saveCurrentPosition();
         releasePlayer();
         activeStreamTitle = null;
@@ -806,6 +841,7 @@ public class Arc7AudioService extends Service {
             player.setDataSource(track.getAbsolutePath());
             player.setVolume(1.0f, 1.0f);
             player.prepare();
+            playerPrepared = true;
             applyEqualizerPreset(currentEqPreset);
 
             if (restoreBookmark) {
@@ -836,11 +872,12 @@ public class Arc7AudioService extends Service {
                     .putString("last_track", track.getAbsolutePath()).commit();
             publishOwnPlaybackState(true);
         } catch (Throwable t) {
-            releasePlayer();
+            failPlayback(playbackGeneration, t);
         }
     }
 
     public synchronized void togglePlayPause() {
+        if (resolvingMorpheTrack) return;
         if (player == null) {
             if (!morpheQueue.isEmpty() && morpheIndex >= 0) {
                 startMorpheQueueAt(morpheIndex);
@@ -852,6 +889,7 @@ public class Arc7AudioService extends Service {
             }
             return;
         }
+        if (!playerPrepared) return;
         if (player.isPlaying()) {
             pausePlayback();
         } else {
@@ -863,6 +901,7 @@ public class Arc7AudioService extends Service {
     }
 
     public synchronized void pausePlayback() {
+        if (!playerPrepared) return;
         if (player != null && player.isPlaying()) {
             saveCurrentPosition();
             player.pause();
@@ -1006,6 +1045,10 @@ public class Arc7AudioService extends Service {
     }
 
     private synchronized void releasePlayer() {
+        playerPrepared = false;
+        if (prepareTimeout != null) { handler.removeCallbacks(prepareTimeout); prepareTimeout = null; }
+        MorpheStreamServer.cancel(activeDataSource); MorpheHlsRelay.cancel(activeDataSource);
+        activeDataSource = "";
         if (equalizer != null) {
             try { equalizer.release(); } catch (Throwable ignored) {}
             equalizer = null;
@@ -1024,6 +1067,9 @@ public class Arc7AudioService extends Service {
 
     @Override
     public void onDestroy() {
+        ++playbackGeneration;
+        if (resolutionThread != null) resolutionThread.interrupt();
+        resolvingMorpheTrack = false;
         handler.removeCallbacks(checkpointTask);
         try { unregisterReceiver(externalMediaReceiver); } catch (Throwable ignored) {}
         saveCurrentPosition();
