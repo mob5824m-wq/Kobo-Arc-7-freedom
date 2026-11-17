@@ -1,43 +1,67 @@
-# Arc7 Freedom (`v2.5.3` — Android 4.x maintenance build)
+# Arc7 Freedom (`v2.5.4` — Android 4.x maintenance build)
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
-**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.3`
-(`versionCode=253`).**
+**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.4`
+(`versionCode=254`).**
 
-## In this branch: notification / playback repairs + independent apps + Bluetooth internet
+## In this branch: every install method applies the same patches + F-Droid fix
 
 **Requirement update:** the earlier requirement to have all network traffic go through
 Kobo Arc 7 Freedom is **withdrawn**. This does not require removing existing work.
 Independent per-app networking remains the current default; existing optional proxy,
 VPN and USB-networking tools are retained.
 
-The updated APKs have been **rebuilt and signed locally**, but **not published as a new
-GitHub release**. This development build retains the existing version numbers (suite
-`2.5.3 / 253`), so install the rebuilt APKs explicitly even if Android shows the same version.
-Update **the separate APKs as well as Arc7 Freedom and Home**; installing only the main APK
-cannot replace code in already-installed apps.
+The signed **v2.5.4 / 254** suite/default-app/upgrader builds and **F-Droid 1305** are on
+this PR branch, **not published as a new GitHub release**. Install the local build or use
+its Wi-Fi portal; an older published “latest” asset does not contain these changes.
 
-- Main app, Home, Aurora, F-Droid, YouTube and YouTube Music: **`releases/`**.
-- All 28 default apps, including **`Bluetooth-Internet.apk`**: **`releases/apps/`**, generated
-  by the build and intentionally excluded from Git. Use the local Wi-Fi portal to install
-  these; the published GitHub “latest” download has not been changed.
-- **`releases/SHA256SUMS.txt`** covers the rebuilt set. Prefer in-place Android updates or
-  `adb install -r path/to/App.apk` with this repository's permanent signing key. Back up
-  data first if a very old installation uses a different signing key; do not uninstall or
-  clear data merely because its version number is unchanged.
+### One complete offline patch bundle
+
+**Direct APK, microSD, Wi-Fi/OTA, USB/ADB, backup tools and the upgrader now join the same
+maintenance pipeline.** Install `releases/KoboArc7Freedom.apk`, open Arc7 Freedom once,
+and use **Step 1 → Install / Repair All Patches — Status & Retry**.
+
+- **34 APKs bundled offline:** Home, F-Droid, Aurora, VLC, YouTube, YouTube Music and **all
+  28 separately packaged default apps**, including Clock/Music/Radio/Recorder and Package
+  Installer. Shared ZIP bytes are stored once and reconstructed exactly; installed apps
+  keep their independent identities/UIDs/data/networking.
+- **Rooted:** automatic in-place updates, same-version SHA-256 comparisons and installed
+  read-back. Newer apps are kept. A signature/storage error leaves the installed app and
+  data intact—no automatic uninstall or data clear.
+- **Unrooted:** the visible **Install pending apps** queue opens Android's confirmation
+  for each APK. Cancelling pauses safely. Root-only patches remain visibly pending;
+  downloading an APK is not reported as installing it.
+- **Shared system repair:** old Arc7-only proxy cleanup, per-app CA/TLS assets, backed-up
+  offline system CAs and Python/apt/TLS tools with root, Home provisioning and restored
+  schedules. Online time/chime work is separately reported/deferred.
+- **Boot, suite replacement/startup, successful rooting and in-place conversion** retry
+  unfinished work. Generated Clean Android ROM ZIPs include the full suite and run the
+  same maintenance after boot. Reinstall the suite after an arbitrary third-party ROM.
+- **F-Droid 1305:** fixes `java.util.ArrayList cannot be cast to java.lang.String[]` by
+  normalizing repository mirrors **and push-request arrays**, retaining existing repository
+  data and signature/TLS/low-memory patches.
+
+Rooting, OS conversion/stock-app removal, boot/recovery flashing, wipes, storage policy,
+ad blocking, proxy/VPN and tethering remain **separate explicit choices**, not implicit
+maintenance steps. Back up important data before an update or signing-key migration.
+
+Individual APKs are still available in `releases/` and generated `releases/apps/` for
+one-app updates. **`releases/SHA256SUMS.txt`** covers the whole build. Use the full suite
+or upgrader when you want every relevant patch applied; a standalone app cannot silently
+patch another UID. The published GitHub release has not been changed by this work.
 
 ### Notification, playback, installer and obsolete-proxy repairs
 
 **Install checklist: [releases/INSTALL-RUNTIME-FIXES.md](releases/INSTALL-RUNTIME-FIXES.md).**
-This is a same-version maintenance build, not a newly published release.
+This is the v2.5.4 maintenance build on the PR branch, not a newly published release.
 
 - **VLC and other players own their notifications.** Arc7's external-audio observers update
   Clock/widgets silently; only a prepared player in the actual owning APK can post Arc7
   media controls. Update the suite **and installed Clock, Music, Radio & Podcasts, Voice
   Recorder, YouTube and YouTube Music APKs**, then reboot/force-stop their old processes.
-  Updating only the suite cannot remove watchers running older standalone code. Keep
-  official VLC and its own notification; it does not need replacing for this repair.
+  The full suite now updates those standalone APKs through the shared pipeline; verify
+  their results in the patch report. Keep VLC's own notification.
 - **YouTube playback is separate from metadata.** The resolver uses the maintained native
   visionOS 1.04 request shape (matching UA/device/WATCH/MOBILE context, per-client visitor
   data, mobile `t`/`id` parameters and playback nonce), then iOS / TV fallbacks. HLS is
@@ -154,7 +178,7 @@ sharing directions on supported devices.
 
 ---
 
-`v2.5.3` fixes what was reported on the tablet:
+`v2.5.4` fixes what was reported on the tablet:
 
 1. **The E-Reader is now a real page-turner.** Tap the **right** side of the page (or swipe left)
    for the next page, the **left** side (or swipe right) for the previous one, and the **middle**
@@ -207,7 +231,7 @@ sharing directions on supported devices.
    `App(Cursor)` / `checkCursorPosition()`, NPE inside `NotificationCompat`, an
    `OutOfMemoryError` from the 2026 ≈4,000-app index, …) therefore escaped the `IntentService`
    worker thread, killed the process and looked exactly like "syncs, then crashes".
-   Patched **F-Droid `v1304`** now:
+   Patched **F-Droid `v1305`** now:
    * retargets both post-sync call sites (`invoke-direct/range` → `invoke-static/range`) to
      **`Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()`**, which run
      the original private methods reflectively inside a `catch (Throwable)` — a broken refresh or
@@ -243,7 +267,7 @@ Since `v2.5.0` (still included):
 
 Everything from `v2.4.1` and earlier is still included: Launcher `v55` with effortless widget
 removal, owned-player Now Playing controls + silent external Clock Standby metadata, Official Tailscale Google sign-in,
-patched F-Droid `v1304`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
+patched F-Droid `v1305`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
 Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ## App Manager & Repository Layout
@@ -275,7 +299,7 @@ Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ---
 
-## Published `v2.5.3` downloads (historical GitHub release / main-branch links)
+## Published `v2.5.4` downloads (historical GitHub release / main-branch links)
 
 **These published links have not been refreshed with this branch's maintenance build.**
 Use the local `releases/` files and install checklist above for the current repairs.
@@ -285,22 +309,22 @@ signed with the permanent release certificate
 [`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks)
 (`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
 
-- **Latest GitHub Release (`v2.5.3`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
+- **Latest GitHub Release (`v2.5.4`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
 - **Direct APK & Tool Streams:**
-  - **[`Upgrade-My-Kobo-To-v2.5.3.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.3.apk)** — 1-Tap OTA Root & Full `v2.5.3` Upgrader (`versionCode=252`; installs `Arc7 Freedom` `v2.5.3`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1304`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 118 2026 CAs)
-  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.3`, `versionCode=252`)
-  - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=252`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
-  - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=252`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
+  - **[`Upgrade-My-Kobo-To-v2.5.4.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.4.apk)** — 1-Tap OTA Root & Full `v2.5.4` Upgrader (`versionCode=254`; installs `Arc7 Freedom` `v2.5.4`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1305`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 118 2026 CAs)
+  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.4`, `versionCode=254`)
+  - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=254`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
+  - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=254`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
   - **[`VLC.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VLC.apk)** — Standalone Android 4.2 ARMv7 **VLC Media Player** (`org.videolan.vlc`, also pre-bundled inside `KoboArc7Freedom.apk`)
   - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS store client with binary APK validator & auto `SHA1withRSA` JAR `v1` signer (`v4.8.5`)
-  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1304`, largeHeap + Throwable-catch sync stability) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
+  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1305`, largeHeap + Throwable-catch sync stability) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
   - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)**
-- **Separately installable default apps (`v2.5.3`, 27 signed APKs, one package each):** [`Ad-Blocker.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Ad-Blocker.apk) · [`App-Manager.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/App-Manager.apk) · [`Books.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Books.apk) · [`Browser.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Browser.apk) · [`Calculator.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calculator.apk) · [`Calendar.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calendar.apk) · [`Camera.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Camera.apk) · [`Clock.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Clock.apk) · [`Files.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Files.apk) · [`Games.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Games.apk) · [`Music.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Music.apk) · [`Notes.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Notes.apk) · [`Package-Installer.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Package-Installer.apk) · [`PDF-Reader.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/PDF-Reader.apk) · [`Photos.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Photos.apk) · [`Radio-Podcasts.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Radio-Podcasts.apk) · [`Second-Screen.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Second-Screen.apk) · [`Split-View.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Split-View.apk) · [`Stream-Deck.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Stream-Deck.apk) · [`System-Boost.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/System-Boost.apk) · [`Terminal.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Terminal.apk) · [`USB-Internet.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/USB-Internet.apk) · [`Voice-Recorder.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Voice-Recorder.apk) · [`Wallpapers.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wallpapers.apk) · [`Weather.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Weather.apk) · [`Wi-Fi-VPN.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wi-Fi-VPN.apk) · [`Wikipedia.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wikipedia.apk)
+- **Separately installable default apps (`v2.5.4`, 27 signed APKs, one package each):** [`Ad-Blocker.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Ad-Blocker.apk) · [`App-Manager.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/App-Manager.apk) · [`Books.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Books.apk) · [`Browser.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Browser.apk) · [`Calculator.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calculator.apk) · [`Calendar.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calendar.apk) · [`Camera.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Camera.apk) · [`Clock.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Clock.apk) · [`Files.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Files.apk) · [`Games.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Games.apk) · [`Music.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Music.apk) · [`Notes.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Notes.apk) · [`Package-Installer.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Package-Installer.apk) · [`PDF-Reader.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/PDF-Reader.apk) · [`Photos.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Photos.apk) · [`Radio-Podcasts.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Radio-Podcasts.apk) · [`Second-Screen.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Second-Screen.apk) · [`Split-View.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Split-View.apk) · [`Stream-Deck.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Stream-Deck.apk) · [`System-Boost.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/System-Boost.apk) · [`Terminal.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Terminal.apk) · [`USB-Internet.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/USB-Internet.apk) · [`Voice-Recorder.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Voice-Recorder.apk) · [`Wallpapers.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wallpapers.apk) · [`Weather.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Weather.apk) · [`Wi-Fi-VPN.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wi-Fi-VPN.apk) · [`Wikipedia.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wikipedia.apk)
   — or open the OTA portal (`Start-Kobo-WiFi-Server.bat/.sh`) and tap the ones you want. — Custom-skinned **Home** launcher (`v55`) with effortless widget removal, drag-and-drop icons, multi-page desktops, multi-edge app bar, 5 skins & 44 high-DPI icons
 
 ---
 
-## What's New in `v2.5.3`
+## What's New in `v2.5.4`
 
 1. **Per-day alarm check-off (`Arc7ClockActivity` + `Arc7ClockStore`):**
    - The `Repeat` cycle button is gone; the alarm editor now has seven toggle buttons
@@ -310,7 +334,7 @@ signed with the permanent release certificate
      `computeNextTriggerMillis()` / `AlarmManager.set(RTC_WAKEUP, …)` already honour any subset.
    - `Arc7ClockStore.describeRepeatMask()` / `describeAlarmDays()` render single-day alarms as
      `Every Mon` and the alarm list keeps showing the full day summary.
-2. **F-Droid `v1304` sync stability:** the two post-sync calls of
+2. **F-Droid `v1305` sync stability:** the two post-sync calls of
    `UpdateService.onHandleIntent()` (`notifyContentProviders()` @648, `performUpdateNotification()`
    @678 — both outside every `try` range) are retargeted to
    `Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()` reflective
@@ -318,7 +342,7 @@ signed with the permanent release certificate
    in-sync handlers are retyped `Exception → Throwable`, the binary manifest gains
    `largeHeap="true"`, an `Arc7CrashGuard` uncaught-exception handler appends every stack trace to
    `files/arc7-last-crash.txt`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types
-   instead of throwing. Version code bumped `1303 → 1304` so the new build upgrades in place.
+   instead of throwing. Version code bumped `1303 → 1305` so the new build upgrades in place.
 
 ## What's New in `v2.5.0` (still included)
 

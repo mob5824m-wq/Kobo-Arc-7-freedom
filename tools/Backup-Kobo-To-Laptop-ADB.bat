@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions
-title Kobo Arc 7 - Direct USB ADB Auto-Upgrade ^& Laptop Backup Tool (v1.8.1)
+title Kobo Arc 7 - Direct USB ADB Auto-Upgrade ^& Laptop Backup Tool (v2.5.4)
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference = 'Stop';" ^
   "$scriptDir = '%~dp0';" ^
   "Write-Host '';" ^
   "Write-Host '=====================================================================' -ForegroundColor Cyan;" ^
-  "Write-Host '  KOBO ARC 7 FREEDOM v1.8.1 - USB ADB AUTO-UPGRADE & BACKUP TOOL' -ForegroundColor Cyan;" ^
+  "Write-Host '  KOBO ARC 7 FREEDOM v2.5.4 - USB ADB AUTO-UPGRADE & BACKUP TOOL' -ForegroundColor Cyan;" ^
   "Write-Host '  Auto-upgrades older APKs + streams backups using 0 MB tablet space!' -ForegroundColor Gray;" ^
   "Write-Host '=====================================================================' -ForegroundColor Cyan;" ^
   "Write-Host '';" ^
@@ -30,25 +30,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "& $adb wait-for-device;" ^
   "$serial = (& $adb get-serialno).Trim();" ^
   "Write-Host ('  Connected to Kobo device: ' + $serial) -ForegroundColor Green;" ^
-  "Write-Host '[2/5] Checking Kobo Arc 7 Freedom version on tablet...' -ForegroundColor Yellow;" ^
-  "$pkgInfo = (& $adb shell 'dumpsys package ca.arc7freedom.app' 2>$null | Out-String);" ^
-  "if ($pkgInfo -notmatch 'versionCode=181') {" ^
-  "  Write-Host '  Older/conflicting KoboArc7Freedom version detected - upgrading tablet to v1.8.1 automatically...' -ForegroundColor Cyan;" ^
-  "  $apkFile = Join-Path $scriptDir 'KoboArc7Freedom.apk';" ^
-  "  if (-not (Test-Path $apkFile)) { $apkFile = Join-Path (Join-Path $scriptDir '..\releases') 'KoboArc7Freedom.apk'; }" ^
-  "  if (-not (Test-Path $apkFile)) {" ^
-  "    $apkFile = Join-Path $env:TEMP 'KoboArc7Freedom-v1.8.1.apk';" ^
-  "    Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk' -OutFile $apkFile;" ^
-  "  }" ^
-  "  $instOut = (& $adb install -r $apkFile 2>&1 | Out-String);" ^
-  "  if ($instOut -notmatch 'Success') {" ^
-  "    & $adb push $apkFile /data/local/tmp/KoboArc7Freedom.apk | Out-Null;" ^
-  "    $suCmd = \"mount -o remount,rw /system 2>/dev/null || true`nrm -f /system/app/KoboArc7Freedom.apk 2>/dev/null || true`npm uninstall ca.arc7freedom.app 2>/dev/null || true`npm install -r /data/local/tmp/KoboArc7Freedom.apk`nrm -f /data/local/tmp/KoboArc7Freedom.apk`nexit`n\";" ^
-  "    $suCmd | & $adb shell su | Out-Null;" ^
-  "    & $adb install -r $apkFile 2>$null | Out-Null;" ^
-  "  }" ^
-  "  Write-Host '  Upgraded Kobo Arc 7 to KoboArc7Freedom v1.8.1!' -ForegroundColor Green;" ^
-  "} else { Write-Host '  KoboArc7Freedom v1.8.1 already active on tablet!' -ForegroundColor Green }" ^
+  "Write-Host '[2/5] Installing complete offline patch bundle in place (data preserved)...' -ForegroundColor Yellow;" ^
+  "$apkFile = Join-Path $scriptDir 'KoboArc7Freedom.apk';" ^
+  "if (-not (Test-Path $apkFile)) { $apkFile = Join-Path (Join-Path $scriptDir '..\releases') 'KoboArc7Freedom.apk'; }" ^
+  "if (-not (Test-Path $apkFile)) {" ^
+  "  $apkFile = Join-Path $env:TEMP 'KoboArc7Freedom.apk';" ^
+  "  Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/KoboArc7Freedom.apk' -OutFile $apkFile;" ^
+  "}" ^
+  "$instOut = (& $adb install -r $apkFile 2>&1 | Out-String);" ^
+  "if ($LASTEXITCODE -ne 0 -or $instOut -notmatch 'Success') { throw ('In-place update failed; existing app/data retained. ' + $instOut); }" ^
+  "& $adb shell am start -n ca.arc7freedom.app/.MainActivity --ez show_install_patches true | Out-Null;" ^
+  "if ($LASTEXITCODE -ne 0) { throw 'Could not open shared patch pipeline. Open Arc7 Freedom on the tablet.'; }" ^
+  "Write-Host '  Patch pipeline started. Review pending/root/Android confirmations on the tablet.' -ForegroundColor Green;" ^
   "Write-Host '[3/5] Starting streaming backup service on Kobo Arc 7 & opening lossless USB tunnel (:18777)...' -ForegroundColor Yellow;" ^
   "& $adb shell 'am startservice -n ca.arc7freedom.app/.Arc7AdbBackupService >/dev/null 2>&1 || am start -n ca.arc7freedom.app/.MainActivity >/dev/null 2>&1' | Out-Null;" ^
   "Start-Sleep -Seconds 2;" ^

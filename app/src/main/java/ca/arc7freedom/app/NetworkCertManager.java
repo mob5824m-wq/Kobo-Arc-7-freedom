@@ -152,7 +152,8 @@ public class NetworkCertManager {
         File dir = new File(appContext.getFilesDir(), "cacerts");
         if (!dir.exists()) dir.mkdirs();
         File bundleFile = new File(dir, "ca-bundle-2026.crt");
-        if (!bundleFile.exists() || bundleFile.length() < 50000) {
+        if (!bundleFile.exists() || !BundledApk.digest(new FileInputStream(bundleFile)).equals(
+                BundledApk.digest(appContext.getAssets().open("cacerts/ca-bundle-2026.crt")))) {
             InputStream in = appContext.getAssets().open("cacerts/ca-bundle-2026.crt");
             try {
                 FileOutputStream out = new FileOutputStream(bundleFile);
@@ -297,6 +298,58 @@ public class NetworkCertManager {
         return intent;
     }
 
+    /** Automatic post-install CA patch: offline, backed up, incremental and read-back verified.
+     * Does not reset DNS, remove unrelated certificates or require a successful live TLS test.
+     */
+    public boolean installBundledSystemCasOffline(TabletOptimizerManager.LogSink log) throws IOException {
+        List<CertEntry> entries = loadBundledManifest();
+        if (entries.isEmpty()) throw new IOException("Bundled CA manifest is missing");
+        if (systemCasMatch(entries)) {
+            if (log != null) log.onLog("CURRENT system CA patch: every bundled certificate verified");
+            return true;
+        }
+        if (shell == null || !shell.isRootAvailable()) return false;
+        File stage = new File(appContext.getFilesDir(), "maintenance-cacerts");
+        if (!stage.isDirectory() && !stage.mkdirs()) throw new IOException("CA staging unavailable");
+        try {
+            StringBuilder script = new StringBuilder("set -e\ntrap 'mount -o remount,ro /system 2>/dev/null || true' 0\n");
+            script.append("(mount -o remount,rw /system 2>/dev/null || mount -o remount,rw /emmc@android /system 2>/dev/null)\n");
+            script.append("mkdir -p /system/etc/security/cacerts /data/misc/keychain/cacerts-added /data/local/arc7_ca_backup\n");
+            for (CertEntry entry : entries) {
+                if (!entry.filename.matches("[a-f0-9]{8}\\.[0-9]+")) throw new IOException("Unsafe CA filename");
+                File file = new File(stage, entry.filename);
+                copyAsset("cacerts/android-hashed/" + entry.filename, file);
+                String system = "/system/etc/security/cacerts/" + entry.filename;
+                String user = "/data/misc/keychain/cacerts-added/" + entry.filename;
+                String backup = "/data/local/arc7_ca_backup/" + entry.filename;
+                script.append("if [ -f ").append(system).append(" ] && [ ! -e ").append(backup)
+                        .append(" ]; then cat ").append(system).append(" > ").append(backup).append("; fi\n");
+                script.append("cat ").append(RootShell.shellQuote(file.getAbsolutePath())).append(" > ").append(system)
+                        .append("\ncat ").append(RootShell.shellQuote(file.getAbsolutePath())).append(" > ").append(user)
+                        .append("\nchmod 0644 ").append(system).append(" ").append(user).append("\n");
+            }
+            script.append("sync\necho ARC7_SYSTEM_CAS_WRITTEN\n");
+            RootShell.ExecResult result = shell.execRoot(script.toString(), null);
+            boolean verified = result.exitCode == 0 && result.stdout.contains("ARC7_SYSTEM_CAS_WRITTEN") && systemCasMatch(entries);
+            if (log != null) log.onLog((verified ? "UPDATED " : "BLOCKED ") + "system CA patch: "
+                    + (verified ? "all installed certificates verified; originals backed up in /data/local/arc7_ca_backup"
+                    : "root/system CA writes not verified; will retry. " + result.stdout));
+            return verified;
+        } finally { deleteRecursive(stage); }
+    }
+
+    private boolean systemCasMatch(List<CertEntry> entries) {
+        for (CertEntry entry : entries) {
+            try {
+                String expected = BundledApk.digest(appContext.getAssets().open("cacerts/android-hashed/" + entry.filename));
+                // /data/misc/keychain may be untraversable by an ordinary app UID. The root
+                // script checks its copy; read back the public system trust store here.
+                if (!expected.equals(BundledApk.digest(new FileInputStream("/system/etc/security/cacerts/" + entry.filename)))) return false;
+            } catch (IOException unavailable) { return false; }
+        }
+        return true;
+    }
+
     /**
      * One-Tap Full Offline CA Installation + Atomic NTP/HTTP Clock Sync + DNS Fix + Live TLS Test.
      */
@@ -394,6 +447,7 @@ public class NetworkCertManager {
 
                 if (res.exitCode != 0) {
                     listener.onLog("WARNING: Root system CA write returned exit code " + res.exitCode);
+                    return false;
                 } else {
                     listener.onLog("Installed all " + manifest.size() + " modern 2026 Root CAs into /system/etc/security/cacerts/ & user keychain, and quarantined " +
                             expiredNames.size() + " expired 2013-2023 certificate(s)!");

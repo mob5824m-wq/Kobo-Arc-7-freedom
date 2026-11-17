@@ -38,7 +38,7 @@ import tempfile
 import zipfile
 import zlib
 
-TARGET_FDROID_VERSION_CODE = 1304
+TARGET_FDROID_VERSION_CODE = 1305
 
 
 def _read_utf8_len(buf: bytes, pos: int):
@@ -1736,13 +1736,44 @@ public final class Arc7Bridge {
         return (HashMap<String, Object>) m.invoke(updater, mapper, parser);
     }
 
-    @SuppressWarnings("unchecked")
+    /** Jackson's untyped JSON arrays are ArrayLists, NOT String[]. Keep this boundary typed. */
+    public static String[] normalizeStringArray(Object value) throws IOException {
+        if (value == null) return new String[0];
+        Iterable<?> values;
+        if (value instanceof Object[]) {
+            values = java.util.Arrays.asList((Object[]) value);
+        } else if (value instanceof Iterable<?>) {
+            values = (Iterable<?>) value;
+        } else {
+            throw new IOException("Expected a JSON string array, got " + value.getClass().getName());
+        }
+        List<String> strings = new ArrayList<String>();
+        for (Object item : values) {
+            if (item == null) continue;
+            if (!(item instanceof String)) throw new IOException("Non-string item in JSON string array");
+            strings.add((String) item);
+        }
+        return strings.toArray(new String[strings.size()]);
+    }
+
+    /** A generic Map cast only checks the Map itself; normalize every push-request value too. */
+    public static Map<String, String[]> normalizeRequests(Object value) throws IOException {
+        Map<String, String[]> result = new HashMap<String, String[]>();
+        if (value == null) return result;
+        if (!(value instanceof Map<?, ?>)) throw new IOException("Expected a JSON requests object");
+        for (Map.Entry<?, ?> entry : ((Map<?, ?>) value).entrySet()) {
+            if (!(entry.getKey() instanceof String)) throw new IOException("Non-string request name");
+            result.put((String) entry.getKey(), normalizeStringArray(entry.getValue()));
+        }
+        return result;
+    }
+
     private static Map<String, String[]> invokeParseRequests(
             IndexUpdater updater, ObjectMapper mapper, JsonParser parser) throws Exception {
         Method m = updater.getClass().getDeclaredMethod(
                 "parseRequests", ObjectMapper.class, JsonParser.class);
         m.setAccessible(true);
-        return (Map<String, String[]>) m.invoke(updater, mapper, parser);
+        return normalizeRequests(m.invoke(updater, mapper, parser));
     }
 
     private static void invokeVerifySigningCertificate(
@@ -1937,7 +1968,7 @@ public final class Arc7Bridge {
         HashSet<String> mirrors = new HashSet<String>();
         mirrors.add(updater.repo.address);
         if (repoDetails.containsKey("mirrors")) {
-            String[] repoMirrors = (String[]) repoDetails.get("mirrors");
+            String[] repoMirrors = normalizeStringArray(repoDetails.get("mirrors"));
             if (repoMirrors != null) {
                 Collections.addAll(mirrors, repoMirrors);
             }

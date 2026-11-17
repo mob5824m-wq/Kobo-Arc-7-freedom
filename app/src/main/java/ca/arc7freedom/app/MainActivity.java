@@ -129,54 +129,24 @@ public class MainActivity extends Arc7Activity {
         Arc7ChromebookUsbService.ensureStarted(this);
         Arc7AdbBackupService.ensureStarted(this);
         Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    certManager.migrateLegacySuiteProxy();
-                    if (getSharedPreferences("arc7_optimizer", MODE_PRIVATE).getBoolean("legacy_proxy_cleanup_pending", false)) {
-                        uiHandler.post(new Runnable() {
-                            @Override public void run() {
-                                Toast.makeText(MainActivity.this, "Old proxy cleanup needs permission. See the Network tab for Wi-Fi proxy instructions.", Toast.LENGTH_LONG).show();
-                            }
-                        });
-                    }
-                    certManager.startBrowserGateway();
-                    // Automatically install all 118 modern 2026 Root CAs + clean DNS + NTP clock sync
-                    // on rooted Kobo Arc 7 hardware if not yet populated in /system/etc/security/cacerts!
-                    android.content.SharedPreferences bootPrefs = getSharedPreferences("arc7_boot_init", MODE_PRIVATE);
-                    File sysCaProbe = new File("/system/etc/security/cacerts");
-                    String[] existingCas = sysCaProbe.list();
-                    int caCount = existingCas != null ? existingCas.length : 0;
-                    boolean hasRootNow = rootShell.isRootAvailable();
-                    if (hasRootNow
-                            && (!bootPrefs.getBoolean("ca_v181_installed", false) || caCount < 140)) {
-                        boolean caOk = certManager.installCertsAndFixNetwork(
-                                Environment.getExternalStorageDirectory(),
-                                new NetworkCertManager.ProgressListener() {
-                                    @Override public void onProgress(int pct, String msg) {}
-                                    @Override public void onLog(String line) { appendLog(line); }
-                                });
-                        if (caOk) {
-                            bootPrefs.edit().putBoolean("ca_v181_installed", true).commit();
-                        }
-                    }
-                    // Always auto-detect local IANA timezone + sync atomic clock + provision
-                    // Aurora Store, Launcher v49, Python 3, `apt`, & Default Launcher / Kobo Care cleanup!
-                    certManager.syncTimeAndTimezoneAutomatically(hasRootNow,
-                            new NetworkCertManager.ProgressListener() {
-                                @Override public void onProgress(int pct, String msg) {}
-                                @Override public void onLog(String line) { appendLog(line); }
-                            });
-                    optimizerManager.ensureCompanionAppsUpgradedSilently();
-                    Arc7ClockStore.autoSyncInternetArchiveChimes(MainActivity.this, null);
-                } catch (Throwable ignored) {}
-            }
-        }).start();
+        InstallMaintenanceService.request(this, "suite opened after install/update");
 
-        appendLog("Kobo Arc 7 Freedom v2.0.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v2.5.4 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Custom Arc7 OS Skin + Reskinned Icons + Chromebook Wired USB Internet + Bundled VLC + Calendar + Photos + Camera + Calculator + Notes + Files + Archive.org Chimes + Custom APK Installer).");
         refreshDeviceSnapshotAsync();
+        if (getIntent().getBooleanExtra("show_install_patches", false)) {
+            getIntent().removeExtra("show_install_patches");
+            startActivity(new Intent(this, InstallMaintenanceActivity.class));
+        }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent);
+        InstallMaintenanceService.request(this, "installer returned to suite");
+        if (intent.getBooleanExtra("show_install_patches", false)) {
+            intent.removeExtra("show_install_patches");
+            startActivity(new Intent(this, InstallMaintenanceActivity.class));
+        }
     }
 
     @Override
@@ -524,6 +494,20 @@ public class MainActivity extends Arc7Activity {
 
         heroCard.addView(btnRow);
         page.addView(heroCard, cardMargin());
+
+        LinearLayout patches = makeCard();
+        addCardHeader(patches, "All Install Methods — Same Patches",
+                "Home, F-Droid, stores, YouTube and ALL 28 default-app APKs are bundled offline. "
+                + "Root applies in-place updates automatically. Without root, confirm pending apps here. "
+                + "No silent uninstall, wipe, firmware flash or compulsory proxy.");
+        Button repair = makePrimaryButton("Install / Repair All Patches — Status & Retry");
+        repair.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View view) {
+                startActivity(new Intent(MainActivity.this, InstallMaintenanceActivity.class));
+            }
+        });
+        patches.addView(repair);
+        page.addView(patches, cardMargin());
 
         LinearLayout hwCard = makeCard();
         addCardHeader(hwCard, "Detected Tablet Hardware, Kernel & eMMC Partition Map",
@@ -1118,7 +1102,7 @@ public class MainActivity extends Arc7Activity {
         // Card 1: Complete v2.5.3 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
         addCardHeader(packCard, "Arc7 Freedom v2.5.3 — Daily-Driver App & Media Suite",
-                "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1304 sync-crash fix. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
+                "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1305 collection + sync-crash fixes. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
                 + "Effortless Home Widget Removal (Launcher v55), Clean App Names, Official Tailscale Google Sign-In, "
                 + "Stream Deck Pro, 4-Store Books Reader, PDF Reader, Weather, Radio & Podcasts, Games, Ad Blocker, System Boost & VLC!");
 
@@ -1861,6 +1845,7 @@ public class MainActivity extends Arc7Activity {
                         snapshot = updated;
                         renderSnapshot();
                         if (res.exitCode == 0 && updated.rooted) {
+                            InstallMaintenanceService.request(MainActivity.this, "root granted");
                             setProgressUi(false, 100, "");
                             showInfoDialog("Root Complete (uid=0 Verified)!",
                                     "Your tablet now has persistent root access installed at /system/xbin/su.\n\n"

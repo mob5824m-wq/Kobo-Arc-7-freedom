@@ -1,50 +1,64 @@
-# Install the notification, playback and App Info repairs
+# Install all maintenance patches — v2.5.4
 
-Local signed maintenance build — 2026-11-16. These files have **not** been published as a new GitHub release. Version numbers remain 2.5.3 / 253 (Home 5.5.0 / 55), so explicitly install the new APKs as **updates**, even if the version displayed by Android is unchanged.
+Local signed build: suite/default apps/upgrader **2.5.4 / 254**; patched F-Droid **1305**; Home **5.5.0 / 55**. These changes are on the PR branch, **not published as a new GitHub release**. Use the files from this build/local Wi-Fi portal, not an older published “latest” asset.
 
-## Which APKs to update
+## One full bundle, every install method
 
-### Main app, launcher and installer
+Install either:
 
-- [Kobo Arc 7 Freedom](KoboArc7Freedom.apk) — automatic retryable old global/Wi-Fi proxy removal, suite notification fix.
-- [Home](VanillaAndroid4Home.apk) — correct App Info/uninstall target for old pinned shortcuts and launcher aliases.
-- [Package Installer](apps/Package-Installer.apk) — a genuinely separate installer, package `ca.arc7freedom.packageinstaller`.
+- [KoboArc7Freedom.apk](KoboArc7Freedom.apk), then **open Arc7 Freedom once**; or
+- [Upgrade My Kobo v2.5.4](Upgrade-My-Kobo-To-v2.5.4.apk), which installs the suite in place and opens its patch screen.
 
-### Update installed media/clock apps too
+In Arc7 Freedom, open **Step 1 → Install / Repair All Patches — Status & Retry**.
 
-**Do not update only the main APK.** An already-installed standalone app keeps its own older code until its APK is updated. To remove all old Arc7 notification watchers, update every app below that you have installed:
+The same restartable maintenance service is used after **direct APK, microSD, Wi-Fi/OTA, USB/ADB, backup-tool, and upgrader installs**, and on suite startup, package replacement, boot/network reconnect, successful rooting and in-place Android conversion. Android may keep a newly sideloaded app stopped until it has been opened, so do not skip that first launch.
 
-- [Clock](apps/Clock.apk)
-- [Music](apps/Music.apk)
-- [Radio & Podcasts](apps/Radio-Podcasts.apk)
-- [Voice Recorder](apps/Voice-Recorder.apk)
-- [YouTube](YouTube.apk)
-- [YouTube Music](YouTubeMusic.apk)
+The generated **Clean Android ROM ZIP** also carries the current complete suite and starts maintenance after boot. An arbitrary third-party ROM cannot be assumed to preserve these apps or patches: reinstall the full suite and open the patch screen after flashing it. Neither the ROM ZIP nor physical flashing has been device-tested here.
 
-There is no need to uninstall or replace official VLC. Its own notification is supposed to remain; Arc7 observers now feed Clock/widgets silently instead of creating copies.
+### What runs
 
-### Optional rooted updater
+- Content-aware, data-preserving updates for **34 bundled APKs**: Home, patched F-Droid, Aurora, VLC, YouTube, YouTube Music, and **all 28 separately packaged default apps**. Clock, Music, Radio & Podcasts, Voice Recorder and Package Installer are no longer omitted.
+- Installed APK **SHA-256 read-back**, including same-version maintenance builds. Exact copies are skipped; newer installed versions are retained rather than downgraded.
+- Retryable removal of **only** obsolete Arc7 `localhost:8118` / `127.0.0.1:8118` global/saved-Wi-Fi proxies. Unrelated proxies, VPNs and USB routes are preserved.
+- Bundled per-app CA/TLS assets; backed-up, verified offline system CA installation with root; Python/apt/TLS command-line payload repair; Home/Recents provisioning checks.
+- Previously enabled storage bindings and saved schedules are restored. Network-dependent time/timezone/chime work is attempted separately and reported as deferred/unavailable when offline; it is not proof of installed APK patches or live internet access.
 
-[Upgrade My Kobo](Upgrade-My-Kobo-To-v2.5.3.apk) updates the main suite, Home and both YouTube apps in place. **It does not replace the separate Clock, Music, Radio or Voice Recorder APKs:** install their updates above yourself. A failed suite/Home/YouTube update now stops instead of uninstalling the installed app. Failed store/VLC updates keep the existing app and report that in the log.
+The default APKs are stored as deduplicated **byte recipes**, to keep the full offline installer small. Extraction reconstructs the original signed APK exactly, verifies its SHA-256 and package/version, and does not re-sign it on the tablet. Installed apps still have independent UIDs, data, tasks and networking. No shared suite runtime or universal proxy was introduced.
 
-The optional updater also retains its existing root/system customization and obsolete stock/Kobo-app archival/removal steps. For **only** these maintenance repairs, prefer installing the individual APK updates above.
+### Rooted tablet
 
-The updater is package **`ca.arc7freedom.upgrader`**, separate from both Package Installer and the suite. Its new **App Info / uninstall this upgrader** button opens its own Android settings page, not Kobo Arc 7 Freedom's.
+The service applies normal **`pm install -r` in-place updates** and verifies the installed bytes. Read the report for each `CURRENT`, `UPDATED`, `NEWER_KEPT`, `PENDING` or `BLOCKED` result. A failure in one app does not prevent attempts for the other apps. Retry after resolving storage/permission errors.
 
-## Installation and checks
+### Unrooted tablet
 
-1. Stop current playback and back up important data.
-2. Install the listed APKs as normal Android updates, or use `adb install -r path/to/App.apk`. Do **not** uninstall first or use **Clean Reinstall** for these same-signature updates. If Android reports a signing-key mismatch, stop and back up data before deciding how to migrate.
-3. Open the updated Kobo Arc 7 Freedom app once. It retries removal of **only** the old `localhost:8118` / `127.0.0.1:8118` proxy, including saved Wi-Fi proxies where the ROM allows modification. Unrelated proxies, VPNs and USB routes are preserved. If it reports a permission/ROM limitation, follow the Network tab instructions and set that old Wi-Fi proxy to **None** manually.
-4. Reboot after all updates, or force-stop/reopen the updated media/Clock apps, to clear old running watchers.
-5. Play and pause a VLC track. Keep VLC's own notification; no Arc7 observer notification should appear or flicker. Clock/widgets can still display external metadata.
-6. Long-press Package Installer → App Info in updated Home. It must show `ca.arc7freedom.packageinstaller`, not `ca.arc7freedom.app`. If only the old suite shortcut exists, Home now explains the missing separate app instead of targeting the suite for removal.
-7. Try an ordinary unrestricted YouTube video and a YouTube Music track. **Preparing** is not **Playing**: playback is announced only after the player is prepared and started. Failures clear the playback state and show an error.
+Tap **Install pending apps (Android confirmations)**. Android confirms **each separate APK**; a single APK cannot silently install or patch other UIDs without root. The queue advances only after installed bytes have been verified. Cancelling/failing a confirmation pauses the queue safely; tap again to resume. No installer dialogs appear automatically at boot.
 
-## What has and has not been verified
+System/root-only steps remain **pending**, not falsely marked complete. Rooting is still a separate explicit action. Embedded per-app TLS does not require root.
 
-- API-17 compilation, ARMv7 APK packaging, permanent-certificate v1/v2/v3 signatures, DEX 035, embedded installer copies and release checksums passed.
-- `make verify` passed, including offline ownership/routing/proxy/updater tests, real H.264/AAC HLS fixtures, MP4/M4A remux, strict HTTP Range tests, the compiled Morphe engine's visitor/player request contract and owning-gateway integration, unfinished-file/timeout/in-flight cancellation checks, and FFmpeg decoding of the remuxed outputs.
-- **No physical Kobo or live YouTube media endpoint was available for validation.** Host tests do not prove current YouTube extraction or the tablet ROM's HLS/codec behavior. Live/discontinuous/encrypted fMP4 and DRM streams are reported as unsupported, not represented as working playback. Finite fMP4 needs cache space and preparation time.
+### Data safety and optional changes
 
-Checksums for the APK set: [SHA256SUMS.txt](SHA256SUMS.txt). Default-app APKs live in `releases/apps/` and are regenerated by the build; they are intentionally not committed to Git.
+Back up important data and stop playback before updates. A signature mismatch, failed update or insufficient storage **never triggers an automatic uninstall, `pm clear`, deletion of the existing suite/Home system APK, or clean reinstall**. A key mismatch stays blocked; decide on a migration only after a backup. Explicit Clean Reinstall remains a separately confirmed, data-destructive operation in Package Installer.
+
+Maintenance **does not** automatically flash boot/recovery images, wipe data, convert the OS, remove stock/Kobo apps, enable ad blocking, change storage policy, turn on VPN/tethering, or require all traffic to pass through the suite. Those optional tools retain their own explicit controls. In-place conversion still performs its separately confirmed conversion/removal steps, and only proceeds after the replacement Home is verified.
+
+Individual [default-app APK downloads](apps/) update **only that app**. Use the full suite/upgrader if you want the complete patch set applied.
+
+## F-Droid crash fix
+
+F-Droid **1305** fixes `java.util.ArrayList cannot be cast to java.lang.String[]` in the injected streaming index parser. Untyped JSON arrays can be `ArrayList`, not `String[]`. Repository mirrors **and every push-request value** are now normalized to actual string arrays; existing arrays and null/empty values work too. Malformed types produce a checked parse error instead of that cast failure.
+
+[FDroidClassicLegacy.apk](FDroidClassicLegacy.apk) can also be installed on its own as an in-place update. Keep repository pins, preferences and databases; do **not** clear data to repair this exception. The full bundle installs the same pre-patched signed APK offline—no runtime patch download is needed.
+
+## Earlier repairs retained
+
+- VLC retains its own media notification. Arc7 observers update Clock/widgets silently, rather than creating duplicate controls. The full bundle now updates all old standalone observer APKs too.
+- Home's App Info/uninstall targets the actual owning package. Package Installer is `ca.arc7freedom.packageinstaller`; the updater is `ca.arc7freedom.upgrader`, with its own App Info button.
+- YouTube/Music announce Playing only after prepare/start. Finite compatible HLS/DASH media can be prepared as classic MP4/M4A through each owning app's TLS engine. Metadata resolution alone is not playback success.
+
+## Checks and validation boundaries
+
+The build/test gates cover API-17 compilation, ARMv7, DEX 035, permanent-certificate v1/v2/v3 signatures, exact reconstruction of all 34 signed payloads, embedded-upgrader equality and release checksums. `make test-install` runs the actual generated F-Droid bridge and installer code on a host JVM, with mirrors/requests as lists and arrays, same-version repairs, newer/key-conflicting apps, corrupt payloads, false `pm Success`, failed updates, rootless confirmation status, retry idempotence and real USB/backup shell helpers using fake ADB. Windows helpers are checked statically, not executed on Windows.
+
+`make verify` also runs the existing offline media, routing, proxy, launcher, Bluetooth and reader regression gates. These are **not** physical-device results. No Kobo, live YouTube playback, ROM flash, real Android PackageInstaller confirmation sequence or Bluetooth PAN hardware was available to validate here. Root access, ROM permissions, free flash space, hardware codecs and current YouTube endpoints can still limit operation; use the visible patch report and device tests before relying on it.
+
+Checksums: [SHA256SUMS.txt](SHA256SUMS.txt). Default APKs and deduplicated assets are regenerated by the build and intentionally excluded from Git; the signed suite/upgrader contain the entire offline payload.

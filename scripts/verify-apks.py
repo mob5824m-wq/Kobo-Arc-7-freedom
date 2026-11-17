@@ -121,11 +121,11 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         assert str(apk.get_androidversion_code()) == "55", f"Expected launcher versionCode 55, got {apk.get_androidversion_code()}"
         assert "android.permission.BIND_APPWIDGET" in set(apk.get_permissions()), "Launcher missing BIND_APPWIDGET permission!"
     if expected_pkg == "ca.arc7freedom.upgrader":
-        assert str(apk.get_androidversion_name()) == "2.5.3", f"Expected upgrader 2.5.3, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "253", f"Expected upgrader 252, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.4", f"Expected upgrader 2.5.4, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "254", f"Expected upgrader 254, got {apk.get_androidversion_code()}"
     if expected_pkg == "ca.arc7freedom.app":
-        assert str(apk.get_androidversion_name()) == "2.5.3", f"Expected 2.5.3, got {apk.get_androidversion_name()}"
-        assert str(apk.get_androidversion_code()) == "253", f"Expected 252, got {apk.get_androidversion_code()}"
+        assert str(apk.get_androidversion_name()) == "2.5.4", f"Expected 2.5.4, got {apk.get_androidversion_name()}"
+        assert str(apk.get_androidversion_code()) == "254", f"Expected 254, got {apk.get_androidversion_code()}"
         perms_early = set(apk.get_permissions())
         for req_perm in (
             "android.permission.SET_TIME_ZONE",
@@ -137,6 +137,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         acts = apk.get_activities()
         expected_acts = (
             "ca.arc7freedom.app.MainActivity",
+            "ca.arc7freedom.app.InstallMaintenanceActivity",
             "ca.arc7freedom.app.SplitAppLaunchActivity",
             "ca.arc7freedom.app.Arc7BluetoothInternetActivity",
             "ca.arc7freedom.app.YouTubeActivity",
@@ -183,7 +184,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
             assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
             affinities.add(taff)
-        assert len(affinities) == 34, f"Expected 34 distinct taskAffinity entries, got {len(affinities)}"
+        assert len(affinities) == 35, f"Expected 35 distinct taskAffinity entries, got {len(affinities)}"
         # Verify Android 4.2 VpnService contract: BIND_VPN_SERVICE permission + android.net.VpnService action!
         vpn_svc_ok = False
         for svc_el in manifest_xml.findall(".//service"):
@@ -197,6 +198,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
 
         svcs = apk.get_services()
         for req_svc in (
+            "ca.arc7freedom.app.InstallMaintenanceService",
             "ca.arc7freedom.app.Arc7TlsGatewayService",
             "ca.arc7freedom.app.Arc7ChromebookUsbService",
             "ca.arc7freedom.app.Arc7AdbBackupService",
@@ -1154,7 +1156,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 time.sleep(0.05)
         rel_imgs = [t.get("src", "") for t in _extract_img_tags(rel_body)]
         assert len(rel_imgs) >= 8 and "./logo-banner.png" in rel_imgs
-        assert "./Upgrade-My-Kobo-To-v2.5.3.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
+        assert "./Upgrade-My-Kobo-To-v2.5.4.apk" in rel_body and "./KoboArc7Freedom.apk" in rel_body
         for isrc in rel_imgs:
             assert not isrc.startswith("https://"), f"releases/index.html has non-local HTTPS img: {isrc}"
             ci = http.client.HTTPConnection("127.0.0.1", 18894, timeout=5)
@@ -1177,7 +1179,7 @@ def verify_wifi_server_and_drive_fixes() -> None:
         os.makedirs(iso_files, exist_ok=True)
         # Pre-seed placeholder APKs >= 128B EXCEPT `logo-banner.png` so we ALSO prove offline PNG fallback!
         for seed_name in (
-            "Upgrade-My-Kobo-To-v2.5.3.apk",
+            "Upgrade-My-Kobo-To-v2.5.4.apk",
             "KoboArc7Freedom.apk",
             "VLC.apk",
             "AuroraStore.apk",
@@ -1432,7 +1434,7 @@ public class VerifyV190Suite {
 
 
 def verify_v191_aurora_and_fdroid_fixes() -> None:
-    print("\n=== Verifying Aurora Store APK Signer & F-Droid v1304 Android 4.2 SHA-256 + crash stability fixes ===")
+    print("\n=== Verifying Aurora Store APK Signer & F-Droid v1305 Android 4.2 SHA-256 + crash stability fixes ===")
     fdroid_apk = os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk")
     fdroid_rel = os.path.join(ROOT, "releases/FDroidClassicLegacy.apk")
     assert os.path.exists(fdroid_rel) and os.path.getsize(fdroid_rel) == os.path.getsize(fdroid_apk), (
@@ -1447,7 +1449,7 @@ def verify_v191_aurora_and_fdroid_fixes() -> None:
 
     from androguard.core.dex import DEX
     fd_obj = APK(fdroid_apk)
-    assert str(fd_obj.get_androidversion_code()) == "1304", f"Expected F-Droid v1304, got {fd_obj.get_androidversion_code()}"
+    assert str(fd_obj.get_androidversion_code()) == "1305", f"Expected F-Droid v1305, got {fd_obj.get_androidversion_code()}"
 
     seen_classes = {}
     verified_indexv1_noverify = False
@@ -1704,7 +1706,7 @@ public class VerifyV191Kit {
             [JAVA, "-jar", APKSIGNER, "verify", "--min-sdk-version", "15", "--max-sdk-version", "17", v1_repaired],
             check=True,
         )
-    print("  [PASS] FDroidClassicLegacy v1304 (`verify=false` + largeHeap + Throwable catch + 4096-bit RSA CMS/BER/DER SHA-256 verifier + 7 non-colliding repos) + AuroraStore v4.8.5 verified!")
+    print("  [PASS] FDroidClassicLegacy v1305 (`verify=false` + largeHeap + Throwable catch + 4096-bit RSA CMS/BER/DER SHA-256 verifier + 7 non-colliding repos) + AuroraStore v4.8.5 verified!")
 
 
 def verify_v200_all_11_upgrades() -> None:
@@ -3080,7 +3082,7 @@ public class TestV240Live {
         if (!"https://login.tailscale.com/a/7f9e2b4c81d0a3".equals(parsedAuth)) {
             throw new AssertionError("Tailscale AuthURL extraction failed: " + parsedAuth);
         }
-        // v2.5.3: trailing punctuation stripped + self-hosted Headscale /register/ links recognised.
+        // v2.5.4: trailing punctuation stripped + self-hosted Headscale /register/ links recognised.
         String dotted = TailscaleManager.extractAuthUrlFromText(
                 "visit https://login.tailscale.com/a/abc.def123.");
         if (!"https://login.tailscale.com/a/abc.def123".equals(dotted)) {
@@ -3151,7 +3153,7 @@ public class TestV240Live {
 def verify_v253_reader_paging_and_tailscale_login(main_apk: str) -> None:
     """Tap-to-turn e-reader pages + the Tailscale sign-in page opening by itself."""
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.3: tap-to-turn reader pages + Tailscale sign-in page that opens itself ===")
+    print("\n=== Verifying v2.5.4: tap-to-turn reader pages + Tailscale sign-in page that opens itself ===")
 
     reader_src = open(os.path.join(
         ROOT, "app/src/main/java/ca/arc7freedom/app/Arc7EbookReaderActivity.java"), encoding="utf-8").read()
@@ -3203,14 +3205,14 @@ def verify_v253_reader_paging_and_tailscale_login(main_apk: str) -> None:
     dex_blob = "\n".join(dex.get_strings())
     for needle in ("arc7ctl:", "arc7NextPage", "arc7GotoRatio", "injectReaderChrome",
                    "openLoginPage", "tailscaled.log", "arc7GotoBottom"):
-        assert needle in dex_blob, f"Missing v2.5.3 string in suite DEX: {needle}"
+        assert needle in dex_blob, f"Missing v2.5.4 string in suite DEX: {needle}"
     print("  [PASS] Paging runtime + Tailscale login launcher are present in the compiled suite DEX")
 
 
 def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
     """Every built-in app ships as its own signed APK, and the OTA portal really delivers them."""
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.3: one installable APK per default app + working OTA download portal ===")
+    print("\n=== Verifying v2.5.4: one installable APK per default app + working OTA download portal ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     tsv = os.path.join(ROOT, "split-apps", "apps.tsv")
@@ -3241,7 +3243,7 @@ def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
         assert pkg == f"ca.arc7freedom.{key}", f"{fname}: package {pkg} != ca.arc7freedom.{key}"
         assert pkg not in seen_pkgs, f"Duplicate package {pkg}"
         seen_pkgs.add(pkg)
-        assert str(obj.get_androidversion_code()) == "253", f"{fname}: versionCode is not 252"
+        assert str(obj.get_androidversion_code()) == "254", f"{fname}: versionCode is not 254"
         assert str(obj.get_min_sdk_version()) == "15" and str(obj.get_target_sdk_version()) == "17"
 
         xml = obj.get_android_manifest_xml()
@@ -3350,7 +3352,7 @@ def verify_v253_split_apps_and_ota_portal(main_apk: str) -> None:
         assert (f"{release_base}/{quoted}" in html_body) or (f"./apps/{quoted}" in html_body), (
             f"OTA portal does not link {fname}"
         )
-    for needed in ("Upgrade-My-Kobo-To-v2.5.3.apk", "KoboArc7Freedom.apk"):
+    for needed in ("Upgrade-My-Kobo-To-v2.5.4.apk", "KoboArc7Freedom.apk"):
         assert f"./{needed}" in html_body, f"OTA portal missing {needed}"
 
     # Live server routes: `/lite`, `/dl/<key>`, `/apps/<Name>.apk`, `?file=`
@@ -3384,7 +3386,7 @@ def verify_independent_companion_transports() -> None:
         source = os.path.join(ROOT, "app/src/main/assets/starter-apps", filename)
         assert hashlib.sha256(open(source, "rb").read()).digest() == hashlib.sha256(
             open(os.path.join(ROOT, "releases", filename), "rb").read()).digest(), filename
-    with zipfile.ZipFile(os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk")) as archive:
+    with zipfile.ZipFile(os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.4.apk")) as archive:
         strings = DEX(archive.read("classes.dex")).get_strings()
         assert not any("/proc/[0-9]" in value or "pm clear eu.bubu1.fdroidclassic.debug" in value for value in strings)
     print("  [PASS] Stores contain one common helper each + own UID-aware ARM engines + own CA bundle; installer payloads match")
@@ -3468,7 +3470,7 @@ def verify_repository_layout_and_app_manager(main_apk: str) -> None:
 
 def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) -> None:
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.3: offline DASH/HLS media pipeline + separate YouTube / YouTube Music APKs ===")
+    print("\n=== Verifying v2.5.4: offline DASH/HLS media pipeline + separate YouTube / YouTube Music APKs ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     # 1. The suite must NOT expose YouTube / YouTube Music launcher icons any more.
@@ -3551,7 +3553,7 @@ def verify_v250_streaming_and_standalone_apps(main_apk: str, upgrader_apk: str) 
         "com.google.visionos.youtube/1.04",
         "WATCH",
     ):
-        assert any(needle in v for v in strings), f"Missing critical v2.5.3 streaming string: {needle!r}"
+        assert any(needle in v for v in strings), f"Missing critical v2.5.4 streaming string: {needle!r}"
     print("  [PASS] DEX contains the 2026 InnerTube cascade + DASH remux + local Range server")
 
     # 4. The upgrader carries both standalone APKs inside its embedded suite APK.
@@ -3737,12 +3739,12 @@ def _update_service_handlers_are_throwable(raw_dex: bytes) -> bool:
 def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str,
                                                 fdroid_apk: str) -> None:
     from androguard.core.dex import DEX
-    print("\n=== Verifying v2.5.3: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
+    print("\n=== Verifying v2.5.4: per-day alarm check-off + F-Droid Android 4.2 sync crash fix ===")
     ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
     app = APK(main_apk)
-    assert str(app.get_androidversion_name()) == "2.5.3", f"Expected suite 2.5.3, got {app.get_androidversion_name()}"
-    assert str(app.get_androidversion_code()) == "253", f"Expected suite 252, got {app.get_androidversion_code()}"
+    assert str(app.get_androidversion_name()) == "2.5.4", f"Expected suite 2.5.4, got {app.get_androidversion_name()}"
+    assert str(app.get_androidversion_code()) == "254", f"Expected suite 254, got {app.get_androidversion_code()}"
 
     with zipfile.ZipFile(main_apk, "r") as zf:
         dex = DEX(zf.read("classes.dex"))
@@ -3767,7 +3769,7 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
     print("  [PASS] Alarm editor exposes Sun..Sat check-off buttons + Every day / Weekdays / Weekends / One-time presets")
 
     fd_obj = APK(fdroid_apk)
-    assert str(fd_obj.get_androidversion_code()) == "1304", f"Expected F-Droid 1304, got {fd_obj.get_androidversion_code()}"
+    assert str(fd_obj.get_androidversion_code()) == "1305", f"Expected F-Droid 1305, got {fd_obj.get_androidversion_code()}"
     with zipfile.ZipFile(fdroid_apk, "r") as zf:
         manifest_raw = zf.read("AndroidManifest.xml")
         dex1 = zf.read("classes.dex")
@@ -3785,6 +3787,8 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
         "safePerformUpdateNotification",
         "logCaught",
         "processIndexV1Streaming",
+        "normalizeStringArray",
+        "normalizeRequests",
         "streamCompatiblePackages",
         "isApkCompatibleWithDevice",
         "compactApk",
@@ -3818,13 +3822,13 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
     assert "Ljava/lang/Throwable;->getMessage()Ljava/lang/String;" in post_sync_calls, (
         "UpdateService.onHandleIntent catch(Throwable) still invokes Exception.getMessage()!"
     )
-    print("  [PASS] F-Droid v1304: largeHeap=true, Throwable catch in UpdateService, crash guard writing "
+    print("  [PASS] F-Droid v1305: largeHeap=true, Throwable catch in UpdateService, crash guard writing "
           "arc7-last-crash.txt + post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
 
     up_obj = APK(upgrader_apk)
-    assert str(up_obj.get_androidversion_name()) == "2.5.3", f"Expected upgrader 2.5.3, got {up_obj.get_androidversion_name()}"
-    assert str(up_obj.get_androidversion_code()) == "253", f"Expected upgrader 252, got {up_obj.get_androidversion_code()}"
-    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.3.apk is 2.5.3 / 253")
+    assert str(up_obj.get_androidversion_name()) == "2.5.4", f"Expected upgrader 2.5.4, got {up_obj.get_androidversion_name()}"
+    assert str(up_obj.get_androidversion_code()) == "254", f"Expected upgrader 254, got {up_obj.get_androidversion_code()}"
+    print("  [PASS] Upgrader Upgrade-My-Kobo-To-v2.5.4.apk is 2.5.4 / 254")
 
 
 def verify_requested_runtime_hardening() -> None:
@@ -3942,9 +3946,13 @@ def verify_requested_runtime_hardening() -> None:
         assert needle in fdroid_patch, f"F-Droid low-memory fallback is missing {needle!r}"
     assert "fallbackApps" not in fdroid_patch
     upgrader_src = open(os.path.join(ROOT, "upgrader/src/main/java/ca/arc7freedom/upgrader/UpgraderActivity.java"), encoding="utf-8").read()
-    assert "Patched F-Droid APK is missing from the installer bundle" in upgrader_src
-    assert "[F-Droid] Installer bundle contains the pre-patched APK" in upgrader_src
-    assert 'pm install -r /data/local/tmp/FDroidClassicLegacy.apk' in upgrader_src
+    assert "BundledApk.installScript" in upgrader_src and "show_install_patches" in upgrader_src
+    maintenance = open(os.path.join(ROOT, "app/src/main/java/ca/arc7freedom/app/InstallMaintenanceService.java"), encoding="utf-8").read()
+    assert "installer.catalog()" in maintenance and "installer.apply(entry" in maintenance
+    with zipfile.ZipFile(os.path.join(ROOT, "releases/KoboArc7Freedom.apk")) as bundle:
+        catalog = bundle.read("assets/maintenance/catalog.tsv").decode("utf-8")
+        assert "eu.bubu1.fdroidclassic.debug" in catalog and "1305" in catalog
+        assert len([line for line in catalog.splitlines() if line and not line.startswith("#")]) == 34
     build_script = open(os.path.join(ROOT, "scripts/build-all.sh"), encoding="utf-8").read()
     assert 'scripts/patch-fdroid-apk.py' in build_script and 'PYFDROIDCHECK' in build_script
 
@@ -3973,7 +3981,7 @@ def verify_requested_runtime_hardening() -> None:
 
 
 def main() -> None:
-    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk")
+    upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.4.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1"):
         assert not os.path.exists(os.path.join(ROOT, f"releases/Upgrade-My-Kobo-To-{stale_ver}.apk")), (
             f"Stale {stale_ver} upgrader APK left in releases/!"
@@ -4036,12 +4044,13 @@ def main() -> None:
     verify_v253_reader_paging_and_tailscale_login(main_apk)
     verify_v251_alarm_days_and_fdroid_stability(
         main_apk,
-        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.3.apk"),
+        os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.5.4.apk"),
         os.path.join(ROOT, "app/src/main/assets/starter-apps/FDroidClassicLegacy.apk"),
     )
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-app-isolation.py"),
                     "--native", os.path.join(ROOT, "build/host-test/arc7tls")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-runtime-repairs.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-install-maintenance.py"), "--apks"], check=True)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

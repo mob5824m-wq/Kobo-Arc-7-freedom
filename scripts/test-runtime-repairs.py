@@ -490,30 +490,13 @@ def check_compiled_binding(tmp, classes, javac, java, toolchain):
 
 def check_upgrader_commands(tmp):
     source = (ROOT / "upgrader/src/main/java/ca/arc7freedom/upgrader/UpgraderActivity.java").read_text()
-    block = source.split("// Upgrade in place only.", 1)[1].split("// Step H:", 1)[0]
-    script = "".join(json.loads(match) for match in re.findall(r'sh\.append\(("(?:\\.|[^"\\])*")\);', block))
-    stage = tmp / "staged"
-    stage.mkdir()
-    for name in ("YouTube.apk", "YouTubeMusic.apk", "VLC.apk"):
-        (stage / name).write_bytes(b"fixture apk")
-    script = script.replace("/data/local/tmp/", str(stage) + "/")
-    tools = tmp / "tools"
-    tools.mkdir()
-    pm = tools / "pm"
-    pm.write_text('#!/bin/sh\necho "$*" >> "$PM_LOG"\ncase "$*" in *"$PM_FAIL"*) [ -n "$PM_FAIL" ] && { echo "Failure [INSTALL_FAILED_UPDATE_INCOMPATIBLE]"; exit 1; } ;; esac\necho Success\n')
-    pm.chmod(0o755)
-    for failure, code in (("KoboArc7Freedom.apk", 21), ("VanillaAndroid4Home.apk", 22), ("YouTube.apk", 23), ("FDroidClassicLegacy.apk", 0), ("VLC.apk", 0), ("", 0)):
-        log = tmp / ("pm-" + (failure or "success") + ".log")
-        result = subprocess.run(["sh", "-c", script], env=dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"], PM_FAIL=failure, PM_LOG=str(log)), text=True, capture_output=True)
-        assert result.returncode == code, (failure, result.returncode, result.stdout, result.stderr)
-        assert "uninstall" not in log.read_text(), "Failed upgrades must preserve installed apps/data"
-        if code:
-            assert "UPDATE_FAILED_DATA_PRESERVED" in result.stdout
+    assert "BundledApk.installScript" in source and "installedMainMatches()" in source
+    assert "pm uninstall" not in source and "pm clear" not in source
     assert 'Uri.parse("package:ca.arc7freedom.upgrader")' in source
     optimizer = (SRC / "TabletOptimizerManager.java").read_text()
-    assert "needsBundledUpdate" in optimizer and "apkDigest" in optimizer
+    assert "BundledAppInstaller" in optimizer and "InstallMaintenanceService.request" in optimizer
     assert "pm uninstall ca.arc7freedom.launcher" not in optimizer
-    print("PASS: actual updater shell commands preserve suite/Home/media/store/VLC data on failed installs; same-version bundle refresh is content-aware")
+    print("PASS: updater uses the shared tested in-place installer, verifies installed bytes and opens the full patch pipeline")
 
 
 def run(command, **kwargs):

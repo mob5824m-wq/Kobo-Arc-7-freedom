@@ -91,8 +91,13 @@ public class Android4Installer {
         wl.acquire(15 * 60 * 1000L);
 
         try {
-            cb.onProgress(5, "Extracting bundled Vanilla Android 4.2 Home Launcher...");
-            File launcherApk = extractBundledLauncherApk();
+            cb.onProgress(5, "Verifying the replacement Home through the shared in-place installer...");
+            BundledAppInstaller installer = new BundledAppInstaller(appContext, shell);
+            BundledAppInstaller.State homeState = installer.apply(installer.find("ca.arc7freedom.launcher"), true,
+                    new TabletOptimizerManager.LogSink() { @Override public void onLog(String line) { cb.onLog(line); } });
+            if (!homeState.done()) throw new IllegalStateException("Home update blocked; conversion stopped, app data retained: " + homeState.detail);
+            // Preserve a newer installed Home instead of promoting an older bundled APK.
+            File launcherApk = new File(appContext.getPackageManager().getApplicationInfo("ca.arc7freedom.launcher", 0).sourceDir);
             File archiveDir = new File(archiveVolumeRoot, "Arc7Freedom/kobo-system-archive");
             if (!archiveDir.exists() && !archiveDir.mkdirs()) {
                 throw new IllegalStateException("Cannot create Kobo archive folder at " + archiveDir.getAbsolutePath());
@@ -105,12 +110,12 @@ public class Android4Installer {
 
             cb.onProgress(15, "Installing Stock Android 4.2 Launcher into /system/app & registering...");
             String sysMountDev = resolveSystemMountDevice(snap);
-            String step1 = "set -e\n"
+            String step1 = "set -e\ntrap 'mount -o remount,ro /system 2>/dev/null || true' 0\n"
                     + "mount -o rw,remount " + RootShell.shellQuote(sysMountDev) + " /system 2>/dev/null || mount -o rw,remount /system\n"
-                    + "cat " + RootShell.shellQuote(launcherApk.getAbsolutePath()) + " > /system/app/VanillaAndroid4Home.apk\n"
-                    + "chown 0:0 /system/app/VanillaAndroid4Home.apk || true\n"
-                    + "chmod 0644 /system/app/VanillaAndroid4Home.apk\n"
-                    + "pm install -r " + RootShell.shellQuote(launcherApk.getAbsolutePath()) + " || true\n"
+                    + "cat " + RootShell.shellQuote(launcherApk.getAbsolutePath()) + " > /system/app/VanillaAndroid4Home.apk.arc7-new\n"
+                    + "chown 0:0 /system/app/VanillaAndroid4Home.apk.arc7-new || true\n"
+                    + "chmod 0644 /system/app/VanillaAndroid4Home.apk.arc7-new\n"
+                    + "mv /system/app/VanillaAndroid4Home.apk.arc7-new /system/app/VanillaAndroid4Home.apk\n"
                     + "pm enable ca.arc7freedom.launcher/ca.arc7freedom.launcher.VanillaHomeActivity || true\n";
             RootShell.ExecResult r1 = shell.execRoot(step1, new RootShell.LineListener() {
                 @Override public void onLine(String line) { cb.onLog(line); }
@@ -120,9 +125,9 @@ public class Android4Installer {
             }
 
             // Safety gate: verify Android PackageManager actually sees our replacement Home Launcher
-            // BEFORE archiving/removing Kobo's launcher, guaranteeing zero black-screen risk!
+            // BEFORE archiving/removing Kobo's launcher. A file on disk alone is not proof of a working Home.
             if (!verifyHomeLauncherRegistered()) {
-                throw new IllegalStateException("Safety check stopped conversion because VanillaAndroid4Home did not register with PackageManager. /system was not altered.");
+                throw new IllegalStateException("Safety check stopped before stock-app removal because VanillaAndroid4Home is not registered. Check the log; the Home system copy may already have been written.");
             }
             cb.onLog("Safety check PASSED: ca.arc7freedom.launcher registered as valid Android HOME launcher!");
 
@@ -135,7 +140,7 @@ public class Android4Installer {
 
             String[] scanDirs = new String[]{"/system/app", "/system/priv-app"};
             StringBuilder moveScript = new StringBuilder();
-            moveScript.append("set -e\n");
+            moveScript.append("set -e\ntrap 'mount -o remount,ro /system 2>/dev/null || true' 0\n");
             moveScript.append("mount -o rw,remount ").append(RootShell.shellQuote(sysMountDev))
                       .append(" /system 2>/dev/null || mount -o rw,remount /system\n");
 
@@ -272,23 +277,11 @@ public class Android4Installer {
             // Also automatically provision Aurora Store (`com.aurora.store`), F-Droid Classic,
             // native `python3` + `apt`, AND automatic local timezone + atomic time sync!
             if (appContext != null) {
-                TabletOptimizerManager opt = new TabletOptimizerManager(appContext, shell);
-                TabletOptimizerManager.LogSink optLog = new TabletOptimizerManager.LogSink() {
-                    @Override public void onLog(String line) { cb.onLog(line); }
-                };
-                opt.installBundledAuroraStore(optLog);
-                opt.installBundledFDroidClassic(optLog);
-                opt.provisionPython3AndAptSystemWide(optLog, true);
-                try {
-                    new NetworkCertManager(appContext, shell).syncTimeAndTimezoneAutomatically(true,
-                            new NetworkCertManager.ProgressListener() {
-                                @Override public void onProgress(int pct, String stage) {}
-                                @Override public void onLog(String line) { cb.onLog(line); }
-                            });
-                } catch (Throwable ignored) {}
+                InstallMaintenanceService.request(appContext, "conversion completed");
+                cb.onLog("Shared offline patch pipeline queued. Review Install / Repair All Patches after conversion.");
             }
 
-            cb.onProgress(100, "Normal Android 4.2 + Aurora Store + Python 3 + apt installed! (" + archivedCount
+            cb.onProgress(100, "Android 4.2 conversion complete; shared companion/system patches queued (" + archivedCount
                     + " Kobo/Default-Launcher/Discontinued APKs archived safely to " + archiveDir.getAbsolutePath() + ")");
             cb.onLog("=== Conversion to Stock Android 4.2 Jelly Bean Complete! ===");
             cb.onLog("Default stock launcher removed cleanly — pressing HOME launches Android 4 Home directly!");
@@ -546,6 +539,14 @@ public class Android4Installer {
         File tmpSystemTar = new File(outDir, "system_clean.tar.gz");
         File launcherApk = extractBundledLauncherApk();
         File suBin = shell.getSuPayloadBinary();
+        File suiteApk = new File(appContext.getPackageManager().getApplicationInfo("ca.arc7freedom.app", 0).sourceDir);
+        // A separate/old helper must not silently generate a ROM without the full patch payload.
+        ZipFile suiteZip = new ZipFile(suiteApk);
+        try {
+            if (suiteZip.getEntry("assets/maintenance/catalog.tsv") == null) {
+                throw new IllegalStateException("Install the current full Arc7 Freedom bundle before generating a ROM");
+            }
+        } finally { suiteZip.close(); }
 
         cb.onProgress(15, "Packing clean de-Kobo'd Android 4.2 /system tree (preserving all MT8125/Tegra hardware drivers)...");
         String tarScript = "rm -f " + RootShell.shellQuote(tmpSystemTar.getAbsolutePath()) + "\n"
@@ -593,6 +594,8 @@ public class Android4Installer {
                 + "fi\n"
                 + "ui_print \"Installing Stock Android 4 Home Launcher & Root su...\"\n"
                 + "unzip -p \"$ZIP\" VanillaAndroid4Home.apk > /system/app/VanillaAndroid4Home.apk\n"
+                + "unzip -p \"$ZIP\" KoboArc7Freedom.apk > /system/app/KoboArc7Freedom.apk || exit 3\n"
+                + "chmod 0644 /system/app/KoboArc7Freedom.apk\n"
                 + "unzip -p \"$ZIP\" su > /system/xbin/su\n"
                 + "chown 0:0 /system/app/VanillaAndroid4Home.apk /system/xbin/su 2>/dev/null || true\n"
                 + "chmod 0644 /system/app/VanillaAndroid4Home.apk\n"
@@ -601,11 +604,12 @@ public class Android4Installer {
                 + "cat << 'HOOK_EOF' > /system/etc/install-recovery.sh\n"
                 + "#!/system/bin/sh\n"
                 + "/system/xbin/su --daemon &\n"
-                + "(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) &\n"
+                + "(sleep 8; settings put global device_provisioned 1; settings put secure user_setup_complete 1) >/dev/null 2>&1 </dev/null &\n"
+                + "(sleep 25; am startservice -n ca.arc7freedom.app/.InstallMaintenanceService) >/dev/null 2>&1 </dev/null &\n"
                 + "exit 0\n"
                 + "HOOK_EOF\n"
                 + "chmod 0755 /system/etc/install-recovery.sh\n"
-                + "if [ ! -s /system/bin/linker ] || [ ! -s /system/build.prop ] || [ ! -s /system/app/VanillaAndroid4Home.apk ]; then\n"
+                + "if [ ! -s /system/bin/linker ] || [ ! -s /system/build.prop ] || [ ! -s /system/app/VanillaAndroid4Home.apk ] || [ ! -s /system/app/KoboArc7Freedom.apk ]; then\n"
                 + "  ui_print \"ERROR: /system post-install integrity check failed!\"\n"
                 + "  exit 2\n"
                 + "fi\n"
@@ -620,6 +624,7 @@ public class Android4Installer {
             addBytesEntry(zos, "META-INF/com/google/android/update-binary", updateBinarySh.getBytes("UTF-8"));
             addBytesEntry(zos, "META-INF/com/google/android/updater-script", edify.getBytes("UTF-8"));
             addFileEntry(zos, "VanillaAndroid4Home.apk", launcherApk);
+            addFileEntry(zos, "KoboArc7Freedom.apk", suiteApk);
             addFileEntry(zos, "su", suBin);
             addFileEntry(zos, "system_clean.tar.gz", tmpSystemTar);
         } finally {
@@ -629,16 +634,21 @@ public class Android4Installer {
 
         cb.onProgress(100, "Built flashable ROM: " + outZip.getAbsolutePath() + " (" + (outZip.length() / 1048576L) + " MB)");
         cb.onLog("Flashable ROM .zip ready at: " + outZip.getAbsolutePath());
+        cb.onLog("Includes the complete offline suite/34-app patch bundle. The shared pipeline runs on boot; open Install / Repair All Patches after flashing to review any restrictions.");
         return outZip;
     }
 
     private boolean verifyHomeLauncherRegistered() {
         try {
-            PackageManager pm = appContext.getPackageManager();
-            return pm.getPackageInfo("ca.arc7freedom.launcher", 0) != null;
-        } catch (Throwable t) {
-            return new File("/system/app/VanillaAndroid4Home.apk").exists();
-        }
+            android.content.Intent home = new android.content.Intent(android.content.Intent.ACTION_MAIN);
+            home.addCategory(android.content.Intent.CATEGORY_HOME);
+            List<android.content.pm.ResolveInfo> candidates = appContext.getPackageManager().queryIntentActivities(home, 0);
+            for (android.content.pm.ResolveInfo candidate : candidates) {
+                if (candidate.activityInfo != null && candidate.activityInfo.enabled && candidate.activityInfo.applicationInfo.enabled
+                        && "ca.arc7freedom.launcher".equals(candidate.activityInfo.packageName)) return true;
+            }
+        } catch (Exception unavailable) {}
+        return false;
     }
 
     public static boolean shouldArchiveKoboApk(String apkFileName, boolean keepReader) {

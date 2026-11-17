@@ -440,8 +440,8 @@ final class BuiltinApps {
 def main() -> None:
     tree = ET.parse(SUITE_MANIFEST)
     manifest = tree.getroot()
-    version_code = manifest.get(NS + "versionCode", "251")
-    version_name = manifest.get(NS + "versionName", "2.5.3")
+    version_code = manifest.get(NS + "versionCode", "254")
+    version_name = manifest.get(NS + "versionName", "2.5.4")
     android = manifest.find("application")
     assert android is not None
 

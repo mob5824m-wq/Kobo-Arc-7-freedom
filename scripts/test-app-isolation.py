@@ -144,7 +144,7 @@ def check_manifests_and_generation():
     assert "/proc/[0-9]" not in upgrader and "kill -9" not in upgrader
 
     for method in ("installBundledAuroraStore", "installBundledFDroidClassic"):
-        body = optimizer.split("public boolean " + method, 1)[1].split("File outDir", 1)[0]
+        body = optimizer.split("public boolean " + method, 1)[1].split("\n    }", 1)[0]
         assert "Arc7TlsGatewayService.ensureStarted" not in body
 
     install = network.split("public boolean installCertsAndFixNetwork", 1)[1].split(

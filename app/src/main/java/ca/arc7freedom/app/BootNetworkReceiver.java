@@ -4,8 +4,6 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
-import java.util.Calendar;
 
 /**
  * Self-heals Kobo Arc 7 network connectivity automatically after reboots or dead-battery
@@ -41,6 +39,8 @@ public class BootNetworkReceiver extends BroadcastReceiver {
             return;
         }
         final boolean isPkgUpgrade = Intent.ACTION_MY_PACKAGE_REPLACED.equals(action);
+        if (!isPkgUpgrade && !Intent.ACTION_BOOT_COMPLETED.equals(action)
+                && !ConnectivityManager.CONNECTIVITY_ACTION.equals(action) && !Intent.ACTION_TIME_CHANGED.equals(action)) return;
         long now = System.currentTimeMillis();
         if (!isPkgUpgrade && Math.abs(now - lastCheckMs) < 15000L) return;
         lastCheckMs = now;
@@ -50,25 +50,9 @@ public class BootNetworkReceiver extends BroadcastReceiver {
             @Override
             public void run() {
                 try {
-                    RootShell shell = new RootShell(context);
-                    boolean rooted = shell.isRootAvailable();
-
-                    // Ensure Home & Recents provisioning stays intact across reboots
-                    if (rooted) {
-                        shell.execRoot(
-                                "settings put global device_provisioned 1 </dev/null >/dev/null 2>&1 || true; "
-                                + "settings put secure user_setup_complete 1 </dev/null >/dev/null 2>&1 || true",
-                                null
-                        );
-                    }
-
-                    // Re-apply MicroSD heavy-folder bind mounts automatically on boot if user enabled Storage Expander
-                    if (rooted && context.getSharedPreferences(TabletOptimizerManager.PREFS, Context.MODE_PRIVATE)
-                            .getBoolean(TabletOptimizerManager.KEY_BIND_SD_BOOT, false)) {
-                        TabletOptimizerManager.applyMicroSdBindMounts(context, shell, null, false);
-                    }
-
-                    // Re-arm all scheduled Arc7 Clock Alarms & running Countdown Timers after reboot!
+                    // Heavy patches run in the same restartable service as every installer,
+                    // not inside a broadcast's short execution window.
+                    InstallMaintenanceService.request(context, action);
                     Arc7ClockStore.rescheduleAllOnBoot(context);
 
                     // Restore Warm Night / Amber Reading Filter overlay across reboots if active
@@ -88,26 +72,6 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     Arc7AudioService.ensureWatcherRunning(context);
                     Arc7ChromebookUsbService.ensureStarted(context);
                     Arc7CalendarStore.scheduleReminders(context, Arc7CalendarStore.loadSavedEvents(context));
-                    NetworkCertManager certMgr = new NetworkCertManager(context, shell);
-                    certMgr.ensureCaBundleFile();
-                    certMgr.migrateLegacySuiteProxy();
-                    certMgr.startBrowserGateway();
-
-                    // Always ensure Aurora Store, VLC Media Player, Launcher v50, Python 3, `apt`, & Default Launcher / Kobo Care removal stay applied!
-                    TabletOptimizerManager opt = new TabletOptimizerManager(context, shell);
-                    if (rooted) {
-                        opt.ensureCompanionAppsUpgradedSilently();
-                    } else {
-                        opt.provisionPython3AndAptSystemWide(null, false);
-                    }
-
-                    ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
-                    NetworkInfo active = cm != null ? cm.getActiveNetworkInfo() : null;
-                    if (active != null && active.isConnected()) {
-                        // Automatically sync local IANA timezone, atomic time, AND Internet Archive alarm chimes!
-                        certMgr.syncTimeAndTimezoneAutomatically(rooted, null);
-                        Arc7ClockStore.autoSyncInternetArchiveChimes(context, null);
-                    }
                 } catch (Throwable ignored) {
                 } finally {
                     pending.finish();
