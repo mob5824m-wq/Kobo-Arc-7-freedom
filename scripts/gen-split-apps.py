@@ -55,7 +55,7 @@ APP_META = {
     "camera": ("Camera.apk", "Front camera photo + video capture"),
     "calculator": ("Calculator.apk", "Scientific calculator with history"),
     "notes": ("Notes.apk", "Notes / notepad with autosave"),
-    "filemanager": ("Files.apk", "Two-pane file manager (copy / move / rename / zip)"),
+    "filemanager": ("Files.apk", "File manager with offline camera QR-byte transfer and optional Wi-Fi sharing"),
     "wiredinternet": ("USB-Internet.apk", "Share your PC internet to the tablet over USB"),
     "bluetoothinternet": ("Bluetooth-Internet.apk", "Share Wi-Fi over Bluetooth PAN, or receive tethered internet"),
     "packageinstaller": ("Package-Installer.apk", "APK installer with signature checks"),
@@ -64,8 +64,8 @@ APP_META = {
     "radiorss": ("Radio.apk", "Live Internet radio and station directory"),
     "podcasts": ("Podcasts.apk", "Podcast search, feeds, playback and downloads"),
     "news": ("News.apk", "Offline RSS news and custom feeds"),
-    "authenticator": ("Authenticator.apk", "Offline encrypted TOTP two-factor codes"),
-    "passwords": ("Passwords.apk", "Offline encrypted password vault and generator"),
+    "authenticator": ("Authenticator.apk", "Offline encrypted TOTP codes with Proton Pass / Bitwarden import"),
+    "passwords": ("Passwords.apk", "Offline encrypted password vault with Proton Pass / Bitwarden import"),
     "recorder": ("Voice-Recorder.apk", "Voice recorder with playback + share"),
     "arcade": ("Games.apk", "Built-in arcade games"),
     "shield": ("Ad-Blocker.apk", "System-wide ad / tracker blocker"),
@@ -106,6 +106,7 @@ for key in ("clock", "calendar"):
     APP_PERMISSIONS[key].add("RECEIVE_BOOT_COMPLETED")
 for key in ("wallpaperpicker", "photos"):
     APP_PERMISSIONS[key].update(("SET_WALLPAPER", "SET_WALLPAPER_HINTS"))
+APP_PERMISSIONS["filemanager"].add("CAMERA")
 APP_PERMISSIONS["camera"].update(("CAMERA", "RECORD_AUDIO", "WAKE_LOCK"))
 APP_PERMISSIONS["recorder"].add("RECORD_AUDIO")
 APP_PERMISSIONS["clock"].add("SET_TIME_ZONE")
@@ -115,6 +116,7 @@ APP_PERMISSIONS["bluetoothinternet"].update(("BLUETOOTH", "BLUETOOTH_ADMIN", "AC
 # Only private support components of this app. Cross-app activities are launched via
 # SplitAppRouter, not copied into the caller's manifest/process/data directory.
 APP_EXTRAS = {
+    "filemanager": (("service", "Arc7QrFileShareService"), ("activity", "Arc7QrTransferActivity")),
     "vpn": (("service", "Arc7VpnService"),),
     "wiredinternet": (("service", "Arc7ChromebookUsbService"),),
     "audioplayer": (("service", "Arc7AudioService"), ("receiver", "Arc7AudioWidgetProvider")),

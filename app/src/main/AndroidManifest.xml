@@ -292,6 +292,13 @@
 
         <!-- 18. `Files` Internal, MicroSD & ZIP Explorer (OWN TASK!) -->
         <activity
+            android:name=".Arc7QrTransferActivity"
+            android:taskAffinity="ca.arc7freedom.task.filemanager"
+            android:label="Offline QR byte transfer"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:name=".Arc7FileManagerActivity"
             android:label="Files"
             android:icon="@drawable/ic_files"
@@ -495,6 +502,7 @@
         <service android:name=".Arc7AdbBackupService" android:exported="true" />
         <service android:name=".NightFilterService" android:exported="false" />
         <service android:name=".Arc7WifiDriveService" android:exported="false" />
+        <service android:name=".Arc7QrFileShareService" android:exported="false" />
         <service android:name=".SoftKeysOverlayService" android:exported="false" />
         <service android:name=".Arc7AudioService" android:exported="true" />
 

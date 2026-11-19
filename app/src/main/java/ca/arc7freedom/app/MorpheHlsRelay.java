@@ -120,17 +120,11 @@ public final class MorpheHlsRelay {
 
     public static synchronized String register(MorpheHls.Selection selection, MorpheHls.Transport transport) throws Exception {
         if (selection.fragmented()) throw new IOException("fMP4 must be remuxed for Android 4.2, not relayed");
+        if (selection.video != null && selection.audio != null)
+            throw new IOException("Android 4.2 ignores separate HLS audio renditions; use a combined stream or DASH remux");
         ensureStarted();
         Session session = new Session(transport);
         String primary = session.add(new Resource(selection.primary().url, selection.primary(), null));
-        if (selection.video != null && selection.audio != null) {
-            String audio = session.add(new Resource(selection.audio.url, selection.audio, null));
-            String master = "#EXTM3U\n#EXT-X-VERSION:4\n"
-                    + "#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"audio\",NAME=\"Audio\",DEFAULT=YES,AUTOSELECT=YES,URI=\"" + audio + "\"\n"
-                    + "#EXT-X-STREAM-INF:BANDWIDTH=" + Math.max(1, selection.bandwidth)
-                    + ",CODECS=\"" + selection.codecs + "\",AUDIO=\"audio\"\n" + primary + "\n";
-            primary = session.add(new Resource("selected-master", null, master));
-        }
         SESSIONS.put(session.token, session);
         while (SESSIONS.size() > 4) SESSIONS.remove(SESSIONS.keySet().iterator().next()).cancel();
         return primary;

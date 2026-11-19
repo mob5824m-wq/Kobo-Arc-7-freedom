@@ -1,6 +1,7 @@
 package ca.arc7freedom.app;
 
 import android.app.Activity;
+import ca.arc7freedom.glass.LiquidGlassDrawable;
 import android.app.AlertDialog;
 import android.appwidget.AppWidgetManager;
 import android.content.ComponentName;
@@ -577,24 +578,18 @@ public final class Arc7Skin {
                 TypedValue.COMPLEX_UNIT_DIP, v, ctx.getResources().getDisplayMetrics()));
     }
 
-    private static int glassTint(int color, int amount) {
-        return Color.argb(245, Math.min(255,Color.red(color)+amount), Math.min(255,Color.green(color)+amount), Math.min(255,Color.blue(color)+amount));
+    public static Drawable pageDrawable(Palette p) {
+        return LiquidGlassDrawable.ambient(p.bgPage, p.accent);
     }
 
     public static GradientDrawable cardDrawable(Context ctx, Palette p, int radiusDp) {
-        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{glassTint(p.surface, 20), (p.surface & 0x00FFFFFF) | 0xEE000000});
-        g.setCornerRadius(dp(ctx, Math.max(14, radiusDp)));
-        g.setStroke(dp(ctx, 1), glassTint(p.border, 26));
-        return g;
+        return new LiquidGlassDrawable(p.surface, p.accent, dp(ctx, Math.max(20, radiusDp)),
+                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 154 : 108);
     }
 
     public static GradientDrawable elevatedDrawable(Context ctx, Palette p, int radiusDp) {
-        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{glassTint(p.surfaceElevated, 18), (p.surfaceElevated & 0x00FFFFFF) | 0xF0000000});
-        g.setCornerRadius(dp(ctx, Math.max(14, radiusDp)));
-        g.setStroke(dp(ctx, 1), glassTint(p.border, 26));
-        return g;
+        return new LiquidGlassDrawable(p.surfaceElevated, p.accent, dp(ctx, Math.max(22, radiusDp)),
+                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 174 : 136);
     }
 
     public static Button secondaryButton(Context ctx, Palette p, String label) {
@@ -602,9 +597,8 @@ public final class Arc7Skin {
     }
 
     public static GradientDrawable headerDrawable(Palette p) {
-        return new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{glassTint(p.headerTop, 22), p.headerBottom, (p.headerBottom & 0x00FFFFFF) | 0xF2000000});
+        // Headers retain a dark tint for white title/search text in every palette.
+        return new LiquidGlassDrawable(p.headerBottom, p.accent, 0, 1f, p.lightMode ? 226 : 172);
     }
 
     public static Drawable customAppBarDrawable(Context ctx, Palette p, AppBarPrefs prefs) {
@@ -635,11 +629,8 @@ public final class Arc7Skin {
     }
 
     public static GradientDrawable buttonDrawable(Context ctx, int fillColor, int radiusDp) {
-        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{glassTint(fillColor, 22), fillColor});
-        g.setCornerRadius(dp(ctx, Math.max(12, radiusDp)));
-        g.setStroke(dp(ctx, 1), 0x44FFFFFF);
-        return g;
+        return new LiquidGlassDrawable(fillColor, 0xFFDCEBFF, dp(ctx, Math.max(22, radiusDp)),
+                ctx.getResources().getDisplayMetrics().density, current(ctx).lightMode ? 218 : 168);
     }
 
     @SuppressWarnings("deprecation")

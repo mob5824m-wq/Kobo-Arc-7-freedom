@@ -128,13 +128,13 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF050508);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(musicPalette()));
 
         // Top Bar
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundDrawable(Arc7Skin.headerDrawable(Arc7Skin.current(this)));
+        topBar.setBackgroundDrawable(Arc7Skin.headerDrawable(musicPalette()));
         topBar.setPadding(dp(12), dp(7), dp(12), dp(7));
 
         ImageView logoIv = new ImageView(this);
@@ -160,10 +160,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         searchEt.setSingleLine(true);
         searchEt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
         searchEt.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        GradientDrawable sbg = new GradientDrawable();
-        sbg.setColor(0xFF191924);
-        sbg.setCornerRadius(dp(18));
-        sbg.setStroke(dp(1), 0xFF2D2D3F);
+        GradientDrawable sbg = Arc7Skin.cardDrawable(this, musicPalette(), 24);
         searchEt.setBackgroundDrawable(sbg);
         searchEt.setPadding(dp(14), dp(7), dp(14), dp(7));
         searchEt.setOnEditorActionListener(new TextView.OnEditorActionListener() {
@@ -212,7 +209,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         // Mood / Quick Picks / Library Filter Bar
         HorizontalScrollView moodScroll = new HorizontalScrollView(this);
         moodScroll.setHorizontalScrollBarEnabled(false);
-        moodScroll.setBackgroundColor(0xFF0A0A10);
+        moodScroll.setBackgroundColor(0x00000000);
         LinearLayout moodRow = new LinearLayout(this);
         moodRow.setOrientation(LinearLayout.HORIZONTAL);
         moodRow.setPadding(dp(10), dp(6), dp(10), dp(6));
@@ -264,7 +261,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         LinearLayout playerDeck = new LinearLayout(this);
         playerDeck.setOrientation(LinearLayout.VERTICAL);
         playerDeck.setGravity(Gravity.CENTER_HORIZONTAL);
-        playerDeck.setBackgroundColor(0xFF0D0D15);
+        playerDeck.setBackgroundDrawable(Arc7Skin.elevatedDrawable(this, musicPalette(), 28));
         playerDeck.setPadding(dp(16), dp(12), dp(16), dp(12));
 
         int artSize = landscape ? dp(172) : dp(124);
@@ -554,10 +551,9 @@ public class YouTubeMusicActivity extends Arc7Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(10), dp(9), dp(10), dp(9));
 
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor((isQueueView && idx == activeIdx) ? 0xFF28121E : 0xFF12121C);
-            bg.setCornerRadius(dp(11));
-            bg.setStroke(dp(1), (isQueueView && idx == activeIdx) ? 0xFFFF0033 : 0xFF222233);
+            GradientDrawable bg = (isQueueView && idx == activeIdx)
+                    ? Arc7Skin.buttonDrawable(this, 0xFF58152B, 24)
+                    : Arc7Skin.cardDrawable(this, musicPalette(), 24);
             row.setBackgroundDrawable(bg);
 
             LinearLayout info = new LinearLayout(this);
@@ -923,6 +919,12 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 })
                 .setPositiveButton("Close", null)
                 .show();
+    }
+
+    private Arc7Skin.Palette musicPalette() {
+        Arc7Skin.Palette p = Arc7Skin.current(this);
+        // Music's artwork/transport typography stays white, including under the daylight OS skin.
+        return p.lightMode ? Arc7Skin.paletteByIndex(0) : p;
     }
 
     private Button pillBtn(String label,int color) {

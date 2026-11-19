@@ -637,6 +637,14 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "System/root restrictions and signing/storage failures stay visible in the report; no automatic uninstall or wipe. "
         "Individual app downloads update only that app. Third-party ROMs need the full suite reinstalled afterward.</p></div>"
         + split_apps_html
+        + "<div class='card'><h2>Offline camera QR byte transfer</h2>"
+        "<p>Files can transfer actual file bytes through repeated QR frames, with no shared network. "
+        "Long-press a file in Files and choose <b>Send file bytes via QR</b>, then open <b>Receive QR bytes</b> "
+        "on the other Kobo, or use this self-contained browser companion on a computer/phone. "
+        "1 MiB maximum; use LAN sharing for large files. Codes are not encrypted.</p>"
+        "<a class='btn mac' href='./qr-transfer.html' download='qr-transfer.html'>Download offline QR byte-transfer companion</a>"
+        "<p>Save the HTML file and open it locally. Browser camera reception requires a secure context "
+        "(HTTPS/localhost; local files work in some browsers). Displaying codes for the Kobo camera works offline.</p></div>"
         + top_banner
         + upload_section
         + "<div class='card'>"

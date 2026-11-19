@@ -4,11 +4,11 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
 import android.os.StatFs;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -22,6 +22,7 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -63,6 +64,8 @@ public class Arc7FileManagerActivity extends Arc7Activity {
     private TextView pathBarTv;
     private Button pasteBtn;
     private FileAdapter adapter;
+    private final Handler shareHandler = new Handler();
+    private Runnable shareStartPoll;
 
     private int dp(int v) {
         return Arc7Skin.dp(this, v);
@@ -145,6 +148,17 @@ public class Arc7FileManagerActivity extends Arc7Activity {
         LinearLayout bmRow = new LinearLayout(this);
         bmRow.setOrientation(LinearLayout.HORIZONTAL);
         bmRow.setPadding(dp(12), dp(8), dp(12), dp(8));
+        addQrShareAction(bmRow);
+        Button receiveQr = Arc7Skin.actionButton(this, "Receive QR bytes", 0xFF167D68);
+        receiveQr.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Intent transfer = new Intent(Arc7FileManagerActivity.this, Arc7QrTransferActivity.class);
+                File destination = new File(Environment.getExternalStorageDirectory(), "Download/QR Received");
+                transfer.putExtra(Arc7QrTransferActivity.EXTRA_DIRECTORY, destination.getAbsolutePath());
+                startActivity(transfer);
+            }
+        });
+        addBtn(bmRow, receiveQr);
 
         final File sd = Environment.getExternalStorageDirectory();
         addBookmark(bmRow, "Internal Storage", sd);
@@ -197,6 +211,136 @@ public class Arc7FileManagerActivity extends Arc7Activity {
             }
         });
         row.addView(b, lp);
+    }
+
+    private void addQrShareAction(LinearLayout row) {
+        Button button = Arc7Skin.actionButton(this, "QR link · LAN share", 0xFF0284C7);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.rightMargin = dp(8);
+        button.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { openQrFileShare(); }
+        });
+        row.addView(button, lp);
+    }
+
+    private void openQrFileShare() {
+        if (Arc7QrFileShareService.isRunning()) {
+            showQrFileShare();
+            return;
+        }
+        final File selected;
+        try {
+            if (currentDir == null) throw new Exception();
+            selected = currentDir.getCanonicalFile();
+            File storage = Environment.getExternalStorageDirectory().getCanonicalFile();
+            String root = storage.getCanonicalPath();
+            String path = selected.getCanonicalPath();
+            if (!selected.isDirectory() || !(path.equals(root) || path.startsWith(root + File.separator))) {
+                Toast.makeText(this, "QR sharing is limited to a folder inside shared internal storage. Navigate to Downloads or another /sdcard folder first.", Toast.LENGTH_LONG).show();
+                return;
+            }
+        } catch (Exception invalid) {
+            Toast.makeText(this, "Choose an existing folder in shared internal storage first.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String folder = selected.getName().length() == 0 ? "Internal storage" : selected.getName();
+        new AlertDialog.Builder(this)
+                .setTitle("Share “" + folder + "” with a QR code?")
+                .setMessage("This starts a local web share for this folder only. A computer or phone on the same Wi-Fi/LAN can scan the QR link to download files or upload files here. Anyone with the link can use it until you stop sharing or 30 minutes pass. The connection uses unencrypted HTTP; use a trusted network and do not share sensitive files.")
+                .setPositiveButton("Start 30-minute share", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int which) { startQrFileShare(selected); }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void startQrFileShare(final File directory) {
+        try {
+            Arc7QrFileShareService.startShare(this, directory);
+        } catch (Exception failure) {
+            Toast.makeText(this, "Could not start the file share: " + failure.getMessage(), Toast.LENGTH_LONG).show();
+            return;
+        }
+        final int[] attempts = new int[]{0};
+        shareStartPoll = new Runnable() {
+            @Override public void run() {
+                if (isFinishing()) return;
+                if (Arc7QrFileShareService.isRunning()) {
+                    shareStartPoll = null;
+                    showQrFileShare();
+                } else if (Arc7QrFileShareService.getError().length() > 0) {
+                    shareStartPoll = null;
+                    Toast.makeText(Arc7FileManagerActivity.this, Arc7QrFileShareService.getError(), Toast.LENGTH_LONG).show();
+                } else if (++attempts[0] < 30) {
+                    shareHandler.postDelayed(this, 250L);
+                } else {
+                    shareStartPoll = null;
+                    Toast.makeText(Arc7FileManagerActivity.this, "File share did not start. Connect to Wi-Fi and try again.", Toast.LENGTH_LONG).show();
+                }
+            }
+        };
+        shareHandler.postDelayed(shareStartPoll, 150L);
+    }
+
+    private void showQrFileShare() {
+        String address = Arc7QrFileShareService.getShareUrl();
+        if (address.length() == 0) {
+            Toast.makeText(this, "QR share is not active. Start it again from this folder.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Arc7Skin.Palette palette = Arc7Skin.current(this);
+        int padding = dp(14);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(padding, padding, padding, padding);
+        TextView instructions = new TextView(this);
+        instructions.setTextColor(palette.textPrimary);
+        instructions.setTextSize(14);
+        instructions.setText("Scan with the other computer or phone, or enter the link below. This link grants access to “"
+                + Arc7QrFileShareService.getRootName() + "” for up to 30 minutes. Stop the share when finished. HTTP is not encrypted.");
+        instructions.setPadding(0, 0, 0, dp(8));
+        box.addView(instructions);
+        ImageView qr = new ImageView(this);
+        qr.setImageBitmap(QrCodeEncoder.renderQrBitmap(address, dp(250)));
+        qr.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams qrParams = new LinearLayout.LayoutParams(dp(250), dp(250));
+        qrParams.gravity = Gravity.CENTER_HORIZONTAL;
+        box.addView(qr, qrParams);
+        TextView link = new TextView(this);
+        link.setText(address);
+        link.setTextColor(palette.accentLight);
+        link.setTextSize(12);
+        link.setTypeface(Typeface.MONOSPACE);
+        link.setTextIsSelectable(true);
+        link.setPadding(0, dp(8), 0, dp(8));
+        box.addView(link);
+        long minutes = Math.max(1L, (Arc7QrFileShareService.getExpiresAt() - System.currentTimeMillis() + 59999L) / 60000L);
+        TextView expiry = new TextView(this);
+        expiry.setTextColor(palette.textMuted);
+        expiry.setTextSize(12);
+        expiry.setText("Folder: " + Arc7QrFileShareService.getRootName() + " · auto-stops in about " + minutes + " min");
+        box.addView(expiry);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(box);
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Kobo QR File Share")
+                .setView(scroll)
+                .setPositiveButton("Stop sharing", new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface d, int which) {
+                        Arc7QrFileShareService.stopShare(Arc7FileManagerActivity.this);
+                        Toast.makeText(Arc7FileManagerActivity.this, "QR file share stopped.", Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Done", null)
+                .create();
+        dialog.show();
+    }
+
+    @Override protected void onDestroy() {
+        if (shareStartPoll != null) shareHandler.removeCallbacks(shareStartPoll);
+        shareStartPoll = null;
+        super.onDestroy();
     }
 
     @SuppressWarnings("deprecation")
@@ -269,7 +413,7 @@ public class Arc7FileManagerActivity extends Arc7Activity {
 
     private void showFileMenu(final File target) {
         String[] opts = new String[]{
-                "Copy", "Cut / Move", "Rename", "Compress to .zip", "Delete"
+                "Copy", "Cut / Move", "Rename", "Compress to .zip", "Delete", "Send file bytes via QR (offline)"
         };
         new AlertDialog.Builder(this)
                 .setTitle(target.getName())
@@ -293,6 +437,14 @@ public class Arc7FileManagerActivity extends Arc7Activity {
                         } else if (which == 4) {
                             deleteRecursive(target);
                             navigateTo(currentDir);
+                        } else if (which == 5) {
+                            if (!target.isFile()) {
+                                Toast.makeText(Arc7FileManagerActivity.this, "ZIP a folder first, then send the ZIP file.", Toast.LENGTH_LONG).show();
+                                return;
+                            }
+                            Intent transfer = new Intent(Arc7FileManagerActivity.this, Arc7QrTransferActivity.class);
+                            transfer.putExtra(Arc7QrTransferActivity.EXTRA_SEND, target.getAbsolutePath());
+                            startActivity(transfer);
                         }
                     }
                 })

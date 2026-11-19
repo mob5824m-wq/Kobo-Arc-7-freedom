@@ -157,6 +157,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7CalculatorActivity",
             "ca.arc7freedom.app.Arc7NotesActivity",
             "ca.arc7freedom.app.Arc7FileManagerActivity",
+            "ca.arc7freedom.app.Arc7QrTransferActivity",
             "ca.arc7freedom.app.Arc7WiredInternetActivity",
             "ca.arc7freedom.app.Arc7PackageInstallerActivity",
             "ca.arc7freedom.app.Arc7PdfViewerActivity",
@@ -184,7 +185,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
             assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
             affinities.add(taff)
-        assert len(affinities) == 39, f"Expected 39 distinct taskAffinity entries, got {len(affinities)}"
+        assert len(affinities) == 40, f"Expected 40 distinct taskAffinity entries (including private optical transfer), got {len(affinities)}"
         # Verify Android 4.2 VpnService contract: BIND_VPN_SERVICE permission + android.net.VpnService action!
         vpn_svc_ok = False
         for svc_el in manifest_xml.findall(".//service"):
@@ -4056,6 +4057,37 @@ def verify_v260_features() -> None:
     print("  [PASS] Actual APKs: 5 separate Radio/Podcasts/News/vault entry points; offline no-backup vaults; both media APKs include cancellable download UI; signature-protected widget bridge; 2 pinned legacy repos")
 
 
+def verify_glass_music_optical() -> None:
+    from androguard.core.dex import DEX
+    print("\n=== Verifying packaged glass material, Music compatibility and real camera QR bytes ===")
+    ns = "{http://schemas.android.com/apk/res/android}"
+    files_path = os.path.join(ROOT, "releases/apps/Files.apk")
+    files = APK(files_path)
+    assert "android.permission.CAMERA" in files.get_permissions()
+    activity = next(a for a in files.get_android_manifest_xml().findall("application/activity")
+                    if a.get(ns + "name").endswith(".Arc7QrTransferActivity"))
+    assert activity.get(ns + "exported") == "false" and int(activity.get(ns + "screenOrientation"), 0) == 1
+    with zipfile.ZipFile(files_path) as archive:
+        classes = {c.get_name() for c in DEX(archive.read("classes.dex")).get_classes()}
+        for name in ("Lca/arc7freedom/app/Arc7QrTransferActivity;", "Lca/arc7freedom/app/Arc7QrCameraDecoder;",
+                     "Lca/arc7freedom/app/Arc7QrTransfer$Sender;", "Lca/arc7freedom/app/Arc7QrTransfer$Receiver;",
+                     "Lcom/google/zxing/qrcode/QRCodeReader;", "Lcom/google/zxing/qrcode/encoder/Encoder;"):
+            assert name in classes, name
+        assert archive.read("assets/licenses/zxing-3.3.3.txt") == open(os.path.join(ROOT, "third_party/zxing/LICENSE"), "rb").read()
+        assert archive.read("assets/licenses/zxing-3.3.3-NOTICE.txt") == open(os.path.join(ROOT, "third_party/zxing/NOTICE"), "rb").read()
+    for apk in ("YouTubeMusic.apk", "KoboArc7Freedom.apk", "VanillaAndroid4Home.apk"):
+        with zipfile.ZipFile(os.path.join(ROOT, "releases", apk)) as archive:
+            dex = DEX(archive.read("classes.dex"))
+            classes = {c.get_name() for c in dex.get_classes()}
+            assert "Lca/arc7freedom/glass/LiquidGlassDrawable;" in classes, apk
+            if apk != "VanillaAndroid4Home.apk":
+                assert "Lca/arc7freedom/app/LegacyAacConfig;" in classes, apk
+                methods = {(m.get_class_name(), m.get_name()) for m in dex.get_methods()}
+                assert ("Lca/arc7freedom/app/MorpheRemuxer;", "remuxSingleTrackAdts") in methods
+                assert ("Lca/arc7freedom/app/MorpheEngine;", "startAudioCompatibilityFallback") in methods
+    print("  [PASS] Files APK includes its private camera activity, actual QR encoder/decoder and license notices; shipped Music/suite/Home contain the glass material and AAC/ADTS recovery")
+
+
 def main() -> None:
     upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.6.0.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1", "v2.5.4"):
@@ -4116,6 +4148,7 @@ def main() -> None:
     verify_v253_split_apps_and_ota_portal(main_apk)
     verify_expanded_weather()
     verify_v260_features()
+    verify_glass_music_optical()
     verify_independent_companion_transports()
     verify_repository_layout_and_app_manager(main_apk)
     verify_requested_runtime_hardening()
@@ -4132,6 +4165,8 @@ def main() -> None:
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-weather.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-suite-features.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-fdroid-catalog.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-optical-transfer.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-liquid-glass.py")], check=True)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

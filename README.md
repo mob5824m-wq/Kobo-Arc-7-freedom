@@ -9,6 +9,7 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 ## This build
 
 **[2.6 feature, installation and device-test guide](releases/SUITE-FEATURES.md)** ·
+[Glass, Music and optical QR guide](releases/GLASS-MUSIC-QR.md) ·
 [Maintenance safety](releases/INSTALL-RUNTIME-FIXES.md) · [Weather details](releases/WEATHER-FEATURES.md)
 
 - F-Droid defaults to **All** categories, distinguishes catalog/updates from actual
@@ -20,21 +21,39 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
   Radio keeps `ca.arc7freedom.radiorss` and existing data; the new apps have independent UIDs.
 - Canonical regional CBC MP3 mounts, a Toronto-only HLS fallback and literal error
   reporting for **MediaPlayer 1/1004** and **1/-1010**. No regional station substitution.
-- Lightweight glass-style cards/controls; the in-app Quick App Bar Switcher is removed.
-  Home's pinned dock and unrelated header/layout controls remain.
+- **Apple-Liquid-Glass-inspired** translucent lenses, specular rims and capsule controls.
+  Home's dock/top capsule use a small cached wallpaper frost; app surfaces use static ambient
+  colour. API15-compatible, not Apple's renderer or live backdrop blur. Home layout controls
+  remain; the in-app Quick App Bar Switcher is still removed.
 - Weather explicitly shows **High / Low**. Its independent widget owns refresh/cache
   state; a signature-protected read-only bridge repairs legacy suite widgets without
   moving Weather networking into the suite.
 - YouTube/Music use conservative H.264/AAC-LC selection and actual-player notification
   ownership. Verified, cancellable offline MP4/M4A downloads never save raw unsupported
   streams as a successful download. YouTube adds **local Pinned Channels** and public feeds.
+- Music's **1/-1010** path now checks real AAC-LC decoder bytes, corrects sample-entry
+  channel/rate fields, prefers audio-only M4A before HLS and can retry once as sample-exact
+  AAC/ADTS. No transcoding or unsupported-codec promise; real Kobo playback still needs testing.
 - Music adds **Quick play**, album/playlist/community search, public collection tracks,
   saved collections and local playlists, with request/lifecycle guards. No account sync.
 - Stream Deck has a touch key/modifier picker and strict keybind validation, ordered
   packets and per-client held-key ownership on the PC. Unsupported backends report errors.
-- Local encrypted **TOTP** and **password vault** apps have no Internet permission,
-  encrypted backups and auto-lock. **Android 4.x is unsupported and these apps are not
-  independently security-audited.** No QR scanning, autofill, cloud sync or password recovery.
+- Local encrypted **Passwords** and **Authenticator** vaults import unencrypted Proton Pass
+  and Bitwarden CSV/JSON exports locally. Password entries retain supported TOTP secrets;
+  Authenticator imports valid TOTP seeds/`otpauth://` values. Imports append, skip duplicates,
+  and never replace existing entries. Encrypted provider exports must first be exported as
+  unencrypted CSV/JSON by the provider. Both apps keep encrypted backups and auto-lock, have no
+  Internet permission, and remain **unsupported on security-obsolete Android 4.x and not
+  independently security-audited**. No 2FA QR scanning, autofill, cloud sync or password recovery.
+- **Files → Receive QR bytes**, and long-press **Send file bytes via QR (offline)**, transfer
+  actual file bytes through multiple camera-scanned QR codes, without shared Wi-Fi. Repeats,
+  out-of-order/missing frames, CRC32/SHA-256 and safe explicit saving are handled. **1 MiB max**;
+  small files work best. Includes a self-contained [offline browser sender/receiver](tools/qr-transfer.html).
+  Codes are not encrypted or authenticated; both ends need the Arc7 protocol.
+- **Files → QR link · LAN share** separately displays a QR link for the currently selected folder inside shared
+  internal storage. A computer/phone browser on the same LAN can upload and download files;
+  the random link is temporary (30 minutes), folder-scoped and stopped from Files. The local
+  HTTP connection is **not encrypted**—use a trusted network and do not share sensitive files.
 
 Provider sign-in/bot/age restrictions are reported, **not bypassed**. Host tests and media
 decoding are not proof of live YouTube/CBC availability or physical Kobo behaviour.
@@ -140,6 +159,16 @@ This is the v2.6.0 maintenance build on the working branch, not a newly publishe
   An unknown-length preparation never advertises partial output as a finished file; a
   stalled preparation returns an error. Playback readiness follows player preparation and
   start, with generation guards, cancellation and a 125-second preparation timeout.
+- **YouTube silent-video repair:** Android 4.2 ignores separate MPEG-TS HLS audio renditions.
+  Playback now prefers combined renditions, verifies real TS program/audio tables, and
+  falls back to the H.264/AAC DASH remux or another client instead of opening silent video.
+  Separate fMP4 audio/video remains supported by the remuxer. A prepared player reporting
+  no audio gets one combined-track recovery attempt, not a false Playing state.
+  Install this branch's [YouTube.apk](releases/YouTube.apk) **in place** (or verify its update
+  in PATCHES); an older public “latest” APK does not include this repair. **YouTube → Sound**
+  shows the audio check and controls **media** volume. Volume buttons target media, and
+  audio focus loss pauses/ducks playback. Volume and speaker/Bluetooth routing are never
+  forced automatically. Real tablet output still needs a device test.
 - **App Info/uninstall targets the real app.** Updated Home canonicalizes legacy Package
   Installer shortcuts to `ca.arc7freedom.packageinstaller`, without substituting the suite
   if that separate app is absent. The optional updater is `ca.arc7freedom.upgrader` and has
@@ -152,7 +181,8 @@ This is the v2.6.0 maintenance build on the working branch, not a newly publishe
   proxy; denied/unverifiable cleanup remains pending and shows manual instructions.
 
 **Validation boundary:** offline tests exercise actual visitor/player HTTP requests against
-an enforcing fixture gateway, real synthetic H.264/AAC media, MP4/M4A decoding with FFmpeg,
+an enforcing fixture gateway, real synthetic H.264/AAC media, explicit audio-track decoding
+and non-silent PCM checks with FFmpeg (including separate-TS → DASH recovery),
 Range/HEAD/error behavior, pending-file/cancellation races and fake Android ownership/proxy
 APIs. **They do not prove live YouTube access or playback/notifications on a physical Kobo.**
 Those still require a tablet test; age/sign-in restrictions, server changes, codecs and ROM
@@ -212,6 +242,38 @@ reports OS connection/tethering state, not a fabricated successful internet test
 and DHCP are handled by Android PAN, **not an Arc7 proxy or VPN**. No root is required for
 the settings-based flow, but the ROM must actually support PAN/tethering.
 
+### Import passwords and 2FA codes
+
+1. In Proton Pass or Bitwarden, export the vault as **unencrypted CSV or JSON**. Encrypted
+   provider exports cannot be decrypted by Arc7. Transfer the export to the Kobo (USB, microSD,
+   or the QR share below).
+2. Open **Passwords** or **Authenticator**, unlock/create its encrypted vault, and tap
+   **Import Proton Pass / Bitwarden export…**. Select the local file and review the summary.
+3. **Passwords** imports login fields and supported TOTP secrets attached to logins. **Authenticator**
+   imports valid Base32 / `otpauth://totp` values. Import the same export into both apps if you want
+   the login and code in both places. Existing entries are retained; duplicates are skipped.
+
+Imports are parsed locally, never uploaded, and limited to 4 MiB per file / 200 entries per vault.
+Only login credentials and supported TOTP secrets are imported; passkeys, provider-encrypted files,
+push approvals and recovery codes are not. Keep provider recovery codes separately. These apps
+remain unsupported on security-obsolete Android 4.x and have not had an independent security audit.
+
+### Share files between the Kobo and a computer with a QR code
+
+1. Open **Files** and navigate to the folder you want to transfer (for example `Download`). QR
+   sharing is limited to folders inside shared internal storage, not `/` or private app data.
+2. Tap **QR File Share** in the bookmark strip and confirm. Scan the displayed QR code with the
+   computer/phone camera, or type the shown address into its browser. Both devices normally need
+   to be on the same Wi-Fi/LAN.
+3. The browser page can **download from** the Kobo and **upload to** that folder. Existing files are
+   not overwritten; a duplicate upload gets a numbered filename. Stop sharing from Files when done.
+
+The random bearer link expires automatically after 30 minutes and can be stopped earlier. Anyone
+who gets the link and can reach the Kobo can access that one folder while the share is active.
+This is a local HTTP connection with **no encryption**; use a trusted Wi-Fi network and do not use
+it for sensitive data. No cloud relay or router port-forwarding is used. Android keeps a foreground
+notification while the share runs.
+
 ### Regression checks and device acceptance
 
 ```sh
@@ -228,9 +290,11 @@ python3 scripts/test-app-isolation.py --native build/native/host/arc7tls
 make verify
 ```
 
-**Automated validation:** the full verifier covers ARMv7/API17 builds, permanent-certificate
-signing, DEX/manifest/payload checks, host-native independent gateways, fixture media,
-FFmpeg decoding, vault/TOTP vectors, catalog migrations and earlier reader regressions.
+**Automated validation:** offline feature tests cover vault encryption/TOTP vectors, Proton/Bitwarden
+CSV/JSON import, duplicate/size limits, and the real QR-share HTTP server (auth, CSRF, traversal,
+upload, download, ranges and stop). The full verifier also covers ARMv7/API17 builds,
+permanent-certificate signing, DEX/manifest/payload checks, host-native independent gateways,
+fixture media, FFmpeg decoding, catalog migrations and earlier reader regressions.
 See [2.6 results and limitations](releases/SUITE-FEATURES.md#validation) for this build's results.
 Aurora, F-Droid's injected Java and the fallback VLC transport compile against API17. No Android device, Bluetooth radio or PAN internet connection was available
 for hardware verification.

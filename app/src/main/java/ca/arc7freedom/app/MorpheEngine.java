@@ -1425,6 +1425,21 @@ public final class MorpheEngine {
      */
     private static void bindLocalPlayback(final Context ctx, final ResolvedPlayback res, boolean audioOnlyPreferred) {
         if (Thread.currentThread().isInterrupted()) return;
+        // Music must not take the HLS/video path merely because that URL was listed first.
+        // Probe the real esds/ASC and prepare audio-only classic M4A before trying HLS.
+        if (audioOnlyPreferred) {
+            for (int i = 0; i < res.audioStreams.size() && i < 3; i++) {
+                StreamVariant candidate = res.audioStreams.get(i);
+                if (!candidate.isDashTrack()) continue;
+                String audio = spoolAudioTrack(ctx, candidate);
+                if (audio.length() > 0) {
+                    res.localAudioProxyUrl = audio; res.localVideoProxyUrl = audio;
+                    res.muxedLocally = true; res.muxNote = "Verified AAC-LC · preparing audio-only classic M4A";
+                    return;
+                }
+                if (Thread.currentThread().isInterrupted()) return;
+            }
+        }
         if (res.hlsManifestUrl.length() > 0) {
             try {
                 bindHlsPlayback(ctx, res, audioOnlyPreferred);
@@ -1577,9 +1592,7 @@ public final class MorpheEngine {
     private static void bindHlsPlayback(final Context ctx, final ResolvedPlayback res,
                                            final boolean audioOnly) throws Exception {
         final MorpheHls.Transport transport = hlsTransport(ctx, res.hlsUserAgent);
-        final MorpheHls.Selection selected = MorpheHls.select(transport, res.hlsManifestUrl, audioOnly);
-        MorpheHls.probe(transport, selected.primary());
-        if (selected.video != null && selected.audio != null) MorpheHls.probe(transport, selected.audio);
+        final MorpheHls.Selection selected = MorpheHls.selectForPlayback(transport, res.hlsManifestUrl, audioOnly);
         String local;
         if (selected.fragmented()) {
             final MorpheRemuxer.SegmentSource video = selected.video != null
@@ -1632,9 +1645,8 @@ public final class MorpheEngine {
     private static String spoolAudioTrack(final Context ctx, final StreamVariant audioTrack) {
         try {
             final MorpheRemuxer.Track aT = toRemuxTrack(ctx, audioTrack);
-            // Verify init segment immediately so HTTP 403 URLs never get registered as valid streams.
-            byte[] aInit = aT.fetcher.fetch(0L, aT.initEnd);
-            if (aInit == null || aInit.length < 8) return "";
+            // An ftyp box or an mp4a MIME label alone says nothing about AAC-LC support.
+            MorpheRemuxer.validateLegacyAudio(aT);
             return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                 @Override
                 public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
@@ -1688,6 +1700,37 @@ public final class MorpheEngine {
         }
         if (video.isDashTrack() || !video.hasAudio) return "";
         return registerPlayableStreamSlot(ctx, video.directHttpsUrl, video.userAgent, video.mimeType);
+    }
+
+    /** One bounded recovery when a ROM prepares video but exposes no audio track. */
+    public static String startVideoWithAudioFallback(Context ctx, ResolvedPlayback res) {
+        if (res == null || res.audioStreams.isEmpty() || !res.audioStreams.get(0).isDashTrack()) return "";
+        StreamVariant video = pickBestVideoForMux(res);
+        if (video == null || Thread.currentThread().isInterrupted()) return "";
+        // Never retry the same HLS playlist or fall back to a raw/silent video-only URL.
+        return startMuxForVariant(ctx, res, video);
+    }
+
+    /** One alternative container for Android-4 ROMs that reject M4A/HLS with -1010. */
+    public static String startAudioCompatibilityFallback(final Context ctx, ResolvedPlayback res) {
+        if (res == null || Thread.currentThread().isInterrupted()) return "";
+        for (int i = 0; i < res.audioStreams.size() && i < 3; i++) {
+            StreamVariant candidate = res.audioStreams.get(i);
+            if (!candidate.isDashTrack()) continue;
+            try {
+                final MorpheRemuxer.Track track = toRemuxTrack(ctx, candidate);
+                MorpheRemuxer.validateLegacyAudio(track);
+                checkResolutionCancelled();
+                return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
+                    @Override public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
+                        MorpheRemuxer.remuxSingleTrackAdts(track, out, progress);
+                    }
+                }, -1L, "audio/aac");
+            } catch (Exception unsupported) {
+                if (Thread.currentThread().isInterrupted()) return "";
+            }
+        }
+        return "";
     }
 
     /** Spools a single adaptive audio track (or wraps a progressive URL) for the audio player. */

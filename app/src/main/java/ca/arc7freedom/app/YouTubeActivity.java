@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
@@ -99,6 +100,36 @@ public class YouTubeActivity extends Arc7Activity {
     private boolean userScrubbing = false;
     private boolean isFullscreen = false;
     private boolean handedOffToBackgroundAudio = false;
+    private boolean audioRepairAttempted;
+    private MediaPlayer foregroundPlayer;
+    private AudioManager audioManager;
+    private boolean hasVideoAudioFocus;
+    private String videoAudioStatus = "No foreground player is ready.";
+
+    private final AudioManager.OnAudioFocusChangeListener videoAudioFocus = new AudioManager.OnAudioFocusChangeListener() {
+        @Override public void onAudioFocusChange(final int change) {
+            final MediaPlayer focusedPlayer = foregroundPlayer;
+            final int request = videoRequestGeneration;
+            ui.post(new Runnable() {
+                @Override public void run() {
+                    if (!alive || request != videoRequestGeneration || focusedPlayer != foregroundPlayer
+                            || !videoPrepared || handedOffToBackgroundAudio || foregroundPlayer == null) return;
+                    try {
+                        if (change == AudioManager.AUDIOFOCUS_GAIN) {
+                            hasVideoAudioFocus = true;
+                            foregroundPlayer.setVolume(1.0f, 1.0f);
+                        } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                            foregroundPlayer.setVolume(0.2f, 0.2f);
+                        } else if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                            if (videoView.isPlaying()) videoView.pause();
+                            playPauseBtn.setText("\u25B6 Play");
+                            hasVideoAudioFocus = false;
+                        }
+                    } catch (RuntimeException ignored) {}
+                }
+            });
+        }
+    };
 
     private static final Map<String, Bitmap> THUMB_CACHE =
             Collections.synchronizedMap(new LinkedHashMap<String, Bitmap>() {
@@ -191,6 +222,8 @@ public class YouTubeActivity extends Arc7Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
         Arc7TlsGatewayService.ensureStarted(this);
         Arc7AudioService.ensureWatcherRunning(this);
         MorpheEngine.ensureStreamProxyStarted(this);
@@ -393,6 +426,12 @@ public class YouTubeActivity extends Arc7Activity {
             @Override public void onClick(View v) { toggleForegroundVideo(); }
         });
         ctrlRow.addView(playPauseBtn, marginRightLp(6));
+
+        Button soundBtn = pillBtn("\uD83D\uDD0A Sound", 0xFF0F766E);
+        soundBtn.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { showSoundDialog(); }
+        });
+        ctrlRow.addView(soundBtn, marginRightLp(6));
 
         Button nextBtn = pillBtn("\u23ED Next", 0xFF27272A);
         nextBtn.setOnClickListener(new View.OnClickListener() {
@@ -747,6 +786,9 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void playLocalVideoFile(MorpheEngine.MediaItem it) {
         ++videoRequestGeneration;
+        audioRepairAttempted = false;
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
         if (resolutionThread != null) resolutionThread.interrupt();
         cancelVideoPrepareTimeout();
         MorpheEngine.cancelPlayback(currentPlayback);
@@ -770,6 +812,9 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void playVideoById(final String videoId, final String initialTitle, final String initialAuthor) {
         final int request = ++videoRequestGeneration;
+        audioRepairAttempted = false;
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
         cancelVideoPrepareTimeout();
         videoPrepared = false;
         if (resolutionThread != null) resolutionThread.interrupt();
@@ -877,25 +922,49 @@ public class YouTubeActivity extends Arc7Activity {
                                          final int request) {
         cancelVideoPrepareTimeout();
         videoPrepared = false;
+        foregroundPlayer = null;
+        videoAudioStatus = "Checking the prepared stream for an audio track...";
+        releaseVideoAudioFocus();
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         videoView.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
             @Override public void onPrepared(MediaPlayer mp) {
                 if (!alive || request != videoRequestGeneration || currentPlayback != playback
                         || handedOffToBackgroundAudio) return;
                 try {
-                    mp.setVolume(1.0f,1.0f);
-                    videoView.start();
+                    LegacyPlaybackAudio.enable(mp);
+                    foregroundPlayer = mp;
+                    videoAudioStatus = LegacyPlaybackAudio.trackState(mp) == LegacyPlaybackAudio.PRESENT
+                            ? "The device reports an audio track. Media volume and the selected output still apply."
+                            : "This ROM cannot report prepared audio tracks; audio could not be confirmed by the device.";
+                    boolean canStart = takeVideoAudioFocus();
+                    if (canStart) videoView.start();
                     videoPrepared = true;
                     cancelVideoPrepareTimeout();
                     // Readiness belongs to THIS prepared request, not its metadata response.
                     NowPlayingManager.setYouTubeForegroundVideoActive(true);
-                    playerOverlayStatusTv.setVisibility(View.GONE);
+                    playerOverlayStatusTv.setVisibility(canStart ? View.GONE : View.VISIBLE);
+                    if (!canStart) {
+                        playerOverlayStatusTv.setText("Another app has audio focus. Pause it, then tap Play.");
+                        playPauseBtn.setText("\u25B6 Play");
+                    }
+                    try {
+                        if (audioManager != null && audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) == 0)
+                            Toast.makeText(YouTubeActivity.this, "Media volume is zero. Use Sound or Volume Up to hear this video.", Toast.LENGTH_LONG).show();
+                    } catch (RuntimeException unavailable) {}
+                } catch (final java.io.IOException missingAudio) {
+                    // Do not release/reopen VideoView inside its native prepared callback.
+                    ui.post(new Runnable() {
+                        @Override public void run() { retryForegroundWithAudio(playback, request, missingAudio.getMessage()); }
+                    });
                 } catch (Throwable error) { failForegroundVideo(playback, request, error.toString()); }
             }
         });
         videoView.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
             @Override public void onCompletion(MediaPlayer mp) {
                 if (request != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) return;
+                releaseVideoAudioFocus();
+                foregroundPlayer = null;
+                videoPrepared = false;
                 NowPlayingManager.clearSession(YouTubeActivity.this);
                 stepVideoInFeed(1);
             }
@@ -917,13 +986,114 @@ public class YouTubeActivity extends Arc7Activity {
         catch (Throwable error) { failForegroundVideo(playback, request, error.toString()); }
     }
 
+    private boolean takeVideoAudioFocus() {
+        if (audioManager == null || hasVideoAudioFocus) return true;
+        try {
+            hasVideoAudioFocus = audioManager.requestAudioFocus(videoAudioFocus, AudioManager.STREAM_MUSIC,
+                    AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
+            return hasVideoAudioFocus;
+        } catch (RuntimeException denied) { return false; }
+    }
+
+    private void releaseVideoAudioFocus() {
+        if (audioManager != null) {
+            try { audioManager.abandonAudioFocus(videoAudioFocus); } catch (RuntimeException ignored) {}
+        }
+        hasVideoAudioFocus = false;
+    }
+
+    private void showSoundDialog() {
+        if (audioManager == null) return;
+        try {
+            final int maximum = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int current = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC);
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            box.setPadding(dp(18), dp(12), dp(18), dp(12));
+            final TextView label = new TextView(this);
+            label.setText("Media volume: " + current + " / " + maximum);
+            box.addView(label);
+            SeekBar volume = new SeekBar(this);
+            volume.setMax(maximum); volume.setProgress(current);
+            volume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
+                    if (!fromUser) return;
+                    try {
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, value, 0);
+                        label.setText("Media volume: " + audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) + " / " + maximum);
+                    } catch (RuntimeException denied) {
+                        label.setText("Could not change media volume. Try the tablet's volume buttons.");
+                    }
+                }
+                @Override public void onStartTrackingTouch(SeekBar bar) {}
+                @Override public void onStopTrackingTouch(SeekBar bar) {}
+            });
+            box.addView(volume);
+            TextView details = new TextView(this);
+            details.setPadding(0, dp(12), 0, 0);
+            details.setText("Audio compatibility check\n" + videoAudioStatus
+                    + "\n\nVolume buttons control media, not the ringer. Headphones/Bluetooth keep their selected output; this app does not force speaker routing or raise volume automatically."
+                    + (handedOffToBackgroundAudio ? "\nBackground Audio is active; foreground track details do not describe that player." : ""));
+            box.addView(details);
+            new AlertDialog.Builder(this).setTitle("YouTube sound").setView(box)
+                    .setPositiveButton("Done", null).show();
+        } catch (RuntimeException unavailable) {
+            Toast.makeText(this, "Use the tablet's media-volume controls.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void retryForegroundWithAudio(final MorpheEngine.ResolvedPlayback playback, final int request,
+                                          final String reason) {
+        if (!alive || request != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) return;
+        if (audioRepairAttempted) { failForegroundVideo(playback, request, reason); return; }
+        audioRepairAttempted = true;
+        final int recovery = ++videoRequestGeneration;
+        if (resolutionThread != null) resolutionThread.interrupt();
+        cancelVideoPrepareTimeout();
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
+        videoPrepared = false;
+        NowPlayingManager.clearSession(this);
+        try { videoView.stopPlayback(); } catch (Throwable ignored) {}
+        MorpheEngine.cancelPlayback(playback);
+        playback.localVideoProxyUrl = ""; playback.localAudioProxyUrl = "";
+        videoAudioStatus = reason;
+        playerOverlayStatusTv.setVisibility(View.VISIBLE);
+        playerOverlayStatusTv.setText("This stream opened without audio. Preparing a combined H.264 + AAC stream...");
+        resolutionThread = new Thread(new Runnable() {
+            @Override public void run() {
+                final String repaired = MorpheEngine.startVideoWithAudioFallback(YouTubeActivity.this, playback);
+                ui.post(new Runnable() {
+                    @Override public void run() {
+                        if (!alive || recovery != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) {
+                            MorpheStreamServer.cancel(repaired); return;
+                        }
+                        if (repaired.length() == 0) {
+                            failForegroundVideo(playback, recovery, reason
+                                    + ". No compatible combined H.264/AAC fallback is available for this video.");
+                            return;
+                        }
+                        playback.localVideoProxyUrl = repaired; playback.localAudioProxyUrl = repaired;
+                        playback.muxedLocally = true; playback.muxNote = "H.264 + AAC audio recovery";
+                        qualityBtn.setText("H.264 + AAC (audio recovery)");
+                        prepareForegroundVideo(playback, Uri.parse(repaired), recovery);
+                    }
+                });
+            }
+        }, "Arc7-YouTube-Audio-Recovery");
+        resolutionThread.start();
+    }
+
     private void failForegroundVideo(MorpheEngine.ResolvedPlayback playback, int request, String error) {
         if (!alive || request != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) return;
         cancelVideoPrepareTimeout();
         videoPrepared = false;
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
+        videoAudioStatus = "Playback failed: " + error;
         NowPlayingManager.clearSession(this);
         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
-        if (playback.localAudioProxyUrl.length() > 0
+        if (!audioRepairAttempted && playback.localAudioProxyUrl.length() > 0
                 && !playback.localAudioProxyUrl.equals(playback.localVideoProxyUrl)) {
             switchCurrentToBackgroundAudio(false);
             return;
@@ -980,6 +1150,8 @@ public class YouTubeActivity extends Arc7Activity {
         if (currentPlayback == null || handedOffToBackgroundAudio) return;
         handedOffToBackgroundAudio = true;
         cancelVideoPrepareTimeout();
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
         videoPrepared = false;
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
@@ -1011,9 +1183,25 @@ public class YouTubeActivity extends Arc7Activity {
         if (videoView == null || currentPlayback == null || !videoPrepared || handedOffToBackgroundAudio) return;
         if (videoView.isPlaying()) {
             videoView.pause();
+            releaseVideoAudioFocus();
             playPauseBtn.setText("\u25B6 Play");
         } else {
+            if (!takeVideoAudioFocus()) {
+                Toast.makeText(this, "Audio is in use by another app. Pause it and try again.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            try {
+                if (foregroundPlayer != null) foregroundPlayer.setVolume(1.0f, 1.0f);
+            } catch (RuntimeException releasedSurfacePlayer) {
+                // VideoView releases its native player when the surface disappears.
+                // Wait for the new prepared callback rather than touching that old player.
+                foregroundPlayer = null;
+                videoPrepared = false;
+                releaseVideoAudioFocus();
+                return;
+            }
             videoView.start();
+            playerOverlayStatusTv.setVisibility(View.GONE);
             NowPlayingManager.setYouTubeForegroundVideoActive(true);
             playPauseBtn.setText("\u23F8 Pause");
         }
@@ -1040,6 +1228,9 @@ public class YouTubeActivity extends Arc7Activity {
         ++videoRequestGeneration;
         if (resolutionThread != null) resolutionThread.interrupt();
         cancelVideoPrepareTimeout();
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
+        videoAudioStatus = "No foreground player is ready.";
         videoPrepared = false;
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         try { if (videoView != null) videoView.stopPlayback(); } catch (Throwable ignored) {}
@@ -1141,6 +1332,7 @@ public class YouTubeActivity extends Arc7Activity {
                                         selectedPlayback.localVideoProxyUrl = slotUrl;
                                         selectedPlayback.localAudioProxyUrl = slotUrl;
                                         handedOffToBackgroundAudio = false;
+                                        audioRepairAttempted = false;
                                         prepareForegroundVideo(selectedPlayback, Uri.parse(slotUrl), request);
                                         videoView.requestFocus();
                                         if (curPos > 1500) videoView.seekTo(curPos);
@@ -1408,6 +1600,8 @@ public class YouTubeActivity extends Arc7Activity {
     @Override
     protected void onDestroy() {
         alive = false;
+        releaseVideoAudioFocus();
+        foregroundPlayer = null;
         if(downloads!=null) downloads.close();
         ++videoRequestGeneration;
         if (resolutionThread != null) resolutionThread.interrupt();

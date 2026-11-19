@@ -1,5 +1,7 @@
 package ca.arc7freedom.launcher;
 
+import ca.arc7freedom.glass.LiquidGlassDrawable;
+
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.appwidget.AppWidgetHost;
@@ -166,6 +168,7 @@ public class VanillaHomeActivity extends Activity {
     private GestureDetector swipeDetector;
     private boolean drawerOpen = false;
     private long lastChildLongPressMs = 0L;
+    private android.graphics.Bitmap glassWallpaper;
 
     private final BroadcastReceiver pkgReceiver = new BroadcastReceiver() {
         @Override
@@ -178,6 +181,7 @@ public class VanillaHomeActivity extends Activity {
     private final BroadcastReceiver clockTickReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+            if (Intent.ACTION_WALLPAPER_CHANGED.equals(intent.getAction())) glassWallpaper = null;
             updateDateLabel();
             applyLauncherSkinChrome();
             rebuildDock();
@@ -596,6 +600,7 @@ public class VanillaHomeActivity extends Activity {
         registerReceiver(pkgReceiver, filter);
 
         IntentFilter clockFilter = new IntentFilter();
+        clockFilter.addAction(Intent.ACTION_WALLPAPER_CHANGED);
         clockFilter.addAction(Intent.ACTION_TIME_TICK);
         clockFilter.addAction(Intent.ACTION_TIME_CHANGED);
         clockFilter.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -1721,6 +1726,7 @@ public class VanillaHomeActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        glassWallpaper = null; // Wallpaper may have changed in another activity.
         updateDateLabel();
         reloadApps();
         renderWidgetsForCurrentPage();
@@ -1883,10 +1889,8 @@ public class VanillaHomeActivity extends Activity {
                     topCapsule.setBackgroundDrawable(null);
                     topCapsule.setPadding(dp(4), dp(2), dp(4), dp(4));
                 } else {
-                    GradientDrawable cap = new GradientDrawable();
-                    cap.setColor(t.topCapsuleColor);
-                    cap.setCornerRadius(dp(cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 12 : 16));
-                    cap.setStroke(dp(1), t.borderColor);
+                    GradientDrawable cap = liquidGlass(t.topCapsuleColor, accent,
+                            cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 22 : 30, 130);
                     topCapsule.setBackgroundDrawable(cap);
                     int vPad = dp(cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 3 : 6);
                     topCapsule.setPadding(dp(12), vPad, dp(12), vPad);
@@ -1899,10 +1903,7 @@ public class VanillaHomeActivity extends Activity {
                 if (searchChip != null) searchChip.setVisibility(cfg.topShowSearch ? View.VISIBLE : View.GONE);
                 if (appBarChip != null) {
                     appBarChip.setVisibility(cfg.topShowAppBarBtn ? View.VISIBLE : View.GONE);
-                    GradientDrawable abg = new GradientDrawable();
-                    abg.setColor(0xBB10243A);
-                    abg.setCornerRadius(dp(14));
-                    abg.setStroke(dp(1), accent);
+                    GradientDrawable abg = liquidGlass(0xFF10243A, accent, 22, 110);
                     appBarChip.setBackgroundDrawable(abg);
                 }
                 if (skinChip != null) skinChip.setVisibility(cfg.topShowSkinBtn ? View.VISIBLE : View.GONE);
@@ -2391,12 +2392,15 @@ public class VanillaHomeActivity extends Activity {
             g.setStroke(dp(2), accent);
             return g;
         }
-        GradientDrawable g = new GradientDrawable(
-                cfg.isVertical() ? GradientDrawable.Orientation.LEFT_RIGHT : GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{topCol, botCol});
-        g.setCornerRadius(cfg.style == AppBarConfigStore.STYLE_FULL_BLEED ? 0 : dp(18));
-        g.setStroke(dp(1), cfg.accentOverride != 0 ? ((accent & 0x00FFFFFF) | 0x99000000) : t.borderColor);
-        return g;
+        return liquidGlass(t.dockBottomColor, accent,
+                cfg.style == AppBarConfigStore.STYLE_FULL_BLEED ? 0 : 34,
+                cfg.opacityPct < 0 ? 112 : Math.round(255f * cfg.opacityPct / 100f));
+    }
+
+    private LiquidGlassDrawable liquidGlass(int tint, int accent, int radiusDp, int opacity) {
+        if (glassWallpaper == null) glassWallpaper = LiquidGlassDrawable.frostedWallpaper(this);
+        return new LiquidGlassDrawable(tint, accent, dp(radiusDp), getResources().getDisplayMetrics().density, opacity)
+                .withBackdrop(glassWallpaper, getResources().getDisplayMetrics());
     }
 
     private void rebuildDock() {

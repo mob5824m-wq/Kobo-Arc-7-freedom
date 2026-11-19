@@ -17,6 +17,7 @@ android {
 
     sourceSets {
         main {
+            java.srcDirs += ["${rootProject.projectDir}/shared/java"]
             jniLibs.srcDirs = ["${rootProject.projectDir}/build/native"]
         }
     }

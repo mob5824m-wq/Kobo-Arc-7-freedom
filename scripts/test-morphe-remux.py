@@ -76,7 +76,18 @@ def hdlr(kind):
 
 
 def stsd(fourcc):
-    entry = box(fourcc, b"\x00" * 8 + struct.pack(">HH", 1, 1) + b"\x00" * 60)
+    if fourcc == "mp4a":
+        # A real, bounded AAC-LC esds/ASC is required now; a fourcc plus zero padding
+        # is not evidence of a decodable audio track. Payloads below stay structural fakes.
+        def descriptor(tag, payload):
+            assert len(payload) < 128
+            return bytes((tag, len(payload))) + payload
+        config = descriptor(4, bytes((0x40, 0x15)) + b"\x00" * 11 + descriptor(5, b"\x12\x08"))
+        esds = full("esds", 0, 0, descriptor(3, b"\x00\x01\x00" + config + descriptor(6, b"\x02")))
+        entry = box("mp4a", b"\x00" * 6 + struct.pack(">H", 1) + b"\x00" * 8
+                    + struct.pack(">HHHHI", 1, 16, 0, 0, 44100 << 16) + esds)
+    else:
+        entry = box(fourcc, b"\x00" * 8 + struct.pack(">HH", 1, 1) + b"\x00" * 60)
     return full("stsd", 0, 0, struct.pack(">I", 1) + entry)
 
 
@@ -392,7 +403,7 @@ def main():
         with open(driver, "w", encoding="utf-8") as f:
             f.write(JAVA_DRIVER)
         javac = os.environ.get("JAVAC") or shutil.which("javac") or "/opt/toolchain/jdk/bin/javac"
-        cp_src = [os.path.join(SRC, "MorpheRemuxer.java"), os.path.join(SRC, "MorpheStreamServer.java"), driver]
+        cp_src = [os.path.join(SRC, "LegacyAacConfig.java"), os.path.join(SRC, "MorpheRemuxer.java"), os.path.join(SRC, "MorpheStreamServer.java"), driver]
         r = subprocess.run([javac, "-nowarn", "-d", classes] + cp_src, capture_output=True, text=True)
         assert r.returncode == 0, f"javac failed:\n{r.stdout}\n{r.stderr}"
 
