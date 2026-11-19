@@ -1,13 +1,48 @@
-# Arc7 Freedom (`v2.5.4` — Android 4.x maintenance build)
+# Arc7 Freedom — v2.6.0
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
-**Kobo Arc 7 / Arc 7HD (Android 4.0.3–4.2.2) daily-driver ecosystem, now at `v2.5.4`
-(`versionCode=254`).**
+Native, separately installable apps for **Kobo Arc 7 / Arc 7HD, Android 4.0.3–4.2.2**.
+Suite/default apps/upgrader: **2.6.0 / 260** · Home: **5.6.0 / 56** · F-Droid: **1306**.
+API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificate remain.
 
-## In this branch: expanded Weather app
+## This build
 
-**[Weather features, installation and testing guide](releases/WEATHER-FEATURES.md).**
+**[2.6 feature, installation and device-test guide](releases/SUITE-FEATURES.md)** ·
+[Maintenance safety](releases/INSTALL-RUNTIME-FIXES.md) · [Weather details](releases/WEATHER-FEATURES.md)
+
+- F-Droid defaults to **All** categories, distinguishes catalog/updates from actual
+  installed apps, and adds the **pinned official F-Droid and Guardian archives** for
+  legacy Android. Existing repository trust, credentials and user repositories stay intact.
+- Patch management lives in **Arc7 Freedom → PATCHES**. PC USB/backup scripts and the
+  upgrader do **not** force open an App Patches screen. Safe maintenance still runs.
+- Separate **Radio**, **Podcasts**, **News**, **Authenticator** and **Passwords** apps.
+  Radio keeps `ca.arc7freedom.radiorss` and existing data; the new apps have independent UIDs.
+- Canonical regional CBC MP3 mounts, a Toronto-only HLS fallback and literal error
+  reporting for **MediaPlayer 1/1004** and **1/-1010**. No regional station substitution.
+- Lightweight glass-style cards/controls; the in-app Quick App Bar Switcher is removed.
+  Home's pinned dock and unrelated header/layout controls remain.
+- Weather explicitly shows **High / Low**. Its independent widget owns refresh/cache
+  state; a signature-protected read-only bridge repairs legacy suite widgets without
+  moving Weather networking into the suite.
+- YouTube/Music use conservative H.264/AAC-LC selection and actual-player notification
+  ownership. Verified, cancellable offline MP4/M4A downloads never save raw unsupported
+  streams as a successful download. YouTube adds **local Pinned Channels** and public feeds.
+- Music adds **Quick play**, album/playlist/community search, public collection tracks,
+  saved collections and local playlists, with request/lifecycle guards. No account sync.
+- Stream Deck has a touch key/modifier picker and strict keybind validation, ordered
+  packets and per-client held-key ownership on the PC. Unsupported backends report errors.
+- Local encrypted **TOTP** and **password vault** apps have no Internet permission,
+  encrypted backups and auto-lock. **Android 4.x is unsupported and these apps are not
+  independently security-audited.** No QR scanning, autofill, cloud sync or password recovery.
+
+Provider sign-in/bot/age restrictions are reported, **not bypassed**. Host tests and media
+decoding are not proof of live YouTube/CBC availability or physical Kobo behaviour.
+No new GitHub release has been published by this branch work; use this build's files,
+not an older published “latest” asset. See the guide's outstanding device checks.
+
+## Expanded Weather (retained)
+
 The independent **Weather** app now includes:
 
 - Current conditions and feels-like, humidity, wind/direction/gusts, pressure, cloud
@@ -33,8 +68,8 @@ Location is opt-in and never tracked in the background. Pollen and forecast vari
 have provider-dependent coverage; notifications are **polled, not emergency broadcasts**.
 The existing API15/17 / ARMv7 / DEX035 and independent-UID networking design is retained.
 
-The rebuilt suite/upgrader still use **v2.5.4 / 254** and the same signing certificate;
-the maintenance pipeline recognises same-version changes by verified APK hashes. No new
+The suite/upgrader now use **v2.6.0 / 260** and the same signing certificate;
+the maintenance pipeline also recognises same-version changes by verified APK hashes. No new
 GitHub release is published by this branch work. `make test-weather` runs the new offline
 executable regressions; `make verify` also includes them. See the guide for limitations
 and the remaining real-device checks.
@@ -46,18 +81,18 @@ Kobo Arc 7 Freedom is **withdrawn**. This does not require removing existing wor
 Independent per-app networking remains the current default; existing optional proxy,
 VPN and USB-networking tools are retained.
 
-The signed **v2.5.4 / 254** suite/default-app/upgrader builds and **F-Droid 1305** are on
-this PR branch, **not published as a new GitHub release**. Install the local build or use
+The signed **v2.6.0 / 260** suite/default-app/upgrader builds and **F-Droid 1306** are on
+this working branch, **not published as a new GitHub release**. Install the local build or use
 its Wi-Fi portal; an older published “latest” asset does not contain these changes.
 
 ### One complete offline patch bundle
 
 **Direct APK, microSD, Wi-Fi/OTA, USB/ADB, backup tools and the upgrader now join the same
 maintenance pipeline.** Install `releases/KoboArc7Freedom.apk`, open Arc7 Freedom once,
-and use **Step 1 → Install / Repair All Patches — Status & Retry**.
+and use **PATCHES → Apply / Retry All Patches**.
 
-- **34 APKs bundled offline:** Home, F-Droid, Aurora, VLC, YouTube, YouTube Music and **all
-  28 separately packaged default apps**, including Clock/Music/Radio/Recorder and Package
+- **38 APKs bundled offline:** Home, F-Droid, Aurora, VLC, YouTube, YouTube Music and **all
+  32 separately packaged default apps**, including Clock/Music/Radio/Recorder and Package
   Installer. Shared ZIP bytes are stored once and reconstructed exactly; installed apps
   keep their independent identities/UIDs/data/networking.
 - **Rooted:** automatic in-place updates, same-version SHA-256 comparisons and installed
@@ -72,7 +107,7 @@ and use **Step 1 → Install / Repair All Patches — Status & Retry**.
 - **Boot, suite replacement/startup, successful rooting and in-place conversion** retry
   unfinished work. Generated Clean Android ROM ZIPs include the full suite and run the
   same maintenance after boot. Reinstall the suite after an arbitrary third-party ROM.
-- **F-Droid 1305:** fixes `java.util.ArrayList cannot be cast to java.lang.String[]` by
+- **F-Droid 1306:** fixes `java.util.ArrayList cannot be cast to java.lang.String[]` by
   normalizing repository mirrors **and push-request arrays**, retaining existing repository
   data and signature/TLS/low-memory patches.
 
@@ -88,11 +123,11 @@ patch another UID. The published GitHub release has not been changed by this wor
 ### Notification, playback, installer and obsolete-proxy repairs
 
 **Install checklist: [releases/INSTALL-RUNTIME-FIXES.md](releases/INSTALL-RUNTIME-FIXES.md).**
-This is the v2.5.4 maintenance build on the PR branch, not a newly published release.
+This is the v2.6.0 maintenance build on the working branch, not a newly published release.
 
 - **VLC and other players own their notifications.** Arc7's external-audio observers update
   Clock/widgets silently; only a prepared player in the actual owning APK can post Arc7
-  media controls. Update the suite **and installed Clock, Music, Radio & Podcasts, Voice
+  media controls. Update the suite **and installed Clock, Music, Radio, Podcasts, Voice
   Recorder, YouTube and YouTube Music APKs**, then reboot/force-stop their old processes.
   The full suite now updates those standalone APKs through the shared pipeline; verify
   their results in the patch report. Keep VLC's own notification.
@@ -125,7 +160,7 @@ permissions can prevent playback. Finite fMP4 needs cache space and may take tim
 
 ### No more shared network funnel
 
-- The 28 default apps and YouTube / YouTube Music launch their **own packages**, including
+- The 32 default apps and YouTube / YouTube Music launch their **own packages**, including
   from Home's dock, the shared app bar, file-open shortcuts and widgets. An absent app shows
   installation help instead of silently running another copy inside Arc7 Freedom.
 - Each network-enabled APK starts its own native TLS engine **under its own Android UID**,
@@ -182,6 +217,8 @@ the settings-based flow, but the ROM must actually support PAN/tethering.
 ```sh
 make test-isolation
 make test-runtime
+make test-features
+make test-fdroid
 # Stronger host media validation with an available FFmpeg binary:
 FFMPEG=/path/to/ffmpeg make test-runtime
 # Optionally test two native gateways concurrently after building a host TLS binary:
@@ -191,11 +228,11 @@ python3 scripts/test-app-isolation.py --native build/native/host/arc7tls
 make verify
 ```
 
-**Validation performed on 2026-11-16:** full ARMv7/API-17 APK build and permanent-certificate
-signing; `make verify` (including live TLS 1.3, signed APK/DEX/manifest/payload checks and
-host-native independent gateways); Morphe HLS/remux/real-request-fixture regressions,
-FFmpeg decoding and all e-reader paging checks passed. Aurora, F-Droid's injected Java and the fallback VLC transport also compile
-against API 17. No Android device, Bluetooth radio or PAN internet connection was available
+**Automated validation:** the full verifier covers ARMv7/API17 builds, permanent-certificate
+signing, DEX/manifest/payload checks, host-native independent gateways, fixture media,
+FFmpeg decoding, vault/TOTP vectors, catalog migrations and earlier reader regressions.
+See [2.6 results and limitations](releases/SUITE-FEATURES.md#validation) for this build's results.
+Aurora, F-Droid's injected Java and the fallback VLC transport compile against API17. No Android device, Bluetooth radio or PAN internet connection was available
 for hardware verification.
 
 The offline suite checks generated manifests/permissions, stable non-colliding ports,
@@ -212,7 +249,9 @@ sharing directions on supported devices.
 
 ---
 
-`v2.5.4` fixes what was reported on the tablet:
+### Earlier repairs retained in 2.6.0
+
+These existing repairs are not new device-validation claims:
 
 1. **The E-Reader is now a real page-turner.** Tap the **right** side of the page (or swipe left)
    for the next page, the **left** side (or swipe right) for the previous one, and the **middle**
@@ -232,7 +271,7 @@ sharing directions on supported devices.
    with Arc7 Browser (TLS 1.3 bridge) as the fallback. There is also **Copy Login Link** and a
    **tailscaled Diagnostics** view.
 3. **Every default app is a separate, installable app.** Browser, Clock, Calculator, Notes,
-   Files, PDF Reader, Weather, Radio & Podcasts, Photos, Camera, Calendar, Books, Music, Terminal,
+   Files, PDF Reader, Weather, Radio, Podcasts, News, Authenticator, Passwords, Photos, Camera, Calendar, Books, Music, Terminal,
    App Manager, Package Installer, USB Internet, Wallpapers, Games, Ad Blocker, System Boost,
    Second Screen, Split View, Wikipedia, Stream Deck, Voice Recorder and Wi-Fi & VPN each ship as
    their **own signed APK** (`releases/apps/*.apk`, published as `Browser.apk`, `Clock.apk`, …).
@@ -265,7 +304,7 @@ sharing directions on supported devices.
    `App(Cursor)` / `checkCursorPosition()`, NPE inside `NotificationCompat`, an
    `OutOfMemoryError` from the 2026 ≈4,000-app index, …) therefore escaped the `IntentService`
    worker thread, killed the process and looked exactly like "syncs, then crashes".
-   Patched **F-Droid `v1305`** now:
+   Patched **F-Droid `v1306`** now:
    * retargets both post-sync call sites (`invoke-direct/range` → `invoke-static/range`) to
      **`Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()`**, which run
      the original private methods reflectively inside a `catch (Throwable)` — a broken refresh or
@@ -278,7 +317,7 @@ sharing directions on supported devices.
      status instead of a force-close;
    * declares **`android:largeHeap="true"`** in its binary `AndroidManifest.xml` (the upstream
      debug manifest ships without it), lifting the per-app Dalvik heap ceiling for index parsing;
-   * hardens the `127.0.0.1:8118` TLS bridge / icon downloader so no unchecked exception
+   * hardens F-Droid's own `127.0.0.1:21120` TLS bridge / icon downloader so no unchecked exception
      (`ClassCastException`, bad URL scheme, …) can escape into UIL or F-Droid.
 
 Since `v2.5.0` (still included):
@@ -299,9 +338,9 @@ Since `v2.5.0` (still included):
    the other app. The suite no longer shows duplicate YouTube / YouTube Music icons; the 1-Tap
    Upgrader and the silent companion updater install and refresh both standalone APKs.
 
-Everything from `v2.4.1` and earlier is still included: Launcher `v55` with effortless widget
+Everything from `v2.4.1` and earlier is still included: Launcher `v56` with effortless widget
 removal, owned-player Now Playing controls + silent external Clock Standby metadata, Official Tailscale Google sign-in,
-patched F-Droid `v1305`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
+patched F-Droid `v1306`, bundled VLC, Aurora Store, `python3` + `apt`, 120 pre-downloaded 2026
 Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ## App Manager & Repository Layout
@@ -333,32 +372,31 @@ Root CAs, the zero-SSL local Wi-Fi installer portal and the full app suite.
 
 ---
 
-## Published `v2.5.4` downloads (historical GitHub release / main-branch links)
+## Build downloads
 
-**These published links have not been refreshed with this branch's maintenance build.**
-Use the local `releases/` files and install checklist above for the current repairs.
+Install in place; do not uninstall or clear app data to update.
 
-All APKs are `zipalign`ed, **Android 4.2 Dalvik (`DEX 035`) + APK Signature Scheme v1 (JAR) / v2 / v3**
-signed with the permanent release certificate
-[`keystore/arc7freedom-release.jks`](keystore/arc7freedom-release.jks)
-(`SHA256: 11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`):
+| File | Purpose |
+| --- | --- |
+| [KoboArc7Freedom.apk](releases/KoboArc7Freedom.apk) | Full **38-APK** offline maintenance bundle; open the app, then **PATCHES** |
+| [Upgrade My Kobo 2.6.0](releases/Upgrade-My-Kobo-To-v2.6.0.apk) | Same full suite bundled in a helper; does not force a patch screen |
+| [Home](releases/VanillaAndroid4Home.apk), [F-Droid](releases/FDroidClassicLegacy.apk), [Aurora](releases/AuroraStore.apk), [VLC](releases/VLC.apk) | Independent companion updates |
+| [YouTube](releases/YouTube.apk), [YouTube Music](releases/YouTubeMusic.apk) | Independent media updates |
+| `releases/apps/*.apk` | **32** generated default-app APKs; [identity/file index](split-apps/apps.tsv) |
+| [SHA256SUMS.txt](releases/SHA256SUMS.txt) | Checksums for every built APK and portal/host assets |
 
-- **Latest GitHub Release (`v2.5.4`):** **[https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)**
-- **Direct APK & Tool Streams:**
-  - **[`Upgrade-My-Kobo-To-v2.5.4.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/Upgrade-My-Kobo-To-v2.5.4.apk)** — 1-Tap OTA Root & Full `v2.5.4` Upgrader (`versionCode=254`; installs `Arc7 Freedom` `v2.5.4`, the separate `YouTube` & `YouTube Music` apps, Launcher `v55`, F-Droid `v1305`, Tailscale Google Auth, PC Stream Deck, VLC, Aurora Store, `python3`, `apt` & 118 2026 CAs)
-  - **[`KoboArc7Freedom.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/KoboArc7Freedom.apk)** — Main Rooting & Daily-Driver Suite (`Arc7 Freedom` `v2.5.4`, `versionCode=254`)
-  - **[`YouTube.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTube.apk)** — **Separate** `YouTube` app (`ca.arc7freedom.youtube`, `versionCode=254`): 2026 DASH remux playback, SponsorBlock, Return YouTube Dislike, comments, background audio & offline downloads
-  - **[`YouTubeMusic.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/YouTubeMusic.apk)** — **Separate** `YouTube Music` app (`ca.arc7freedom.ytmusic`, `versionCode=254`): AMOLED player, screen-off AAC background playback, synced lyrics, queue/shuffle/repeat, equalizer & offline `.m4a`
-  - **[`VLC.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VLC.apk)** — Standalone Android 4.2 ARMv7 **VLC Media Player** (`org.videolan.vlc`, also pre-bundled inside `KoboArc7Freedom.apk`)
-  - **[`AuroraStore.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/AuroraStore.apk)** — Android 4.2 Play/FOSS store client with binary APK validator & auto `SHA1withRSA` JAR `v1` signer (`v4.8.5`)
-  - **[`FDroidClassicLegacy.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/FDroidClassicLegacy.apk)** — Patched F-Droid Classic (`v1305`, largeHeap + Throwable-catch sync stability) with the complete Android 4.2 `SHA-256` `Incorrect signature` fix, BER/DER PKCS#7 verifier, non-colliding certs & TLS 1.3 bridge
-  - **[`VanillaAndroid4Home.apk`](https://raw.githubusercontent.com/mob5824m-wq/Kobo-Arc-7-freedom/main/releases/VanillaAndroid4Home.apk)**
-- **Separately installable default apps (`v2.5.4`, 27 signed APKs, one package each):** [`Ad-Blocker.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Ad-Blocker.apk) · [`App-Manager.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/App-Manager.apk) · [`Books.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Books.apk) · [`Browser.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Browser.apk) · [`Calculator.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calculator.apk) · [`Calendar.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Calendar.apk) · [`Camera.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Camera.apk) · [`Clock.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Clock.apk) · [`Files.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Files.apk) · [`Games.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Games.apk) · [`Music.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Music.apk) · [`Notes.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Notes.apk) · [`Package-Installer.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Package-Installer.apk) · [`PDF-Reader.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/PDF-Reader.apk) · [`Photos.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Photos.apk) · [`Radio-Podcasts.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Radio-Podcasts.apk) · [`Second-Screen.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Second-Screen.apk) · [`Split-View.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Split-View.apk) · [`Stream-Deck.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Stream-Deck.apk) · [`System-Boost.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/System-Boost.apk) · [`Terminal.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Terminal.apk) · [`USB-Internet.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/USB-Internet.apk) · [`Voice-Recorder.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Voice-Recorder.apk) · [`Wallpapers.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wallpapers.apk) · [`Weather.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Weather.apk) · [`Wi-Fi-VPN.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wi-Fi-VPN.apk) · [`Wikipedia.apk`](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/download/Wikipedia.apk)
-  — or open the OTA portal (`Start-Kobo-WiFi-Server.bat/.sh`) and tap the ones you want. — Custom-skinned **Home** launcher (`v55`) with effortless widget removal, drag-and-drop icons, multi-page desktops, multi-edge app bar, 5 skins & 44 high-DPI icons
+The default apps and deduplicated payload chunks are generated/ignored, following repository
+conventions; the signed suite/upgrader embed their exact bytes. GitHub Actions also uploads
+them in its build artifact. The local Wi-Fi portal (`tools/Start-Kobo-WiFi-Server.sh/.bat`)
+serves the current files. A published [GitHub latest release](https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest)
+may still be an older build until this work is merged and released.
+
+Permanent certificate SHA-256:
+`11:FD:17:ED:80:C9:13:EF:CB:F9:8F:76:73:DA:00:90:42:E7:64:7E:44:E5:D6:C5:F4:2F:CA:A5:CE:4C:D1:0F`.
 
 ---
 
-## What's New in `v2.5.4`
+## Earlier alarm and F-Droid stability repairs (retained)
 
 1. **Per-day alarm check-off (`Arc7ClockActivity` + `Arc7ClockStore`):**
    - The `Repeat` cycle button is gone; the alarm editor now has seven toggle buttons
@@ -368,7 +406,7 @@ signed with the permanent release certificate
      `computeNextTriggerMillis()` / `AlarmManager.set(RTC_WAKEUP, …)` already honour any subset.
    - `Arc7ClockStore.describeRepeatMask()` / `describeAlarmDays()` render single-day alarms as
      `Every Mon` and the alarm list keeps showing the full day summary.
-2. **F-Droid `v1305` sync stability:** the two post-sync calls of
+2. **F-Droid `v1306` sync stability:** the two post-sync calls of
    `UpdateService.onHandleIntent()` (`notifyContentProviders()` @648, `performUpdateNotification()`
    @678 — both outside every `try` range) are retargeted to
    `Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()` reflective
@@ -376,7 +414,7 @@ signed with the permanent release certificate
    in-sync handlers are retyped `Exception → Throwable`, the binary manifest gains
    `largeHeap="true"`, an `Arc7CrashGuard` uncaught-exception handler appends every stack trace to
    `files/arc7-last-crash.txt`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types
-   instead of throwing. Version code bumped `1303 → 1305` so the new build upgrades in place.
+   instead of throwing. These earlier patches remain in the current 1306 build.
 
 ## What's New in `v2.5.0` (still included)
 
@@ -456,8 +494,8 @@ signed with the permanent release certificate
    - Read `.pdf` textbooks/manuals offline OR scan multi-page documents straight from the Kobo camera to `%PDF-1.4` files in `/sdcard/Documents/Scans/`.
 3. **Live `Open-Meteo` Weather App + Home Screen Weather Widget (`Arc7 Weather`):**
    - Expanded on this branch: 48-hour / 14-day forecasts and charts, saved cities, one-time location, AQI/pollen, sun/moon, official CA/US alerts, past radar, configurable units, private offline caches and a refreshing Home Screen AppWidget. See [Weather features](releases/WEATHER-FEATURES.md).
-4. **Live Radio-Browser, Podcast `.mp3` Downloader & Offline RSS Reader (`Radio & Podcasts`):**
-   - Top-voted and searched stations come from the Radio-Browser directory (`radio-browser.info`), with HTTPS streams relayed through the TLS 1.3 gateway for screen-off playback; includes Podcast search/downloads and an RSS 2.0 / Atom offline reader.
+4. **Live Radio-Browser, Podcast downloader & offline RSS reader:**
+   - Now separated into Radio, Podcasts and News APKs. Top-voted/searched stations use Radio-Browser; each networked APK owns its TLS gateway, preferences and process. Old Radio custom feeds can be explicitly copied to News without deleting Radio data.
 5. **Studio 44.1 kHz Waveform Voice Recorder & Lossless WAV Trimmer (`Arc7 Recorder`):**
    - 16-bit PCM `.wav` recording with Android 4.2 Pause/Resume, live 60 fps waveform, and lossless `.wav` sample trimming.
 6. **Zero-Ad 60 fps Offline Classic Games Suite (`Arc7 Arcade`):**

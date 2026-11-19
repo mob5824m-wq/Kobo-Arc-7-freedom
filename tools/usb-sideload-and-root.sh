@@ -38,7 +38,7 @@ echo "==> [1/2] Installing complete KoboArc7Freedom.apk bundle in place (data re
 adb install -r "${MAIN_APK}"
 
 echo "==> [2/2] Opening the shared Install / Repair All Patches pipeline..."
-adb shell am start -n ca.arc7freedom.app/.MainActivity --ez show_install_patches true
+adb shell am start -n ca.arc7freedom.app/.MainActivity
 
 echo ""
 echo "DONE! Look at your Kobo Arc 7 screen now:"

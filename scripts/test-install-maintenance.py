@@ -3,7 +3,7 @@
 
 Runs the ACTUAL generated F-Droid bridge and APK installer on a host JVM. Android APIs
 are stubbed for installer policy tests; this is not physical Kobo / ROM validation.
---apks additionally reconstructs all 34 bundled signed APKs from the built suite and
+--apks additionally reconstructs all 38 bundled signed APKs from the built suite and
 compares them byte-for-byte with release files, including every default-app recipe.
 """
 from pathlib import Path
@@ -232,7 +232,7 @@ def check_entrypoints(tmp):
     assert "removeDefaultLauncherAndDiscontinuedApps(" not in service
     assert "setSystemWideTls13ProxyEnabled(true" not in service
     upgrader = (ROOT / "upgrader/src/main/java/ca/arc7freedom/upgrader/UpgraderActivity.java").read_text()
-    assert "BundledApk.installScript" in upgrader and "show_install_patches" in upgrader
+    assert "BundledApk.installScript" in upgrader and 'putExtra("show_install_patches"' not in upgrader
     assert "pm uninstall" not in upgrader and "pm clear" not in upgrader
     optimizer = (SRC / "TabletOptimizerManager.java").read_text()
     install_methods = optimizer.split("public boolean installBundledFDroidClassic", 1)[1].split("public boolean provisionPython3", 1)[0]
@@ -266,11 +266,11 @@ esac
             if fail == "1":
                 assert result.returncode != 0 and "am start -n" not in calls, result
             else:
-                assert "--ez show_install_patches true" in calls
+                assert "show_install_patches" not in calls and "am start -n ca.arc7freedom.app/.MainActivity" in calls
                 assert result.returncode == (97 if name.startswith("Backup") else 0), result
     for name in ("usb-sideload-and-root.bat", "Backup-Kobo-To-Laptop-ADB.bat"):
         text = (ROOT / "tools" / name).read_text()
-        assert "show_install_patches true" in text and "pm uninstall" not in text and "adb uninstall" not in text
+        assert "show_install_patches" not in text and "pm uninstall" not in text and "adb uninstall" not in text
         assert "rm -f /system/app" not in text
     print("PASS: APK/boot/update/root/conversion entrypoints share one pipeline; real USB/backup shell flows invoke it and stop safely on failed updates (Windows checked statically)")
 
@@ -286,7 +286,7 @@ def check_apks(tmp, java, classes):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(archive.read(name))
     rows = [line.split("\t") for line in (assets / "maintenance/catalog.tsv").read_text().splitlines() if not line.startswith("#")]
-    assert len(rows) == 34 and len({row[0] for row in rows}) == 34
+    assert len(rows) == 38 and len({row[0] for row in rows}) == 38
     output = tmp / "built-extracted"
     run([java, "-cp", classes, "ca.arc7freedom.app.InstallHarness", assets, output, "all"])
     for pkg, label, filename, version, sha, source in rows:
@@ -295,9 +295,9 @@ def check_apks(tmp, java, classes):
             release = ROOT / "releases/apps" / filename
         assert hashlib.sha256(release.read_bytes()).hexdigest() == sha, filename
         assert (output / filename).read_bytes() == release.read_bytes(), filename
-    with zipfile.ZipFile(ROOT / "releases/Upgrade-My-Kobo-To-v2.5.4.apk") as archive:
+    with zipfile.ZipFile(ROOT / "releases/Upgrade-My-Kobo-To-v2.6.0.apk") as archive:
         assert archive.read("assets/KoboArc7Freedom.apk") == main.read_bytes(), "upgrader's offline patch bundle is stale"
-    print("PASS: every one of 34 embedded/recipe APKs equals its signed release byte-for-byte; upgrader embeds exactly the same complete suite")
+    print("PASS: every one of 38 embedded/recipe APKs equals its signed release byte-for-byte; upgrader embeds exactly the same complete suite")
 
 
 def main():

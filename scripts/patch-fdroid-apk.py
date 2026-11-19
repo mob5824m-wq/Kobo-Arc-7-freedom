@@ -4,7 +4,7 @@ Patches the pre-bundled offline `FDroidClassicLegacy.apk` (`eu.bubu1.fdroidclass
 minSdk=15 Android 4.0.3–4.2.2) completely and idempotently for Kobo Arc 7 (`v1.9.1`):
 
   1. Binary `AndroidManifest.xml`:
-     - Bumps `android:versionCode` (`0x0101021b`) to `1302` so upgrades trigger automatic
+     - Bumps `android:versionCode` (`0x0101021b`) to `1306` so upgrades trigger automatic
        installation and clean repository database migration.
   2. Binary `resources.arsc` (`array/default_repos`):
      - Fixes every repository's exact unique non-colliding `127.0.0.1:21120/__https/<host>/...`
@@ -38,7 +38,7 @@ import tempfile
 import zipfile
 import zlib
 
-TARGET_FDROID_VERSION_CODE = 1305
+TARGET_FDROID_VERSION_CODE = 1306
 
 
 def _read_utf8_len(buf: bytes, pos: int):
@@ -411,7 +411,7 @@ def patch_update_service_catch_throwable(raw_dex: bytes) -> bytes:
     return _rehash_dex(buf)
 
 
-def patch_arsc_bytes(arsc: bytes):
+def patch_arsc_bytes(arsc: bytes, legacy_catalog=None):
     t_type, t_hdr_size, t_total_size, pkg_count = struct.unpack_from("<HHII", arsc, 0)
     assert t_type == 0x0002 and t_hdr_size == 12, f"Unexpected ARSC header: {t_type:#x}/{t_hdr_size}"
 
@@ -496,7 +496,7 @@ def patch_arsc_bytes(arsc: bytes):
                     fixed_repos += 1
                 elif "The Guardian Project" in desc and "older versions" in desc:
                     strings[url_si] = "http://127.0.0.1:21120/__https/guardianproject.info/fdroid/archive"
-                    struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, zero_str_idx)
+                    struct.pack_into("<I", rest_mut, base + 3 * 12 + 4, one_str_idx)
                     fixed_repos += 1
                 elif "The Guardian Project" in desc:
                     strings[url_si] = "http://127.0.0.1:21120/__https/guardianproject.info/fdroid/repo"
@@ -514,6 +514,34 @@ def patch_arsc_bytes(arsc: bytes):
             pos = idx + 8
 
     assert fixed_repos == 7, f"Expected all 7 built-in default_repos entries, matched {fixed_repos}"
+
+    # Keep pinned upstream signing certificates with the legacy repositories when
+    # migrating an existing database; NEVER infer trust from HTTPS or a display name.
+    if legacy_catalog is not None:
+        for ci in cert_indices:
+            pat = struct.pack("<HBBI", 8, 0, 0x03, ci)
+            pos = 0
+            while True:
+                idx = rest_mut.find(pat, pos)
+                if idx < 0: break
+                base = idx - 6 * 12
+                if base >= 12:
+                    url_i = struct.unpack_from("<HBBI", rest_mut, base)[3]
+                    desc_i = struct.unpack_from("<HBBI", rest_mut, base + 12)[3]
+                    url = strings[url_i]
+                    if url.endswith("/f-droid.org/archive") or url.endswith("/guardianproject.info/fdroid/archive"):
+                        row = (url, "F-Droid Archive (Android 4 legacy)" if "/f-droid.org/" in url else "Guardian Archive (legacy apps)", strings[ci])
+                        if row not in legacy_catalog: legacy_catalog.append(row)
+                pos = idx + 8
+        assert len(legacy_catalog) == 2, legacy_catalog
+    for i, text in enumerate(strings):
+        lower = text.lower()
+        if "all" in lower and ("already installed" in lower or "apps installed" in lower) and len(text)>30:
+            strings[i] = "No uninstalled compatible apps in this view. This does not mean every repository app is installed. Select All categories, enable F-Droid Archive and refresh repositories."
+        elif text.startswith("No apps in this category."):
+            strings[i] = "No compatible uninstalled apps in this view. This does not mean every repository app is installed. Select All categories, enable F-Droid Archive and refresh repositories."
+        elif text.startswith("All apps up to date."):
+            strings[i] = "No updates for installed apps in this view. To find apps you have not installed, open Available and select All categories. Android 4 apps are mainly in F-Droid Archive."
 
     new_offsets = []
     blob = bytearray()
@@ -768,6 +796,41 @@ def _rehash_dex(buf: bytearray) -> bytes:
     buf[12:32] = hashlib.sha1(buf[32:]).digest()
     struct.pack_into("<I", buf, 8, zlib.adler32(buf[12:]) & 0xFFFFFFFF)
     return bytes(buf)
+
+
+def patch_available_default_all(raw_dex: bytes) -> bytes:
+    buf = bytearray(raw_dex)
+    methods, _cs, _co, _gt, get_method = _dex_lookup_tables(buf)
+    cls = "Lorg/fdroid/fdroid/views/fragments/AvailableAppsFragment;"
+    if not any(_gt(struct.unpack_from("<I",buf,_co+i*32)[0]) == cls for i in range(_cs)): return raw_dex
+    helper = "Lorg/fdroid/fdroid/data/CategoryProvider$Helper;"
+    old = new = None
+    for i in range(methods):
+        cls, name, proto = get_method(i)
+        if cls == helper and name == "getCategoryWhatsNew": old = i
+        if cls == helper and name == "getCategoryAll": new = i
+    if old is None or new is None: return raw_dex
+    from androguard.core.dex import DEX
+    from loguru import logger
+    logger.disable("androguard")
+    parsed = DEX(raw_dex)
+    changed = already = 0
+    cls = "Lorg/fdroid/fdroid/views/fragments/AvailableAppsFragment;"
+    for name, proto in (("onCreateView", "(Landroid/view/LayoutInflater;Landroid/view/ViewGroup;Landroid/os/Bundle;)Landroid/view/View;"), ("onResume", "()V")):
+        off = _find_method_code_off(buf, cls, name, proto)
+        method=next(m for c in parsed.get_classes() if c.get_name()==cls for m in c.get_methods()
+                    if m.get_name()==name and m.get_descriptor().replace(" ","")==proto)
+        pos=off+16
+        matches=0
+        for instruction in method.get_instructions():
+            if instruction.get_op_value() in (0x71,0x77):
+                operand=struct.unpack_from("<H",buf,pos+2)[0]
+                if operand==old: struct.pack_into("<H",buf,pos+2,new); changed += 1; matches += 1
+                elif operand==new: already += 1; matches += 1
+            pos += instruction.get_length()
+        assert matches >= 1, f"No default category call in {name}"
+    assert changed + already >= 2, f"Expected default/fallback All categories, patched {changed}, existing {already}"
+    return _rehash_dex(buf)
 
 
 def patch_indexv1_jarfile_noverify(raw_dex: bytes) -> bytes:
@@ -1231,6 +1294,8 @@ import org.fdroid.fdroid.data.App;
 import org.fdroid.fdroid.data.RepoPersister;
 import org.fdroid.fdroid.installer.DefaultInstaller;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -1433,7 +1498,28 @@ public final class Arc7Bridge {
                 db.execSQL(
                         "UPDATE fdroid_repo SET inuse = 0 WHERE address LIKE '%bubu1.eu%' OR address LIKE '%briarproject.org%'");
                 db.execSQL(
-                        "UPDATE fdroid_repo SET inuse = 1 WHERE address LIKE '%/f-droid.org/repo'");
+                        "UPDATE fdroid_repo SET inuse = 1 WHERE address LIKE '%/f-droid.org/repo' AND inuse IS NULL");
+                if (!appCtx.getSharedPreferences("arc7_repo_migrations", 0).getBoolean("legacy1306",false)) {
+                    db.beginTransaction();
+                    try {
+                        BufferedReader catalog=new BufferedReader(new InputStreamReader(appCtx.getAssets().open("arc7-legacy-repos.tsv"),"UTF-8"));
+                        try {
+                            String row;
+                            while ((row=catalog.readLine())!=null) {
+                                String[] parts=row.split("\\t",-1);
+                                if(parts.length!=3 || parts[2].length()<400) throw new IOException("Invalid pinned legacy repo catalog");
+                                // Never replace an existing repo's signing certificate or user credentials.
+                                db.execSQL("INSERT INTO fdroid_repo (address,name,description,inuse,priority,pubkey,version,pushRequests) "
+                                    + "SELECT ?,?,?,1,1,?,13,0 WHERE NOT EXISTS (SELECT 1 FROM fdroid_repo WHERE address=?)",
+                                    new Object[]{parts[0],parts[1],"Older signed applications, filtered for Android 4 compatibility",parts[2],parts[0]});
+                                db.execSQL("UPDATE fdroid_repo SET inuse=1,lastetag=NULL,lastUpdated=NULL,timestamp=0 WHERE address=?",new Object[]{parts[0]});
+                            }
+                        } finally { catalog.close(); }
+                        db.setTransactionSuccessful();
+                    } finally { db.endTransaction(); }
+                    appCtx.getSharedPreferences("CategorySpinnerPosition",0).edit().remove("SelectionID").commit();
+                    appCtx.getSharedPreferences("arc7_repo_migrations",0).edit().putBoolean("legacy1306",true).commit();
+                }
                 try {
                     int maxSdk = Build.VERSION.SDK_INT > 0 ? Build.VERSION.SDK_INT : 17;
                     db.execSQL("DELETE FROM fdroid_apk WHERE minSdkVersion > " + maxSdk);
@@ -1442,7 +1528,9 @@ public final class Arc7Bridge {
                 } catch (Throwable ignored) {
                 }
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable error) {
+            DB_SANITIZED.set(false);
+            Log.w("Arc7LegacyRepos", "Repository migration did not complete; retrying on next registration", error);
         } finally {
             if (db != null) {
                 try { db.close(); } catch (Throwable ignored) {}
@@ -2106,6 +2194,7 @@ public final class Arc7Bridge {
                 }
             }
         }
+        // Installed state comes exclusively from PackageManager / InstalledAppProvider, never the remote index.
         repoPersister.saveToDb(app, apks);
     }
 
@@ -2905,7 +2994,8 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
                 zf_in.read("AndroidManifest.xml"), TARGET_FDROID_VERSION_CODE
             )
         )
-        arsc_patched, fixed_repos = patch_arsc_bytes(zf_in.read("resources.arsc"))
+        legacy_catalog = []
+        arsc_patched, fixed_repos = patch_arsc_bytes(zf_in.read("resources.arsc"), legacy_catalog)
 
         dex1_merged = compile_dex1_with_arc7_bridge(
             strip_classes_from_dex(zf_in.read("classes.dex"), all_managed_classes),
@@ -2933,9 +3023,10 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
         aligned_apk = os.path.join(tmp, "aligned.apk")
 
         with zipfile.ZipFile(unsigned_apk, "w") as zf_out:
+            zf_out.writestr("assets/arc7-legacy-repos.tsv", "".join("\t".join(row) + "\n" for row in legacy_catalog))
             for info in zf_in.infolist():
                 fn = info.filename
-                if fn.startswith("META-INF/") or fn == "classes5.dex" or fn in own_payload:
+                if fn.startswith("META-INF/") or fn == "classes5.dex" or fn == "assets/arc7-legacy-repos.tsv" or fn in own_payload:
                     continue
                 new_info = zipfile.ZipInfo(filename=fn, date_time=info.date_time)
                 new_info.external_attr = info.external_attr
@@ -2947,13 +3038,13 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
                     zf_out.writestr(new_info, arsc_patched)
                 elif fn == "classes.dex":
                     new_info.compress_type = zipfile.ZIP_DEFLATED
-                    zf_out.writestr(new_info, dex1_clean)
+                    zf_out.writestr(new_info, patch_available_default_all(dex1_clean))
                 elif fn == "classes4.dex":
                     new_info.compress_type = zipfile.ZIP_DEFLATED
-                    zf_out.writestr(new_info, dex4_clean)
+                    zf_out.writestr(new_info, patch_available_default_all(dex4_clean))
                 else:
                     new_info.compress_type = info.compress_type
-                    zf_out.writestr(new_info, zf_in.read(fn))
+                    zf_out.writestr(new_info, patch_available_default_all(zf_in.read(fn)) if fn.endswith(".dex") else zf_in.read(fn))
             for name, source in own_payload.items():
                 zf_out.write(source, name, compress_type=zipfile.ZIP_STORED)
 

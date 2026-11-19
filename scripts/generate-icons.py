@@ -544,6 +544,37 @@ def draw_ic_radio(c):
     c.rect(0.54, 0.63, 0.72, 0.68, (154, 52, 18, 255), 0.02)
 
 
+def draw_ic_podcasts(c):
+    c.rounded_tile((168, 85, 247), (88, 28, 135), (233, 213, 255))
+    c.circle(0.50, 0.43, 0.26, W, 0.04)
+    c.circle(0.50, 0.43, 0.17, W, 0.035)
+    c.circle(0.50, 0.43, 0.07, W)
+    c.rect(0.43, 0.56, 0.57, 0.82, W, 0.06)
+
+
+def draw_ic_news(c):
+    c.rounded_tile((14, 165, 233), (30, 64, 175), (186, 230, 253))
+    c.rect(0.20, 0.23, 0.80, 0.80, W, 0.04)
+    c.rect(0.28, 0.31, 0.47, 0.49, (30, 64, 175, 255), 0.02)
+    for y in (0.33, 0.44, 0.57, 0.68):
+        c.line(0.55 if y < 0.5 else 0.29, y, 0.71, y, 0.035, (30, 64, 175, 255))
+
+
+def draw_ic_authenticator(c):
+    c.rounded_tile((16, 185, 129), (6, 78, 59), (167, 243, 208))
+    c.rect(0.24, 0.24, 0.76, 0.76, W, 0.08)
+    for x in (0.36, 0.50, 0.64):
+        for y in (0.41, 0.58):
+            c.circle(x, y, 0.035, (6, 78, 59, 255))
+
+
+def draw_ic_passwords(c):
+    c.rounded_tile((59, 130, 246), (30, 58, 138), (191, 219, 254))
+    c.circle(0.37, 0.43, 0.16, W, 0.07)
+    c.line(0.50, 0.54, 0.76, 0.78, 0.085, W)
+    c.line(0.63, 0.66, 0.72, 0.57, 0.065, W)
+
+
 def draw_ic_arcade(c):
     c.rounded_tile((147, 51, 234), (88, 28, 135), (216, 180, 254))
     c.rect(0.16, 0.32, 0.84, 0.72, W, 0.14)
@@ -679,6 +710,10 @@ ALL_ICONS = [
     ("ic_pdf.png", draw_ic_pdf),
     ("ic_weather.png", draw_ic_weather),
     ("ic_radio.png", draw_ic_radio),
+    ("ic_podcasts.png", draw_ic_podcasts),
+    ("ic_news.png", draw_ic_news),
+    ("ic_authenticator.png", draw_ic_authenticator),
+    ("ic_passwords.png", draw_ic_passwords),
     ("ic_recorder.png", draw_ic_sys_recorder),
     ("ic_arcade.png", draw_ic_arcade),
     ("ic_shield.png", draw_ic_shield),
@@ -774,8 +809,8 @@ def draw_banner():
             cx += 6 * scale
 
     stamp_text("KOBO ARC 7 FREEDOM", 232, 54, 6, (248, 250, 252, 255))
-    stamp_text("YOUTUBE + YT MUSIC MORPHE + TAILSCALE AUTH V2.4", 234, 118, 3, (56, 189, 248, 255))
-    stamp_text("STANDBY NOW PLAYING + WIDGETS + SCHOOL WIFI + VLC", 234, 156, 2, (167, 243, 208, 255))
+    stamp_text("INDEPENDENT APPS + GLASS + OFFLINE TOOLS V2.6", 234, 118, 3, (56, 189, 248, 255))
+    stamp_text("YOUTUBE + MUSIC + RADIO + PODCASTS + NEWS + WEATHER", 234, 156, 2, (167, 243, 208, 255))
 
     write_rgba_png(os.path.join(ROOT, "releases", "logo-banner.png"), w, h, px)
 

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.app"
-    android:versionCode="254"
-    android:versionName="2.5.4"
+    android:versionCode="260"
+    android:versionName="2.6.0"
     android:installLocation="internalOnly">
 
     <!-- Compatible across ALL Kobo Arc models: Android 4.0.3 (API 15) through Android 4.2.2 (API 17+) -->
@@ -15,6 +15,9 @@
     <uses-feature android:name="android.hardware.camera.front" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" android:protectionLevel="signature" />
+    <uses-permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" />
 
     <!-- Network, Chromebook Wired USB, Wi-Fi Drive, CA Certs & Atomic NTP Clock Sync -->
     <uses-permission android:name="android.permission.INTERNET" />
@@ -345,12 +348,32 @@
         <!-- 23. `Radio & Podcasts` 30k World Radio, Podcasts & Offline RSS (OWN TASK!) -->
         <activity
             android:name=".Arc7RadioRssActivity"
-            android:label="Radio &amp; Podcasts"
+            android:label="Radio"
             android:icon="@drawable/ic_radio"
             android:launchMode="singleTask"
             android:taskAffinity="ca.arc7freedom.task.radio"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false">
+        </activity>
+
+        <activity android:name=".Arc7PodcastsActivity" android:label="Podcasts"
+            android:icon="@drawable/ic_podcasts" android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.podcasts" android:exported="false">
+        </activity>
+
+        <activity android:name=".Arc7NewsActivity" android:label="News"
+            android:icon="@drawable/ic_news" android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.news" android:exported="false">
+        </activity>
+
+        <activity android:name=".Arc7AuthenticatorActivity" android:label="Authenticator"
+            android:icon="@drawable/ic_authenticator" android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.authenticator" android:exported="false">
+        </activity>
+
+        <activity android:name=".Arc7PasswordsActivity" android:label="Passwords"
+            android:icon="@drawable/ic_passwords" android:launchMode="singleTask"
+            android:taskAffinity="ca.arc7freedom.task.passwords" android:exported="false">
         </activity>
 
         <!-- 24. `Voice Recorder` 44.1 kHz Studio Voice Recorder & Lossless WAV Trimmer (OWN TASK!) -->
@@ -541,6 +564,16 @@
                 android:resource="@xml/widget_arc7_weather_info" />
         </receiver>
 
+        <!-- Weather's own APK exports the read-only cache bridge under its own authority.
+             The suite declaration is private and uses a different, unused authority. -->
+        <receiver android:name=".Arc7WeatherWidgetCacheReceiver"
+            android:exported="true" android:permission="ca.arc7freedom.permission.WEATHER_WIDGET" />
+
+        <provider android:name=".Arc7WeatherWidgetBridge" android:authorities="ca.arc7freedom.app.weather-widget"
+            android:exported="false" android:readPermission="ca.arc7freedom.permission.WEATHER_WIDGET"
+            android:writePermission="ca.arc7freedom.permission.WEATHER_WIDGET" />
+        <receiver android:name=".Arc7WeatherWidgetRequestReceiver" android:exported="true"
+            android:permission="ca.arc7freedom.permission.WEATHER_WIDGET" />
         <service android:name=".Arc7WeatherService" android:exported="false" />
         <receiver android:name=".Arc7WeatherBootReceiver" android:exported="false">
             <intent-filter>
@@ -851,7 +884,51 @@
             android:enabled="true"
             android:exported="true"
             android:icon="@drawable/ic_radio"
-            android:label="Radio &amp; Podcasts">
+            android:label="Radio">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Podcasts"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_podcasts"
+            android:label="Podcasts">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7News"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_news"
+            android:label="News">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Authenticator"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_authenticator"
+            android:label="Authenticator">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias android:name=".launch.Arc7Passwords"
+            android:targetActivity=".SplitAppLaunchActivity"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@drawable/ic_passwords"
+            android:label="Passwords">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

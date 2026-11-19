@@ -24,10 +24,15 @@ public class JSONObject {
     public JSONObject put(String k, double v) { return put(k, Double.valueOf(v)); }
     public boolean has(String k) { return m.containsKey(k); }
     public Object opt(String k) { return m.get(k); }
+    public Object get(String k) { if(!m.containsKey(k)) throw new IllegalArgumentException("Missing JSON key: "+k); return m.get(k); }
+    public String getString(String k) { Object v=get(k); if(!(v instanceof String)) throw new IllegalArgumentException("Not a JSON string"); return (String)v; }
+    public JSONObject getJSONObject(String k) { return (JSONObject)get(k); }
+    public JSONArray getJSONArray(String k) { return (JSONArray)get(k); }
+    public JSONArray names() { return m.isEmpty() ? null : new JSONArray(new ArrayList<String>(m.keySet())); }
     public String optString(String k) { return optString(k, ""); }
     public String optString(String k, String d) { Object v = m.get(k); return v == null ? d : String.valueOf(v); }
-    public int optInt(String k, int d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).intValue() : d; }
-    public long optLong(String k, long d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).longValue() : d; }
+    public int optInt(String k, int d) { Object v=m.get(k); if(v instanceof Number) return ((Number)v).intValue(); try{return (int)Double.parseDouble((String)v);}catch(Exception ignored){return d;} }
+    public long optLong(String k, long d) { Object v=m.get(k); if(v instanceof Number) return ((Number)v).longValue(); try{return (long)Double.parseDouble((String)v);}catch(Exception ignored){return d;} }
     public double optDouble(String k, double d) { Object v = m.get(k); return v instanceof Number ? ((Number) v).doubleValue() : d; }
     public boolean optBoolean(String k) { return optBoolean(k, false); }
     public boolean optBoolean(String k, boolean d) { Object v = m.get(k); return v instanceof Boolean ? ((Boolean) v).booleanValue() : d; }

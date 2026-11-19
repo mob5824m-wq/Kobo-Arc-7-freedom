@@ -169,7 +169,8 @@ public final class MorpheHls {
                 try { v.bandwidth = Integer.parseInt(value(next, "BANDWIDTH")); } catch (Exception ignored) {}
                 v.url = absolute(url, line);
                 // No codec guessing: the MT8125 has neither AV1, VP9, HEVC nor Opus decoding.
-                boolean codecOk = v.hasVideo || v.codecs.contains("mp4a.40.");
+                boolean aac = LegacyMediaPolicy.aacLc(v.codecs,2,48000);
+                boolean codecOk = aac || (v.hasVideo && v.audioGroup.length()>0);
                 boolean unsupported = v.codecs.contains("av01") || v.codecs.contains("vp09")
                         || v.codecs.contains("vp9") || v.codecs.contains("hev1") || v.codecs.contains("hvc1")
                         || v.codecs.contains("opus") || v.codecs.contains("ac-3") || v.codecs.contains("ec-3");

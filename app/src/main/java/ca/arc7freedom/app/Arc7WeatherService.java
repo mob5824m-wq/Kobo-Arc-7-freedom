@@ -18,7 +18,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Widget/optional official-alert updates. No tracking, root, suite IPC, wake-up alarm or sticky service. */
+/** Widget/optional official-alert updates. No tracking, root, suite networking, wake-up alarm or sticky service. */
 public final class Arc7WeatherService extends IntentService {
     public static final String UPDATED = "ca.arc7freedom.weather.UPDATED";
     private static final String PERIODIC = "ca.arc7freedom.weather.PERIODIC";
@@ -39,7 +39,7 @@ public final class Arc7WeatherService extends IntentService {
     }
     public static boolean hasWidgets(Context c) {
         int[] ids = AppWidgetManager.getInstance(c).getAppWidgetIds(new ComponentName(c, Arc7WeatherWidgetProvider.class));
-        return ids != null && ids.length > 0;
+        return (ids != null && ids.length > 0) || Arc7WeatherWidgetBridge.hasLegacyWidgets(c);
     }
     public static void schedule(Context c) {
         if (!owner(c)) return;
@@ -56,6 +56,7 @@ public final class Arc7WeatherService extends IntentService {
     }
     public static void changed(Context c, String kind) {
         Arc7WeatherWidgetProvider.refreshAll(c);
+        if(owner(c)) Arc7WeatherWidgetBridge.notifyLegacy(c);
         c.sendBroadcast(new Intent(UPDATED).setPackage(c.getPackageName()).putExtra("kind", kind));
     }
     public static boolean connected(Context c, boolean background) {

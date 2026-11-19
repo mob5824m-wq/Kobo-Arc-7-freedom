@@ -9,6 +9,7 @@ public class JSONArray {
     public int length() { return list.size(); }
     public JSONArray put(Object v) { list.add(v); return this; }
     public Object get(int i) { return list.get(i); }
+    public Object opt(int i) { return i>=0 && i<list.size() ? list.get(i) : null; }
     public String getString(int i) { return String.valueOf(list.get(i)); }
     public String optString(int i) { return optString(i, ""); }
     public String optString(int i, String d) { return (i >= 0 && i < list.size() && list.get(i) != null) ? String.valueOf(list.get(i)) : d; }
@@ -16,7 +17,7 @@ public class JSONArray {
     public double optDouble(int i, double d) { Object v = (i >= 0 && i < list.size()) ? list.get(i) : null; return v instanceof Number ? ((Number) v).doubleValue() : d; }
     public int optInt(int i) { Object v = list.get(i); return v instanceof Number ? ((Number) v).intValue() : 0; }
     public JSONObject getJSONObject(int i) { return (JSONObject) list.get(i); }
-    public JSONObject optJSONObject(int i) { return (JSONObject) list.get(i); }
+    public JSONObject optJSONObject(int i) { Object v=opt(i); return v instanceof JSONObject ? (JSONObject)v : null; }
     public JSONArray getJSONArray(int i) { return (JSONArray) list.get(i); }
     @Override public String toString() { return MiniJson.stringify(list); }
 }

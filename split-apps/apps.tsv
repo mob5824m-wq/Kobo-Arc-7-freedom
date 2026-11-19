@@ -1,5 +1,6 @@
 shield	Ad-Blocker.apk	Ad Blocker	System-wide ad / tracker blocker
 appmanager	App-Manager.apk	App Manager	Install / uninstall / back up every app
+authenticator	Authenticator.apk	Authenticator	Offline encrypted TOTP two-factor codes
 bluetoothinternet	Bluetooth-Internet.apk	Bluetooth Internet	Share Wi-Fi over Bluetooth PAN, or receive tethered internet
 ebookreader	Books.apk	Books	E-book reader (EPUB / CBZ) with 4-store search
 browser	Browser.apk	Browser	Web browser with TLS 1.3 + 118 bundled 2026 root CAs
@@ -10,11 +11,14 @@ clock	Clock.apk	Clock	Alarms on any days you pick, timer, stopwatch, standby clo
 filemanager	Files.apk	Files	Two-pane file manager (copy / move / rename / zip)
 arcade	Games.apk	Games	Built-in arcade games
 audioplayer	Music.apk	Music	Offline music player with Now Playing notification
+news	News.apk	News	Offline RSS news and custom feeds
 notes	Notes.apk	Notes	Notes / notepad with autosave
 packageinstaller	Package-Installer.apk	Package Installer	APK installer with signature checks
+passwords	Passwords.apk	Passwords	Offline encrypted password vault and generator
 pdfviewer	PDF-Reader.apk	PDF Reader	PDF reader with page jump + night mode
 photos	Photos.apk	Photos	Gallery with pinch-zoom and slideshow
-radiorss	Radio-Podcasts.apk	Radio & Podcasts	Internet radio + podcast/RSS player
+podcasts	Podcasts.apk	Podcasts	Podcast search, feeds, playback and downloads
+radiorss	Radio.apk	Radio	Live Internet radio and station directory
 secondscreen	Second-Screen.apk	Second Screen	Use the tablet as a PC second screen
 splitview	Split-View.apk	Split View	Two apps side by side
 streamdeck	Stream-Deck.apk	Stream Deck	PC Stream Deck remote (OBS control)

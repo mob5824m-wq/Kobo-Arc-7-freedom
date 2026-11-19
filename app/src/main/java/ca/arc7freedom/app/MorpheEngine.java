@@ -139,6 +139,10 @@ public final class MorpheEngine {
     private static volatile String cachedVisitorData = "";
     private static volatile long visitorFetchedMs = 0L;
 
+    public static final class AccessRequiredException extends IOException {
+        public AccessRequiredException(String reason) { super(reason+". Open the official page in a supported browser to sign in or complete the check; this app cannot bypass it."); }
+    }
+
     public interface ResolutionProgressListener {
         void onProgress(String message);
     }
@@ -147,6 +151,8 @@ public final class MorpheEngine {
         public String videoId = "";
         public String browseId = "";
         public String playlistId = "";
+        public String collectionType = ""; // album / playlist, never a pretend playable video
+        public boolean isCollection() { return collectionType.length()>0 && (browseId.length()>0 || playlistId.length()>0); }
         public String title = "";
         public String author = "";
         public String channelId = "";
@@ -765,8 +771,8 @@ public final class MorpheEngine {
                                                   long startInclusive,
                                                   long endInclusive) throws Exception {
         checkResolutionCancelled();
-        if (startInclusive < 0L) startInclusive = 0L;
-        if (endInclusive < startInclusive) endInclusive = startInclusive;
+        if(startInclusive<0 || endInclusive<startInclusive || endInclusive-startInclusive>=32L*1024L*1024L)
+            throw new IOException("Invalid or oversized media range");
         long want = endInclusive - startInclusive + 1L;
         ensureGatewayWarm(ctx);
         int gwPort = gatewayPort();
@@ -785,14 +791,33 @@ public final class MorpheEngine {
             conn.setRequestProperty("User-Agent",
                     (userAgent != null && userAgent.length() > 0) ? userAgent : WEB_UA);
             conn.setRequestProperty("Accept", "*/*");
+            conn.setRequestProperty("Accept-Encoding", "identity");
             int code = conn.getResponseCode();
+            String range=conn.getHeaderField("Content-Range");
+            if(code==416 && ("bytes */"+startInclusive).equals(range)) return new byte[0];
             if (code != 200 && code != 206) {
                 throw new IOException("HTTP " + code + " for range " + startInclusive + "-" + endInclusive);
             }
-            in = conn.getInputStream();
+            long declared=-1;
+            try { declared=Long.parseLong(conn.getHeaderField("Content-Length")); } catch(Exception ignored) {}
             boolean whole = (code == 200);
             long skip = whole ? startInclusive : 0L;
-            byte[] out = new byte[(int) Math.min(want, 32L * 1024L * 1024L)];
+            long expected=want;
+            if(!whole) {
+                Matcher match=Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+|\\*)").matcher(range==null ? "" : range);
+                if(!match.matches()) throw new IOException("Missing or invalid Content-Range");
+                long first=Long.parseLong(match.group(1)),last=Long.parseLong(match.group(2));
+                long total="*".equals(match.group(3)) ? -1 : Long.parseLong(match.group(3));
+                if(first!=startInclusive || last<first || last>endInclusive || (total>=0 && last>=total)
+                        || (last<endInclusive && (total<0 || last!=total-1))) throw new IOException("Incorrect media range response");
+                expected=last-first+1;
+                if(declared>=0 && declared!=expected) throw new IOException("Media range length mismatch");
+            } else if(declared>=0) {
+                if(startInclusive>declared) throw new IOException("Media starts beyond end of file");
+                expected=Math.min(want,declared-startInclusive);
+            }
+            in = conn.getInputStream();
+            byte[] out = new byte[(int)expected];
             long skipped = 0L;
             byte[] sink = new byte[8192];
             while (skipped < skip) {
@@ -801,6 +826,7 @@ public final class MorpheEngine {
                 if (n <= 0) break;
                 skipped += n;
             }
+            if(skipped!=skip) throw new java.io.EOFException("Truncated full media response");
             int off = 0;
             while (off < out.length) {
                 checkResolutionCancelled();
@@ -810,9 +836,9 @@ public final class MorpheEngine {
             }
             checkResolutionCancelled();
             if (off == out.length) return out;
+            if(!whole || declared>=0) throw new java.io.EOFException("Truncated media range response");
             byte[] shorter = new byte[off];
             System.arraycopy(out, 0, shorter, 0, off);
-            if (shorter.length == 0) throw new IOException("Empty range response");
             return shorter;
         } finally {
             try { if (in != null) in.close(); } catch (Throwable ignored) {}
@@ -910,6 +936,12 @@ public final class MorpheEngine {
             payload.put("params", "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D");
         } else if ("videos".equalsIgnoreCase(filterMode)) {
             payload.put("params", "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D");
+        } else if ("albums".equalsIgnoreCase(filterMode)) {
+            payload.put("params", "EgWKAQIYAWoMEA4QChADEAQQCRAF");
+        } else if ("playlists".equalsIgnoreCase(filterMode)) {
+            payload.put("params", "Eg-KAQwIABAAGAAgACgBMABqChAEEAMQCRAFEAo%3D");
+        } else if ("community_playlists".equalsIgnoreCase(filterMode)) {
+            payload.put("params", "EgeKAQQoAEABagwQDhAKEAMQBBAJEAU%3D");
         }
 
         Map<String, String> hdrs = new LinkedHashMap<String, String>();
@@ -925,8 +957,15 @@ public final class MorpheEngine {
                     "https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
                     payload.toString(), hdrs, 14000);
             List<MediaItem> items = parseYouTubeItemsRecursive(new JSONObject(raw), true);
+            if ("albums".equals(filterMode) || filterMode.contains("playlists")) {
+                List<MediaItem> collections=new ArrayList<MediaItem>();
+                for(MediaItem item:items) if(item.isCollection()) collections.add(item);
+                return collections;
+            }
             if (!items.isEmpty()) return items;
-        } catch (Throwable ignored) {}
+        } catch (Exception unavailable) {
+            if ("albums".equals(filterMode) || filterMode.contains("playlists")) throw new IOException("Music collections are unavailable. No unrelated song results were substituted.",unavailable);
+        }
 
         // Fallback to standard InnerTube + Cloud music search
         List<MediaItem> fb = searchYouTubeVideos(ctx, query + " official audio");
@@ -980,6 +1019,8 @@ public final class MorpheEngine {
         // 2. YouTube Music `musicResponsiveListItemRenderer` & `musicTwoRowItemRenderer`
         JSONObject mrl = obj.optJSONObject("musicResponsiveListItemRenderer");
         if (mrl != null) {
+            MediaItem collection=musicMode ? parseMusicCollectionRenderer(mrl) : null;
+            if(collection!=null) { out.put(collection.browseId.length()>0 ? collection.browseId : collection.playlistId,collection); return; }
             MediaItem it = parseMusicListItemRenderer(mrl);
             if (it != null && it.videoId.length() >= 8 && !out.containsKey(it.videoId)) {
                 out.put(it.videoId, it);
@@ -987,6 +1028,8 @@ public final class MorpheEngine {
         }
         JSONObject mtr = obj.optJSONObject("musicTwoRowItemRenderer");
         if (mtr != null) {
+            MediaItem collection=musicMode ? parseMusicCollectionRenderer(mtr) : null;
+            if(collection!=null) { out.put(collection.browseId.length()>0 ? collection.browseId : collection.playlistId,collection); return; }
             MediaItem it = parseMusicTwoRowRenderer(mtr);
             if (it != null && it.videoId.length() >= 8 && !out.containsKey(it.videoId)) {
                 out.put(it.videoId, it);
@@ -1009,6 +1052,8 @@ public final class MorpheEngine {
         it.videoId = vid;
         it.title = readRunsText(vr.optJSONObject("title"));
         if (it.title.length() == 0) return null;
+        it.channelId = findChannelId(vr.optJSONObject("ownerText"),0);
+        if(it.channelId.length()==0) it.channelId=findChannelId(vr.optJSONObject("longBylineText"),0);
         it.author = readRunsText(vr.optJSONObject("ownerText"));
         if (it.author.length() == 0) it.author = readRunsText(vr.optJSONObject("longBylineText"));
         if (it.author.length() == 0) it.author = readRunsText(vr.optJSONObject("shortBylineText"));
@@ -1024,6 +1069,122 @@ public final class MorpheEngine {
             it.durationText = "LIVE";
         }
         return it;
+    }
+
+    private static MediaItem parseMusicCollectionRenderer(JSONObject renderer) {
+        JSONObject title=renderer.optJSONObject("title");
+        JSONArray flex=renderer.optJSONArray("flexColumns");
+        if(title==null && flex!=null && flex.length()>0 && flex.optJSONObject(0)!=null) {
+            JSONObject col=flex.optJSONObject(0).optJSONObject("musicResponsiveListItemFlexColumnRenderer");
+            if(col!=null) title=col.optJSONObject("text");
+        }
+        JSONObject nav=renderer.optJSONObject("navigationEndpoint");
+        if(nav==null && title!=null && title.optJSONArray("runs")!=null && title.optJSONArray("runs").length()>0) {
+            JSONObject run=title.optJSONArray("runs").optJSONObject(0); if(run!=null) nav=run.optJSONObject("navigationEndpoint");
+        }
+        if(nav==null) return null;
+        JSONObject browse=nav.optJSONObject("browseEndpoint"), watch=nav.optJSONObject("watchPlaylistEndpoint");
+        String id=browse==null ? "" : browse.optString("browseId","");
+        String playlist=watch==null ? "" : watch.optString("playlistId","");
+        String type=id.startsWith("MPRE") ? "album" : id.startsWith("VL") || playlist.length()>0 ? "playlist" : "";
+        if(type.length()==0) return null;
+        MediaItem item=new MediaItem(); item.browseId=id; item.playlistId=playlist;
+        if(item.playlistId.length()==0 && id.startsWith("VL")) item.playlistId=id.substring(2);
+        item.collectionType=type; item.title=readRunsText(title); item.author=readRunsText(renderer.optJSONObject("subtitle")); item.isMusicTrack=true;
+        JSONObject thumbnail=renderer.optJSONObject("thumbnailRenderer"); if(thumbnail==null) thumbnail=renderer.optJSONObject("thumbnail");
+        if(thumbnail!=null && thumbnail.optJSONObject("musicThumbnailRenderer")!=null) thumbnail=thumbnail.optJSONObject("musicThumbnailRenderer").optJSONObject("thumbnail");
+        item.thumbnailUrl=bestThumbFromContainer(thumbnail,"");
+        return item.title.length()>0 ? item : null;
+    }
+
+    private static JSONObject musicBrowseContext() throws Exception {
+        return new JSONObject().put("client",new JSONObject().put("clientName","WEB_REMIX")
+                .put("clientVersion","1.20260804.16.00").put("hl","en").put("gl","CA"));
+    }
+    public static List<MediaItem> browseMusicCollection(Context ctx,MediaItem item) throws Exception {
+        if(item.playlistId.startsWith("local:")) return loadSavedList(ctx,"ytm_local_"+item.playlistId.substring(6));
+        String browse=item.browseId.length()>0 ? item.browseId : "VL"+item.playlistId;
+        if(!browse.matches("[A-Za-z0-9_-]{5,200}")) throw new IOException("Invalid album/playlist id");
+        JSONObject body=new JSONObject().put("context",musicBrowseContext()).put("browseId",browse);
+        Map<String,String> headers=new LinkedHashMap<String,String>(); headers.put("User-Agent",WEB_UA);
+        headers.put("Origin","https://music.youtube.com"); headers.put("X-YouTube-Client-Name","67"); headers.put("X-YouTube-Client-Version","1.20260804.16.00");
+        String raw=requestHttpsString(ctx,"POST","https://music.youtube.com/youtubei/v1/browse?prettyPrint=false",body.toString(),headers,16000);
+        JSONObject contents=new JSONObject(raw).optJSONObject("contents");
+        JSONObject two=contents==null ? null : contents.optJSONObject("twoColumnBrowseResultsRenderer");
+        Object area=two==null ? contents : two.optJSONObject("secondaryContents");
+        JSONObject shelf=findMusicShelf(area,"musicPlaylistShelfRenderer",0);
+        if(shelf==null) shelf=findMusicShelf(area,"musicShelfRenderer",0);
+        List<MediaItem> tracks=new ArrayList<MediaItem>();
+        if(shelf!=null) for(MediaItem track:parseYouTubeItemsRecursive(shelf,true))
+            if(!track.isCollection() && track.videoId.matches("[A-Za-z0-9_-]{11}")) tracks.add(track);
+        if(tracks.isEmpty()) throw new IOException("No public tracks returned. The playlist may be private, empty, require sign-in or use an unsupported layout.");
+        return tracks; // First page, bounded to 60 for the tablet's heap. The UI labels this limit.
+    }
+    /** Never treat recommendations / carousels below an unavailable collection as its songs. */
+    private static JSONObject findMusicShelf(Object node,String renderer,int depth) {
+        if(node==null || depth>16) return null;
+        if(node instanceof JSONObject) {
+            JSONObject object=(JSONObject)node, shelf=object.optJSONObject(renderer); if(shelf!=null) return shelf;
+            java.util.Iterator<String> keys=object.keys();
+            while(keys.hasNext()) {
+                String key=keys.next(); if("musicCarouselShelfRenderer".equals(key) || "header".equals(key) || "menu".equals(key)) continue;
+                shelf=findMusicShelf(object.opt(key),renderer,depth+1); if(shelf!=null) return shelf;
+            }
+        } else if(node instanceof JSONArray) {
+            JSONArray array=(JSONArray)node; for(int i=0;i<array.length();i++) { JSONObject shelf=findMusicShelf(array.opt(i),renderer,depth+1); if(shelf!=null) return shelf; }
+        }
+        return null;
+    }
+
+    private static String findChannelId(Object node,int depth) {
+        if(node==null || depth>8) return "";
+        if(node instanceof JSONObject) {
+            JSONObject obj=(JSONObject)node; String id=obj.optString("browseId","");
+            if(id.matches("UC[A-Za-z0-9_-]{22}")) return id;
+            JSONArray names=obj.names(); if(names!=null) for(int i=0;i<names.length();i++) { String result=findChannelId(obj.opt(names.optString(i)),depth+1); if(result.length()>0) return result; }
+        } else if(node instanceof JSONArray) {
+            JSONArray arr=(JSONArray)node; for(int i=0;i<arr.length();i++){ String result=findChannelId(arr.opt(i),depth+1); if(result.length()>0) return result; }
+        }
+        return "";
+    }
+    public static MediaItem resolvePinnedChannel(Context ctx,String input,String title) throws Exception {
+        String value=input==null ? "" : input.trim();
+        java.util.regex.Matcher id=Pattern.compile("^(?:https://(?:www\\.|m\\.)?youtube\\.com/channel/)?(UC[A-Za-z0-9_-]{22})/?(?:[?#].*)?$").matcher(value);
+        String channel=id.find() ? id.group(1) : "";
+        if(channel.length()==0) {
+            if(value.matches("@[A-Za-z0-9_.-]{3,100}")) value="https://www.youtube.com/"+value;
+            if(!value.matches("https://(?:www\\.|m\\.)?youtube\\.com/@[^/?# ]{3,100}/?")) throw new IOException("Enter a channel UC id, channel URL or @handle");
+            JSONObject body=new JSONObject().put("context",new JSONObject().put("client",new JSONObject().put("clientName","WEB").put("clientVersion","2.20260805.01.00"))).put("url",value);
+            Map<String,String> hdrs=new LinkedHashMap<String,String>(); hdrs.put("User-Agent",WEB_UA);
+            String raw=requestHttpsString(ctx,"POST","https://www.youtube.com/youtubei/v1/navigation/resolve_url?prettyPrint=false",body.toString(),hdrs,14000);
+            channel=findChannelId(new JSONObject(raw),0);
+        }
+        if(channel.length()==0) throw new IOException("YouTube did not resolve this public channel");
+        MediaItem item=new MediaItem(); item.channelId=channel; item.title=title==null || title.trim().length()==0 ? value : title.trim(); return item;
+    }
+    public static List<MediaItem> pinnedChannelVideos(Context ctx,String channel) throws Exception {
+        if(!channel.matches("UC[A-Za-z0-9_-]{22}")) throw new IOException("Invalid channel id");
+        Map<String,String> headers=new LinkedHashMap<String,String>(); headers.put("User-Agent",WEB_UA);
+        String xml=new String(requestHttpsBytes(ctx,"GET","https://www.youtube.com/feeds/videos.xml?channel_id="+channel,null,headers,14000,1024*1024),"UTF-8");
+        return parsePinnedChannelFeed(xml,channel);
+    }
+    static List<MediaItem> parsePinnedChannelFeed(String xml,String channel) throws Exception {
+        if(xml==null || xml.length()>1024*1024 || !channel.matches("UC[A-Za-z0-9_-]{22}")) throw new IOException("Invalid channel feed");
+        javax.xml.parsers.DocumentBuilderFactory factory=javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true); factory.setExpandEntityReferences(false);
+        if(xml.contains("<!DOCTYPE") || xml.contains("<!ENTITY")) throw new IOException("Unsafe channel feed");
+        org.w3c.dom.Document doc=factory.newDocumentBuilder().parse(new java.io.ByteArrayInputStream(xml.getBytes("UTF-8")));
+        org.w3c.dom.NodeList nodes=doc.getElementsByTagNameNS("http://www.w3.org/2005/Atom","entry"); List<MediaItem> result=new ArrayList<MediaItem>();
+        for(int i=0;i<nodes.getLength() && result.size()<30;i++) {
+            org.w3c.dom.Element entry=(org.w3c.dom.Element)nodes.item(i);
+            org.w3c.dom.NodeList ids=entry.getElementsByTagNameNS("http://www.youtube.com/xml/schemas/2015","videoId");
+            if(ids.getLength()==0) continue;
+            MediaItem item=new MediaItem(); item.videoId=ids.item(0).getTextContent(); if(!item.videoId.matches("[A-Za-z0-9_-]{11}")) continue;
+            item.channelId=channel; org.w3c.dom.NodeList titles=entry.getElementsByTagNameNS("http://www.w3.org/2005/Atom","title"); item.title=titles.getLength()>0 ? titles.item(0).getTextContent() : "Video";
+            org.w3c.dom.NodeList authors=entry.getElementsByTagNameNS("http://www.w3.org/2005/Atom","name"); item.author=authors.getLength()>0 ? authors.item(0).getTextContent() : "";
+            item.thumbnailUrl="https://i.ytimg.com/vi/"+item.videoId+"/hqdefault.jpg"; result.add(item);
+        }
+        return result;
     }
 
     private static MediaItem parseMusicListItemRenderer(JSONObject mrl) {
@@ -1197,6 +1358,7 @@ public final class MorpheEngine {
                     failures.append(spec[0]).append(":no-stream ");
                 }
             } catch (Throwable t) {
+                if(t instanceof AccessRequiredException) throw (AccessRequiredException)t;
                 failures.append(spec[0]).append(':').append(shortError(t)).append(' ');
             }
         }
@@ -1220,7 +1382,8 @@ public final class MorpheEngine {
         }
         if (resolved == null) {
             throw new Exception("No playable H.264/AAC stream for " + videoId
-                    + " (" + failures.toString().trim() + ")");
+                    + " (" + failures.toString().trim() + ")"
+                    + "\nIf YouTube asks for sign-in or a bot check, open the official video page in a supported browser. This app cannot bypass account/service restrictions.");
         }
 
         if (quick) {
@@ -1335,24 +1498,9 @@ public final class MorpheEngine {
             }
         }
 
-        // 3. Video-only without a usable audio track: defragment into classic MP4.
-        if (!audioOnlyPreferred && res.localVideoProxyUrl.length() == 0 && videoTrack != null) {
-            try {
-                final MorpheRemuxer.Track vT = toRemuxTrack(ctx, videoTrack);
-                byte[] vInit = vT.fetcher.fetch(0L, vT.initEnd);
-                if (vInit == null || vInit.length < 8) throw new Exception("Empty video init");
-                String url = MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
-                    @Override
-                    public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                        MorpheRemuxer.remuxSingleTrackClassicMp4(vT, out, progress);
-                    }
-                }, -1L, "video/mp4");
-                res.localVideoProxyUrl = url;
-                res.muxNote = videoTrack.label + " (video only)";
-            } catch (Throwable t) {
-                res.muxNote = "video spool failed: " + shortError(t);
-            }
-        }
+        // No silent-video fallback: try another client if a real AAC track is unavailable.
+        if (!audioOnlyPreferred && res.localVideoProxyUrl.length() == 0)
+            res.muxNote = "No playable H.264 + AAC audio pair";
 
         // 4. Audio-only (YouTube Music) still needs a playable local classic M4A file.
         if (res.localAudioProxyUrl.length() == 0 && audioTrack != null
@@ -1372,7 +1520,7 @@ public final class MorpheEngine {
         if (res.localAudioProxyUrl.length() == 0 && res.muxedLocally) {
             res.localAudioProxyUrl = res.localVideoProxyUrl;
         }
-        if (res.localVideoProxyUrl.length() == 0 && res.localAudioProxyUrl.length() > 0) {
+        if (audioOnlyPreferred && res.localVideoProxyUrl.length() == 0 && res.localAudioProxyUrl.length() > 0) {
             res.localVideoProxyUrl = res.localAudioProxyUrl;
         }
     }
@@ -1382,7 +1530,7 @@ public final class MorpheEngine {
                 && probe[6] == 'y' && probe[7] == 'p';
     }
 
-    private static MorpheHls.Transport hlsTransport(final Context ctx, final String userAgent) {
+    public static MorpheHls.Transport hlsTransport(final Context ctx, final String userAgent) {
         return new MorpheHls.Transport() {
             @Override public MorpheHls.Response open(String url, String range) throws Exception {
                 checkResolutionCancelled();
@@ -1409,6 +1557,21 @@ public final class MorpheEngine {
                 } catch (Exception error) { conn.disconnect(); throw error; }
             }
         };
+    }
+
+    public static String prepareRadioStream(Context ctx, String original) throws Exception {
+        String url = LegacyMediaPolicy.canonicalRadio(original);
+        if (url.toLowerCase(Locale.US).contains(".m3u8")) {
+            MorpheHls.Transport transport=hlsTransport(ctx,WEB_UA);
+            MorpheHls.Selection selected=MorpheHls.select(transport,url,true);
+            if(selected.fragmented()) throw new IOException("Live fMP4 radio needs a newer decoder; try the MP3 station.");
+            MorpheHls.probe(transport,selected.primary());
+            return MorpheHlsRelay.register(selected,transport);
+        }
+        ensureGatewayWarm(ctx);
+        return url.startsWith("https://") ? "http://127.0.0.1:"+gatewayPort()+"/__https/"+url.substring(8)
+                : url.startsWith("http://") && !url.startsWith("http://127.0.0.1:") && !url.startsWith("http://localhost:")
+                    ? "http://127.0.0.1:"+gatewayPort()+"/__stream/"+url : url;
     }
 
     private static void bindHlsPlayback(final Context ctx, final ResolvedPlayback res,
@@ -1523,27 +1686,16 @@ public final class MorpheEngine {
             } catch (Throwable ignored) {
             }
         }
-        if (video.isDashTrack()) {
-            try {
-                final MorpheRemuxer.Track vT = toRemuxTrack(ctx, video);
-                return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
-                    @Override
-                    public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
-                        MorpheRemuxer.remuxSingleTrackClassicMp4(vT, out, progress);
-                    }
-                }, -1L, "video/mp4");
-            } catch (Throwable ignored) {
-            }
-        }
+        if (video.isDashTrack() || !video.hasAudio) return "";
         return registerPlayableStreamSlot(ctx, video.directHttpsUrl, video.userAgent, video.mimeType);
     }
 
     /** Spools a single adaptive audio track (or wraps a progressive URL) for the audio player. */
     public static String startAudioForVariant(Context ctx, StreamVariant audio) {
-        if (audio == null) return "";
+        if (audio == null || !audio.hasAudio) return "";
         if (audio.isDashTrack()) {
             String spooled = spoolAudioTrack(ctx, audio);
-            if (spooled.length() > 0) return spooled;
+            return spooled; // Never hand an unsupported raw fragmented track to MediaPlayer.
         }
         return registerPlayableStreamSlot(ctx, audio.directHttpsUrl, audio.userAgent, audio.mimeType);
     }
@@ -1610,8 +1762,11 @@ public final class MorpheEngine {
         JSONObject response = new JSONObject(raw);
         JSONObject status = response.optJSONObject("playabilityStatus");
         if (status != null && !"OK".equalsIgnoreCase(status.optString("status", ""))) {
-            throw new IOException(status.optString("status", "UNAVAILABLE") + ": "
-                    + status.optString("reason", "No playable media was returned"));
+            String reason=status.optString("reason", "No playable media was returned");
+            String denial=(status.optString("status","")+" "+reason).toLowerCase(Locale.US);
+            if(denial.contains("login_required") || denial.contains("sign in") || denial.contains("not a bot") || denial.contains("age_check"))
+                throw new AccessRequiredException(reason);
+            throw new IOException(status.optString("status", "UNAVAILABLE") + ": " + reason);
         }
         ResolvedPlayback parsed = parseInnerTubePlayerResponse(response, videoId, spec[0], spec[4]);
         if (parsed != null) {
@@ -1673,9 +1828,9 @@ public final class MorpheEngine {
                 if (url.length() == 0) continue;
                 String mime = f.optString("mimeType", "video/mp4");
                 // MT8125 hardware decoder excels at MP4/H.264 (`avc1` + `mp4a`); avoid AV1 (`av01`) & VP9 (`vp9`)
-                if (!mime.startsWith("video/mp4") || mime.contains("av01") || mime.contains("vp9")
-                        || mime.contains("hvc1") || mime.contains("hev1")
-                        || f.optInt("height", 360) > 720 || f.optInt("fps", 30) > 30) continue;
+                if (!mime.startsWith("video/mp4")
+                        || !LegacyMediaPolicy.h264(mime,f.optInt("height",360),f.optInt("fps",30))
+                        || !LegacyMediaPolicy.aacLc(mime,f.optInt("audioChannels",2),f.optInt("audioSampleRate",44100))) continue;
                 StreamVariant sv = new StreamVariant();
                 sv.itag = f.optInt("itag", 18);
                 sv.directHttpsUrl = url;
@@ -1718,7 +1873,7 @@ public final class MorpheEngine {
                 boolean isVideoMp4 = (mime.startsWith("video/mp4") || mime.startsWith("video/quicktime"))
                         && (mime.contains("avc1") || mime.contains("avc3"));
                 boolean isAudioMp4 = mime.startsWith("audio/mp4")
-                        && (mime.contains("mp4a") || mime.contains("aac"));
+                        && LegacyMediaPolicy.aacLc(mime,f.optInt("audioChannels",2),f.optInt("audioSampleRate",44100));
                 if (isVideoMp4 && sv.height <= 720 && f.optInt("fps", 30) <= 30) {
                     sv.hasVideo = true;
                     sv.label = (sv.height > 0 ? (sv.height + "p") : "Video") + " H.264"
@@ -1762,7 +1917,7 @@ public final class MorpheEngine {
         Collections.sort(out.audioStreams, new Comparator<StreamVariant>() {
             @Override
             public int compare(StreamVariant a, StreamVariant b) {
-                return b.bitrate - a.bitrate;
+                return Math.abs(a.bitrate-128000) - Math.abs(b.bitrate-128000); // Prefer standard AAC-LC 128k, not the largest stream.
             }
         });
         return out;
@@ -1850,7 +2005,8 @@ public final class MorpheEngine {
                         JSONObject vf = vArr.optJSONObject(k);
                         if (vf != null && !vf.optBoolean("videoOnly", true)
                                 && vf.optString("mimeType", "").contains("mp4")
-                                && vf.optString("url", "").length() > 0) {
+                                && vf.optString("url", "").length() > 0
+                                && LegacyMediaPolicy.h264(vf.optString("mimeType",vf.optString("type"))+vf.optString("codec"),vf.optInt("height",360),vf.optInt("fps",30))) {
                             StreamVariant sv = new StreamVariant();
                             sv.directHttpsUrl = vf.optString("url");
                             sv.mimeType = "video/mp4";
@@ -1867,7 +2023,8 @@ public final class MorpheEngine {
                     for (int k = 0; k < aArr.length(); k++) {
                         JSONObject af = aArr.optJSONObject(k);
                         if (af != null && af.optString("mimeType", "").contains("mp4")
-                                && af.optString("url", "").length() > 0) {
+                                && af.optString("url", "").length() > 0
+                                && LegacyMediaPolicy.aacLc(af.optString("mimeType",af.optString("type"))+af.optString("codec"),af.optInt("audioChannels",2),af.optInt("audioSampleRate",44100))) {
                             StreamVariant sv = new StreamVariant();
                             sv.directHttpsUrl = af.optString("url");
                             sv.mimeType = "audio/mp4";
@@ -1904,7 +2061,8 @@ public final class MorpheEngine {
                     for (int k = 0; k < fmtStreams.length(); k++) {
                         JSONObject vf = fmtStreams.optJSONObject(k);
                         if (vf != null && vf.optString("type", "").contains("mp4")
-                                && vf.optString("url", "").length() > 0) {
+                                && vf.optString("url", "").length() > 0
+                                && LegacyMediaPolicy.h264(vf.optString("mimeType",vf.optString("type"))+vf.optString("codec"),vf.optInt("height",360),vf.optInt("fps",30))) {
                             StreamVariant sv = new StreamVariant();
                             sv.directHttpsUrl = vf.optString("url");
                             sv.mimeType = "video/mp4";
@@ -1920,7 +2078,8 @@ public final class MorpheEngine {
                     for (int k = 0; k < adaptive.length(); k++) {
                         JSONObject af = adaptive.optJSONObject(k);
                         if (af != null && af.optString("type", "").startsWith("audio/mp4")
-                                && af.optString("url", "").length() > 0) {
+                                && af.optString("url", "").length() > 0
+                                && LegacyMediaPolicy.aacLc(af.optString("mimeType",af.optString("type"))+af.optString("codec"),af.optInt("audioChannels",2),af.optInt("audioSampleRate",44100))) {
                             StreamVariant sv = new StreamVariant();
                             sv.directHttpsUrl = af.optString("url");
                             sv.mimeType = "audio/mp4";
@@ -2137,94 +2296,63 @@ public final class MorpheEngine {
 
     /* ==================== 8. 1-Tap Offline MP4 Video & M4A Audio Downloader ==================== */
 
-    public static File downloadStreamOffline(Context ctx,
-                                             StreamVariant variant,
-                                             String title,
-                                             boolean audioOnly,
-                                             DownloadProgressListener listener) throws Exception {
-        File dir = new File(Environment.getExternalStorageDirectory(),
-                audioOnly ? "Music/YouTubeMusic" : "Movies/YouTube");
-        if (!dir.exists()) dir.mkdirs();
+    /** Compatibility entry: a video-only DASH track is not an offline video by itself. */
+    public static File downloadStreamOffline(Context ctx,StreamVariant variant,String title,
+                                             boolean audioOnly,DownloadProgressListener listener) throws Exception {
+        if(variant==null) throw new IOException("No downloadable stream");
+        ResolvedPlayback selection=new ResolvedPlayback(); selection.title=title;
+        if(variant.hasVideo && variant.hasAudio) selection.progressiveVideos.add(variant);
+        else if(variant.hasAudio) selection.audioStreams.add(variant);
+        else selection.videoOnlyStreams.add(variant);
+        return downloadResolvedOffline(ctx,selection,title,audioOnly,listener);
+    }
 
-        String safeName = (title != null ? title : "media")
-                .replaceAll("[^A-Za-z0-9 _.-]", "")
-                .trim();
-        if (safeName.length() == 0) safeName = "download_" + System.currentTimeMillis();
-        if (safeName.length() > 64) safeName = safeName.substring(0, 64).trim();
-        File outFile = new File(dir, safeName + (audioOnly ? ".m4a" : ".mp4"));
-
-        // DASH tracks (`initRange`/`indexRange`) cannot be proxied 1:1 — the raw file starts with
-        // a bare `moov` and is only playable once it is spooled/merged, so download it that way.
-        final boolean dash = variant.isDashTrack();
-        if (dash) {
-            final MorpheRemuxer.Track t = toRemuxTrack(ctx, variant);
-            final long total = variant.contentLength;
-            final DownloadProgressListener dlListener = listener;
-            RandomAccessFile rafOut = new RandomAccessFile(outFile, "rw");
-            try {
-                MorpheRemuxer.copyTrack(t, rafOut, new MorpheRemuxer.Progress() {
-                    @Override
-                    public void onBytes(long absoluteOffset, long totalBytes) {
-                        long denom = totalBytes > 0L ? totalBytes : total;
-                        if (dlListener != null && denom > 0L) {
-                            dlListener.onProgress(
-                                    (int) Math.min(100L, (absoluteOffset * 100L) / denom),
-                                    absoluteOffset,
-                                    denom);
-                        }
-                    }
-
-                    @Override
-                    public void onStage(String stage) {}
-                });
-            } finally {
-                try { rafOut.close(); } catch (Throwable ignored) {}
-            }
-            return outFile;
-        }
-
-        String localProxyUrl = registerPlayableStreamSlot(
-                ctx, variant.directHttpsUrl, variant.userAgent, variant.mimeType);
-
-        HttpURLConnection conn = null;
-        InputStream in = null;
-        FileOutputStream fos = null;
+    /** Real A/V merge; atomic completion; no overwriting recordings or exposing .part as playable. */
+    public static File downloadResolvedOffline(final Context ctx,ResolvedPlayback resolved,String title,
+                                                boolean audioOnly,final DownloadProgressListener listener) throws Exception {
+        if(resolved==null) throw new IOException("Resolve a playable video first");
+        File dir=new File(Environment.getExternalStorageDirectory(),audioOnly ? "Music/YouTubeMusic" : "Movies/YouTube");
+        if(!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Download folder is unavailable");
+        String name=(title==null ? "media" : title).replaceAll("[^A-Za-z0-9 _.-]","").trim();
+        if(name.length()==0 || name.equals(".") || name.equals("..")) name="media";
+        if(name.length()>60) name=name.substring(0,60).trim();
+        final File partial=File.createTempFile(name+"-arc7-", ".part",dir);
+        File target=new File(dir,partial.getName().substring(0,partial.getName().length()-5)+(audioOnly ? ".m4a" : ".mp4"));
+        boolean complete=false;
+        final MorpheRemuxer.Progress progress=new MorpheRemuxer.Progress() {
+            public void onBytes(long done,long total) { if(listener!=null) listener.onProgress(total>0 ? (int)Math.min(99,done*100/total) : -1,done,total); }
+            public void onStage(String stage) {}
+        };
+        RandomAccessFile out=null;
         try {
-            conn = (HttpURLConnection) new URL(localProxyUrl).openConnection(Proxy.NO_PROXY);
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(30000);
-            conn.setRequestProperty("Range", "bytes=0-");
-            int code = conn.getResponseCode();
-            if (code != 200 && code != 206) {
-                throw new Exception("Download HTTP " + code);
-            }
-            long total = conn.getContentLength();
-            if (total <= 0L && variant.contentLength > 0L) total = variant.contentLength;
-
-            in = conn.getInputStream();
-            fos = new FileOutputStream(outFile);
-            byte[] buf = new byte[32768];
-            long done = 0L;
-            int n;
-            int lastPct = -1;
-            while ((n = in.read(buf)) > 0) {
-                fos.write(buf, 0, n);
-                done += n;
-                if (listener != null && total > 0L) {
-                    int pct = (int) ((done * 100L) / total);
-                    if (pct != lastPct && pct % 5 == 0) {
-                        lastPct = pct;
-                        listener.onProgress(pct, done, total);
-                    }
-                }
-            }
-            fos.flush();
-            return outFile;
-        } finally {
-            try { if (fos != null) fos.close(); } catch (Throwable ignored) {}
-            try { if (in != null) in.close(); } catch (Throwable ignored) {}
-            if (conn != null) conn.disconnect();
-        }
+            checkResolutionCancelled();
+            out=new RandomAccessFile(partial,"rw");
+            StreamVariant audio=resolved.audioStreams.isEmpty() ? null : resolved.audioStreams.get(0);
+            StreamVariant video=pickBestVideoForMux(resolved);
+            if(audioOnly && audio!=null && audio.hasAudio && !audio.hasVideo) {
+                MorpheRemuxer.Track track=toRemuxTrack(ctx,audio);
+                MorpheRemuxer.copyTrack(track,out,progress);
+            } else if(!audioOnly && !resolved.progressiveVideos.isEmpty()) {
+                StreamVariant combined=resolved.progressiveVideos.get(0);
+                if(!combined.hasAudio || !combined.hasVideo || combined.isHls) throw new IOException("No combined H.264/AAC file");
+                MorpheRemuxer.copyTrack(toRemuxTrack(ctx,combined),out,progress);
+            } else if(!audioOnly && video!=null && audio!=null && audio.hasAudio) {
+                MorpheRemuxer.remuxClassicMp4(toRemuxTrack(ctx,video),toRemuxTrack(ctx,audio),out,progress);
+            } else if(resolved.hlsManifestUrl.length()>0) {
+                MorpheHls.Transport transport=hlsTransport(ctx,resolved.hlsUserAgent);
+                MorpheHls.Selection selected=MorpheHls.select(transport,resolved.hlsManifestUrl,audioOnly);
+                if(!selected.fragmented()) throw new IOException("This live/TS HLS stream is playback-only; no offline MP4/M4A is available");
+                MorpheRemuxer.remuxHlsClassicMp4(selected.video==null ? null : MorpheHls.source(transport,selected.video),
+                        selected.audio==null ? null : MorpheHls.source(transport,selected.audio),out,progress);
+            } else throw new IOException(audioOnly ? "No separate AAC audio track is available for M4A" : "Video download needs a real H.264 + AAC pair");
+            out.getFD().sync(); out.close(); out=null;
+            checkResolutionCancelled(); MorpheRemuxer.validateClassicFile(partial,audioOnly);
+            checkResolutionCancelled();
+            if(target.exists() || !partial.renameTo(target)) throw new IOException("Could not finish download; no existing file was replaced");
+            complete=true;
+            if(listener!=null) listener.onProgress(100,target.length(),target.length());
+            return target;
+        } finally { if(out!=null) try{out.close();}catch(Exception ignored){} if(!complete) partial.delete(); }
     }
 
     public interface DownloadProgressListener {
@@ -2287,6 +2415,8 @@ public final class MorpheEngine {
                 if (o == null) continue;
                 MediaItem m = new MediaItem();
                 m.videoId = o.optString("v", "");
+                m.browseId=o.optString("browse",""); m.playlistId=o.optString("playlist","");
+                m.channelId=o.optString("channel",""); m.collectionType=o.optString("kind","");
                 m.title = o.optString("t", "");
                 m.author = o.optString("a", "");
                 m.durationText = o.optString("d", "");
@@ -2303,7 +2433,7 @@ public final class MorpheEngine {
         List<MediaItem> cur = loadSavedList(ctx, listKey);
         int existing = -1;
         for (int i = 0; i < cur.size(); i++) {
-            if (cur.get(i).videoId.equals(item.videoId) && item.videoId.length() > 0) {
+            if (savedIdentity(cur.get(i)).equals(savedIdentity(item)) && savedIdentity(item).length()>0) {
                 existing = i;
                 break;
             }
@@ -2315,18 +2445,27 @@ public final class MorpheEngine {
                 return;
             }
         }
-        cur.add(0, item);
+        if(listKey.startsWith("ytm_local_")) cur.add(item); else cur.add(0, item);
         while (cur.size() > 80) cur.remove(cur.size() - 1);
         saveList(ctx, listKey, cur);
     }
 
-    private static void saveList(Context ctx, String listKey, List<MediaItem> items) {
+    private static String savedIdentity(MediaItem item) {
+        if(item.isCollection()) {
+            if("album".equals(item.collectionType) && item.browseId.length()>0) return "album:"+item.browseId;
+            String playlist=item.playlistId.length()>0 ? item.playlistId : item.browseId.startsWith("VL") ? item.browseId.substring(2) : item.browseId;
+            return "playlist:"+playlist;
+        }
+        return item.videoId.length()>0 ? "video:"+item.videoId : item.channelId.length()>0 ? "channel:"+item.channelId : "";
+    }
+    public static void saveList(Context ctx, String listKey, List<MediaItem> items) {
         JSONArray arr = new JSONArray();
         try {
             for (int i = 0; i < items.size(); i++) {
                 MediaItem m = items.get(i);
                 JSONObject o = new JSONObject();
                 o.put("v", m.videoId);
+                o.put("browse",m.browseId).put("playlist",m.playlistId).put("channel",m.channelId).put("kind",m.collectionType);
                 o.put("t", m.title);
                 o.put("a", m.author);
                 o.put("d", m.durationText);

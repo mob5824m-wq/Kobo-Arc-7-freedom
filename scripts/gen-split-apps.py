@@ -61,7 +61,11 @@ APP_META = {
     "packageinstaller": ("Package-Installer.apk", "APK installer with signature checks"),
     "pdfviewer": ("PDF-Reader.apk", "PDF reader with page jump + night mode"),
     "weather": ("Weather.apk", "48-hour + 14-day weather, saved cities, air quality, alerts, radar & widget"),
-    "radiorss": ("Radio-Podcasts.apk", "Internet radio + podcast/RSS player"),
+    "radiorss": ("Radio.apk", "Live Internet radio and station directory"),
+    "podcasts": ("Podcasts.apk", "Podcast search, feeds, playback and downloads"),
+    "news": ("News.apk", "Offline RSS news and custom feeds"),
+    "authenticator": ("Authenticator.apk", "Offline encrypted TOTP two-factor codes"),
+    "passwords": ("Passwords.apk", "Offline encrypted password vault and generator"),
     "recorder": ("Voice-Recorder.apk", "Voice recorder with playback + share"),
     "arcade": ("Games.apk", "Built-in arcade games"),
     "shield": ("Ad-Blocker.apk", "System-wide ad / tracker blocker"),
@@ -76,7 +80,7 @@ APP_META = {
 # Network engines and permissions belong to the APK making the request, never the suite.
 NETWORK_APPS = {
     "browser", "ebookreader", "audioplayer", "clock", "calendar", "appmanager", "terminal",
-    "filemanager", "wiredinternet", "packageinstaller", "weather", "radiorss", "shield",
+    "filemanager", "wiredinternet", "packageinstaller", "weather", "radiorss", "podcasts", "news", "shield",
     "secondscreen", "splitview", "dictionarywiki", "streamdeck", "vpn",
 }
 
@@ -84,10 +88,10 @@ NETWORK_APPS = {
 APP_PERMISSIONS = {key: {"READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"} for key in APP_META}
 for key in NETWORK_APPS:
     APP_PERMISSIONS[key].update(("INTERNET", "ACCESS_NETWORK_STATE"))
-for key in ("browser", "audioplayer", "radiorss", "secondscreen", "streamdeck", "filemanager",
+for key in ("browser", "audioplayer", "radiorss", "podcasts", "secondscreen", "streamdeck", "filemanager",
             "wiredinternet", "vpn", "bluetoothinternet"):
     APP_PERMISSIONS[key].add("ACCESS_WIFI_STATE")
-for key in ("audioplayer", "radiorss", "recorder", "clock", "calendar", "secondscreen",
+for key in ("audioplayer", "radiorss", "podcasts", "recorder", "clock", "calendar", "secondscreen",
             "streamdeck", "wiredinternet", "vpn", "ebookreader"):
     APP_PERMISSIONS[key].add("WAKE_LOCK")
 for key in ("wiredinternet", "vpn", "bluetoothinternet"):
@@ -115,6 +119,7 @@ APP_EXTRAS = {
     "wiredinternet": (("service", "Arc7ChromebookUsbService"),),
     "audioplayer": (("service", "Arc7AudioService"), ("receiver", "Arc7AudioWidgetProvider")),
     "radiorss": (("service", "Arc7AudioService"),),
+    "podcasts": (("service", "Arc7AudioService"),),
     "recorder": (("service", "Arc7AudioService"),),
     "clock": (("activity", "Arc7AlarmAlertActivity"), ("activity", "Arc7DeskClockActivity"),
               ("receiver", "Arc7AlarmReceiver"), ("receiver", "Arc7ScheduleBootReceiver"),
@@ -122,7 +127,8 @@ APP_EXTRAS = {
     "calendar": (("activity", "Arc7AlarmAlertActivity"), ("receiver", "Arc7AlarmReceiver"),
                  ("receiver", "Arc7ScheduleBootReceiver"), ("receiver", "Arc7CalendarWidgetProvider")),
     "weather": (("receiver", "Arc7WeatherWidgetProvider"), ("receiver", "Arc7WeatherBootReceiver"),
-                ("service", "Arc7WeatherService")),
+                ("service", "Arc7WeatherService"), ("provider", "Arc7WeatherWidgetBridge"),
+                ("receiver", "Arc7WeatherWidgetRequestReceiver")),
 }
 for key in NETWORK_APPS:
     APP_EXTRAS[key] = APP_EXTRAS.get(key, ()) + (("service", "Arc7TlsGatewayService"),)
@@ -217,7 +223,7 @@ def render_component(tag: str, src, *, name: str, override: dict | None = None,
 
 
 def build_app(key: str, meta, version_code: str, version_name: str, target_activity,
-              by_class: dict, services, receivers) -> str:
+              by_class: dict, services, receivers, providers) -> str:
     pkg = f"ca.arc7freedom.{key}"
     label = attr(target_activity, "label") or key.title()
     icon = attr(target_activity, "icon") or "@drawable/ic_launcher"
@@ -239,6 +245,8 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     if key == "bluetoothinternet":
         lines.append('    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />')
     if key == "weather":
+        lines.append('    <permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" android:protectionLevel="signature" />')
+        lines.append('    <uses-permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" />')
         for feature in ("location", "location.gps", "location.network"):
             lines.append(f'    <uses-feature android:name="android.hardware.{feature}" android:required="false" />')
     for permission in sorted(APP_PERMISSIONS[key]):
@@ -251,7 +259,7 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     lines.append(f'        android:label="{xml_escape(label)}"')
     lines.append('        android:hardwareAccelerated="true"')
     lines.append('        android:largeHeap="true"')
-    lines.append('        android:allowBackup="true"')
+    lines.append('        android:allowBackup="%s"' % ("false" if key in ("authenticator", "passwords") else "true"))
     lines.append('        android:theme="@android:style/Theme.Holo">')
     lines.append("")
 
@@ -269,6 +277,8 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
             candidates = services
         elif tag == "receiver":
             candidates = receivers
+        elif tag == "provider":
+            candidates = providers
         elif tag == "activity":
             candidates = list(by_class.values())
         else:
@@ -279,6 +289,10 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
                 break
         assert src is not None, f"{key}: {tag} {comp_name} missing from the suite manifest"
         extra_override = {"exported": "false"}
+        if comp_name == "Arc7WeatherWidgetBridge":
+            extra_override.update(exported="true", authorities="ca.arc7freedom.weather.widget")
+        if comp_name == "Arc7WeatherWidgetRequestReceiver":
+            extra_override["exported"] = "true"
         if tag == "activity":
             extra_override["taskAffinity"] = f"{pkg}.task.{comp_name.lower()}"
             if comp_name == "Arc7DeskClockActivity":
@@ -445,8 +459,8 @@ final class BuiltinApps {
 def main() -> None:
     tree = ET.parse(SUITE_MANIFEST)
     manifest = tree.getroot()
-    version_code = manifest.get(NS + "versionCode", "254")
-    version_name = manifest.get(NS + "versionName", "2.5.4")
+    version_code = manifest.get(NS + "versionCode", "260")
+    version_name = manifest.get(NS + "versionName", "2.6.0")
     android = manifest.find("application")
     assert android is not None
 
@@ -454,6 +468,7 @@ def main() -> None:
     by_class = {attr(a, "name").lstrip("."): a for a in all_activities}
     services = android.findall("service")
     receivers = android.findall("receiver")
+    providers = android.findall("provider")
 
     # Sources of truth for "which apps to split":
     #   * activities that still carry a LAUNCHER filter (first run), and
@@ -498,7 +513,7 @@ def main() -> None:
         icon = attr(src, "icon") or "@drawable/ic_launcher"
 
         text = build_app(key, APP_META[key], version_code, version_name,
-                         src, by_class, services, receivers)
+                         src, by_class, services, receivers, providers)
         out_dir = os.path.join(OUT_DIR, key)
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, "AndroidManifest.xml"), "w", encoding="utf-8") as fp:

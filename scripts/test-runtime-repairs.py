@@ -568,7 +568,7 @@ public class WifiManager {
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             sources.append(path)
-        sources += [SRC / name for name in ("MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
+        sources += [SRC / name for name in ("LegacyMediaPolicy.java", "MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
         sources.append(ROOT / "launcher-android4/src/main/java/ca/arc7freedom/launcher/BuiltinApps.java")
         sources += list((ROOT / "tests/support/org/json").glob("*.java"))
         classes = tmp / "classes"

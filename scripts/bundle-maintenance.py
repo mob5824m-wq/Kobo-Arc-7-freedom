@@ -90,10 +90,10 @@ def build():
         recipe = "maintenance/recipes/" + key + ".txt"
         (ASSETS / recipe).write_text("\n".join(parts) + "\n")
         rows.append("\t".join((pkg, label, filename, str(version), rebuilt.hexdigest(), "parts:" + recipe)))
-    assert len(seen_packages) == 34, len(seen_packages)
+    assert len(seen_packages) == 38, len(seen_packages)
     (OUT / "catalog.tsv").write_text("\n".join(rows) + "\n")
     stored_bytes = sum(path.stat().st_size for path in OUT.rglob("*") if path.is_file())
-    print(f"Offline maintenance: {len(seen_packages)} APKs; 28 defaults {original_bytes // 1024} KiB -> {stored_bytes // 1024} KiB deduplicated; every signed APK round-trips exactly")
+    print(f"Offline maintenance: {len(seen_packages)} APKs; 32 defaults {original_bytes // 1024} KiB -> {stored_bytes // 1024} KiB deduplicated; every signed APK round-trips exactly")
 
 
 if __name__ == "__main__":

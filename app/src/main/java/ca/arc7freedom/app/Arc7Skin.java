@@ -215,7 +215,7 @@ public final class Arc7Skin {
         public int inAppDensity = 1;
         public boolean inAppCenterTitle = false;
         public int inAppStyle = 0;
-        public boolean inAppShowQuickSwitch = true;
+        public boolean inAppShowQuickSwitch = false;
     }
 
     public static File sharedAppBarFile() {
@@ -273,7 +273,7 @@ public final class Arc7Skin {
         c.inAppDensity = clamp(readPropInt(p, sp, "in_app_density", 1), 0, IN_APP_DENSITY_NAMES.length - 1);
         c.inAppCenterTitle = readPropBool(p, sp, "in_app_center_title", false);
         c.inAppStyle = clamp(readPropInt(p, sp, "in_app_style", 0), 0, IN_APP_STYLE_NAMES.length - 1);
-        c.inAppShowQuickSwitch = readPropBool(p, sp, "in_app_quick_switch", true);
+        c.inAppShowQuickSwitch = false; // Retired; ignore older shared settings.
         return c;
     }
 
@@ -304,7 +304,7 @@ public final class Arc7Skin {
             ed.putInt("in_app_density", c.inAppDensity);
             ed.putBoolean("in_app_center_title", c.inAppCenterTitle);
             ed.putInt("in_app_style", c.inAppStyle);
-            ed.putBoolean("in_app_quick_switch", c.inAppShowQuickSwitch);
+            ed.putBoolean("in_app_quick_switch", false);
             ed.commit();
         }
 
@@ -329,7 +329,7 @@ public final class Arc7Skin {
             p.setProperty("in_app_density", String.valueOf(c.inAppDensity));
             p.setProperty("in_app_center_title", String.valueOf(c.inAppCenterTitle));
             p.setProperty("in_app_style", String.valueOf(c.inAppStyle));
-            p.setProperty("in_app_quick_switch", String.valueOf(c.inAppShowQuickSwitch));
+            p.setProperty("in_app_quick_switch", "false");
             FileOutputStream fos = new FileOutputStream(f);
             try { p.store(fos, "Kobo Arc 7 Customizable App Bar Configuration"); }
             finally { try { fos.close(); } catch (Throwable ignored) {} }
@@ -577,19 +577,23 @@ public final class Arc7Skin {
                 TypedValue.COMPLEX_UNIT_DIP, v, ctx.getResources().getDisplayMetrics()));
     }
 
+    private static int glassTint(int color, int amount) {
+        return Color.argb(245, Math.min(255,Color.red(color)+amount), Math.min(255,Color.green(color)+amount), Math.min(255,Color.blue(color)+amount));
+    }
+
     public static GradientDrawable cardDrawable(Context ctx, Palette p, int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(p.surface);
-        g.setCornerRadius(dp(ctx, radiusDp));
-        g.setStroke(dp(ctx, 1), p.border);
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{glassTint(p.surface, 20), (p.surface & 0x00FFFFFF) | 0xEE000000});
+        g.setCornerRadius(dp(ctx, Math.max(14, radiusDp)));
+        g.setStroke(dp(ctx, 1), glassTint(p.border, 26));
         return g;
     }
 
     public static GradientDrawable elevatedDrawable(Context ctx, Palette p, int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(p.surfaceElevated);
-        g.setCornerRadius(dp(ctx, radiusDp));
-        g.setStroke(dp(ctx, 1), p.border);
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{glassTint(p.surfaceElevated, 18), (p.surfaceElevated & 0x00FFFFFF) | 0xF0000000});
+        g.setCornerRadius(dp(ctx, Math.max(14, radiusDp)));
+        g.setStroke(dp(ctx, 1), glassTint(p.border, 26));
         return g;
     }
 
@@ -600,7 +604,7 @@ public final class Arc7Skin {
     public static GradientDrawable headerDrawable(Palette p) {
         return new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{p.headerTop, p.headerBottom});
+                new int[]{glassTint(p.headerTop, 22), p.headerBottom, (p.headerBottom & 0x00FFFFFF) | 0xF2000000});
     }
 
     public static Drawable customAppBarDrawable(Context ctx, Palette p, AppBarPrefs prefs) {
@@ -631,9 +635,9 @@ public final class Arc7Skin {
     }
 
     public static GradientDrawable buttonDrawable(Context ctx, int fillColor, int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(fillColor);
-        g.setCornerRadius(dp(ctx, radiusDp));
+        GradientDrawable g = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{glassTint(fillColor, 22), fillColor});
+        g.setCornerRadius(dp(ctx, Math.max(12, radiusDp)));
         g.setStroke(dp(ctx, 1), 0x44FFFFFF);
         return g;
     }
@@ -643,6 +647,7 @@ public final class Arc7Skin {
         Button b = new Button(ctx);
         b.setText(text);
         b.setAllCaps(false);
+        b.setMinHeight(dp(ctx, 44));
         b.setTextColor(Color.WHITE);
         b.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
@@ -711,65 +716,10 @@ public final class Arc7Skin {
         bar.addView(titleCol, new LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        if (prefs.inAppShowQuickSwitch) {
-            Button appsPill = actionButton(activity, "Apps \u25BE", (accent & 0x00FFFFFF) | 0xCC000000);
-            appsPill.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            appsPill.setPadding(dp(activity, 10), dp(activity, 5), dp(activity, 10), dp(activity, 5));
-            LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            qlp.rightMargin = dp(activity, rightExtra != null ? 8 : 0);
-            appsPill.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    showQuickAppBarSwitcher(activity);
-                }
-            });
-            bar.addView(appsPill, qlp);
-        }
-
         if (rightExtra != null) {
             bar.addView(rightExtra);
         }
         return bar;
-    }
-
-    public static void showQuickAppBarSwitcher(final Activity activity) {
-        final AppBarPrefs prefs = loadAppBarPrefs(activity);
-        final List<String> names = new ArrayList<String>();
-        final List<String> tokens = new ArrayList<String>();
-
-        for (int i = 0; i < prefs.items.size(); i++) {
-            String tok = prefs.items.get(i);
-            tokens.add(tok);
-            names.add((i + 1) + ".  " + labelForBarToken(activity, tok));
-        }
-        names.add("\u2302  Home Screen");
-        tokens.add("@__home__");
-        names.add("\u2699  Customize App Bar...");
-        tokens.add("@__customize__");
-
-        new AlertDialog.Builder(activity)
-                .setTitle("Quick App Bar Switcher")
-                .setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface d, int which) {
-                        String tok = tokens.get(which);
-                        if ("@__home__".equals(tok)) {
-                            Intent home = new Intent(Intent.ACTION_MAIN);
-                            home.addCategory(Intent.CATEGORY_HOME);
-                            home.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                            try { activity.startActivity(home); } catch (Throwable ignored) {}
-                        } else if ("@__customize__".equals(tok)) {
-                            showAppBarCustomizerDialog(activity, new Runnable() {
-                                @Override public void run() { activity.recreate(); }
-                            });
-                        } else {
-                            launchBarToken(activity, tok);
-                        }
-                    }
-                })
-                .setNegativeButton("Close", null)
-                .show();
     }
 
     public static String labelForBarToken(Context ctx, String tok) {
@@ -789,7 +739,7 @@ public final class Arc7Skin {
         if ("@ereader".equals(tok)) return "Arc7 E-Reader";
         if ("@pdf".equals(tok)) return "Arc7 PDF & Scanner";
         if ("@weather".equals(tok)) return "Arc7 Weather";
-        if ("@radio".equals(tok)) return "Arc7 Radio, Podcasts & RSS";
+        if ("@radio".equals(tok)) return "Arc7 Radio";
         if ("@recorder".equals(tok)) return "Arc7 Voice Recorder";
         if ("@arcade".equals(tok)) return "Arc7 Offline Arcade";
         if ("@shield".equals(tok)) return "Arc7 Shield AdBlock";
@@ -954,14 +904,6 @@ public final class Arc7Skin {
                                 saveAppBarPrefs(host, cfg);
                             }
                         });
-                addCheckRow(host, box, "Show Quick 'Apps ▾' Switcher Pill in Every App", cfg.inAppShowQuickSwitch,
-                        new CompoundButton.OnCheckedChangeListener() {
-                            @Override public void onCheckedChanged(CompoundButton b, boolean ch) {
-                                cfg.inAppShowQuickSwitch = ch;
-                                saveAppBarPrefs(host, cfg);
-                            }
-                        });
-
                 addSecHdr(host, box, "2. HOME SCREEN PINNED APP BAR SLOTS (" + cfg.items.size() + " / " + MAX_BAR_SLOTS + ")", accent);
                 for (int i = 0; i < cfg.items.size(); i++) {
                     final int idx = i;

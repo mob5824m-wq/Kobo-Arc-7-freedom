@@ -65,7 +65,7 @@ import java.util.Locale;
  *       * Choose Floating Glass Pill, Full-Width Edge Bar, Minimal Transparent, Solid Slate, or Neon Rim
  *       * Customize All-Apps button placement, Icon Size (34–58 dp), App Labels, Glass Opacity, & Accent Swatch
  *       * Customize Home Top Bar style & individual chips (Clock/Date, Search, App Bar, Skin, Wallpaper)
- *       * Syncs In-App Top App Bar density, alignment, style & Quick App Switcher across all Arc7 apps
+ *       * Syncs In-App Top App Bar density, alignment and surface style across all Arc7 apps
  *   - Long-press anywhere on empty Home workspace to place live Android AppWidgets (`AppWidgetHost` 1024)
  *   - Automatic 12-hour (`AM/PM`) and 24-hour time formatting + 60 fps spring & page animations
  */
@@ -1215,6 +1215,10 @@ public class VanillaHomeActivity extends Activity {
                         getApplicationContext(), rec.appWidgetId, info);
                 hv.setAppWidget(rec.appWidgetId, info);
                 hv.setPadding(dp(2), dp(2), dp(2), dp(2));
+                if (android.os.Build.VERSION.SDK_INT >= 16) {
+                    int widthDp=Math.max(120,(int)(getResources().getDisplayMetrics().widthPixels/getResources().getDisplayMetrics().density)-24);
+                    hv.updateAppWidgetSize(null,widthDp,Math.max(80,rec.heightDp-4),widthDp,Math.max(80,rec.heightDp-4));
+                }
                 final Runnable openMgr = new Runnable() {
                     @Override
                     public void run() {
@@ -3097,15 +3101,6 @@ public class VanillaHomeActivity extends Activity {
                             @Override
                             public void onCheckedChanged(CompoundButton b, boolean checked) {
                                 cfg.inAppCenterTitle = checked;
-                                AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
-                            }
-                        });
-
-                addToggleRow(rootBox, "Show Quick 'Apps' Switcher Pill Inside Apps", cfg.inAppShowQuickSwitch,
-                        new CompoundButton.OnCheckedChangeListener() {
-                            @Override
-                            public void onCheckedChanged(CompoundButton b, boolean checked) {
-                                cfg.inAppShowQuickSwitch = checked;
                                 AppBarConfigStore.save(VanillaHomeActivity.this, cfg);
                             }
                         });

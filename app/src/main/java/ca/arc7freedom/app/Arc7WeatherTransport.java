@@ -18,7 +18,7 @@ public final class Arc7WeatherTransport implements Arc7WeatherStore.Transport {
     private volatile boolean cancelled;
     private HttpURLConnection active;
     private boolean ready;
-    public static final String USER_AGENT = "Arc7Weather/2.5.4 (https://github.com/mob5824m-wq/Kobo-Arc-7-freedom)";
+    public static final String USER_AGENT = "Arc7Weather/2.6.0 (https://github.com/mob5824m-wq/Kobo-Arc-7-freedom)";
 
     public Arc7WeatherTransport(Context context) {
         this.context = context.getApplicationContext();

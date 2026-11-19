@@ -4,7 +4,7 @@ Arc7 Stream Deck PC Host Server + OBS WebSocket v5 Client + Live Browser Studio
 ===============================================================================
 Zero third-party dependencies! Uses ONLY the Python 3 Standard Library across:
   - Windows 10 / 11  (native ctypes Win32 SendInput + Media Keys + Lock + CPU/RAM)
-  - Linux X11/Wayland (xdotool / ydotool / pactl / playerctl / xdg-open + /proc)
+  - Linux X11 (xdotool / pactl / playerctl / xdg-open + /proc; native Wayland unsupported)
   - macOS            (osascript System Events + volume + open)
 
 Connects seamlessly with your Kobo Arc 7 (`Arc7 Stream Deck`) in ALL 3 ways:
@@ -76,6 +76,8 @@ for _ch in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789":
 
 def win32_key_event(vk: int, down: bool) -> None:
     flags = 0 if down else 0x0002
+    if vk in (0x21,0x22,0x23,0x24,0x25,0x26,0x27,0x28,0x2C,0x2E,0x5B):
+        flags |= 0x0001  # KEYEVENTF_EXTENDEDKEY (arrows, navigation, Windows key)
     ctypes.windll.user32.keybd_event(vk, 0, flags, 0)
 
 
@@ -92,54 +94,149 @@ def win32_send_unicode_text(text: str) -> None:
                 win32_key_event(0x10, False)
 
 
+KEY_ALIASES = {"CONTROL":"CTRL", "CMD":"WIN", "SUPER":"WIN", "RETURN":"ENTER", "ESCAPE":"ESC"}
+MODIFIERS = ("CTRL", "SHIFT", "ALT", "WIN")
+
+
 def parse_combo(combo_str: str):
-    parts = [p.strip().upper() for p in combo_str.replace("-", "+").split("+") if p.strip()]
-    return parts
+    if not isinstance(combo_str, str) or not combo_str.strip() or len(combo_str) > 100:
+        raise ValueError("Choose a key or keybind")
+    parts = [KEY_ALIASES.get(p.strip().upper(), p.strip().upper()) for p in combo_str.replace("-", "+").split("+")]
+    if any(p not in WIN_VK for p in parts):
+        raise ValueError("Unknown key. Use PLUS / MINUS and the key names shown in the editor.")
+    if len(set(parts)) != len(parts):
+        raise ValueError("Duplicate key or modifier")
+    main = [p for p in parts if p not in MODIFIERS]
+    if len(main) != 1:
+        raise ValueError("Choose one key plus optional modifiers")
+    return [m for m in MODIFIERS if m in parts] + main
 
 
-def execute_hotkey(combo_str: str, mode: int = 0, active: bool = True) -> str:
-    keys = parse_combo(combo_str)
-    if not keys:
-        return "empty"
+MAC_KEYCODES = {"ENTER":36,"TAB":48,"SPACE":49,"BACKSPACE":51,"ESC":53,"DELETE":117,
+    "HOME":115,"END":119,"PAGEUP":116,"PAGEDOWN":121,"LEFT":123,"RIGHT":124,"DOWN":125,"UP":126,
+    "PLUS":24,"MINUS":27,"`":50,".":47,"VOL_UP":72,"VOL_DOWN":73,"VOL_MUTE":74,
+    "F1":122,"F2":120,"F3":99,"F4":118,"F5":96,"F6":97,"F7":98,"F8":100,
+    "F9":101,"F10":109,"F11":103,"F12":111,"F13":105,"F14":107,"F15":113,
+    "F16":106,"F17":64,"F18":79,"F19":80,"F20":90}
+LINUX_KEYS = {"CTRL":"ctrl","ALT":"alt","SHIFT":"shift","WIN":"super","ENTER":"Return",
+    "ESC":"Escape","TAB":"Tab","SPACE":"space","BACKSPACE":"BackSpace","DELETE":"Delete",
+    "UP":"Up","DOWN":"Down","LEFT":"Left","RIGHT":"Right","HOME":"Home","END":"End",
+    "PAGEUP":"Prior","PAGEDOWN":"Next","PRINT_SCREEN":"Print","PLUS":"plus","MINUS":"minus","`":"grave",".":"period",
+    "VOL_MUTE":"XF86AudioMute","VOL_DOWN":"XF86AudioLowerVolume","VOL_UP":"XF86AudioRaiseVolume",
+    "NEXT_TRACK":"XF86AudioNext","PREV_TRACK":"XF86AudioPrev","MEDIA_STOP":"XF86AudioStop","PLAY_PAUSE":"XF86AudioPlay"}
+
+
+# Reference counts are shared across connections and overlapping chords. Releasing
+# Ctrl+A must not release the Ctrl still owned by a held Ctrl+B on another button/client.
+_INPUT_LOCK = threading.RLock()
+_KEY_COUNTS = {}
+
+
+def _require_linux_input():
+    if os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or (os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY")):
+        raise RuntimeError("Native Wayland key input is unsupported. Sign in to an X11 session.")
+    if not shutil.which("xdotool"):
+        raise RuntimeError("Keyboard input unavailable: install xdotool and use an X11 session")
+
+
+def _emit_key(key, down):
     if IS_WIN:
-        vks = [WIN_VK.get(k, ord(k[0]) if len(k) == 1 else 0x7C) for k in keys]
-        if mode == 2:
-            if active:
-                for vk in vks:
-                    win32_key_event(vk, True)
-            else:
-                for vk in reversed(vks):
-                    win32_key_event(vk, False)
-            return f"win32_ptt({'DOWN' if active else 'UP'} {keys})"
-        for vk in vks:
-            win32_key_event(vk, True)
-        time.sleep(0.02)
-        for vk in reversed(vks):
-            win32_key_event(vk, False)
-        return f"win32_hotkey({keys})"
+        win32_key_event(WIN_VK[key], down)
+    else:
+        _require_linux_input()
+        xkey = LINUX_KEYS.get(key, key if key.startswith("F") and key[1:].isdigit() else key.lower())
+        subprocess.run(["xdotool", "keydown" if down else "keyup", xkey], check=True, capture_output=True, timeout=4)
 
+
+class HotkeySession:
+    def __init__(self):
+        self.held = {}
+
+    def press(self, keys):
+        combo = tuple(keys)
+        with _INPUT_LOCK:
+            if combo in self.held:
+                return  # repeated DOWN / duplicate frame is idempotent
+            self.held[combo] = []
+            try:
+                for key in keys:
+                    if not _KEY_COUNTS.get(key):
+                        try:
+                            _emit_key(key, True)
+                        except Exception:
+                            # A backend may have emitted before reporting an error.
+                            try: _emit_key(key, False)
+                            except Exception: pass
+                            raise
+                    _KEY_COUNTS[key] = _KEY_COUNTS.get(key, 0) + 1
+                    self.held[combo].append(key)
+            except Exception:
+                self.release(keys)
+                raise
+
+    def release(self, keys):
+        combo = tuple(keys)
+        with _INPUT_LOCK:
+            remaining = list(self.held.get(combo, []))
+            errors = []
+            for key in reversed(remaining[:]):
+                try:
+                    count = _KEY_COUNTS.get(key, 0)
+                    if count == 1:
+                        _emit_key(key, False)
+                        _KEY_COUNTS.pop(key, None)
+                    elif count > 1:
+                        _KEY_COUNTS[key] = count - 1
+                    remaining.remove(key)
+                except Exception as error:
+                    errors.append(str(error))  # keep failed releases for disconnect retry
+            if remaining: self.held[combo] = remaining
+            else: self.held.pop(combo, None)
+            if errors: raise RuntimeError("Key release failed: " + "; ".join(errors))
+
+    def close(self):
+        errors = []
+        for combo in list(self.held):
+            try: self.release(combo)
+            except Exception as error: errors.append(str(error))
+        if errors: raise RuntimeError("; ".join(errors))
+
+
+_DEFAULT_KEY_SESSION = HotkeySession()
+
+
+def execute_hotkey(combo_str: str, mode: int = 0, active: bool = True, key_session=None) -> str:
+    keys = parse_combo(combo_str)
+    if mode not in (0, 1, 2):
+        raise ValueError("Invalid key trigger mode")
     if IS_MAC:
-        key_main = keys[-1].lower()
-        mods = []
-        if "CTRL" in keys or "CONTROL" in keys:
-            mods.append("control down")
-        if "SHIFT" in keys:
-            mods.append("shift down")
-        if "ALT" in keys:
-            mods.append("option down")
-        if "WIN" in keys or "CMD" in keys or "SUPER" in keys:
-            mods.append("command down")
-        mod_clause = f" using {{{', '.join(mods)}}}" if mods else ""
-        subprocess.Popen(["osascript", "-e", f'tell application "System Events" to keystroke "{key_main}"{mod_clause}'])
+        if mode == 2:
+            raise ValueError("macOS hold keybinds are not supported by this backend. Use Tap Trigger.")
+        key = keys[-1]
+        mods = [{"CTRL":"control down","SHIFT":"shift down","ALT":"option down","WIN":"command down"}[k] for k in keys[:-1]]
+        if key in MAC_KEYCODES:
+            action = f"key code {MAC_KEYCODES[key]}"
+        elif len(key) == 1 and key.isalnum():
+            action = f'keystroke "{key.lower()}"'
+        else:
+            raise ValueError(f"Key {key} is not supported by the macOS backend")
+        clause = f" using {{{', '.join(mods)}}}" if mods else ""
+        subprocess.run(["osascript", "-e", f'tell application "System Events" to {action}{clause}'], check=True, capture_output=True, timeout=4)
         return f"mac_osascript({keys})"
-
-    if shutil.which("xdotool"):
-        xmap = {"WIN": "super", "PRINT_SCREEN": "Print", "PLUS": "plus", "ESC": "Escape"}
-        xkeys = [xmap.get(k, k.lower() if len(k) == 1 or k not in ("F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","F13") else k) for k in keys]
-        act_flag = ("keydown" if active else "keyup") if mode == 2 else "key"
-        subprocess.Popen(["xdotool", act_flag, "+".join(xkeys)])
-        return f"linux_xdotool({act_flag} {'+'.join(xkeys)})"
-    return f"simulated_hotkey({keys})"
+    if not IS_WIN: _require_linux_input()
+    if mode == 2:
+        session = key_session if key_session is not None else _DEFAULT_KEY_SESSION
+        if active: session.press(keys)
+        else: session.release(keys)
+        return f"{'win32' if IS_WIN else 'linux_xdotool'}_hold({'DOWN' if active else 'UP'} {keys})"
+    transient = HotkeySession()
+    with _INPUT_LOCK:
+        try:
+            transient.press(keys)
+            time.sleep(0.02)
+        finally:
+            transient.close()
+    return f"{'win32' if IS_WIN else 'linux_xdotool'}_hotkey({keys})"
 
 
 def set_system_volume(percent: int) -> None:
@@ -250,12 +347,12 @@ def obs_port_open() -> bool:
         return False
 
 
-def dispatch_deck_command(cmd: str, mode: int = 0, active: bool = True) -> str:
+def dispatch_deck_command(cmd: str, mode: int = 0, active: bool = True, key_session=None) -> str:
     cmd = (cmd or "").strip()
     if not cmd:
         return "noop"
     if cmd.startswith("HOTKEY "):
-        return execute_hotkey(cmd[7:].strip(), mode=mode, active=active)
+        return execute_hotkey(cmd[7:].strip(), mode=mode, active=active, key_session=key_session)
     if cmd.startswith("MEDIA "):
         m = cmd[6:].strip().upper()
         if IS_WIN and m in WIN_VK:
@@ -389,15 +486,17 @@ def handle_kobo_client(conn: socket.socket, addr) -> None:
         ACTIVE_CLIENTS.append(conn)
 
     stop_evt = threading.Event()
+    send_lock = threading.Lock()
+    key_session = HotkeySession()
 
     def push_telemetry():
         while not stop_evt.is_set():
             try:
                 pkt = (json.dumps(sample_pc_telemetry()) + "\n").encode("utf-8")
-                conn.sendall(pkt)
+                with send_lock: conn.sendall(pkt)
             except Exception:
                 break
-            time.sleep(1.5)
+            stop_evt.wait(1.5)
 
     threading.Thread(target=push_telemetry, daemon=True).start()
     buf = b""
@@ -407,6 +506,7 @@ def handle_kobo_client(conn: socket.socket, addr) -> None:
             if not data:
                 break
             buf += data
+            if len(buf)>65536: raise ValueError("Oversized Stream Deck packet")
             while b"\n" in buf:
                 raw_line, buf = buf.split(b"\n", 1)
                 line = raw_line.decode("utf-8", errors="replace").strip()
@@ -414,16 +514,19 @@ def handle_kobo_client(conn: socket.socket, addr) -> None:
                     continue
                 msg = json.loads(line)
                 if msg.get("type") == "deck_action":
-                    res = dispatch_deck_command(
-                        msg.get("cmd", ""),
-                        mode=int(msg.get("mode", 0)),
-                        active=bool(msg.get("active", True)),
-                    )
+                    cmd, mode, active = msg.get("cmd", ""), int(msg.get("mode", 0)), bool(msg.get("active", True))
+                    try:
+                        res = dispatch_deck_command(cmd, mode=mode, active=active, key_session=key_session)
+                    except (ValueError, RuntimeError, subprocess.SubprocessError, OSError) as invalid:
+                        res = f"ERROR: {invalid}"
                     add_log(f"[{msg.get('label', 'Key')}] -> {res}")
-                    conn.sendall((json.dumps({"type": "ack", "result": res}) + "\n").encode("utf-8"))
+                    with send_lock: conn.sendall((json.dumps({"type": "ack", "result": res}) + "\n").encode("utf-8"))
     except Exception as exc:
         add_log(f"Client disconnected ({exc})")
     finally:
+        # A lost USB/Wi-Fi connection must not leave Ctrl/Alt/PTT stuck down on the PC.
+        try: key_session.close()
+        except Exception as release_error: add_log(f"Key release failed: {release_error}")
         stop_evt.set()
         with ACTIVE_CLIENTS_LOCK:
             if conn in ACTIVE_CLIENTS:

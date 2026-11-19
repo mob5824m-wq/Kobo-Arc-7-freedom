@@ -89,6 +89,8 @@ public class YouTubeActivity extends Arc7Activity {
     private final List<MorpheEngine.MediaItem> currentFeed = new ArrayList<MorpheEngine.MediaItem>();
     private int currentFeedIdx = -1;
     private MorpheEngine.ResolvedPlayback currentPlayback = null;
+    private Arc7DownloadUi downloads;
+    private int feedRequestGeneration;
     private volatile int videoRequestGeneration;
     private Thread resolutionThread;
     private boolean videoPrepared;
@@ -204,7 +206,7 @@ public class YouTubeActivity extends Arc7Activity {
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundColor(0xFF12121A);
+        topBar.setBackgroundDrawable(Arc7Skin.headerDrawable(Arc7Skin.current(this)));
         topBar.setPadding(dp(10), dp(7), dp(10), dp(7));
 
         ImageView iconIv = new ImageView(this);
@@ -284,6 +286,7 @@ public class YouTubeActivity extends Arc7Activity {
                 {"\uD83D\uDCBB Tech & Coding", "technology hardware review"},
                 {"\uD83D\uDD2C Science", "science documentary space"},
                 {"\uD83D\uDCF0 News Live", "world news live"},
+                {"Subscriptions · pinned channels", "@pins"},
                 {"\u2B50 Saved", "@saved"},
                 {"\uD83D\uDD53 History", "@history"},
                 {"\u2B07 Downloads", "@downloads"}
@@ -295,7 +298,8 @@ public class YouTubeActivity extends Arc7Activity {
             chip.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if ("@saved".equals(q)) showLocalSavedShelf("yt_saved", "Saved Videos & Channels");
+                    if ("@pins".equals(q)) showPinnedChannels();
+                    else if ("@saved".equals(q)) showLocalSavedShelf("yt_saved", "Saved Videos & Channels");
                     else if ("@history".equals(q)) showLocalSavedShelf("yt_history", "Watch History");
                     else if ("@downloads".equals(q)) showOfflineDownloadsShelf();
                     else loadTopicFeedAsync(q, label);
@@ -407,6 +411,15 @@ public class YouTubeActivity extends Arc7Activity {
             @Override public void onClick(View v) { showQualityPickerDialog(); }
         });
         ctrlRow.addView(qualityBtn, marginRightLp(6));
+
+        Button subscribe=pillBtn("+ Pin channel",0xFF334155);
+        subscribe.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){
+            if(currentPlayback!=null && currentPlayback.channelId.matches("UC[A-Za-z0-9_-]{22}")) {
+                MorpheEngine.MediaItem channel=new MorpheEngine.MediaItem(); channel.channelId=currentPlayback.channelId; channel.title=currentPlayback.author;
+                MorpheEngine.addOrToggleSavedItem(YouTubeActivity.this,"yt_pinned_channels",channel,false);
+                Toast.makeText(YouTubeActivity.this,"Subscribed locally — see Pinned Channels. No Google account changes.",Toast.LENGTH_LONG).show();
+            } else promptPinnedChannel();
+        }}); ctrlRow.addView(subscribe,marginRightLp(6));
 
         Button saveBtn = pillBtn("\u2B50 Save", 0xFF1F2937);
         saveBtn.setOnClickListener(new View.OnClickListener() {
@@ -552,7 +565,8 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void runUserSearchOrUrl(String raw) {
         if (raw == null || raw.trim().isEmpty()) return;
-        String q = raw.trim();
+        final int feedRequest=++feedRequestGeneration;
+        final String q = raw.trim();
         String directVid = MorpheEngine.extractVideoIdFromUrlOrQuery(q);
         if (directVid != null) {
             playVideoById(directVid, directVid, "");
@@ -567,6 +581,7 @@ public class YouTubeActivity extends Arc7Activity {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
+                            if(!alive || feedRequest!=feedRequestGeneration) return;
                             feedHeaderTv.setText("Results for \"" + q + "\" (" + res.size() + ")");
                             renderFeedItems(res);
                         }
@@ -575,6 +590,7 @@ public class YouTubeActivity extends Arc7Activity {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
+                            if(!alive || feedRequest!=feedRequestGeneration) return;
                             feedHeaderTv.setText("Search error: " + t.getMessage());
                         }
                     });
@@ -584,6 +600,7 @@ public class YouTubeActivity extends Arc7Activity {
     }
 
     private void loadTopicFeedAsync(final String topicQuery, final String titleLabel) {
+        final int feedRequest=++feedRequestGeneration;
         feedHeaderTv.setText("Loading " + titleLabel + "...");
         new Thread(new Runnable() {
             @Override
@@ -594,6 +611,7 @@ public class YouTubeActivity extends Arc7Activity {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
+                            if(!alive || feedRequest!=feedRequestGeneration) return;
                             feedHeaderTv.setText(titleLabel + " (" + res.size() + ")");
                             renderFeedItems(res);
                         }
@@ -602,6 +620,7 @@ public class YouTubeActivity extends Arc7Activity {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
+                            if(!alive || feedRequest!=feedRequestGeneration) return;
                             feedHeaderTv.setText("Offline or network busy (" + t.getMessage() + ") — showing Downloads");
                             showOfflineDownloadsShelf();
                         }
@@ -864,6 +883,7 @@ public class YouTubeActivity extends Arc7Activity {
                 if (!alive || request != videoRequestGeneration || currentPlayback != playback
                         || handedOffToBackgroundAudio) return;
                 try {
+                    mp.setVolume(1.0f,1.0f);
                     videoView.start();
                     videoPrepared = true;
                     cancelVideoPrepareTimeout();
@@ -882,7 +902,7 @@ public class YouTubeActivity extends Arc7Activity {
         });
         videoView.setOnErrorListener(new MediaPlayer.OnErrorListener() {
             @Override public boolean onError(MediaPlayer mp, int what, int extra) {
-                failForegroundVideo(playback, request, "MediaPlayer " + what + "/" + extra);
+                failForegroundVideo(playback, request, LegacyMediaPolicy.error(what,extra));
                 return true;
             }
         });
@@ -1137,55 +1157,19 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void promptOfflineDownload() {
         if (currentPlayback == null) return;
-        new AlertDialog.Builder(this)
-                .setTitle("Download Offline: " + currentPlayback.title)
-                .setItems(new String[]{
-                        "\uD83C\uDFAC Download MP4 Video (/sdcard/Movies/YouTube/)",
-                        "\uD83C\uDFB5 Download M4A Music Audio (/sdcard/Music/YouTubeMusic/)"
-                }, new DialogInterface.OnClickListener() {
-                    @Override
-                    public void onClick(DialogInterface dialog, int which) {
-                        final boolean audioOnly = (which == 1);
-                        final MorpheEngine.StreamVariant target = audioOnly
-                                ? (!currentPlayback.audioStreams.isEmpty()
-                                        ? currentPlayback.audioStreams.get(0)
-                                        : (!currentPlayback.progressiveVideos.isEmpty()
-                                                ? currentPlayback.progressiveVideos.get(0)
-                                                : currentPlayback.videoOnlyStreams.get(0)))
-                                : (!currentPlayback.videoOnlyStreams.isEmpty()
-                                        ? currentPlayback.videoOnlyStreams.get(0)
-                                        : (!currentPlayback.progressiveVideos.isEmpty()
-                                                ? currentPlayback.progressiveVideos.get(0)
-                                                : currentPlayback.audioStreams.get(0)));
-                        Toast.makeText(YouTubeActivity.this, "Starting offline download...", Toast.LENGTH_SHORT).show();
-                        new Thread(new Runnable() {
-                            @Override
-                            public void run() {
-                                try {
-                                    final File f = MorpheEngine.downloadStreamOffline(
-                                            YouTubeActivity.this, target, currentPlayback.title, audioOnly, null);
-                                    ui.post(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            Toast.makeText(YouTubeActivity.this,
-                                                    "Saved offline: " + f.getName(), Toast.LENGTH_LONG).show();
-                                        }
-                                    });
-                                } catch (final Throwable t) {
-                                    ui.post(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            Toast.makeText(YouTubeActivity.this,
-                                                    "Download failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                                        }
-                                    });
-                                }
-                            }
-                        }).start();
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        final MorpheEngine.ResolvedPlayback download=currentPlayback;
+        new AlertDialog.Builder(this).setTitle("Download Offline: "+download.title)
+            .setItems(new String[]{"MP4 video — Movies/YouTube", "M4A audio — Music/YouTubeMusic"},new DialogInterface.OnClickListener(){
+                @Override public void onClick(DialogInterface d,int which){
+                    final boolean audioOnly=which==1;
+                    if(downloads==null) downloads=new Arc7DownloadUi(YouTubeActivity.this);
+                    downloads.start(download.title,new Arc7DownloadUi.Task(){
+                        @Override public File run(MorpheEngine.DownloadProgressListener progress)throws Exception {
+                            return MorpheEngine.downloadResolvedOffline(YouTubeActivity.this,download,download.title,audioOnly,progress);
+                        }
+                    });
+                }
+            }).setNegativeButton("Cancel",null).show();
     }
 
     private void showCommentsDialog() {
@@ -1228,13 +1212,54 @@ public class YouTubeActivity extends Arc7Activity {
         }).start();
     }
 
+    private void showPinnedChannels() {
+        ++feedRequestGeneration;
+        feedHeaderTv.setText("Subscriptions · pinned on this device only (not Google account subscriptions)");
+        feedList.removeAllViews(); currentFeed.clear(); currentFeedIdx=-1;
+        Button add=pillBtn("+ Add channel by @handle / channel URL",0xFF334155); add.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){ promptPinnedChannel(); }}); feedList.addView(add);
+        final List<MorpheEngine.MediaItem> channels=MorpheEngine.loadSavedList(this,"yt_pinned_channels");
+        for(final MorpheEngine.MediaItem channel:channels) {
+            LinearLayout row=Arc7Skin.card(this,Arc7Skin.current(this));
+            TextView title=new TextView(this); title.setText(channel.title+"\n"+channel.channelId); title.setTextColor(Color.WHITE); row.addView(title);
+            Button open=pillBtn("Latest uploads",0xFF334155); open.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){ openPinnedChannel(channel); }}); row.addView(open);
+            Button remove=pillBtn("Unsubscribe / unpin locally",0xFF334155); remove.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){
+                MorpheEngine.addOrToggleSavedItem(YouTubeActivity.this,"yt_pinned_channels",channel,true); showPinnedChannels();
+            }}); row.addView(remove); feedList.addView(row);
+        }
+    }
+    private void promptPinnedChannel() {
+        LinearLayout form=new LinearLayout(this); form.setOrientation(LinearLayout.VERTICAL); form.setPadding(dp(16),dp(8),dp(16),dp(8));
+        final EditText name=new EditText(this); name.setHint("Channel label (optional)"); name.setSingleLine(true); form.addView(name);
+        final EditText url=new EditText(this); url.setHint("@handle, UC… id or YouTube channel URL"); url.setSingleLine(true); form.addView(url);
+        new AlertDialog.Builder(this).setTitle("Subscribe / pin channel locally").setView(form).setPositiveButton("Pin",new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
+            final String input=url.getText().toString(), label=name.getText().toString();
+            final int feedRequest=++feedRequestGeneration;
+            new Thread(new Runnable(){ public void run(){
+                try { final MorpheEngine.MediaItem channel=MorpheEngine.resolvePinnedChannel(YouTubeActivity.this,input,label);
+                    ui.post(new Runnable(){ public void run(){ if(!alive) return; MorpheEngine.addOrToggleSavedItem(YouTubeActivity.this,"yt_pinned_channels",channel,false); if(feedRequest==feedRequestGeneration) showPinnedChannels(); }});
+                } catch(final Exception e){ ui.post(new Runnable(){ public void run(){ if(alive) Toast.makeText(YouTubeActivity.this,"Could not pin channel: "+e.getMessage(),Toast.LENGTH_LONG).show(); }}); }
+            }},"Arc7-Pin-Channel").start();
+        }}).setNegativeButton("Cancel",null).show();
+    }
+    private void openPinnedChannel(final MorpheEngine.MediaItem channel) {
+        final int feedRequest=++feedRequestGeneration;
+        feedHeaderTv.setText("Loading recent public uploads from "+channel.title+"…");
+        new Thread(new Runnable(){ public void run(){
+            try { final List<MorpheEngine.MediaItem> videos=MorpheEngine.pinnedChannelVideos(YouTubeActivity.this,channel.channelId);
+                ui.post(new Runnable(){ public void run(){ if(!alive || feedRequest!=feedRequestGeneration) return; feedHeaderTv.setText(channel.title+" · "+videos.size()+" recent uploads (YouTube's public feed)"); renderFeedItems(videos); }});
+            } catch(final Exception e){ ui.post(new Runnable(){ public void run(){ if(alive && feedRequest==feedRequestGeneration) feedHeaderTv.setText("Channel feed unavailable: "+e.getMessage()); }}); }
+        }},"Arc7-Channel-Feed").start();
+    }
+
     private void showLocalSavedShelf(String key, String label) {
+        ++feedRequestGeneration;
         List<MorpheEngine.MediaItem> saved = MorpheEngine.loadSavedList(this, key);
         feedHeaderTv.setText(label + " (" + saved.size() + ")");
         renderFeedItems(saved);
     }
 
     private void showOfflineDownloadsShelf() {
+        ++feedRequestGeneration;
         List<MorpheEngine.MediaItem> list = new ArrayList<MorpheEngine.MediaItem>();
         File[] dirs = new File[]{
                 new File(Environment.getExternalStorageDirectory(), "Movies/YouTube"),
@@ -1306,6 +1331,7 @@ public class YouTubeActivity extends Arc7Activity {
         m.videoId = r.videoId;
         m.title = r.title;
         m.author = r.author;
+        m.channelId = r.channelId;
         m.durationSec = r.durationSec;
         m.durationText = NowPlayingManager.formatDurationMs(r.durationSec * 1000L);
         m.thumbnailUrl = r.thumbnailUrl;
@@ -1368,19 +1394,8 @@ public class YouTubeActivity extends Arc7Activity {
         }).start();
     }
 
-    private Button pillBtn(String label, int color) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setAllCaps(false);
-        b.setPadding(dp(12), dp(6), dp(12), dp(6));
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(16));
-        b.setBackgroundDrawable(g);
-        return b;
+    private Button pillBtn(String label,int color) {
+        Button button=Arc7Skin.actionButton(this,label,color); button.setTextSize(TypedValue.COMPLEX_UNIT_SP,12f); return button;
     }
 
     private LinearLayout.LayoutParams marginRightLp(int dpVal) {
@@ -1393,6 +1408,7 @@ public class YouTubeActivity extends Arc7Activity {
     @Override
     protected void onDestroy() {
         alive = false;
+        if(downloads!=null) downloads.close();
         ++videoRequestGeneration;
         if (resolutionThread != null) resolutionThread.interrupt();
         if (!handedOffToBackgroundAudio) MorpheEngine.cancelPlayback(currentPlayback);

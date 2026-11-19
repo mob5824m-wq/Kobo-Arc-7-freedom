@@ -64,10 +64,12 @@ public class MainActivity extends Arc7Activity {
     private volatile boolean taskRunning = false;
 
     // Header & Navigation
+    private InstallMaintenancePanel maintenance;
+    private Bundle restoredState;
     private TextView headerDeviceSubtitle;
     private TextView rootStatusPill;
-    private TextView[] navTabs = new TextView[5];
-    private LinearLayout[] tabPages = new LinearLayout[5];
+    private TextView[] navTabs = new TextView[6];
+    private LinearLayout[] tabPages = new LinearLayout[6];
 
     // Progress & Console Drawer
     private LinearLayout progressBanner;
@@ -121,6 +123,7 @@ public class MainActivity extends Arc7Activity {
         TEXT_PRIMARY = skin.textPrimary;
         TEXT_MUTED = skin.textMuted;
 
+        restoredState = savedInstanceState;
         buildRootLayout();
 
         // Keep 24/7 Local TLS 1.3 Gateway (:8118), Chromebook Wired USB Tunnel (:18880),
@@ -131,30 +134,32 @@ public class MainActivity extends Arc7Activity {
         Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
         InstallMaintenanceService.request(this, "suite opened after install/update");
 
-        appendLog("Kobo Arc 7 Freedom v2.5.4 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v2.6.0 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Custom Arc7 OS Skin + Reskinned Icons + Chromebook Wired USB Internet + Bundled VLC + Calendar + Photos + Camera + Calculator + Notes + Files + Archive.org Chimes + Custom APK Installer).");
         refreshDeviceSnapshotAsync();
-        if (getIntent().getBooleanExtra("show_install_patches", false)) {
-            getIntent().removeExtra("show_install_patches");
-            startActivity(new Intent(this, InstallMaintenanceActivity.class));
-        }
+        if ("patches".equals(getIntent().getStringExtra("open_tab"))) selectTab(5);
+        getIntent().removeExtra("show_install_patches"); // Old PC scripts must not force a screen change.
     }
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent); setIntent(intent);
         InstallMaintenanceService.request(this, "installer returned to suite");
-        if (intent.getBooleanExtra("show_install_patches", false)) {
-            intent.removeExtra("show_install_patches");
-            startActivity(new Intent(this, InstallMaintenanceActivity.class));
-        }
+        if ("patches".equals(intent.getStringExtra("open_tab"))) selectTab(5);
+        intent.removeExtra("show_install_patches");
     }
 
     @Override
     protected void onDestroy() {
+        if (maintenance!=null) maintenance.close();
         // Only this package's optional legacy gateway stays in its service. Other APKs
         // keep their own engines and do not depend on this activity or process.
         super.onDestroy();
     }
+
+    @Override protected void onResume() { super.onResume(); if (maintenance != null && activeTabIndex == 5) maintenance.resume(); }
+    @Override protected void onPause() { if (maintenance != null) maintenance.pause(); super.onPause(); }
+    @Override protected void onSaveInstanceState(Bundle out) { super.onSaveInstanceState(out); if (maintenance != null) maintenance.save(out); out.putInt("main_tab",activeTabIndex); }
+    @Override protected void onActivityResult(int request, int result, Intent data) { super.onActivityResult(request,result,data); if (maintenance != null) maintenance.activityResult(request,result,data); }
 
     private int dp(int v) {
         return Math.round(TypedValue.applyDimension(
@@ -162,9 +167,9 @@ public class MainActivity extends Arc7Activity {
     }
 
     private GradientDrawable box(int fill, int stroke, int strokeDp, int radiusDp) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(fill);
-        gd.setCornerRadius(dp(radiusDp));
+        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
+                new int[]{Color.rgb(Math.min(255,Color.red(fill)+16), Math.min(255,Color.green(fill)+16), Math.min(255,Color.blue(fill)+16)), fill});
+        gd.setCornerRadius(dp(Math.max(12,radiusDp)));
         if (strokeDp > 0) gd.setStroke(dp(strokeDp), stroke);
         return gd;
     }
@@ -179,7 +184,7 @@ public class MainActivity extends Arc7Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG_PAGE);
 
-        // 1. Top App Header Bar (customizable height, alignment, header style, App Bar Studio & Quick Switcher!)
+        // 1. Top App Header Bar (customizable height, alignment, header style, App Bar Studio))
         Arc7Skin.Palette hdrPal = Arc7Skin.current(this);
         Arc7Skin.AppBarPrefs hdrPrefs = Arc7Skin.loadAppBarPrefs(this);
         int hdrVPad = hdrPrefs.inAppDensity == 0 ? 5 : (hdrPrefs.inAppDensity == 2 ? 15 : 10);
@@ -214,7 +219,7 @@ public class MainActivity extends Arc7Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Freedom  v2.5.3");
+        title.setText("Arc7 Freedom  v2.6.0");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -239,21 +244,6 @@ public class MainActivity extends Arc7Activity {
         rootStatusPill.setPadding(dp(10), dp(5), dp(10), dp(5));
         setBg(rootStatusPill, box(BG_ELEVATED, BORDER_SUBTLE, 1, 12));
         topBar.addView(rootStatusPill);
-
-        if (hdrPrefs.inAppShowQuickSwitch) {
-            Button appsBtn = makeSecondaryButton("Apps \u25BE");
-            LinearLayout.LayoutParams qalp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(36));
-            qalp.leftMargin = dp(8);
-            appsBtn.setPadding(dp(10), 0, dp(10), 0);
-            appsBtn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    Arc7Skin.showQuickAppBarSwitcher(MainActivity.this);
-                }
-            });
-            topBar.addView(appsBtn, qalp);
-        }
 
         Button appBarBtn = makePrimaryButton("App Bar");
         LinearLayout.LayoutParams ablp = new LinearLayout.LayoutParams(
@@ -316,9 +306,10 @@ public class MainActivity extends Arc7Activity {
                 "2. CERTS & NET",
                 "3. BACKUP OS",
                 "4. ANDROID 4",
-                "5. TOOLS"
+                "5. TOOLS",
+                "PATCHES"
         };
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < tabPages.length; i++) {
             final int idx = i;
             TextView tv = new TextView(this);
             tv.setText(tabTitles[i]);
@@ -377,6 +368,8 @@ public class MainActivity extends Arc7Activity {
         tabPages[2] = buildTab2Backup();
         tabPages[3] = buildTab3Android4();
         tabPages[4] = buildTab4Tools();
+        maintenance = new InstallMaintenancePanel(this, restoredState);
+        tabPages[5] = maintenance.view;
         for (LinearLayout page : tabPages) {
             pagesHolder.addView(page, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -453,7 +446,7 @@ public class MainActivity extends Arc7Activity {
 
         setContentView(root);
         Arc7UiAnimator.attachActivityAnimations(this);
-        selectTab(0);
+        selectTab(restoredState==null ? 0 : restoredState.getInt("main_tab",0));
     }
 
     /* ========================== TAB 1: ROOT ========================== */
@@ -497,13 +490,13 @@ public class MainActivity extends Arc7Activity {
 
         LinearLayout patches = makeCard();
         addCardHeader(patches, "All Install Methods — Same Patches",
-                "Home, F-Droid, stores, YouTube and ALL 28 default-app APKs are bundled offline. "
+                "Home, F-Droid, stores, YouTube and all default-app APKs are bundled offline. "
                 + "Root applies in-place updates automatically. Without root, confirm pending apps here. "
                 + "No silent uninstall, wipe, firmware flash or compulsory proxy.");
         Button repair = makePrimaryButton("Install / Repair All Patches — Status & Retry");
         repair.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View view) {
-                startActivity(new Intent(MainActivity.this, InstallMaintenanceActivity.class));
+                selectTab(5);
             }
         });
         patches.addView(repair);
@@ -1099,12 +1092,12 @@ public class MainActivity extends Arc7Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.5.3 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
+        // Card 1: Complete v2.6.0 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Arc7 Freedom v2.5.3 — Daily-Driver App & Media Suite",
-                "Adds per-day alarm check-off (Sun..Sat) + F-Droid v1305 collection + sync-crash fixes. Includes Morphe YouTube + Morphe YouTube Music, Universal Media Notifications + Clock Standby Now Playing, "
-                + "Effortless Home Widget Removal (Launcher v55), Clean App Names, Official Tailscale Google Sign-In, "
-                + "Stream Deck Pro, 4-Store Books Reader, PDF Reader, Weather, Radio & Podcasts, Games, Ad Blocker, System Boost & VLC!");
+        addCardHeader(packCard, "Arc7 Freedom v2.6.0 — Daily-Driver App & Media Suite",
+                "Independent Radio, Podcasts, News, Authenticator and Passwords apps; Weather high/low + widget; F-Droid v1306 legacy catalogs. "
+                + "Public YouTube/Music playback, local pins/playlists and verified offline downloads; provider restrictions can still prevent playback. "
+                + "Glass app styling, usable Stream Deck key assignment and Launcher v56. Manage safe in-place updates in the PATCHES tab.");
 
         addToolActionRow(packCard, "Open YouTube (Morphe Edition — Ad-Free Video, Background Audio, SponsorBlock & RYD)",
                 "Watch 2026 YouTube videos with hardware H.264/AAC decoding via local TLS 1.3 Range Proxy, SponsorBlock skip, Dislikes & MP4/M4A download!",
@@ -2628,9 +2621,11 @@ public class MainActivity extends Arc7Activity {
     private int activeTabIndex = 0;
 
     private void selectTab(int index) {
+        if (index < 0 || index >= tabPages.length) return;
         int prev = activeTabIndex;
         activeTabIndex = index;
-        for (int i = 0; i < 5; i++) {
+        if (maintenance != null) { if (index == 5) maintenance.resume(); else maintenance.pause(); }
+        for (int i = 0; i < tabPages.length; i++) {
             tabPages[i].setVisibility(i == index ? View.VISIBLE : View.GONE);
             navTabs[i].setTextColor(i == index ? ACCENT_CYAN : TEXT_MUTED);
             navTabs[i].setBackgroundColor(i == index ? BG_ELEVATED : BG_SURFACE);
