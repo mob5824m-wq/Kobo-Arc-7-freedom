@@ -8,8 +8,8 @@ android {
         applicationId "ca.arc7freedom.upgrader"
         minSdkVersion 15
         targetSdkVersion 17
-        versionCode 254
-        versionName "2.5.4"
+        versionCode 260
+        versionName "2.6.0"
     }
 
     sourceSets {

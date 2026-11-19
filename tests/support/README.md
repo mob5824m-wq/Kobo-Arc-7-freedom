@@ -12,3 +12,13 @@ a temporary directory and supplies small Android-service fakes. It does not cont
 providers, render Android UI, or claim physical Kobo testing.
 
 These files are never included in APKs. Production uses Android's `org.json`.
+
+`scripts/test-suite-features.py` runs the production vault/TOTP/key grammar, real
+player/collection/channel-feed parsers, HTTP range reader and offline MP4/M4A
+downloader against synthetic providers. Its Android UI fakes exercise the actual
+cancellable download controller (not pixel rendering or system dialogs). Every PC
+keyboard backend is mocked: these tests do not emit OS key events.
+
+`scripts/test-fdroid-catalog.py` checks actual patched DEX/resource idempotence and
+pinned archive certificates, compiles the generated migration block and replays its
+exact SQL/bindings on host SQLite, including retention and failure/retry cases.

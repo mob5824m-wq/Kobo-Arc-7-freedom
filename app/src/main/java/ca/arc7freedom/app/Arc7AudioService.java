@@ -106,6 +106,8 @@ public class Arc7AudioService extends Service {
     private int playbackGeneration;
     private Thread resolutionThread;
     private String activeDataSource = "";
+    private String radioFallbackUrl = "";
+    private int radioFallbackGeneration=-1;
     private Runnable prepareTimeout;
 
     private String activeStreamTitle = null;
@@ -222,6 +224,11 @@ public class Arc7AudioService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null && intent.getAction() != null) {
             String act = intent.getAction();
+            if (NowPlayingManager.isYouTubeForegroundVideoActive()
+                    && (ACTION_STOP_DISMISS.equals(act) || ACTION_REWIND_30.equals(act) || ACTION_FFWD_30.equals(act))) {
+                NowPlayingManager.dispatchTransportAction(this,act);
+                return START_STICKY;
+            }
             if (ACTION_ENSURE_WATCHER.equals(act)) {
                 return START_STICKY;
             } else if (ACTION_REFRESH_NOTIFICATION.equals(act)) {
@@ -633,7 +640,7 @@ public class Arc7AudioService extends Service {
     /* ==================== Stream & Local File Playback Engine ==================== */
 
     public synchronized void playStreamUrl(String streamUrl, final String title) {
-        playStreamUrlFull(streamUrl, title, "Live Stream", "Radio & Podcasts",
+        playStreamUrlFull(streamUrl, title, "Live Stream", "Radio",
                 "", "ca.arc7freedom.app.Arc7RadioRssActivity");
     }
 
@@ -650,45 +657,30 @@ public class Arc7AudioService extends Service {
         resolvingMorpheTrack = true;
         playbackStatus = "Preparing audio...";
         morpheIndex = -1;
+        radioFallbackUrl = LegacyMediaPolicy.radioFallback(streamUrl); radioFallbackGeneration=request;
         currentIndex = -1;
         activeStreamTitle = title == null || title.isEmpty() ? "Live Internet Stream" : title;
         activeStreamArtist = artist != null ? artist : "";
-        activeSourceApp = sourceApp != null ? sourceApp : "Radio & Podcasts";
+        activeSourceApp = sourceApp != null ? sourceApp : "Radio";
         activeArtworkUrl = thumbUrl != null ? thumbUrl : "";
         activeLaunchClass = launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity";
         publishOwnPlaybackState(false);
 
-        new Thread(new Runnable() {
+        resolutionThread=new Thread(new Runnable() {
             @Override
             public void run() {
-                String effectiveUrl = streamUrl;
-                try {
-                    if (streamUrl.startsWith("https://") || (streamUrl.startsWith("http://")
-                            && !streamUrl.startsWith("http://127.0.0.1:") && !streamUrl.startsWith("http://localhost:"))) {
-                        RootShell sh = new RootShell(getApplicationContext());
-                        NetworkCertManager cm = new NetworkCertManager(getApplicationContext(), sh);
-                        cm.ensureCaBundleFile();
-                        cm.startBrowserGateway();
-                        int port = NetworkCertManager.BROWSER_GATEWAY_PORT;
-                        if (streamUrl.startsWith("https://")) {
-                            effectiveUrl = "http://127.0.0.1:" + port + "/__https/"
-                                    + streamUrl.substring("https://".length());
-                        } else {
-                            // Route HTTP radio streams through the local bridge too: this lets the
-                            // bridge follow HTTP-to-HTTPS station redirects and handle custom ports.
-                            effectiveUrl = "http://127.0.0.1:" + port + "/__stream/" + streamUrl;
-                        }
-                    }
-                } catch (Throwable ignored) {}
+                final String effectiveUrl;
+                try { effectiveUrl = MorpheEngine.prepareRadioStream(getApplicationContext(),streamUrl); }
+                catch (Throwable error) { failPlayback(request,error); return; }
                 playPreparedDataSource(effectiveUrl,
                         title == null || title.isEmpty() ? "Live Internet Stream" : title,
                         artist != null ? artist : "",
-                        sourceApp != null ? sourceApp : "Radio & Podcasts",
+                        sourceApp != null ? sourceApp : "Radio",
                         thumbUrl != null ? thumbUrl : "",
                         launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7RadioRssActivity",
                         false, request);
             }
-        }, "Arc7-Radio-Prepare").start();
+        }, "Arc7-Radio-Prepare"); resolutionThread.start();
     }
 
     private synchronized void playPreparedDataSource(final String dataSource,
@@ -735,7 +727,13 @@ public class Arc7AudioService extends Service {
             preparing.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override public boolean onError(MediaPlayer mp, int what, int extra) {
                     synchronized (Arc7AudioService.this) {
-                        if (player == mp) failPlayback(request, new Exception("MediaPlayer " + what + "/" + extra));
+                        if (player == mp && request == playbackGeneration) {
+                            String fallback = request==radioFallbackGeneration ? radioFallbackUrl : ""; radioFallbackUrl = "";
+                            if (fallback.length()>0) {
+                                playbackStatus = "Trying alternate CBC stream after " + what + "/" + extra;
+                                playStreamUrlFull(fallback,title,artist,sourceApp,thumbUrl,launchCls);
+                            } else failPlayback(request,new Exception(LegacyMediaPolicy.error(what,extra)));
+                        }
                     }
                     return true;
                 }

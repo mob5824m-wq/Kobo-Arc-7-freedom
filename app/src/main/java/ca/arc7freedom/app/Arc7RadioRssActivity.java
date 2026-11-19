@@ -92,15 +92,15 @@ public class Arc7RadioRssActivity extends Arc7Activity {
         local.add(new RadioStation(
                 "CBC Radio One — Waterloo Region 89.1 FM (Kitchener-Waterloo CBLA-FM-2)",
                 "CA",
-                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLAFM2.mp3"));
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLAFM2_CBC.mp3"));
         local.add(new RadioStation(
                 "CBC Radio One — Southern Ontario 99.1 FM (CBLA-FM)",
                 "CA",
-                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLAFM.mp3"));
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLAFM_CBC.mp3"));
         local.add(new RadioStation(
                 "CBC Music — Southern Ontario & Waterloo Region 94.1 FM (CBL-FM)",
                 "CA",
-                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLFM.mp3"));
+                "https://playerservices.streamtheworld.com/api/livestream-redirect/CBLFM_CBC.mp3"));
         local.add(new RadioStation(
                 "98.5 CKWR — Waterloo Region Community Radio (Kitchener-Waterloo)",
                 "CA",
@@ -174,6 +174,7 @@ public class Arc7RadioRssActivity extends Arc7Activity {
     private RootShell shell;
     private NetworkCertManager certMgr;
     private Arc7Skin.Palette pal;
+    protected int contentSection() { return 0; }
     private int activeTab = 0; // 0=Radio, 1=Podcasts, 2=RSS
     private LinearLayout bodyBox;
 
@@ -186,6 +187,7 @@ public class Arc7RadioRssActivity extends Arc7Activity {
         shell = new RootShell(this);
         certMgr = new NetworkCertManager(this, shell);
         pal = Arc7Skin.current(this);
+        activeTab = contentSection();
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -214,34 +216,12 @@ public class Arc7RadioRssActivity extends Arc7Activity {
         });
         hdrBtns.addView(sleepBtn);
 
+        if (activeTab == 2) hdrBtns.removeAllViews();
         root.addView(Arc7Skin.buildAppTopBar(
-                this, pal, R.drawable.ic_radio,
-                "Radio & Podcasts",
-                "30,000+ Live Radio Stations • Podcast MP3 Downloader • Offline RSS News",
+                this, pal, activeTab == 1 ? R.drawable.ic_podcasts : activeTab == 2 ? R.drawable.ic_news : R.drawable.ic_radio,
+                activeTab == 1 ? "Podcasts" : activeTab == 2 ? "News" : "Radio",
+                activeTab == 1 ? "Search · feeds · downloads" : activeTab == 2 ? "RSS feeds · offline reading" : "Live stations · world directory",
                 hdrBtns));
-
-        // 3-Tab Switcher
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-        tabs.setBackgroundColor(pal.surface);
-        tabs.setPadding(dp(12), dp(8), dp(12), dp(8));
-
-        String[] names = new String[]{"📻 World Radio", "🎙 Podcasts", "📰 Offline RSS News"};
-        for (int i = 0; i < names.length; i++) {
-            final int idx = i;
-            Button b = Arc7Skin.actionButton(this, names[i], i == activeTab ? pal.accentDark : 0xFF334155);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            if (i < 2) lp.rightMargin = dp(8);
-            b.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    activeTab = idx;
-                    renderTab();
-                }
-            });
-            tabs.addView(b, lp);
-        }
-        root.addView(tabs);
 
         ScrollView sv = new ScrollView(this);
         bodyBox = new LinearLayout(this);
@@ -250,6 +230,21 @@ public class Arc7RadioRssActivity extends Arc7Activity {
         sv.addView(bodyBox);
         root.addView(sv, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        if(activeTab==0 && getSharedPreferences(PREFS,MODE_PRIVATE).getString(KEY_CUSTOM_FEEDS,"").length()>0) {
+            Button migrate=Arc7Skin.secondaryButton(this,pal,"Copy existing custom feeds to the new News app…");
+            migrate.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){
+                startActivity(new Intent(Arc7RadioRssActivity.this,Arc7NewsActivity.class).putExtra("import_feed_urls",getSharedPreferences(PREFS,MODE_PRIVATE).getString(KEY_CUSTOM_FEEDS,"")));
+            }}); root.addView(migrate);
+        }
+        if(activeTab==2 && getIntent()!=null && getIntent().hasExtra("import_feed_urls")) {
+            final String imported=getIntent().getStringExtra("import_feed_urls"); getIntent().removeExtra("import_feed_urls");
+            if(imported!=null && imported.length()<=16000) new AlertDialog.Builder(this).setTitle("Copy custom feeds from Radio?")
+                .setMessage("Only feed URLs will be copied. Existing Radio data is retained. Importing does not fetch the feeds yet.")
+                .setPositiveButton("Copy feeds",new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
+                    String previous=getSharedPreferences(PREFS,MODE_PRIVATE).getString(KEY_CUSTOM_FEEDS,"");
+                    getSharedPreferences(PREFS,MODE_PRIVATE).edit().putString(KEY_CUSTOM_FEEDS,previous+"\n"+imported).commit(); renderTab();
+                }}).setNegativeButton("Cancel",null).show();
+        }
         setContentView(root);
         Arc7UiAnimator.attachActivityAnimations(this);
         renderTab();
@@ -283,6 +278,8 @@ public class Arc7RadioRssActivity extends Arc7Activity {
         svc.setAction(Arc7AudioService.ACTION_PLAY_STREAM);
         svc.putExtra(Arc7AudioService.EXTRA_STREAM_URL, url);
         svc.putExtra(Arc7AudioService.EXTRA_STREAM_TITLE, title);
+        svc.putExtra(Arc7AudioService.EXTRA_STREAM_SOURCE, activeTab==1 ? "Podcasts" : "Radio");
+        svc.putExtra(Arc7AudioService.EXTRA_LAUNCH_CLASS, getClass().getName());
         startService(svc);
         Toast.makeText(this, "Streaming in background: " + title, Toast.LENGTH_SHORT).show();
     }
@@ -673,7 +670,7 @@ public class Arc7RadioRssActivity extends Arc7Activity {
                                                             startBackgroundStream(ep.title, ep.audioOrLink);
                                                         }
                                                     })
-                                                    .setNeutralButton("Download Offline MP3", new DialogInterface.OnClickListener() {
+                                                    .setNeutralButton("Download episode", new DialogInterface.OnClickListener() {
                                                         @Override
                                                         public void onClick(DialogInterface d2, int w2) {
                                                             downloadEpisodeOffline(ep);
@@ -701,7 +698,10 @@ public class Arc7RadioRssActivity extends Arc7Activity {
                     dir.mkdirs();
                     String safe = ep.title.replaceAll("[^A-Za-z0-9._ -]", "_").trim();
                     if (safe.length() > 56) safe = safe.substring(0, 56);
-                    final File dst = new File(dir, safe + ".mp3");
+                    String path = android.net.Uri.parse(ep.audioOrLink).getPath();
+                    String extension = path != null && path.toLowerCase(Locale.US).endsWith(".m4a") ? ".m4a"
+                            : path != null && path.toLowerCase(Locale.US).endsWith(".ogg") ? ".ogg" : ".mp3";
+                    final File dst = new File(dir, safe + extension);
                     Arc7BookSources.fetchFileViaTls13(shell, certMgr, ep.audioOrLink, dst);
                     ui.post(new Runnable() {
                         @Override

@@ -33,12 +33,12 @@ if errorlevel 1 (
 )
 
 echo === [2/2] Opening shared Install / Repair All Patches pipeline ===
-adb shell am start -n ca.arc7freedom.app/.MainActivity --ez show_install_patches true
+adb shell am start -n ca.arc7freedom.app/.MainActivity
 if errorlevel 1 exit /b 1
 
 echo.
 echo Suite installed. Check Install / Repair All Patches on the tablet.
-echo   Rooted: bundled Home, stores, media and all 28 default apps update automatically.
+echo   Rooted: bundled Home, stores, media and all 32 default apps update automatically.
 echo   No root: use Install pending apps and confirm each APK in Android.
 echo   Signing/storage/root restrictions stay pending; no automatic uninstall or wipe.
 pause

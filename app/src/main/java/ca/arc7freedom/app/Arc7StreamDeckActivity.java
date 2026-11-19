@@ -47,6 +47,10 @@ import java.net.Socket;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 
 /**
  * Full Standalone Elgato-Style PC Stream Deck (`Arc7 Stream Deck` — `v2.3.0`):
@@ -148,7 +152,9 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
     @SuppressWarnings("unchecked")
     private final List<DeckKey>[] profiles = new ArrayList[PROFILE_NAMES.length];
 
-    private volatile boolean running = true;
+    private volatile boolean running = true, foreground;
+    // One ordered, bounded writer: a quick UP can never overtake its DOWN or reach a new socket.
+    private final ThreadPoolExecutor packets=new ThreadPoolExecutor(1,1,0L,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<Runnable>(128));
     private volatile Socket activeSocket = null;
     private volatile OutputStream activeOut = null;
     private ServerSocket usbOrReverseServer = null;
@@ -645,6 +651,11 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
         cmdEt.setSingleLine(true);
         box.addView(makeFieldLabel("PC Action Command (`HOTKEY ...`, `MEDIA ...`, `OBS_SCENE ...`, `OPEN ...`, `TEXT ...`, `RUN ...`):"));
         box.addView(cmdEt);
+        Button assign = Arc7Skin.secondaryButton(this,pal,"Assign key / keyboard shortcut…");
+        assign.setOnClickListener(new View.OnClickListener(){
+            @Override public void onClick(View v){ showKeyBindingPicker(cmdEt); }
+        });
+        box.addView(assign);
 
         final int[] chosenColor = new int[]{key.color};
         final int[] chosenMode = new int[]{key.mode};
@@ -693,7 +704,12 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
                     public void onClick(DialogInterface d, int w) {
                         key.icon = iconEt.getText().toString().trim().isEmpty() ? "\u26A1" : iconEt.getText().toString().trim();
                         key.label = labelEt.getText().toString().trim().isEmpty() ? "MACRO" : labelEt.getText().toString().trim();
-                        key.command = cmdEt.getText().toString().trim();
+                        String command=cmdEt.getText().toString().trim();
+                        if(command.toUpperCase(Locale.US).startsWith("HOTKEY ")) {
+                            try { command="HOTKEY "+Arc7KeyBinding.normalize(command.substring(7)); }
+                            catch(IllegalArgumentException invalid) { Toast.makeText(Arc7StreamDeckActivity.this,invalid.getMessage()+" Key not saved.",Toast.LENGTH_LONG).show(); return; }
+                        }
+                        key.command = command;
                         key.color = chosenColor[0];
                         key.mode = chosenMode[0];
                         saveProfile(activeProfile);
@@ -786,6 +802,31 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
                 .show();
     }
 
+    private void showKeyBindingPicker(final EditText command) {
+        LinearLayout form=new LinearLayout(this); form.setOrientation(LinearLayout.VERTICAL); form.setPadding(dp(18),dp(8),dp(18),dp(12));
+        TextView help=makeFieldLabel("Choose a single key, a function key, or a keybind. WIN is Command on Mac. Tap works on all supported hosts; Mac hold is reported unsupported. PC input/accessibility permission is required.");
+        form.addView(help);
+        final android.widget.Spinner picker=new android.widget.Spinner(this);
+        picker.setAdapter(new android.widget.ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,Arc7KeyBinding.KEYS));
+        form.addView(picker);
+        final android.widget.CheckBox[] modifiers=new android.widget.CheckBox[4];
+        String current=command.getText().toString();
+        if(current.toUpperCase(Locale.US).startsWith("HOTKEY ")) try { current=Arc7KeyBinding.normalize(current.substring(7)); } catch(Exception ignored) { current=""; }
+        else current="";
+        String[] parts=current.split("\\+");
+        for(int i=0;i<Arc7KeyBinding.KEYS.length;i++) if(parts.length>0 && parts[parts.length-1].equals(Arc7KeyBinding.KEYS[i])) picker.setSelection(i);
+        for(int i=0;i<modifiers.length;i++) {
+            modifiers[i]=new android.widget.CheckBox(this); modifiers[i].setText(Arc7KeyBinding.MODIFIERS[i]);
+            modifiers[i].setChecked(current.contains(Arc7KeyBinding.MODIFIERS[i]+"+")); form.addView(modifiers[i]);
+        }
+        new AlertDialog.Builder(this).setTitle("Assign key or keybind").setView(form).setPositiveButton("Use shortcut",new DialogInterface.OnClickListener(){
+            @Override public void onClick(DialogInterface d,int which) {
+                StringBuilder combo=new StringBuilder(); for(int i=0;i<modifiers.length;i++) if(modifiers[i].isChecked()) combo.append(Arc7KeyBinding.MODIFIERS[i]).append('+');
+                combo.append(Arc7KeyBinding.KEYS[picker.getSelectedItemPosition()]); command.setText("HOTKEY "+Arc7KeyBinding.normalize(combo.toString()));
+            }
+        }).setNegativeButton("Cancel",null).show();
+    }
+
     /* ==================== Bidirectional TCP + UDP Auto-Discovery Protocol ==================== */
 
     public static String buildActionJson(String cmd, String label, int mode, boolean downOrActive) {
@@ -803,22 +844,18 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
     }
 
     private void sendDeckPacket(final String line) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    OutputStream os = activeOut;
-                    if (os != null) {
-                        synchronized (os) {
-                            os.write(line.getBytes("UTF-8"));
-                            os.flush();
-                        }
-                    }
-                } catch (Throwable t) {
-                    closeActiveSocket();
-                }
+        final Socket socket=activeSocket; final OutputStream output=activeOut;
+        if(socket==null || output==null || !running) return;
+        try { packets.execute(new Runnable() {
+            @Override public void run() {
+                if(activeSocket!=socket || !running) return;
+                try { synchronized(output) { output.write(line.getBytes("UTF-8")); output.flush(); } }
+                catch(Exception failure) { closeSocketIf(socket); }
             }
-        }).start();
+        }); } catch(RejectedExecutionException full) {
+            closeSocketIf(socket); // host releases held keys on disconnect
+            reportConnectionDiagnostic("Command queue full; reconnect before trying again.");
+        }
     }
 
     private void startUsbAndInboundServer() {
@@ -846,7 +883,7 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
             @Override
             public void run() {
                 while (running) {
-                    if (activeSocket == null || activeSocket.isClosed()) {
+                    if (foreground && (activeSocket == null || activeSocket.isClosed())) {
                         String target = pcHostIp;
                         boolean autoDiscover = target == null || target.trim().length() == 0;
                         if (autoDiscover) target = discoverPcViaUdpBroadcast();
@@ -926,7 +963,8 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
         return "";
     }
 
-    private void attachConnectedSocket(final Socket s, final String label) {
+    private synchronized void attachConnectedSocket(final Socket s, final String label) {
+        if(!foreground || !running) { try { s.close(); } catch(Exception ignored) {} return; }
         closeActiveSocket();
         try {
             s.setTcpNoDelay(true);
@@ -952,7 +990,7 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
                         }
                     } catch (Throwable ignored) {
                     } finally {
-                        if (activeSocket == s) closeActiveSocket();
+                        closeSocketIf(s);
                     }
                 }
             }).start();
@@ -978,6 +1016,9 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
                                 + (obs ? "  \u2022  OBS WebSocket LIVE" : "  \u2022  Studio: http://127.0.0.1:18995"));
                     }
                 });
+            } else if ("ack".equals(type) && o.optString("result","").startsWith("ERROR:")) {
+                final String error=o.optString("result");
+                ui.post(new Runnable(){ public void run(){ if(running) Toast.makeText(Arc7StreamDeckActivity.this,error,Toast.LENGTH_LONG).show(); }});
             } else if ("push_profile".equals(type)) {
                 final int pIdx = Math.max(0, Math.min(PROFILE_NAMES.length - 1, o.optInt("profile", activeProfile)));
                 JSONArray arr = o.optJSONArray("keys");
@@ -1006,7 +1047,8 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
         } catch (Throwable ignored) {}
     }
 
-    private void closeActiveSocket() {
+    private synchronized void closeSocketIf(Socket expected) { if(activeSocket==expected) closeActiveSocket(); }
+    private synchronized void closeActiveSocket() {
         try { if (activeSocket != null) activeSocket.close(); } catch (Throwable ignored) {}
         activeSocket = null;
         activeOut = null;
@@ -1042,9 +1084,15 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
         return "USB/Tailscale";
     }
 
+    @Override protected void onResume() { super.onResume(); foreground=true; }
+    @Override protected void onStop() {
+        foreground=false; closeActiveSocket(); packets.getQueue().clear();
+        for(List<DeckKey> profile:profiles) if(profile!=null) for(DeckKey key:profile) if(key.mode==2) key.activeState=false;
+        super.onStop();
+    }
     @Override
     protected void onDestroy() {
-        running = false;
+        running = false; packets.shutdownNow();
         closeActiveSocket();
         try { if (usbOrReverseServer != null) usbOrReverseServer.close(); } catch (Throwable ignored) {}
         super.onDestroy();

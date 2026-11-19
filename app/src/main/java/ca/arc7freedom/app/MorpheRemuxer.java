@@ -52,7 +52,7 @@ public final class MorpheRemuxer {
         public Track(String mimeType, long contentLength, long initEnd, long durationMs, RangeFetcher fetcher) {
             this.mimeType = mimeType;
             this.contentLength = contentLength;
-            this.initEnd = Math.max(0L, initEnd);
+            this.initEnd = Math.max(-1L, initEnd);
             this.durationMs = Math.max(0L, durationMs);
             this.fetcher = fetcher;
         }
@@ -91,6 +91,43 @@ public final class MorpheRemuxer {
     private static volatile java.io.File cacheDir;
     public static void setCacheDir(java.io.File dir) { cacheDir = dir; }
     private MorpheRemuxer() {}
+
+    /** Final offline files must be complete classic MP4, with real audio and (for video) video. */
+    public static void validateClassicFile(java.io.File file, boolean audioOnly) throws Exception {
+        RandomAccessFile in=new RandomAccessFile(file,"r");
+        boolean ftyp=false, mdat=false, audio=false, video=false;
+        try {
+            long offset=0, length=in.length(); int count=0;
+            while(offset<length) {
+                if(++count>10000 || length-offset<8) throw new IOException("Invalid MP4 box boundary");
+                in.seek(offset); long size=((long)in.readInt())&0xffffffffL;
+                byte[] type=new byte[4]; in.readFully(type); String name=new String(type,"ISO-8859-1"); int header=8;
+                if(size==1) { if(length-offset<16) throw new IOException("Truncated MP4 header"); size=in.readLong(); header=16; }
+                if(size==0) size=length-offset;
+                if(size<header || size>length-offset) throw new IOException("Truncated MP4 download");
+                if("moof".equals(name)) throw new IOException("Fragmented file was not converted for Android 4");
+                if("ftyp".equals(name)) ftyp=true;
+                if("mdat".equals(name) && size>header) mdat=true;
+                if("moov".equals(name)) {
+                    if(size>16*1024*1024 || header!=8) throw new IOException("Unsupported MP4 metadata");
+                    byte[] moov=new byte[(int)size]; in.seek(offset); in.readFully(moov);
+                    for(Box track:boxes(moov,8,moov.length)) {
+                        if(!"trak".equals(track.type)) continue;
+                        Box mdia=findBox(boxes(moov,track.contentStart,track.contentEnd),"mdia");
+                        if(mdia==null) continue;
+                        Box hdlr=findBox(boxes(moov,mdia.contentStart,mdia.contentEnd),"hdlr");
+                        if(hdlr==null || hdlr.contentStart+12>hdlr.contentEnd) continue;
+                        String handler=new String(moov,hdlr.contentStart+8,4,"ISO-8859-1");
+                        if("soun".equals(handler)) audio=true;
+                        if("vide".equals(handler)) video=true;
+                    }
+                }
+                offset+=size;
+            }
+            if(!ftyp || !mdat || !audio || (!audioOnly && !video) || (audioOnly && video))
+                throw new IOException(audioOnly ? "No complete audio-only M4A track was produced" : "MP4 requires both video and audio tracks");
+        } finally { in.close(); }
+    }
 
     /* ======================================================================
      * 1. Public API
@@ -315,13 +352,10 @@ public final class MorpheRemuxer {
      * so Android 4.2.2 Stagefright (`MPEG4Extractor`) plays it natively.
      */
     public static void copyTrack(Track track, RandomAccessFile out, Progress progress) throws Exception {
-        if (track.initEnd > 0L) {
-            try {
-                remuxSingleTrackClassicMp4(track, out, progress);
-                return;
-            } catch (Throwable ignored) {
-                // Fall back to direct range copy if the input is already a progressive stream.
-            }
+        if (track.initEnd >= 0L) {
+            // A failed fragmented remux must never silently become an unusable raw download.
+            remuxSingleTrackClassicMp4(track, out, progress);
+            return;
         }
         out.seek(0L);
         out.setLength(0L);
@@ -331,12 +365,15 @@ public final class MorpheRemuxer {
         while (total <= 0L || pos < total) {
             long end = (total > 0L) ? Math.min(total - 1L, pos + step - 1L) : (pos + step - 1L);
             byte[] chunk = track.fetcher.fetch(pos, end);
+            if(Thread.currentThread().isInterrupted()) throw new IOException("Media download cancelled");
             if (chunk == null || chunk.length == 0) break;
+            if(chunk.length>end-pos+1 || (total>0 && chunk.length!=end-pos+1)) throw new EOFException("Incorrect media range length");
             out.write(chunk);
             pos += chunk.length;
             if (progress != null) progress.onBytes(out.length(), total);
             if (total <= 0L && chunk.length < step) break;
         }
+        if (total>0L && pos!=total) throw new EOFException("Truncated media download");
         out.getFD().sync();
         if (progress != null) progress.onStage("complete");
     }
@@ -841,9 +878,12 @@ public final class MorpheRemuxer {
             long end = Math.min(fetchEndInclusive, nextFetchStart + Math.max(524288L, wantBytes) - 1L);
             byte[] chunk = track.fetcher.fetch(nextFetchStart, end);
             if (chunk == null || chunk.length == 0) {
+                if(track.contentLength>0 && nextFetchStart<track.contentLength) throw new EOFException("Truncated DASH track");
                 eof = true;
                 return false;
             }
+            if(chunk.length>end-nextFetchStart+1 || (track.contentLength>0 && chunk.length!=end-nextFetchStart+1))
+                throw new EOFException("Incorrect DASH range length");
             pending.write(chunk, 0, chunk.length);
             nextFetchStart += chunk.length;
             if (track.contentLength > 0L && nextFetchStart > fetchEndInclusive) eof = true;

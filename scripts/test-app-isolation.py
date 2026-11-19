@@ -83,8 +83,9 @@ def check_manifests_and_generation():
         permissions = {attr(item, "name") for item in manifest.findall("uses-permission")}
         services = {attr(item, "name") for item in application.findall("service")}
         if key in generator.APP_META:
-            assert permissions == {"android.permission." + name
-                                   for name in generator.APP_PERMISSIONS[key]}, path
+            expected_permissions={"android.permission." + name for name in generator.APP_PERMISSIONS[key]}
+            if key=="weather": expected_permissions.add("ca.arc7freedom.permission.WEATHER_WIDGET")
+            assert permissions == expected_permissions, path
             uses_tls = key in generator.NETWORK_APPS
             assert ("ca.arc7freedom.app.Arc7TlsGatewayService" in services) == uses_tls, path
             assert ("android.permission.INTERNET" in permissions) == uses_tls, path
@@ -105,7 +106,7 @@ def check_manifests_and_generation():
     assert attr(suite_app, "name") == ".Arc7Application"
     assert [attr(activity, "name") for activity in launcher(suite_app)] == [".MainActivity"]
     aliases = suite_app.findall("activity-alias")
-    assert len(aliases) == len(manifests) == 30
+    assert len(aliases) == len(manifests) == 34
     assert all(attr(alias, "targetActivity") == ".SplitAppLaunchActivity" for alias in aliases)
     for activity in suite_app.findall("activity"):
         if canonical("ca.arc7freedom.app", attr(activity, "name")) in roots.values():
@@ -152,7 +153,7 @@ def check_manifests_and_generation():
     assert "setSystemWideTls13ProxyEnabled(true" not in install
     assert "migrateLegacySuiteProxy()" in install
     assert '"http://127.0.0.1:8118/__arc7_raw' not in (JAVA_SRC / "Arc7ClockStore.java").read_text()
-    print("PASS: 30 independent manifests, scoped permissions/services, forwarding-only aliases, reproducible generation")
+    print("PASS: 34 independent manifests, scoped permissions/services, forwarding-only aliases, reproducible generation")
 
 
 def check_companion_transports():
@@ -529,7 +530,7 @@ def check_java_behavior():
         result = subprocess.run([java, "-ea", "-cp", str(temporary), "ca.arc7freedom.app.IsolationTest"],
                                 check=True, text=True, capture_output=True)
         assert "JAVA_ISOLATION_AND_BLUETOOTH_PASSED" in result.stdout
-    print("PASS: real Java code — unique ports, proxy selection, 30-app/legacy-alias routing with URI/extras/grants preserved")
+    print("PASS: real Java code — unique ports, proxy selection, 34-app/legacy-alias routing with URI/extras/grants preserved")
     print("PASS: Bluetooth fakes — no adapter, disabled, no PAN, sharing, receiving, rejected/permission-denied APIs, late callback cleanup")
 
 

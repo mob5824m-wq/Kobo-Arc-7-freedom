@@ -1,15 +1,15 @@
-# Install all maintenance patches — v2.5.4
+# Install all maintenance patches — v2.6.0
 
-Local signed build: suite/default apps/upgrader **2.5.4 / 254**; patched F-Droid **1305**; Home **5.5.0 / 55**. These changes are on the PR branch, **not published as a new GitHub release**. Use the files from this build/local Wi-Fi portal, not an older published “latest” asset.
+Local signed build: suite/default apps/upgrader **2.6.0 / 260**; patched F-Droid **1306**; Home **5.6.0 / 56**. These changes are on the working branch, **not published as a new GitHub release**. Use the files from this build/local Wi-Fi portal, not an older published “latest” asset.
 
 ## One full bundle, every install method
 
 Install either:
 
 - [KoboArc7Freedom.apk](KoboArc7Freedom.apk), then **open Arc7 Freedom once**; or
-- [Upgrade My Kobo v2.5.4](Upgrade-My-Kobo-To-v2.5.4.apk), which installs the suite in place and opens its patch screen.
+- [Upgrade My Kobo v2.6.0](Upgrade-My-Kobo-To-v2.6.0.apk), which installs the suite in place and opens its normal main screen.
 
-In Arc7 Freedom, open **Step 1 → Install / Repair All Patches — Status & Retry**.
+In Arc7 Freedom, open **PATCHES → Apply / Retry All Patches**.
 
 The same restartable maintenance service is used after **direct APK, microSD, Wi-Fi/OTA, USB/ADB, backup-tool, and upgrader installs**, and on suite startup, package replacement, boot/network reconnect, successful rooting and in-place Android conversion. Android may keep a newly sideloaded app stopped until it has been opened, so do not skip that first launch.
 
@@ -17,7 +17,7 @@ The generated **Clean Android ROM ZIP** also carries the current complete suite 
 
 ### What runs
 
-- Content-aware, data-preserving updates for **34 bundled APKs**: Home, patched F-Droid, Aurora, VLC, YouTube, YouTube Music, and **all 28 separately packaged default apps**. Clock, Music, Radio & Podcasts, Voice Recorder and Package Installer are no longer omitted.
+- Content-aware, data-preserving updates for **38 bundled APKs**: Home, patched F-Droid, Aurora, VLC, YouTube, YouTube Music, and **all 32 separately packaged default apps**. Clock, Music, Radio, Podcasts, Voice Recorder and Package Installer are no longer omitted.
 - Installed APK **SHA-256 read-back**, including same-version maintenance builds. Exact copies are skipped; newer installed versions are retained rather than downgraded.
 - Retryable removal of **only** obsolete Arc7 `localhost:8118` / `127.0.0.1:8118` global/saved-Wi-Fi proxies. Unrelated proxies, VPNs and USB routes are preserved.
 - Bundled per-app CA/TLS assets; backed-up, verified offline system CA installation with root; Python/apt/TLS command-line payload repair; Home/Recents provisioning checks.
@@ -43,9 +43,21 @@ Maintenance **does not** automatically flash boot/recovery images, wipe data, co
 
 Individual [default-app APK downloads](apps/) update **only that app**. Use the full suite/upgrader if you want the complete patch set applied.
 
-## F-Droid crash fix
+## F-Droid catalog and earlier crash repairs
 
-F-Droid **1305** fixes `java.util.ArrayList cannot be cast to java.lang.String[]` in the injected streaming index parser. Untyped JSON arrays can be `ArrayList`, not `String[]`. Repository mirrors **and every push-request value** are now normalized to actual string arrays; existing arrays and null/empty values work too. Malformed types produce a checked parse error instead of that cast failure.
+F-Droid **1306** adds the pinned official F-Droid/Guardian archives and defaults the
+available-app catalog to **All**, including a one-time category reset on migration.
+An empty catalog or updates list is not proof that all repository apps are installed.
+Existing keys, credentials, custom repositories and installed-state joins are retained;
+failed migrations stay retryable. After updating, sync the repositories and check the
+actual installed apps separately. See [2.6 features](SUITE-FEATURES.md).
+
+PC USB/backup scripts and the upgrader no longer force a patch-management screen.
+Use the **PATCHES** tab when you want to inspect/retry work. Rootless confirmation
+queues pause when you leave the tab/app; they do not pop up over another app.
+
+
+F-Droid **1306** fixes `java.util.ArrayList cannot be cast to java.lang.String[]` in the injected streaming index parser. Untyped JSON arrays can be `ArrayList`, not `String[]`. Repository mirrors **and every push-request value** are now normalized to actual string arrays; existing arrays and null/empty values work too. Malformed types produce a checked parse error instead of that cast failure.
 
 [FDroidClassicLegacy.apk](FDroidClassicLegacy.apk) can also be installed on its own as an in-place update. Keep repository pins, preferences and databases; do **not** clear data to repair this exception. The full bundle installs the same pre-patched signed APK offline—no runtime patch download is needed.
 
@@ -58,7 +70,7 @@ F-Droid **1305** fixes `java.util.ArrayList cannot be cast to java.lang.String[]
 
 ## Checks and validation boundaries
 
-The build/test gates cover API-17 compilation, ARMv7, DEX 035, permanent-certificate v1/v2/v3 signatures, exact reconstruction of all 34 signed payloads, embedded-upgrader equality and release checksums. `make test-install` runs the actual generated F-Droid bridge and installer code on a host JVM, with mirrors/requests as lists and arrays, same-version repairs, newer/key-conflicting apps, corrupt payloads, false `pm Success`, failed updates, rootless confirmation status, retry idempotence and real USB/backup shell helpers using fake ADB. Windows helpers are checked statically, not executed on Windows.
+The build/test gates cover API-17 compilation, ARMv7, DEX 035, permanent-certificate v1/v2/v3 signatures, exact reconstruction of all 38 signed payloads, embedded-upgrader equality and release checksums. `make test-install` runs the actual generated F-Droid bridge and installer code on a host JVM, with mirrors/requests as lists and arrays, same-version repairs, newer/key-conflicting apps, corrupt payloads, false `pm Success`, failed updates, rootless confirmation status, retry idempotence and real USB/backup shell helpers using fake ADB. Windows helpers are checked statically, not executed on Windows.
 
 `make verify` also runs the existing offline media, routing, proxy, launcher, Bluetooth and reader regression gates. These are **not** physical-device results. No Kobo, live YouTube playback, ROM flash, real Android PackageInstaller confirmation sequence or Bluetooth PAN hardware was available to validate here. Root access, ROM permissions, free flash space, hardware codecs and current YouTube endpoints can still limit operation; use the visible patch report and device tests before relying on it.
 

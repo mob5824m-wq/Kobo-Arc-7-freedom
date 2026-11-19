@@ -36,9 +36,11 @@ import android.widget.Toast;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * Standalone `YouTube Music` (Morphe Edition — `v2.4.0`) for Kobo Arc 7 (`Android 4.2.2`).
+ * Standalone YouTube Music client for Kobo Arc 7 (Android 4.x). Public access only;
+ * local collections are not account sync and provider authentication denials are not bypassed.
  *
  * Authentic Morphe Pure-Black AMOLED YT Music experience:
  *   - Native `music.youtube.com` `WEB_REMIX` + `ANDROID_MUSIC 7.12` Morphe Stream Spoofer
@@ -54,6 +56,12 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
     private Arc7AudioService audioService;
     private boolean bound = false;
+    private String searchMode="songs";
+    private Arc7DownloadUi downloads;
+    private int musicRequest;
+    private int quickPlayRequest=-1;
+    private List<MorpheEngine.MediaItem> pendingMusicQueue;
+    private int pendingMusicIndex;
 
     private ImageView coverArtIv;
     private TextView trackTitleTv;
@@ -72,21 +80,25 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
     private final List<MorpheEngine.MediaItem> browseResults = new ArrayList<MorpheEngine.MediaItem>();
     private final List<MorpheEngine.LyricLine> currentLyrics = new ArrayList<MorpheEngine.LyricLine>();
-    private String loadedLyricsTrackTitle = "";
+    private String loadedLyricsKey = "";
+    private int lyricsRequest;
+    private Thread lyricsThread;
+    private boolean lyricsLoading;
     private boolean userScrubbing = false;
     private String activeRightMode = "browse"; // "browse" | "queue" | "lyrics"
 
     private final ServiceConnection conn = new ServiceConnection() {
         @Override
         public void onServiceConnected(ComponentName name, IBinder binder) {
+            if (!alive || !bound) return;
             audioService = ((Arc7AudioService.LocalBinder) binder).getService();
-            bound = true;
+            if(pendingMusicQueue!=null) { List<MorpheEngine.MediaItem> queue=pendingMusicQueue; pendingMusicQueue=null; playItems(queue,pendingMusicIndex); }
             syncNowPlayingUi();
         }
         @Override
         public void onServiceDisconnected(ComponentName name) {
             audioService = null;
-            bound = false;
+            // Registration remains bound until explicitly unbound, even after a process death.
         }
     };
 
@@ -122,7 +134,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.HORIZONTAL);
         topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundColor(0xFF0E0E15);
+        topBar.setBackgroundDrawable(Arc7Skin.headerDrawable(Arc7Skin.current(this)));
         topBar.setPadding(dp(12), dp(7), dp(12), dp(7));
 
         ImageView logoIv = new ImageView(this);
@@ -157,7 +169,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         searchEt.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             @Override
             public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                performMusicSearch(searchEt.getText().toString(), "songs");
+                performMusicSearch(searchEt.getText().toString(), searchMode);
                 return true;
             }
         });
@@ -165,9 +177,16 @@ public class YouTubeMusicActivity extends Arc7Activity {
         selp.rightMargin = dp(6);
         topBar.addView(searchEt, selp);
 
-        Button searchBtn = pillBtn("\uD83D\uDD0D Songs", 0xFFFF0033);
+        final Button searchBtn = pillBtn("Search · Songs ▾", 0xFFFF0033);
         searchBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { performMusicSearch(searchEt.getText().toString(), "songs"); }
+            @Override public void onClick(View v) {
+                final String[] modes={"songs","albums","playlists","community_playlists"};
+                final String[] labels={"Songs","Albums","Playlists","Community playlists"};
+                new AlertDialog.Builder(YouTubeMusicActivity.this).setTitle("Search YouTube Music")
+                    .setItems(labels,new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
+                        searchMode=modes[which]; searchBtn.setText("Search · "+labels[which]+" ▾"); performMusicSearch(searchEt.getText().toString(),searchMode);
+                    }}).show();
+            }
         });
         topBar.addView(searchBtn, marginRightLp(6));
 
@@ -199,6 +218,10 @@ public class YouTubeMusicActivity extends Arc7Activity {
         moodRow.setPadding(dp(10), dp(6), dp(10), dp(6));
 
         final String[][] moods = new String[][]{
+                {"▶ Quick play", "@quickplay"},
+                {"My playlists & albums", "@playlists"},
+                {"+ New playlist", "@newplaylist"},
+                {"Play results", "@playall"},
                 {"\uD83D\uDD25 Quick Picks", "top hits music 2026"},
                 {"\uD83C\uDFA7 Chill & Lofi", "chill lofi beats study"},
                 {"\u26A1 Energy & Workout", "workout hype hits"},
@@ -217,7 +240,11 @@ public class YouTubeMusicActivity extends Arc7Activity {
             b.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if ("@liked".equals(q)) showLikedSongs();
+                    if ("@quickplay".equals(q)) quickPlay();
+                    else if ("@playlists".equals(q)) showMusicPlaylists();
+                    else if ("@newplaylist".equals(q)) createMusicPlaylist(null);
+                    else if ("@playall".equals(q)) playItems(browseResults,0);
+                    else if ("@liked".equals(q)) showLikedSongs();
                     else if ("@offline".equals(q)) showOfflineMusicLibrary();
                     else if ("@queue".equals(q)) renderQueuePane();
                     else if ("@lyrics".equals(q)) renderLyricsPane();
@@ -439,7 +466,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
         Intent svcIntent = new Intent(this, Arc7AudioService.class);
         startService(svcIntent);
-        bindService(svcIntent, conn, Context.BIND_AUTO_CREATE);
+        bound=bindService(svcIntent, conn, Context.BIND_AUTO_CREATE);
         ui.postDelayed(liveTicker, 500L);
 
         if (getIntent() != null && getIntent().getData() != null) {
@@ -449,17 +476,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 single.videoId = vid;
                 single.title = "Loading Track...";
                 single.isMusicTrack = true;
-                ui.postDelayed(new Runnable() {
-                    @Override
-                    public void run() {
-                        if (audioService != null) {
-                            List<MorpheEngine.MediaItem> q = new ArrayList<MorpheEngine.MediaItem>();
-                            q.add(single);
-                            audioService.playMorpheQueue(q, 0, "YouTube Music",
-                                    "ca.arc7freedom.app.YouTubeMusicActivity");
-                        }
-                    }
-                }, 250L);
+                List<MorpheEngine.MediaItem> queue=new ArrayList<MorpheEngine.MediaItem>(); queue.add(single); playItems(queue,0);
             }
         }
         performMusicSearch("top hits music 2026", "songs");
@@ -476,18 +493,20 @@ public class YouTubeMusicActivity extends Arc7Activity {
     private void performMusicSearch(final String query, final String mode) {
         if (query == null || query.trim().isEmpty()) return;
         final String clean = query.trim();
+        final int request=++musicRequest;
         String directVid = MorpheEngine.extractVideoIdFromUrlOrQuery(clean);
-        if (directVid != null && audioService != null) {
+        if (directVid != null) {
             MorpheEngine.MediaItem single = new MorpheEngine.MediaItem();
             single.videoId = directVid;
             single.title = "Playing Track";
             single.isMusicTrack = true;
             List<MorpheEngine.MediaItem> q = new ArrayList<MorpheEngine.MediaItem>();
             q.add(single);
-            audioService.playMorpheQueue(q, 0, "YouTube Music", "ca.arc7freedom.app.YouTubeMusicActivity");
+            playItems(q,0);
             return;
         }
         activeRightMode = "browse";
+        browseResults.clear(); rightPaneList.removeAllViews();
         rightPaneHeaderTv.setText("Searching YouTube Music for \"" + clean + "\"...");
         new Thread(new Runnable() {
             @Override
@@ -498,18 +517,21 @@ public class YouTubeMusicActivity extends Arc7Activity {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
-                            rightPaneHeaderTv.setText("Tracks & Mixes  \u2022  " + items.size() + " songs");
+                            if(!alive || request!=musicRequest) return;
+                            rightPaneHeaderTv.setText(mode.replace('_',' ') + " · " + items.size() + (items.isEmpty() ? " public results. Try another query." : " results"));
                             browseResults.clear();
                             browseResults.addAll(items);
                             renderTrackRows(items, false);
+                            if(quickPlayRequest==request) { quickPlayRequest=-1; playItems(items,0); }
                         }
                     });
                 } catch (final Throwable t) {
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
-                            rightPaneHeaderTv.setText("Offline — showing saved local M4A tracks");
-                            showOfflineMusicLibrary();
+                            if(!alive || request!=musicRequest) return;
+                            quickPlayRequest=-1; rightPaneHeaderTv.setText("Music search unavailable: "+t.getMessage());
+                            rightPaneList.removeAllViews();
                         }
                     });
                 }
@@ -517,8 +539,10 @@ public class YouTubeMusicActivity extends Arc7Activity {
         }).start();
     }
 
-    private void renderTrackRows(final List<MorpheEngine.MediaItem> items, final boolean isQueueView) {
+    private void renderTrackRows(List<MorpheEngine.MediaItem> source, final boolean isQueueView) {
+        final List<MorpheEngine.MediaItem> items=new ArrayList<MorpheEngine.MediaItem>(source);
         rightPaneList.removeAllViews();
+        if(!isQueueView) { browseResults.clear(); browseResults.addAll(new ArrayList<MorpheEngine.MediaItem>(items)); }
         int activeIdx = audioService != null ? audioService.getMorpheQueueIndex() : -1;
 
         for (int i = 0; i < items.size(); i++) {
@@ -547,7 +571,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
             t.setSingleLine(true);
             info.addView(t);
 
-            String sub = it.author;
+            String sub = it.isCollection() ? it.collectionType.toUpperCase(Locale.US)+" · "+it.author : it.author;
             if (it.album != null && it.album.length() > 0) sub += "  \u2022  " + it.album;
             if (it.durationText != null && it.durationText.length() > 0) sub += "  \u2022  " + it.durationText;
             TextView s = new TextView(this);
@@ -560,10 +584,11 @@ public class YouTubeMusicActivity extends Arc7Activity {
             row.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
             if (!isQueueView) {
-                Button addQBtn = pillBtn("+ Queue", 0xFF27272A);
+                Button addQBtn = pillBtn(it.isCollection() ? "Open" : "+ Queue", 0xFF27272A);
                 addQBtn.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
+                        if(it.isCollection()) { openMusicCollection(it); return; }
                         if (audioService != null) {
                             audioService.appendToMorpheQueue(it);
                             Toast.makeText(YouTubeMusicActivity.this,
@@ -577,16 +602,22 @@ public class YouTubeMusicActivity extends Arc7Activity {
             row.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
-                    if (audioService == null) return;
-                    if (isQueueView) {
+                    if(it.isCollection()) { openMusicCollection(it); return; }
+                    if (isQueueView && audioService != null) {
                         audioService.startMorpheQueueAt(idx);
                     } else {
-                        audioService.playMorpheQueue(items, idx, "YouTube Music",
-                                "ca.arc7freedom.app.YouTubeMusicActivity");
+                        playItems(items,idx);
                     }
                 }
             });
 
+            row.setOnLongClickListener(new View.OnLongClickListener(){ public boolean onLongClick(View v){
+                if(it.isCollection()) {
+                    MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this,"ytm_playlists",it,true);
+                    Toast.makeText(YouTubeMusicActivity.this,"Updated saved playlists & albums",Toast.LENGTH_SHORT).show();
+                } else chooseMusicPlaylist(it);
+                return true;
+            }});
             LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             rlp.bottomMargin = dp(7);
@@ -594,7 +625,64 @@ public class YouTubeMusicActivity extends Arc7Activity {
         }
     }
 
+    private void playItems(List<MorpheEngine.MediaItem> items,int start) {
+        List<MorpheEngine.MediaItem> playable=new ArrayList<MorpheEngine.MediaItem>(); int selected=0;
+        for(int i=0;i<items.size();i++) { MorpheEngine.MediaItem item=items.get(i); if(!item.isCollection() && (item.videoId.length()>0 || item.localFilePath.length()>0)) { if(i==start) selected=playable.size(); playable.add(item); } }
+        if(playable.isEmpty()) { Toast.makeText(this,"Open an album or playlist to load its songs first.",Toast.LENGTH_LONG).show(); return; }
+        if(audioService==null) { pendingMusicQueue=playable; pendingMusicIndex=selected; return; }
+        audioService.playMorpheQueue(playable,selected,"YouTube Music","ca.arc7freedom.app.YouTubeMusicActivity");
+    }
+    private void quickPlay() {
+        List<MorpheEngine.MediaItem> liked=MorpheEngine.loadSavedList(this,"ytm_liked");
+        if(!liked.isEmpty()) { playItems(liked,0); return; }
+        if(!browseResults.isEmpty() && !browseResults.get(0).isCollection()) { playItems(browseResults,0); return; }
+        performMusicSearch("popular music official audio","songs"); quickPlayRequest=musicRequest;
+    }
+    private void showMusicPlaylists() {
+        ++musicRequest; activeRightMode="browse";
+        List<MorpheEngine.MediaItem> saved=MorpheEngine.loadSavedList(this,"ytm_playlists");
+        rightPaneHeaderTv.setText("My playlists & albums · "+saved.size()+" · long-press a song to add it; long-press a collection to remove it");
+        renderTrackRows(saved,false);
+    }
+    private void openMusicCollection(final MorpheEngine.MediaItem item) {
+        final int request=++musicRequest; activeRightMode="browse";
+        browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Loading "+item.title+"…");
+        new Thread(new Runnable(){ public void run(){
+            try {
+                final List<MorpheEngine.MediaItem> tracks=MorpheEngine.browseMusicCollection(YouTubeMusicActivity.this,item);
+                ui.post(new Runnable(){ public void run(){ if(!alive || request!=musicRequest) return;
+                    rightPaneHeaderTv.setText(item.title+" · "+tracks.size()+" loaded (first 60 public tracks) · Play results starts the queue");
+                    renderTrackRows(tracks,false);
+                    Button save=pillBtn("Save album / playlist to library",0xFF334155); save.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){
+                        MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this,"ytm_playlists",item,false);
+                        Toast.makeText(YouTubeMusicActivity.this,"Saved collection",Toast.LENGTH_SHORT).show();
+                    }}); rightPaneList.addView(save,0);
+                }});
+            } catch(final Exception e){ ui.post(new Runnable(){ public void run(){ if(alive && request==musicRequest) { rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Collection unavailable: "+e.getMessage()); } }}); }
+        }},"Arc7-Music-Collection").start();
+    }
+    private void createMusicPlaylist(final MorpheEngine.MediaItem first) {
+        final EditText title=new EditText(this); title.setHint("Playlist name"); title.setSingleLine(true);
+        new AlertDialog.Builder(this).setTitle("New local playlist").setView(title).setPositiveButton("Create",new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
+            String name=title.getText().toString().trim(); if(name.length()==0 || name.length()>100) { Toast.makeText(YouTubeMusicActivity.this,"Use a name of 1–100 characters",Toast.LENGTH_LONG).show(); return; }
+            MorpheEngine.MediaItem playlist=new MorpheEngine.MediaItem(); playlist.title=name; playlist.playlistId="local:"+java.util.UUID.randomUUID().toString(); playlist.collectionType="playlist";
+            MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this,"ytm_playlists",playlist,false);
+            List<MorpheEngine.MediaItem> songs=new ArrayList<MorpheEngine.MediaItem>(); if(first!=null) songs.add(first);
+            MorpheEngine.saveList(YouTubeMusicActivity.this,"ytm_local_"+playlist.playlistId.substring(6),songs); showMusicPlaylists();
+        }}).setNegativeButton("Cancel",null).show();
+    }
+    private void chooseMusicPlaylist(final MorpheEngine.MediaItem song) {
+        final List<MorpheEngine.MediaItem> local=new ArrayList<MorpheEngine.MediaItem>();
+        for(MorpheEngine.MediaItem item:MorpheEngine.loadSavedList(this,"ytm_playlists")) if(item.playlistId.startsWith("local:")) local.add(item);
+        String[] labels=new String[local.size()+1]; labels[0]="+ New local playlist"; for(int i=0;i<local.size();i++) labels[i+1]=local.get(i).title;
+        new AlertDialog.Builder(this).setTitle("Add song to playlist").setItems(labels,new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
+            if(which==0) createMusicPlaylist(song);
+            else { MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this,"ytm_local_"+local.get(which-1).playlistId.substring(6),song,false); Toast.makeText(YouTubeMusicActivity.this,"Added to local playlist",Toast.LENGTH_SHORT).show(); }
+        }}).setNegativeButton("Cancel",null).show();
+    }
+
     private void renderQueuePane() {
+        ++musicRequest; quickPlayRequest=-1;
         activeRightMode = "queue";
         List<MorpheEngine.MediaItem> q = audioService != null
                 ? audioService.getMorpheQueueSnapshot() : new ArrayList<MorpheEngine.MediaItem>();
@@ -603,13 +691,14 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void renderLyricsPane() {
+        ++musicRequest; quickPlayRequest=-1;
         activeRightMode = "lyrics";
         rightPaneHeaderTv.setText("\uD83C\uDFA4 Synced Karaoke Lyrics (tap any line to jump!)");
         rightPaneList.removeAllViews();
 
         if (currentLyrics.isEmpty()) {
             TextView tv = new TextView(this);
-            tv.setText("Fetching synced lyrics for current song...");
+            tv.setText(lyricsLoading ? "Fetching lyrics for this song…" : "No lyrics available for this song. Lyrics depend on provider coverage.");
             tv.setTextColor(0xFFA1A1AA);
             tv.setPadding(dp(8), dp(12), dp(8), dp(12));
             rightPaneList.addView(tv);
@@ -648,6 +737,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void syncNowPlayingUi() {
+        if (!alive) return;
         NowPlayingManager.Snapshot snap = NowPlayingManager.getSnapshot(null);
         if (audioService != null) {
             boolean resolving = audioService.isResolvingMorpheTrack();
@@ -678,31 +768,27 @@ public class YouTubeMusicActivity extends Arc7Activity {
             Bitmap bmp = snap.artwork;
             if (bmp != null) coverArtIv.setImageBitmap(bmp);
 
-            if (!snap.title.equals(loadedLyricsTrackTitle)) {
-                loadedLyricsTrackTitle = snap.title;
-                currentLyrics.clear();
-                liveLyricBannerTv.setText("");
-                final String tTitle = snap.title;
-                final String tArtist = snap.artist;
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        final List<MorpheEngine.LyricLine> lrc =
-                                MorpheEngine.fetchSyncedLyrics(YouTubeMusicActivity.this, tTitle, tArtist);
-                        ui.post(new Runnable() {
-                            @Override
-                            public void run() {
-                                if (tTitle.equals(loadedLyricsTrackTitle)) {
-                                    currentLyrics.clear();
-                                    currentLyrics.addAll(lrc);
-                                    if ("lyrics".equals(activeRightMode)) renderLyricsPane();
-                                }
-                            }
-                        });
+            MorpheEngine.MediaItem current=audioService==null ? null : audioService.getCurrentMorpheItem();
+            final String key=(current==null ? "" : current.videoId+"\n"+current.localFilePath)+"\n"+snap.title+"\n"+snap.artist;
+            if (!key.equals(loadedLyricsKey)) {
+                resetLyrics(); loadedLyricsKey=key; lyricsLoading=true;
+                final int request=lyricsRequest;
+                final String tTitle=snap.title, tArtist=snap.artist;
+                final Context app=getApplicationContext();
+                lyricsThread=new Thread(new Runnable() {
+                    @Override public void run() {
+                        final List<MorpheEngine.LyricLine> lrc=MorpheEngine.fetchSyncedLyrics(app,tTitle,tArtist);
+                        if (Thread.currentThread().isInterrupted()) return;
+                        ui.post(new Runnable() { @Override public void run() {
+                            if (!alive || request!=lyricsRequest || !key.equals(loadedLyricsKey)) return;
+                            lyricsLoading=false; lyricsThread=null;
+                            currentLyrics.clear(); currentLyrics.addAll(lrc);
+                            if ("lyrics".equals(activeRightMode)) renderLyricsPane();
+                        }});
                     }
-                }).start();
+                },"Arc7-Music-Lyrics"); lyricsThread.start();
             }
-        }
+        } else if (loadedLyricsKey.length()>0) resetLyrics();
         if (audioService != null && audioService.getPlaybackStatus().length() > 0) {
             MorpheEngine.MediaItem pending = audioService.getCurrentMorpheItem();
             if (pending != null) trackTitleTv.setText(pending.title);
@@ -710,7 +796,15 @@ public class YouTubeMusicActivity extends Arc7Activity {
         }
     }
 
+    private void resetLyrics() {
+        ++lyricsRequest;
+        if (lyricsThread!=null) lyricsThread.interrupt(); lyricsThread=null;
+        lyricsLoading=false; loadedLyricsKey=""; currentLyrics.clear();
+        if (liveLyricBannerTv!=null) liveLyricBannerTv.setText("");
+    }
+
     private void showLikedSongs() {
+        ++musicRequest; quickPlayRequest=-1;
         activeRightMode = "browse";
         List<MorpheEngine.MediaItem> liked = MorpheEngine.loadSavedList(this, "ytm_liked");
         rightPaneHeaderTv.setText("\u2764 Liked Songs (" + liked.size() + ")");
@@ -718,13 +812,14 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void showOfflineMusicLibrary() {
+        ++musicRequest; quickPlayRequest=-1;
         activeRightMode = "browse";
         List<MorpheEngine.MediaItem> list = new ArrayList<MorpheEngine.MediaItem>();
         File dir = new File(Environment.getExternalStorageDirectory(), "Music/YouTubeMusic");
         File[] files = dir.exists() ? dir.listFiles() : null;
         if (files != null) {
             for (int i = 0; i < files.length; i++) {
-                if (!files[i].isFile()) continue;
+                if (!files[i].isFile() || !files[i].getName().toLowerCase(Locale.US).endsWith(".m4a")) continue;
                 MorpheEngine.MediaItem m = new MorpheEngine.MediaItem();
                 m.videoId = "offline_" + i;
                 m.title = files[i].getName();
@@ -739,39 +834,18 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void downloadCurrentSongOffline() {
-        final MorpheEngine.MediaItem cur = audioService != null ? audioService.getCurrentMorpheItem() : null;
-        if (cur == null || cur.videoId.startsWith("offline_")) return;
-        Toast.makeText(this, "Downloading M4A track: " + cur.title, Toast.LENGTH_SHORT).show();
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    MorpheEngine.ResolvedPlayback res =
-                            MorpheEngine.resolveStreams(YouTubeMusicActivity.this, cur.videoId, true);
-                    MorpheEngine.StreamVariant best = !res.audioStreams.isEmpty()
-                            ? res.audioStreams.get(0)
-                            : (!res.progressiveVideos.isEmpty()
-                                    ? res.progressiveVideos.get(0) : res.videoOnlyStreams.get(0));
-                    final File saved = MorpheEngine.downloadStreamOffline(
-                            YouTubeMusicActivity.this, best, cur.title, true, null);
-                    ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(YouTubeMusicActivity.this,
-                                    "Saved M4A offline: " + saved.getName(), Toast.LENGTH_LONG).show();
-                        }
-                    });
-                } catch (final Throwable t) {
-                    ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(YouTubeMusicActivity.this,
-                                    "Download failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                        }
-                    });
-                }
+        final MorpheEngine.MediaItem song=audioService==null ? null : audioService.getCurrentMorpheItem();
+        if(song==null || song.localFilePath.length()>0) {
+            Toast.makeText(this,"Play an online song before downloading M4A.",Toast.LENGTH_LONG).show(); return;
+        }
+        if(downloads==null) downloads=new Arc7DownloadUi(this);
+        downloads.start(song.title,new Arc7DownloadUi.Task(){
+            @Override public File run(MorpheEngine.DownloadProgressListener progress)throws Exception {
+                MorpheEngine.ResolvedPlayback resolved=MorpheEngine.resolveStreams(YouTubeMusicActivity.this,song.videoId,true);
+                try { return MorpheEngine.downloadResolvedOffline(YouTubeMusicActivity.this,resolved,song.title,true,progress); }
+                finally { MorpheEngine.cancelPlayback(resolved); }
             }
-        }).start();
+        });
     }
 
     private void showEqualizerDialog() {
@@ -851,19 +925,8 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 .show();
     }
 
-    private Button pillBtn(String label, int color) {
-        Button b = new Button(this);
-        b.setText(label);
-        b.setTextColor(Color.WHITE);
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
-        b.setTypeface(Typeface.DEFAULT_BOLD);
-        b.setAllCaps(false);
-        b.setPadding(dp(12), dp(6), dp(12), dp(6));
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(16));
-        b.setBackgroundDrawable(g);
-        return b;
+    private Button pillBtn(String label,int color) {
+        Button button=Arc7Skin.actionButton(this,label,color); button.setTextSize(TypedValue.COMPLEX_UNIT_SP,12f); return button;
     }
 
     private LinearLayout.LayoutParams marginRightLp(int dpVal) {
@@ -875,12 +938,15 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
     @Override
     protected void onDestroy() {
-        alive = false;
-        ui.removeCallbacks(liveTicker);
+        alive = false; ++musicRequest; quickPlayRequest=-1; pendingMusicQueue=null;
+        resetLyrics();
+        if(downloads!=null) downloads.close();
+        ui.removeCallbacksAndMessages(null);
         if (bound) {
             try { unbindService(conn); } catch (Throwable ignored) {}
             bound = false;
         }
+        audioService=null;
         super.onDestroy();
     }
 }

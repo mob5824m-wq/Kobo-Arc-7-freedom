@@ -3,7 +3,7 @@
 This updates the existing **Weather** app (`ca.arc7freedom.weather`), not a separate
 website or a copy running inside Arc7 Freedom. It keeps Android **4.0.3–4.2.2** support
 (minSdk 15 / targetSdk 17, ARMv7, Dalvik DEX 035) and the permanent signing certificate.
-The branch build remains **2.5.4 / 254**; no new GitHub release has been published.
+The branch build is **2.6.0 / 260**; no new GitHub release has been published.
 
 ## Install this build
 
@@ -12,15 +12,18 @@ The branch build remains **2.5.4 / 254**; no new GitHub release has been publish
   The individual default-app APKs are generated outputs, intentionally not Git-tracked;
   an older published “latest” Weather download is not this branch build.
 - **Complete offline bundle:** install [KoboArc7Freedom.apk](KoboArc7Freedom.apk), open
-  Arc7 Freedom once, then **Step 1 → Install / Repair All Patches — Status & Retry**.
-  Its 34-APK verified offline catalog includes this exact signed Weather APK. Root can
+  Arc7 Freedom once, then **PATCHES → Apply / Retry All Patches**.
+  Its 38-APK verified offline catalog includes this exact signed Weather APK. Root can
   apply in-place updates; without root, explicitly confirm pending APKs in Android.
-  The [v2.5.4 upgrader](Upgrade-My-Kobo-To-v2.5.4.apk) embeds the same complete suite.
+  The [v2.6.0 upgrader](Upgrade-My-Kobo-To-v2.6.0.apk) embeds the same complete suite.
 - Keep app data. Do not uninstall or clear Android's Weather data just to update. The
   maintenance pipeline detects same-version patches by SHA-256 and verifies read-back;
   it preserves newer installed versions and never uninstalls on a failed normal update.
-- Replace any old **suite-supplied** weather widget with the widget supplied by the
-  separate **Weather** app. The old widget points to the owning app, not suite networking.
+- Prefer a new **Weather-supplied** widget. Legacy suite widgets can now read a small,
+  signature-protected snapshot from Weather and request its refresh; Weather still owns
+  all network jobs. Update both APKs, open Weather and select a city. If a legacy widget
+  stays unregistered/stale after updating, remove/re-add it; install-order and ROM-specific
+  launcher behaviour still need tablet testing. The widget explicitly shows **High / Low**.
 
 See [all-method installation instructions](INSTALL-RUNTIME-FIXES.md) and
 [SHA256SUMS.txt](SHA256SUMS.txt). Back up important data before updating.
@@ -94,7 +97,7 @@ See [all-method installation instructions](INSTALL-RUNTIME-FIXES.md) and
 ## Validation
 
 The final local full build and **`make verify` passed**, including the focused Weather
-regressions, shipped Weather APK payload checks and exact 34-APK bundle reconstruction.
+regressions, shipped Weather APK payload checks and exact 38-APK bundle reconstruction.
 These are host/build results, not the device/live-provider checks listed below.
 
 Run the focused regression suite:

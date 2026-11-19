@@ -22,7 +22,7 @@ import java.util.Properties;
  *      apps with auto-scroll), All-Apps Drawer Jewel position, Visual Style, Icon Size, App Labels,
  *      Custom Opacity & Accent Color, and Home Top Capsule Bar widgets/chips.
  *   2. `KoboArc7Freedom.apk` (`ca.arc7freedom.app`) — System-Wide In-App Top App Bar density,
- *      title alignment, header surface style, and live `Apps` quick-switcher ribbon via shared
+ *      title alignment and header surface style via shared
  *      `/sdcard/Arc7Freedom/appbar.properties` + `ca.arc7freedom.action.APP_BAR_CHANGED`.
  */
 public final class AppBarConfigStore {
@@ -178,7 +178,7 @@ public final class AppBarConfigStore {
         public int inAppDensity = 1;
         public boolean inAppCenterTitle = false;
         public int inAppStyle = 0;
-        public boolean inAppShowQuickSwitch = true;
+        public boolean inAppShowQuickSwitch = false;
 
         public int iconSizeDp() {
             switch (iconSizeMode) {
@@ -257,7 +257,7 @@ public final class AppBarConfigStore {
         c.inAppDensity = clamp(readInt(p, sp, "in_app_density", 1), 0, IN_APP_DENSITY_NAMES.length - 1);
         c.inAppCenterTitle = readBool(p, sp, "in_app_center_title", false);
         c.inAppStyle = clamp(readInt(p, sp, "in_app_style", 0), 0, IN_APP_STYLE_NAMES.length - 1);
-        c.inAppShowQuickSwitch = readBool(p, sp, "in_app_quick_switch", true);
+        c.inAppShowQuickSwitch = false; // Retired; never resurrect the in-app switcher.
         return c;
     }
 
@@ -288,7 +288,7 @@ public final class AppBarConfigStore {
             ed.putInt("in_app_density", c.inAppDensity);
             ed.putBoolean("in_app_center_title", c.inAppCenterTitle);
             ed.putInt("in_app_style", c.inAppStyle);
-            ed.putBoolean("in_app_quick_switch", c.inAppShowQuickSwitch);
+            ed.putBoolean("in_app_quick_switch", false);
             ed.commit();
         }
 
@@ -313,7 +313,7 @@ public final class AppBarConfigStore {
             p.setProperty("in_app_density", String.valueOf(c.inAppDensity));
             p.setProperty("in_app_center_title", String.valueOf(c.inAppCenterTitle));
             p.setProperty("in_app_style", String.valueOf(c.inAppStyle));
-            p.setProperty("in_app_quick_switch", String.valueOf(c.inAppShowQuickSwitch));
+            p.setProperty("in_app_quick_switch", "false");
             FileOutputStream fos = new FileOutputStream(f);
             try {
                 p.store(fos, "Kobo Arc 7 Customizable App Bar Configuration");

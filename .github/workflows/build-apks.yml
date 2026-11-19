@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.5.4
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.6.0
 
 on:
   push:
@@ -32,29 +32,31 @@ jobs:
       - name: Install Android API 17 (4.2.2) platform, Zig, Certifi, QRCode & Androguard
         run: |
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
-          python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography qrcode
+          python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography qrcode imageio-ffmpeg
 
-      - name: Generate 44 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.5.4 APKs
+      - name: Generate 49 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.6.0 APKs
         run: |
           chmod +x scripts/build-all.sh tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.5.4 end-to-end verification suite
-        run: python3 scripts/verify-apks.py
+      - name: Run full v2.6.0 end-to-end verification suite
+        run: |
+          export FFMPEG="$(python3 -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+          python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.5.4 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
+      - name: Commit refreshed signed v2.6.0 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk releases/Upgrade-My-Kobo-To-v2.2.0.apk releases/Upgrade-My-Kobo-To-v2.3.0.apk releases/Upgrade-My-Kobo-To-v2.3.1.apk releases/Upgrade-My-Kobo-To-v2.4.0.apk releases/Upgrade-My-Kobo-To-v2.4.1.apk releases/Upgrade-My-Kobo-To-v2.5.3.apk
+          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk releases/Upgrade-My-Kobo-To-v2.2.0.apk releases/Upgrade-My-Kobo-To-v2.3.0.apk releases/Upgrade-My-Kobo-To-v2.3.1.apk releases/Upgrade-My-Kobo-To-v2.4.0.apk releases/Upgrade-My-Kobo-To-v2.4.1.apk releases/Upgrade-My-Kobo-To-v2.5.3.apk releases/Upgrade-My-Kobo-To-v2.5.4.apk
           git add \
             releases/index.html \
             releases/logo-banner.png \
             releases/icons \
-            releases/Upgrade-My-Kobo-To-v2.5.4.apk \
+            releases/Upgrade-My-Kobo-To-v2.6.0.apk \
             releases/KoboArc7Freedom.apk \
             releases/YouTube.apk \
             releases/YouTubeMusic.apk \
@@ -83,19 +85,20 @@ jobs:
             app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh \
             app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.5.4 APKs (shared offline maintenance + F-Droid array normalization) [skip ci]"
-            git push origin HEAD
+            git commit -m "chore: update pre-built signed v2.6.0 APKs (independent apps, media, catalog and widget repairs) [skip ci]"
+            git push origin "$(git branch --show-current)"
           fi
 
-      - name: Upload built v2.5.4 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
+      - name: Upload built v2.6.0 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.5.4-apks
+          name: kobo-arc-7-freedom-v2.6.0-apks
           path: |
             releases/apps/*.apk
+            releases/SUITE-FEATURES.md
             releases/WEATHER-FEATURES.md
             releases/INSTALL-RUNTIME-FIXES.md
-            releases/Upgrade-My-Kobo-To-v2.5.4.apk
+            releases/Upgrade-My-Kobo-To-v2.6.0.apk
             releases/YouTube.apk
             releases/YouTubeMusic.apk
             releases/KoboArc7Freedom.apk
@@ -118,32 +121,32 @@ jobs:
             tools/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.5.4 APKs (suite + 28 standalone default apps + YouTube / YouTube Music) to GitHub Releases
+      - name: Publish signed v2.6.0 APKs (suite + 32 standalone default apps + YouTube / YouTube Music) to GitHub Releases
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.5.4 — All-Method Maintenance + F-Droid Array Fix
+          ## Kobo Arc 7 Freedom v2.6.0 — Independent Apps, Media & Widget Repairs
 
-          - The full suite and upgrader bundle Home, stores, YouTube and **all 28 independent default apps** offline (34 APKs total), including Clock/Music/Radio/Recorder/Package Installer repairs.
-          - Direct APK, SD, OTA, USB/ADB, backup tools, rooting, boot/update and in-place conversion use one restartable patch pipeline. Generated Clean Android ROM ZIPs include the complete suite too.
-          - Open Arc7 Freedom once, then **Step 1 > Install / Repair All Patches**. Root applies in-place updates. Without root, tap **Install pending apps** and confirm each APK in Android; root-only steps remain pending.
-          - Same-version patches use SHA-256 comparisons and installed read-back. Newer packages are kept. Signature/storage failures **never** automatically uninstall, clear app data, remove existing system APKs or claim success.
-          - F-Droid **1305** normalizes ArrayList/String[] repository mirrors and push-request values, fixing `java.util.ArrayList cannot be cast to java.lang.String[]` while preserving repo data and previous TLS/signature/low-memory patches.
-          - Offline CA/CLI/Home provisioning repairs and old Arc7-only proxy migration are shared. Optional firmware flashing, wiping, OS conversion/stock-app removal, ad blocking, storage changes, VPN/proxy/tethering are not automatically enabled.
-          - Earlier notification ownership, App Info/uninstall ownership, independent app networking, Bluetooth PAN tools and YouTube/Music media-pipeline work are retained.
+          - 38 signed APKs bundled offline: Home, stores, YouTube/Music and 32 independent default apps. New Podcasts, News, Authenticator and Passwords identities; Radio retains its installed data/package.
+          - PATCHES is an Arc7 Freedom tab. PC/backup tools and the upgrader no longer force a patch screen. Rootless confirmations, byte verification, same-version maintenance and safe pending/error reports remain; no automatic uninstall/wipe.
+          - F-Droid 1306 adds pinned F-Droid/Guardian legacy archives and default-All catalog/empty-state repairs, preserving existing pins, credentials and custom repos plus prior parser/TLS/signature fixes.
+          - Weather high/low and independent/legacy widget bridge; lightweight glass-style custom-app surfaces; in-app Quick Switcher removed without removing Home's pinned dock.
+          - CBC regional MP3 repairs, conservative H.264/AAC-LC selection, actual-player notifications and cancellable verified MP4/M4A downloads. Music adds quick play, public albums/community playlists and local libraries; YouTube adds local pinned channel feeds. No provider authentication/bot bypass or account sync.
+          - Stream Deck touch key/modifier picker, strict grammar and ordered/owned held-key input. Native Wayland and macOS holds remain unsupported.
+          - Local encrypted TOTP/password vaults with auto-lock and encrypted backups, no Internet permission. Android 4.x is unsupported; these apps are not independently security-audited. No cloud/QR scanning/autofill/recovery.
 
-          **Validation:** API17/ARMv7/DEX035/permanent v1-v3 signing gates; executable F-Droid/installer regressions; exact reconstruction of every signed APK; host ADB failure tests; existing offline media/routing/proxy/reader/Bluetooth regressions. No physical Kobo, ROM flash, live YouTube or PAN hardware was used. Windows install helpers are checked statically. Root/ROM/storage/hardware restrictions remain possible; inspect the visible patch report.
+          **Validation:** API17/ARMv7/DEX035/permanent signatures; exact 38-payload reconstruction; executable vault/TOTP vectors, catalog migrations, range/download/remux/FFmpeg decoding, Weather and existing installer/routing/proxy/media regressions. All PC key backends are mocked. No physical Kobo/emulator, live YouTube/CBC/weather/catalog session, real PC key input, ROM flash or Bluetooth PAN hardware validation. Host results are not a security audit or a playback guarantee.
 
-          See `releases/INSTALL-RUNTIME-FIXES.md` and `SHA256SUMS.txt`. Stop playback and back up important data before updates. Third-party ROMs need the suite reinstalled afterward. Individual app APKs update only the selected app.
+          See `releases/SUITE-FEATURES.md`, `releases/INSTALL-RUNTIME-FIXES.md`, `releases/WEATHER-FEATURES.md` and `SHA256SUMS.txt`. Stop playback and back up important data. Update in place; individual APKs update only that app.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.5.4 >/dev/null 2>&1; then
-            gh release edit v2.5.4 --latest --title "Kobo Arc 7 Freedom v2.5.4 — All-Method Maintenance + F-Droid Fix" --notes-file /tmp/release-notes.md
-            gh release upload v2.5.4 \
-              releases/Upgrade-My-Kobo-To-v2.5.4.apk \
+          if gh release view v2.6.0 >/dev/null 2>&1; then
+            gh release edit v2.6.0 --latest --title "Kobo Arc 7 Freedom v2.6.0 — Independent Apps, Media & Widget Repairs" --notes-file /tmp/release-notes.md
+            gh release upload v2.6.0 \
+              releases/Upgrade-My-Kobo-To-v2.6.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/YouTube.apk \
               releases/YouTubeMusic.apk \
@@ -152,6 +155,7 @@ jobs:
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
+              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md \
               releases/logo-banner.png \
               releases/index.html \
               tools/Start-PC-Stream-Deck.py \
@@ -165,17 +169,18 @@ jobs:
               tools/Start-Kobo-WiFi-Server.bat \
               tools/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
-              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.5.4 \
-              releases/Upgrade-My-Kobo-To-v2.5.4.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
+              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.6.0 \
+              releases/Upgrade-My-Kobo-To-v2.6.0.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
               releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
+              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md \
               releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
               tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.bat tools/Start-PC-Stream-Deck.sh \
               tools/Start-PC-School-VPN-Relay.py tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py \
               tools/Backup-Kobo-To-Laptop-ADB.bat tools/Backup-Kobo-To-Laptop-ADB.sh \
               tools/Start-Kobo-WiFi-Server.bat tools/Start-Kobo-WiFi-Server.sh --clobber; }
           else
-            gh release create v2.5.4 \
-              releases/Upgrade-My-Kobo-To-v2.5.4.apk \
+            gh release create v2.6.0 \
+              releases/Upgrade-My-Kobo-To-v2.6.0.apk \
               releases/KoboArc7Freedom.apk \
               releases/YouTube.apk \
               releases/YouTubeMusic.apk \
@@ -184,6 +189,7 @@ jobs:
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
+              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md \
               releases/logo-banner.png \
               releases/index.html \
               tools/Start-PC-Stream-Deck.py \
@@ -199,6 +205,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.5.4 — All-Method Maintenance + F-Droid Fix" \
+              --title "Kobo Arc 7 Freedom v2.6.0 — Independent Apps, Media & Widget Repairs" \
               --notes-file /tmp/release-notes.md
           fi

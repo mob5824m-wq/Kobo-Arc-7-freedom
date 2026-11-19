@@ -13,8 +13,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.weather"
-    android:versionCode="254"
-    android:versionName="2.5.4"
+    android:versionCode="260"
+    android:versionName="2.6.0"
     android:installLocation="internalOnly">
 
     <uses-sdk android:minSdkVersion="15" android:targetSdkVersion="17" />
@@ -22,6 +22,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
+    <permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" android:protectionLevel="signature" />
+    <uses-permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" />
     <uses-feature android:name="android.hardware.location" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
     <uses-feature android:name="android.hardware.location.network" android:required="false" />
@@ -84,6 +86,18 @@
         <service
             android:name="ca.arc7freedom.app.Arc7WeatherService"
             android:exported="false" />
+
+        <provider
+            android:name="ca.arc7freedom.app.Arc7WeatherWidgetBridge"
+            android:authorities="ca.arc7freedom.weather.widget"
+            android:exported="true"
+            android:readPermission="ca.arc7freedom.permission.WEATHER_WIDGET"
+            android:writePermission="ca.arc7freedom.permission.WEATHER_WIDGET" />
+
+        <receiver
+            android:name="ca.arc7freedom.app.Arc7WeatherWidgetRequestReceiver"
+            android:exported="true"
+            android:permission="ca.arc7freedom.permission.WEATHER_WIDGET" />
 
         <service
             android:name="ca.arc7freedom.app.Arc7TlsGatewayService"

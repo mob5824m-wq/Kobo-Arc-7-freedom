@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions
-title Kobo Arc 7 - Direct USB ADB Auto-Upgrade ^& Laptop Backup Tool (v2.5.4)
+title Kobo Arc 7 - Direct USB ADB Auto-Upgrade ^& Laptop Backup Tool (v2.6.0)
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference = 'Stop';" ^
   "$scriptDir = '%~dp0';" ^
   "Write-Host '';" ^
   "Write-Host '=====================================================================' -ForegroundColor Cyan;" ^
-  "Write-Host '  KOBO ARC 7 FREEDOM v2.5.4 - USB ADB AUTO-UPGRADE & BACKUP TOOL' -ForegroundColor Cyan;" ^
+  "Write-Host '  KOBO ARC 7 FREEDOM v2.6.0 - USB ADB AUTO-UPGRADE & BACKUP TOOL' -ForegroundColor Cyan;" ^
   "Write-Host '  Auto-upgrades older APKs + streams backups using 0 MB tablet space!' -ForegroundColor Gray;" ^
   "Write-Host '=====================================================================' -ForegroundColor Cyan;" ^
   "Write-Host '';" ^
@@ -39,7 +39,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "}" ^
   "$instOut = (& $adb install -r $apkFile 2>&1 | Out-String);" ^
   "if ($LASTEXITCODE -ne 0 -or $instOut -notmatch 'Success') { throw ('In-place update failed; existing app/data retained. ' + $instOut); }" ^
-  "& $adb shell am start -n ca.arc7freedom.app/.MainActivity --ez show_install_patches true | Out-Null;" ^
+  "& $adb shell am start -n ca.arc7freedom.app/.MainActivity | Out-Null;" ^
   "if ($LASTEXITCODE -ne 0) { throw 'Could not open shared patch pipeline. Open Arc7 Freedom on the tablet.'; }" ^
   "Write-Host '  Patch pipeline started. Review pending/root/Android confirmations on the tablet.' -ForegroundColor Green;" ^
   "Write-Host '[3/5] Starting streaming backup service on Kobo Arc 7 & opening lossless USB tunnel (:18777)...' -ForegroundColor Yellow;" ^

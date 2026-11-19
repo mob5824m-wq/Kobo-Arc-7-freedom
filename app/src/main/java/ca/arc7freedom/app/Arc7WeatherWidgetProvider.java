@@ -8,50 +8,41 @@ import android.content.Context;
 import android.content.Intent;
 import android.widget.RemoteViews;
 
-/** Selected-city weather, real freshness, today's range and a separate manual refresh target. */
+/** Real selected-city data and dedicated High/Low; old suite widgets use a signed cache bridge. */
 public class Arc7WeatherWidgetProvider extends AppWidgetProvider {
-    @Override public void onUpdate(Context c, AppWidgetManager m, int[] ids) {
-        if (ids != null) for (int id : ids) updateOne(c,m,id);
+    @Override public void onUpdate(Context c,AppWidgetManager m,int[] ids) {
+        if(ids!=null) for(int id:ids) updateOne(c,m,id);
+        if(!Arc7WeatherService.owner(c)) Arc7WeatherWidgetBridge.registerLegacy(c,Arc7WeatherWidgetBridge.localWidgets(c));
         Arc7WeatherService.schedule(c);
-        if (Arc7WeatherService.owner(c) && Arc7WeatherStore.refreshMinutes(c)>0) Arc7WeatherService.request(c,false);
+        if(Arc7WeatherService.owner(c) && Arc7WeatherStore.refreshMinutes(c)>0) Arc7WeatherService.request(c,false);
     }
-    @Override public void onEnabled(Context c) { Arc7WeatherService.schedule(c); }
-    @Override public void onDisabled(Context c) { Arc7WeatherService.schedule(c); }
-
-    /** Render only: never triggers a fetch/recursive widget update loop. */
+    @Override public void onEnabled(Context c) {
+        if(!Arc7WeatherService.owner(c)) Arc7WeatherWidgetBridge.registerLegacy(c,true);
+        Arc7WeatherService.schedule(c);
+    }
+    @Override public void onDisabled(Context c) {
+        if(!Arc7WeatherService.owner(c)) Arc7WeatherWidgetBridge.registerLegacy(c,false);
+        Arc7WeatherService.schedule(c);
+    }
+    /** Render only: never fetches or recursively requests another update. */
     public static void refreshAll(Context c) {
-        AppWidgetManager m = AppWidgetManager.getInstance(c);
-        int[] ids = m.getAppWidgetIds(new ComponentName(c,Arc7WeatherWidgetProvider.class));
-        if (ids != null) for (int id : ids) updateOne(c,m,id);
+        AppWidgetManager manager=AppWidgetManager.getInstance(c);
+        int[] ids=manager.getAppWidgetIds(new ComponentName(c,Arc7WeatherWidgetProvider.class));
+        if(ids!=null) for(int id:ids) updateOne(c,manager,id);
     }
-    private static void updateOne(Context c, AppWidgetManager m, int id) {
-        RemoteViews v = new RemoteViews(c.getPackageName(),R.layout.widget_arc7_weather);
-        Arc7WeatherData.Place p = Arc7WeatherService.owner(c) ? Arc7WeatherStore.selected(c) : null;
-        Arc7WeatherData.Forecast f = p == null ? null : Arc7WeatherStore.forecast(c,p);
-        Arc7WeatherData.Units u = Arc7WeatherStore.units(c);
-        long now = System.currentTimeMillis();
-        v.setTextViewText(R.id.weather_widget_city,p == null ? "WEATHER" : p.name);
-        v.setTextViewText(R.id.weather_widget_temp,f == null ? Arc7WeatherData.MISSING : u.temp(f.current.temp));
-        v.setTextViewText(R.id.weather_widget_unit,f == null ? "NO DATA" : "FEELS " + u.temp(f.current.feels));
-        String summary;
-        if (!Arc7WeatherService.owner(c)) summary = "Use the widget supplied by the separate Weather app. Tap to open/install it.";
-        else if (p == null) summary = "Tap to add a city or coordinates. Device location is optional.";
-        else if (f == null) summary = "No saved forecast for this city. Tap Refresh or open Weather.";
-        else {
-            Arc7WeatherData.Day today = f.today(now);
-            summary = Arc7WeatherData.description(f.current.code);
-            if (today != null) summary += " \u00b7 H " + u.temp(today.high) + " / L " + u.temp(today.low)
-                    + " \u00b7 Rain " + Arc7WeatherData.pct(today.probability);
-        }
-        v.setTextViewText(R.id.weather_widget_summary,summary);
-        String error = p == null ? "" : Arc7WeatherStore.error(c,p,Arc7WeatherStore.FORECAST);
-        String status = f == null ? "Not updated" : (f.stale(now) ? "STALE \u00b7 " : "Saved ") + Arc7WeatherData.formatTime(f.fetchedAt,f.zone,u.clock12 ? "MMM d h:mm a" : "MMM d HH:mm");
-        if (error.length()>0) status += " \u00b7 Refresh failed";
-        v.setTextViewText(R.id.weather_widget_status,status);
-        Intent open = new Intent(c,Arc7WeatherActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent click = PendingIntent.getActivity(c,7709,SplitAppRouter.route(c,open,-1),PendingIntent.FLAG_UPDATE_CURRENT);
-        v.setOnClickPendingIntent(R.id.weather_widget_root,click);
-        v.setOnClickPendingIntent(R.id.weather_widget_refresh,Arc7WeatherService.owner(c) ? Arc7WeatherService.refreshIntent(c) : click);
-        m.updateAppWidget(id,v);
+    private static void updateOne(Context c,AppWidgetManager manager,int id) {
+        boolean owner=Arc7WeatherService.owner(c);
+        String[] data=owner ? Arc7WeatherWidgetBridge.snapshot(c) : Arc7WeatherWidgetBridge.remoteSnapshot(c);
+        boolean available=data!=null;
+        if(data==null) data=new String[]{"WEATHER",Arc7WeatherData.MISSING,"SETUP","Open or update the separate Weather app, choose a city, then Refresh.","High —   Low —","Waiting for Weather"};
+        RemoteViews views=new RemoteViews(c.getPackageName(),R.layout.widget_arc7_weather);
+        int[] fields={R.id.weather_widget_city,R.id.weather_widget_temp,R.id.weather_widget_unit,R.id.weather_widget_summary,R.id.weather_widget_range,R.id.weather_widget_status};
+        for(int i=0;i<fields.length;i++) views.setTextViewText(fields[i],data[i]);
+        Intent open=new Intent(c,Arc7WeatherActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        PendingIntent click=PendingIntent.getActivity(c,7709,SplitAppRouter.route(c,open,-1),PendingIntent.FLAG_UPDATE_CURRENT);
+        views.setOnClickPendingIntent(R.id.weather_widget_root,click);
+        views.setOnClickPendingIntent(R.id.weather_widget_refresh,owner ? Arc7WeatherService.refreshIntent(c)
+                : available ? Arc7WeatherWidgetBridge.refreshIntent(c) : click);
+        manager.updateAppWidget(id,views);
     }
 }

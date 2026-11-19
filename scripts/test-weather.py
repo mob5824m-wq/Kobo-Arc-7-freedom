@@ -34,29 +34,33 @@ public class SharedPreferences {
 'android/content/Context.java': '''package android.content; import java.util.*; import java.io.*;
 public class Context {
  public static final int MODE_PRIVATE=0; public static final String ALARM_SERVICE="alarm",NOTIFICATION_SERVICE="notification",CONNECTIVITY_SERVICE="connectivity",POWER_SERVICE="power";
+ public android.content.pm.PackageManager pm=new android.content.pm.PackageManager(); public ContentResolver resolver=new ContentResolver(); public String permission;
  public String owner="ca.arc7freedom.weather"; public Map<String,SharedPreferences> preferences=new HashMap<String,SharedPreferences>();
  public Map<String,Object> services=new HashMap<String,Object>(); public List<Intent> started=new ArrayList<Intent>(),broadcasts=new ArrayList<Intent>();
- public File cache; public void copy(Context c){owner=c.owner;preferences=c.preferences;services=c.services;started=c.started;broadcasts=c.broadcasts;cache=c.cache;}
+ public File cache; public void copy(Context c){owner=c.owner;preferences=c.preferences;services=c.services;started=c.started;broadcasts=c.broadcasts;cache=c.cache;pm=c.pm;resolver=c.resolver;}
  public Context getApplicationContext(){return this;} public String getPackageName(){return owner;} public File getCacheDir(){return cache;}
  public SharedPreferences getSharedPreferences(String n,int m){if(!preferences.containsKey(n))preferences.put(n,new SharedPreferences());return preferences.get(n);}
  public Object getSystemService(String n){return services.get(n);} public ComponentName startService(Intent i){started.add(i);return null;}
- public void sendBroadcast(Intent i){broadcasts.add(i);}
+ public android.content.pm.PackageManager getPackageManager(){return pm;} public ContentResolver getContentResolver(){return resolver;}
+ public void sendBroadcast(Intent i){broadcasts.add(i);} public void sendBroadcast(Intent i,String p){permission=p;broadcasts.add(i);}
 }''',
 'android/content/Intent.java': '''package android.content; public class Intent {
  public static final String ACTION_BOOT_COMPLETED="boot",ACTION_MY_PACKAGE_REPLACED="replaced",ACTION_TIME_CHANGED="time",ACTION_TIMEZONE_CHANGED="zone";
- public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000; public String action,pkg; public Class<?> target; public int flags;
+ public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000; public String action,pkg; public Class<?> target; public int flags; public ComponentName component; public java.util.Map<String,Object> extras=new java.util.HashMap<String,Object>();
  public Intent(String a){action=a;} public Intent(Context c,Class<?> t){target=t;pkg=c.getPackageName();}
  public Intent setAction(String a){action=a;return this;} public String getAction(){return action;}
  public Intent setPackage(String p){pkg=p;return this;} public Intent addFlags(int f){flags|=f;return this;}
- public Intent putExtra(String k,String v){return this;} public Intent putExtra(String k,int v){return this;}
+ public Intent putExtra(String k,String v){extras.put(k,v);return this;} public Intent putExtra(String k,int v){extras.put(k,v);return this;}
+ public Intent putExtra(String k,boolean v){extras.put(k,v);return this;} public boolean getBooleanExtra(String k,boolean d){Object v=extras.get(k);return v instanceof Boolean?(Boolean)v:d;} public Intent setComponent(ComponentName c){component=c;return this;}
 }''',
-'android/content/ComponentName.java': 'package android.content; public class ComponentName { public ComponentName(Context c,Class<?> t){} }',
+'android/content/ComponentName.java': 'package android.content; public class ComponentName { public String pkg,cls; public ComponentName(Context c,Class<?> t){this(c.getPackageName(),t.getName());} public ComponentName(String p,String n){pkg=p;cls=n;} }',
 'android/content/BroadcastReceiver.java': 'package android.content; public abstract class BroadcastReceiver { public abstract void onReceive(Context c,Intent i); }',
 'android/app/IntentService.java': 'package android.app; public abstract class IntentService extends android.content.Context { public IntentService(String n){} protected abstract void onHandleIntent(android.content.Intent i); public void onDestroy(){} }',
 'android/app/PendingIntent.java': '''package android.app; import android.content.*; public class PendingIntent {
  public static final int FLAG_UPDATE_CURRENT=1; public String type; public Intent intent;
  private PendingIntent(String t,Intent i){type=t;intent=i;} public static PendingIntent getActivity(Context c,int n,Intent i,int f){return new PendingIntent("activity",i);}
  public static PendingIntent getService(Context c,int n,Intent i,int f){return new PendingIntent("service",i);}
+ public static PendingIntent getBroadcast(Context c,int n,Intent i,int f){return new PendingIntent("broadcast",i);}
 }''',
 'android/app/AlarmManager.java': '''package android.app; public class AlarmManager { public static final int ELAPSED_REALTIME=3; public int scheduled,cancelled,type; public long interval;
  public void cancel(PendingIntent p){cancelled++;} public void setInexactRepeating(int t,long start,long i,PendingIntent p){scheduled++;type=t;interval=i;}
@@ -85,13 +89,22 @@ public class Context {
  public Map<Integer,String> texts=new HashMap<Integer,String>(); public Map<Integer,android.app.PendingIntent> clicks=new HashMap<Integer,android.app.PendingIntent>();
  public RemoteViews(String p,int id){} public void setTextViewText(int id,String s){texts.put(id,s);} public void setOnClickPendingIntent(int id,android.app.PendingIntent p){clicks.put(id,p);}
 }''',
+'android/content/ContentProvider.java': 'package android.content; import android.database.Cursor; import android.net.Uri;\npublic abstract class ContentProvider { public Context context; public Context getContext(){return context;} public abstract boolean onCreate();\npublic abstract Cursor query(Uri u,String[] p,String s,String[] a,String sort);public abstract String getType(Uri u);\npublic abstract Uri insert(Uri u,ContentValues v);public abstract int update(Uri u,ContentValues v,String s,String[] a);public abstract int delete(Uri u,String s,String[] a); }',
+'android/content/ContentValues.java': 'package android.content; public class ContentValues {}',
+'android/content/ContentResolver.java': 'package android.content; import android.database.Cursor; import android.net.Uri;\npublic class ContentResolver { public ContentProvider provider; public int queries; public Cursor last;\n public Cursor query(Uri u,String[] p,String s,String[] a,String o){queries++;if(provider==null)throw new IllegalStateException("No provider");return last=provider.query(u,p,s,a,o);} }',
+'android/content/pm/PackageManager.java': 'package android.content.pm; public class PackageManager { public static final int SIGNATURE_MATCH=0; public boolean signature=true; public int checkSignatures(int a,int b){return signature?0:-1;} public int checkSignatures(String a,String b){return signature?0:-1;} }',
+'android/database/Cursor.java': 'package android.database; public interface Cursor { boolean moveToFirst(); String getString(int i); void close(); }',
+'android/database/MatrixCursor.java': 'package android.database; public class MatrixCursor implements Cursor { public Object[] row;public boolean closed;\n public MatrixCursor(String[] c){}public void addRow(Object[] r){row=r;} public boolean moveToFirst(){return row!=null;}public String getString(int i){return (String)row[i];}public void close(){closed=true;} }',
+'android/net/Uri.java': 'package android.net; public class Uri { final String s;private Uri(String v){s=v;}public static Uri parse(String v){return new Uri(v);}public boolean equals(Object v){return v instanceof Uri&&s.equals(((Uri)v).s);}public int hashCode(){return s.hashCode();} }',
+'android/os/Binder.java': 'package android.os; public class Binder { public static int getCallingUid(){return 1234;} }',
+'android/os/Process.java': 'package android.os; public class Process { public static int myUid(){return 5678;} }',
 'ca/arc7freedom/app/RootShell.java': 'package ca.arc7freedom.app; public class RootShell { public RootShell(android.content.Context c){} }',
 'ca/arc7freedom/app/NetworkCertManager.java': 'package ca.arc7freedom.app; public class NetworkCertManager { public NetworkCertManager(android.content.Context c,RootShell r){} public boolean startBrowserGateway(){return true;} }',
 'ca/arc7freedom/app/Arc7WeatherActivity.java': 'package ca.arc7freedom.app; public class Arc7WeatherActivity {}',
 'ca/arc7freedom/app/SplitAppRouter.java': 'package ca.arc7freedom.app; public class SplitAppRouter { public static android.content.Intent route(android.content.Context c,android.content.Intent i,int n){return i;} }',
 'ca/arc7freedom/app/R.java': '''package ca.arc7freedom.app; public final class R {
  public static final class drawable { public static final int ic_weather=1; } public static final class layout { public static final int widget_arc7_weather=2; }
- public static final class id { public static final int weather_widget_city=3,weather_widget_temp=4,weather_widget_unit=5,weather_widget_summary=6,weather_widget_status=7,weather_widget_root=8,weather_widget_refresh=9; } }''',
+ public static final class id { public static final int weather_widget_city=3,weather_widget_temp=4,weather_widget_unit=5,weather_widget_summary=6,weather_widget_status=7,weather_widget_root=8,weather_widget_refresh=9,weather_widget_range=10; } }''',
 }
 
 HARNESS = r'''package ca.arc7freedom.app;
@@ -257,6 +270,36 @@ public class WeatherHarness {
    manager.ids=new int[0];Arc7WeatherStore.saveOptions(c,30,false,false,false);Arc7WeatherService.schedule(c);int cancelled=alarm.cancelled;check(cancelled>0,"removing widget and notifications cancels schedule");
    System.out.println("PASS Weather background/widget: non-waking/manual schedules, network policy, actual refresh, rapid-tap coalescing, no fake readings, alert opt-in/dedup/ownership and boot restore");
  }
+ static void bridge()throws Exception {
+   Context c=context(),suite=context();suite.owner="ca.arc7freedom.app";AppWidgetManager manager=AppWidgetManager.instance;manager.ids=new int[]{44};
+   Arc7WeatherWidgetBridge provider=new Arc7WeatherWidgetBridge();provider.context=c;check(provider.onCreate(),"cache provider starts");suite.resolver.provider=provider;
+   Arc7WeatherStore.savePlace(c,p,true);long realNow=System.currentTimeMillis();JSONObject current=new JSONObject(forecast);
+   current.optJSONObject("daily").put("time",new JSONArray().put(realNow/1000));
+   Arc7WeatherStore.store(c,p,"forecast",current.toString(),realNow,Arc7WeatherStore.epoch(c),new Net());
+   String[] data=Arc7WeatherWidgetBridge.remoteSnapshot(suite);check(data.length==6&&data[0].equals(p.name)&&data[4].contains("High 12")&&data[4].contains("Low 4"),"signed cached high/low snapshot, no coordinates");
+   check(((android.database.MatrixCursor)suite.resolver.last).closed,"remote cursor always closed");
+   new Arc7WeatherWidgetProvider().onUpdate(suite,manager,new int[]{44});
+   check(manager.view.texts.get(R.id.weather_widget_range).equals(data[4])&&manager.view.clicks.get(R.id.weather_widget_refresh).type.equals("broadcast"),"old suite widget uses separate Weather high/low and forwarded refresh");
+   Intent request=manager.view.clicks.get(R.id.weather_widget_refresh).intent;check(request.component.pkg.equals("ca.arc7freedom.weather"),"refresh explicitly targets owning package");
+   int started=c.started.size();new Arc7WeatherWidgetRequestReceiver().onReceive(c,request);
+   check(c.started.size()==started+1&&Arc7WeatherWidgetBridge.hasLegacyWidgets(c),"legacy refresh starts only owning Weather service");check(suite.started.isEmpty(),"suite does not start its own weather jobs");
+   manager.ids=new int[0];Arc7WeatherStore.saveOptions(c,30,false,false,false);Arc7WeatherService.schedule(c);
+   check(((AlarmManager)c.getSystemService(Context.ALARM_SERVICE)).scheduled>0&&Arc7WeatherService.hasWidgets(c),"legacy-only widget retains owning Weather schedule");
+   manager.ids=new int[]{44};Arc7WeatherWidgetBridge.notifyLegacy(c);Intent changed=c.broadcasts.get(c.broadcasts.size()-1);
+   check(c.permission.equals(Arc7WeatherWidgetBridge.PERMISSION)&&changed.component.cls.endsWith("CacheReceiver"),"signed explicit cache change receiver");
+   new Arc7WeatherWidgetCacheReceiver().onReceive(suite,changed);check(suite.broadcasts.get(suite.broadcasts.size()-1).getBooleanExtra("legacy_active",false),"Weather reinstall re-registers pinned suite widgets");
+   c.pm.signature=false;try{provider.query(Arc7WeatherWidgetBridge.URI,null,null,null,null);throw new AssertionError("untrusted UID");}catch(SecurityException expected){}
+   check(!Arc7WeatherWidgetBridge.hasLegacyWidgets(c),"missing/differently signed suite cannot keep alarm alive");c.pm.signature=true;
+   suite.pm.signature=false;int queries=suite.resolver.queries;check(Arc7WeatherWidgetBridge.remoteSnapshot(suite)==null&&suite.resolver.queries==queries,"untrusted Weather never queried");suite.pm.signature=true;
+   try{provider.query(Uri.parse("content://ca.arc7freedom.weather.widget/private"),null,null,null,null);throw new AssertionError();}catch(IllegalArgumentException expected){}
+   try{provider.insert(Arc7WeatherWidgetBridge.URI,new ContentValues());throw new AssertionError();}catch(UnsupportedOperationException expected){}
+   try{provider.update(Arc7WeatherWidgetBridge.URI,new ContentValues(),null,null);throw new AssertionError();}catch(UnsupportedOperationException expected){}
+   try{provider.delete(Arc7WeatherWidgetBridge.URI,null,null);throw new AssertionError();}catch(UnsupportedOperationException expected){}
+   suite.resolver.provider=null;Arc7WeatherWidgetProvider.refreshAll(suite);check(manager.view.texts.get(R.id.weather_widget_status).contains("Waiting"),"missing Weather shown honestly");
+   new Arc7WeatherWidgetProvider().onDisabled(suite);Intent disabled=suite.broadcasts.get(suite.broadcasts.size()-1);new Arc7WeatherWidgetRequestReceiver().onReceive(c,disabled);
+   check(!Arc7WeatherWidgetBridge.hasLegacyWidgets(c),"last legacy widget removal clears registration");
+   System.out.println("PASS signed Weather widget bridge: actual provider/read-only/UID guards, high-low rendering, cursor close, own-UID manual and legacy scheduling, missing app, re-registration and disable cleanup");
+ }
  static void radar()throws Exception {
    for(double lat:new double[]{-85,-43,0,43.589,85})equal(Arc7WeatherRadarMath.latitude(Arc7WeatherRadarMath.y(lat,5),5),lat,"Mercator round trip");
    equal(Arc7WeatherRadarMath.longitude(Arc7WeatherRadarMath.x(-79.644,5),5),-79.644,"longitude round trip");check(Arc7WeatherRadarMath.wrap(-1,5)==31,"dateline wrap");
@@ -269,7 +312,7 @@ public class WeatherHarness {
  }
  public static void main(String[] args)throws Exception {
    fixtures=new File(args[0]);forecast=read("forecast.json");air=read("air.json");ca=read("ca.json");us=read("us.json");
-   models();alerts();stores();radar();network();
+   models();alerts();stores();radar();network();bridge();
  }
 }'''
 
@@ -353,6 +396,17 @@ def static_checks():
         text = other.read_text()
         assert 'Arc7WeatherService' not in text and 'Arc7WeatherBootReceiver' not in text, other
         assert 'android.permission.ACCESS_FINE_LOCATION' not in text, other
+    provider = manifest.find("application/provider")
+    assert provider.get(NS+'authorities') == 'ca.arc7freedom.weather.widget'
+    assert provider.get(NS+'readPermission') == 'ca.arc7freedom.permission.WEATHER_WIDGET' and provider.get(NS+'exported') == 'true'
+    permission = manifest.find('permission')
+    assert permission.get(NS+'protectionLevel') == 'signature'
+    request = next(x for x in manifest.findall('application/receiver') if x.get(NS+'name').endswith('WidgetRequestReceiver'))
+    assert request.get(NS+'permission') == 'ca.arc7freedom.permission.WEATHER_WIDGET'
+    suite = ET.parse(ROOT/'app/src/main/AndroidManifest.xml').getroot()
+    cache = next(x for x in suite.findall('application/receiver') if x.get(NS+'name').endswith('WidgetCacheReceiver'))
+    assert cache.get(NS+'permission') == 'ca.arc7freedom.permission.WEATHER_WIDGET'
+    assert 'weather_widget_range' in (ROOT/'app/src/main/res/layout/widget_arc7_weather.xml').read_text()
     store = (SRC / 'Arc7WeatherStore.java').read_text()
     assert 'Environment.getExternalStorageDirectory' not in store and 'new File("/sdcard' not in store
     assert '"forecast_days=14' in store or '&forecast_days=14' in store
@@ -391,7 +445,8 @@ def main():
         sources += [harness, *(ROOT/'tests/support/org/json').glob('*.java')]
         sources += [SRC/name for name in ('Arc7WeatherData.java','Arc7WeatherStore.java', 'Arc7WeatherRadarMath.java',
                     'Arc7WeatherTransport.java','Arc7WeatherService.java','Arc7WeatherWidgetProvider.java',
-                    'Arc7WeatherBootReceiver.java','AppNetworkScope.java')]
+                    'Arc7WeatherBootReceiver.java','Arc7WeatherWidgetBridge.java','Arc7WeatherWidgetRequestReceiver.java',
+                    'Arc7WeatherWidgetCacheReceiver.java','AppNetworkScope.java')]
         classes = tmp/'classes'
         classes.mkdir()
         subprocess.run([str(javac), '-encoding','UTF-8','-d',str(classes), *map(str,sources)], check=True)
