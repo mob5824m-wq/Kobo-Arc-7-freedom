@@ -151,8 +151,10 @@ public final class MorpheEngine {
         public String videoId = "";
         public String browseId = "";
         public String playlistId = "";
-        public String collectionType = ""; // album / playlist, never a pretend playable video
-        public boolean isCollection() { return collectionType.length()>0 && (browseId.length()>0 || playlistId.length()>0); }
+        public String collectionType = ""; // album / playlist / artist, never a pretend playable video
+        public boolean isArtist() { return "artist".equals(collectionType) && browseId.matches("UC[A-Za-z0-9_-]{22}"); }
+        public boolean isCollection() { return ("album".equals(collectionType) || "playlist".equals(collectionType)) && (browseId.length()>0 || playlistId.length()>0); }
+        public boolean isBrowsable() { return isArtist() || isCollection(); }
         public String title = "";
         public String author = "";
         public String channelId = "";
@@ -919,6 +921,8 @@ public final class MorpheEngine {
      * Supports songs, music videos, albums, artists, community playlists, moods & radio mixes.
      */
     public static List<MediaItem> searchYouTubeMusic(Context ctx, String query, String filterMode) throws Exception {
+        filterMode = filterMode == null ? "songs" : filterMode.toLowerCase(Locale.US);
+        final boolean entitiesOnly = "artists".equals(filterMode) || "albums".equals(filterMode) || filterMode.contains("playlists");
         JSONObject payload = new JSONObject();
         JSONObject context = new JSONObject();
         JSONObject client = new JSONObject();
@@ -936,6 +940,8 @@ public final class MorpheEngine {
             payload.put("params", "EgWKAQIIAWoKEAkQBRAKEAMQBA%3D%3D");
         } else if ("videos".equalsIgnoreCase(filterMode)) {
             payload.put("params", "EgWKAQIQAWoKEAkQChAFEAMQBA%3D%3D");
+        } else if ("artists".equalsIgnoreCase(filterMode)) {
+            payload.put("params", "EgWKAQIgAWoMEA4QChADEAQQCRAF");
         } else if ("albums".equalsIgnoreCase(filterMode)) {
             payload.put("params", "EgWKAQIYAWoMEA4QChADEAQQCRAF");
         } else if ("playlists".equalsIgnoreCase(filterMode)) {
@@ -957,14 +963,18 @@ public final class MorpheEngine {
                     "https://music.youtube.com/youtubei/v1/search?prettyPrint=false",
                     payload.toString(), hdrs, 14000);
             List<MediaItem> items = parseYouTubeItemsRecursive(new JSONObject(raw), true);
-            if ("albums".equals(filterMode) || filterMode.contains("playlists")) {
-                List<MediaItem> collections=new ArrayList<MediaItem>();
-                for(MediaItem item:items) if(item.isCollection()) collections.add(item);
-                return collections;
+            List<MediaItem> matching = new ArrayList<MediaItem>();
+            for (MediaItem item : items) {
+                if ("artists".equals(filterMode) ? item.isArtist()
+                        : "albums".equals(filterMode) ? "album".equals(item.collectionType) && item.isCollection()
+                        : filterMode.contains("playlists") ? "playlist".equals(item.collectionType) && item.isCollection()
+                        : !item.isBrowsable() && item.videoId.matches("[A-Za-z0-9_-]{11}")) matching.add(item);
             }
-            if (!items.isEmpty()) return items;
+            // Artist/collection searches must never silently turn into unrelated song searches.
+            if (entitiesOnly || !matching.isEmpty()) return matching;
         } catch (Exception unavailable) {
-            if ("albums".equals(filterMode) || filterMode.contains("playlists")) throw new IOException("Music collections are unavailable. No unrelated song results were substituted.",unavailable);
+            if (entitiesOnly) throw new IOException(("artists".equals(filterMode) ? "Artist search" : "Music collections")
+                    + " unavailable. No unrelated song results were substituted.", unavailable);
         }
 
         // Fallback to standard InnerTube + Cloud music search
@@ -1019,7 +1029,7 @@ public final class MorpheEngine {
         // 2. YouTube Music `musicResponsiveListItemRenderer` & `musicTwoRowItemRenderer`
         JSONObject mrl = obj.optJSONObject("musicResponsiveListItemRenderer");
         if (mrl != null) {
-            MediaItem collection=musicMode ? parseMusicCollectionRenderer(mrl) : null;
+            MediaItem collection=musicMode ? parseMusicEntityRenderer(mrl) : null;
             if(collection!=null) { out.put(collection.browseId.length()>0 ? collection.browseId : collection.playlistId,collection); return; }
             MediaItem it = parseMusicListItemRenderer(mrl);
             if (it != null && it.videoId.length() >= 8 && !out.containsKey(it.videoId)) {
@@ -1028,7 +1038,7 @@ public final class MorpheEngine {
         }
         JSONObject mtr = obj.optJSONObject("musicTwoRowItemRenderer");
         if (mtr != null) {
-            MediaItem collection=musicMode ? parseMusicCollectionRenderer(mtr) : null;
+            MediaItem collection=musicMode ? parseMusicEntityRenderer(mtr) : null;
             if(collection!=null) { out.put(collection.browseId.length()>0 ? collection.browseId : collection.playlistId,collection); return; }
             MediaItem it = parseMusicTwoRowRenderer(mtr);
             if (it != null && it.videoId.length() >= 8 && !out.containsKey(it.videoId)) {
@@ -1071,7 +1081,7 @@ public final class MorpheEngine {
         return it;
     }
 
-    private static MediaItem parseMusicCollectionRenderer(JSONObject renderer) {
+    private static MediaItem parseMusicEntityRenderer(JSONObject renderer) {
         JSONObject title=renderer.optJSONObject("title");
         JSONArray flex=renderer.optJSONArray("flexColumns");
         if(title==null && flex!=null && flex.length()>0 && flex.optJSONObject(0)!=null) {
@@ -1079,18 +1089,34 @@ public final class MorpheEngine {
             if(col!=null) title=col.optJSONObject("text");
         }
         JSONObject nav=renderer.optJSONObject("navigationEndpoint");
-        if(nav==null && title!=null && title.optJSONArray("runs")!=null && title.optJSONArray("runs").length()>0) {
-            JSONObject run=title.optJSONArray("runs").optJSONObject(0); if(run!=null) nav=run.optJSONObject("navigationEndpoint");
+        if ((nav == null || (nav.optJSONObject("browseEndpoint") == null && nav.optJSONObject("watchPlaylistEndpoint") == null))
+                && title != null && title.optJSONArray("runs") != null) {
+            JSONArray runs = title.optJSONArray("runs");
+            for (int i = 0; i < runs.length(); i++) {
+                JSONObject run = runs.optJSONObject(i), endpoint = run == null ? null : run.optJSONObject("navigationEndpoint");
+                if (endpoint != null && endpoint.optJSONObject("browseEndpoint") != null) { nav = endpoint; break; }
+            }
         }
         if(nav==null) return null;
         JSONObject browse=nav.optJSONObject("browseEndpoint"), watch=nav.optJSONObject("watchPlaylistEndpoint");
         String id=browse==null ? "" : browse.optString("browseId","");
         String playlist=watch==null ? "" : watch.optString("playlistId","");
-        String type=id.startsWith("MPRE") ? "album" : id.startsWith("VL") || playlist.length()>0 ? "playlist" : "";
+        String pageType = "";
+        if (browse != null) {
+            JSONObject supported = browse.optJSONObject("browseEndpointContextSupportedConfigs");
+            JSONObject config = supported == null ? null : supported.optJSONObject("browseEndpointContextMusicConfig");
+            if (config != null) pageType = config.optString("pageType", "");
+        }
+        String type = id.matches("UC[A-Za-z0-9_-]{22}") && (pageType.length() == 0 || "MUSIC_PAGE_TYPE_ARTIST".equals(pageType))
+                ? "artist" : id.startsWith("MPRE") ? "album" : id.startsWith("VL") || playlist.length()>0 ? "playlist" : "";
         if(type.length()==0) return null;
         MediaItem item=new MediaItem(); item.browseId=id; item.playlistId=playlist;
         if(item.playlistId.length()==0 && id.startsWith("VL")) item.playlistId=id.substring(2);
         item.collectionType=type; item.title=readRunsText(title); item.author=readRunsText(renderer.optJSONObject("subtitle")); item.isMusicTrack=true;
+        if (item.author.length() == 0 && flex != null && flex.length() > 1 && flex.optJSONObject(1) != null) {
+            JSONObject column = flex.optJSONObject(1).optJSONObject("musicResponsiveListItemFlexColumnRenderer");
+            if (column != null) item.author = readRunsText(column.optJSONObject("text"));
+        }
         JSONObject thumbnail=renderer.optJSONObject("thumbnailRenderer"); if(thumbnail==null) thumbnail=renderer.optJSONObject("thumbnail");
         if(thumbnail!=null && thumbnail.optJSONObject("musicThumbnailRenderer")!=null) thumbnail=thumbnail.optJSONObject("musicThumbnailRenderer").optJSONObject("thumbnail");
         item.thumbnailUrl=bestThumbFromContainer(thumbnail,"");
@@ -1102,6 +1128,7 @@ public final class MorpheEngine {
                 .put("clientVersion","1.20260804.16.00").put("hl","en").put("gl","CA"));
     }
     public static List<MediaItem> browseMusicCollection(Context ctx,MediaItem item) throws Exception {
+        if (item == null || !item.isCollection()) throw new IOException("Choose an album or playlist");
         if(item.playlistId.startsWith("local:")) return loadSavedList(ctx,"ytm_local_"+item.playlistId.substring(6));
         String browse=item.browseId.length()>0 ? item.browseId : "VL"+item.playlistId;
         if(!browse.matches("[A-Za-z0-9_-]{5,200}")) throw new IOException("Invalid album/playlist id");
@@ -1116,10 +1143,72 @@ public final class MorpheEngine {
         if(shelf==null) shelf=findMusicShelf(area,"musicShelfRenderer",0);
         List<MediaItem> tracks=new ArrayList<MediaItem>();
         if(shelf!=null) for(MediaItem track:parseYouTubeItemsRecursive(shelf,true))
-            if(!track.isCollection() && track.videoId.matches("[A-Za-z0-9_-]{11}")) tracks.add(track);
+            if(!track.isBrowsable() && track.videoId.matches("[A-Za-z0-9_-]{11}")) tracks.add(track);
         if(tracks.isEmpty()) throw new IOException("No public tracks returned. The playlist may be private, empty, require sign-in or use an unsupported layout.");
         return tracks; // First page, bounded to 60 for the tablet's heap. The UI labels this limit.
     }
+    /** Public artist songs and releases only, never the header's radio/shuffle buttons or related artists. */
+    public static List<MediaItem> browseMusicArtist(Context ctx, MediaItem artist) throws Exception {
+        if (artist == null || !artist.isArtist()) throw new IOException("Invalid music artist identity");
+        JSONObject body = new JSONObject().put("context", musicBrowseContext()).put("browseId", artist.browseId);
+        Map<String,String> headers = new LinkedHashMap<String,String>();
+        headers.put("User-Agent", WEB_UA); headers.put("Origin", "https://music.youtube.com");
+        headers.put("X-YouTube-Client-Name", "67"); headers.put("X-YouTube-Client-Version", "1.20260804.16.00");
+        String raw = requestHttpsString(ctx, "POST", "https://music.youtube.com/youtubei/v1/browse?prettyPrint=false",
+                body.toString(), headers, 16000);
+        return parseMusicArtistPage(new JSONObject(raw));
+    }
+
+    public static List<MediaItem> parseMusicArtistPage(JSONObject page) throws IOException {
+        JSONObject contents = page.optJSONObject("contents");
+        JSONObject primary = contents == null ? null : contents.optJSONObject("singleColumnBrowseResultsRenderer");
+        if (primary == null && contents != null) primary = contents.optJSONObject("twoColumnBrowseResultsRenderer");
+        JSONArray tabs = primary == null ? null : primary.optJSONArray("tabs");
+        JSONObject selected = null;
+        if (tabs != null) for (int i = 0; i < tabs.length(); i++) {
+            JSONObject tab = tabs.optJSONObject(i), renderer = tab == null ? null : tab.optJSONObject("tabRenderer");
+            if (renderer != null && (selected == null || renderer.optBoolean("selected", false))) {
+                selected = renderer;
+                if (renderer.optBoolean("selected", false)) break;
+            }
+        }
+        // Only the primary artist tab; a sidebar can contain unrelated recommendations.
+        JSONObject sections = selected == null ? null : findMusicShelf(selected.optJSONObject("content"), "sectionListRenderer", 0);
+        JSONArray rows = sections == null ? null : sections.optJSONArray("contents");
+        LinkedHashMap<String,MediaItem> results = new LinkedHashMap<String,MediaItem>();
+        if (rows != null) for (int i = 0; i < rows.length() && i < 100 && results.size() < 60; i++) {
+            JSONObject row = rows.optJSONObject(i); if (row == null) continue;
+            JSONObject shelf = row.optJSONObject("musicShelfRenderer");
+            boolean directSongs = shelf != null;
+            if (shelf == null) shelf = row.optJSONObject("musicCarouselShelfRenderer");
+            if (shelf == null) continue;
+            String title = readRunsText(shelf.optJSONObject("title"));
+            JSONObject header = shelf.optJSONObject("header");
+            JSONObject basic = header == null ? null : header.optJSONObject("musicCarouselShelfBasicHeaderRenderer");
+            if (title.length() == 0 && basic != null) title = readRunsText(basic.optJSONObject("title"));
+            title = title.toLowerCase(Locale.US).trim();
+            boolean songs = "songs".equals(title) || "top songs".equals(title) || "popular songs".equals(title)
+                    || (directSongs && title.length() == 0);
+            boolean releases = "albums".equals(title) || "singles".equals(title) || "singles & eps".equals(title)
+                    || "singles and eps".equals(title) || "eps".equals(title);
+            if (!songs && !releases) continue;
+            JSONArray entries = shelf.optJSONArray("contents");
+            if (entries == null) continue;
+            LinkedHashMap<String,MediaItem> parsed = new LinkedHashMap<String,MediaItem>();
+            walkRenderers(entries, parsed, true, 0);
+            for (MediaItem item : parsed.values()) {
+                if (songs && !item.isBrowsable() && item.videoId.matches("[A-Za-z0-9_-]{11}")) {
+                    results.put("video:" + item.videoId, item);
+                } else if (releases && "album".equals(item.collectionType) && item.isCollection()) {
+                    results.put("album:" + item.browseId, item);
+                }
+                if (results.size() >= 60) break;
+            }
+        }
+        if (results.isEmpty()) throw new IOException("No public artist songs or albums returned. The page may require sign-in or use an unsupported layout.");
+        return new ArrayList<MediaItem>(results.values());
+    }
+
     /** Never treat recommendations / carousels below an unavailable collection as its songs. */
     private static JSONObject findMusicShelf(Object node,String renderer,int depth) {
         if(node==null || depth>16) return null;
@@ -1425,6 +1514,21 @@ public final class MorpheEngine {
      */
     private static void bindLocalPlayback(final Context ctx, final ResolvedPlayback res, boolean audioOnlyPreferred) {
         if (Thread.currentThread().isInterrupted()) return;
+        // Music must not take the HLS/video path merely because that URL was listed first.
+        // Probe the real esds/ASC and prepare audio-only classic M4A before trying HLS.
+        if (audioOnlyPreferred) {
+            for (int i = 0; i < res.audioStreams.size() && i < 3; i++) {
+                StreamVariant candidate = res.audioStreams.get(i);
+                if (!candidate.isDashTrack()) continue;
+                String audio = spoolAudioTrack(ctx, candidate);
+                if (audio.length() > 0) {
+                    res.localAudioProxyUrl = audio; res.localVideoProxyUrl = audio;
+                    res.muxedLocally = true; res.muxNote = "Verified AAC-LC · preparing audio-only classic M4A";
+                    return;
+                }
+                if (Thread.currentThread().isInterrupted()) return;
+            }
+        }
         if (res.hlsManifestUrl.length() > 0) {
             try {
                 bindHlsPlayback(ctx, res, audioOnlyPreferred);
@@ -1577,9 +1681,7 @@ public final class MorpheEngine {
     private static void bindHlsPlayback(final Context ctx, final ResolvedPlayback res,
                                            final boolean audioOnly) throws Exception {
         final MorpheHls.Transport transport = hlsTransport(ctx, res.hlsUserAgent);
-        final MorpheHls.Selection selected = MorpheHls.select(transport, res.hlsManifestUrl, audioOnly);
-        MorpheHls.probe(transport, selected.primary());
-        if (selected.video != null && selected.audio != null) MorpheHls.probe(transport, selected.audio);
+        final MorpheHls.Selection selected = MorpheHls.selectForPlayback(transport, res.hlsManifestUrl, audioOnly);
         String local;
         if (selected.fragmented()) {
             final MorpheRemuxer.SegmentSource video = selected.video != null
@@ -1632,9 +1734,8 @@ public final class MorpheEngine {
     private static String spoolAudioTrack(final Context ctx, final StreamVariant audioTrack) {
         try {
             final MorpheRemuxer.Track aT = toRemuxTrack(ctx, audioTrack);
-            // Verify init segment immediately so HTTP 403 URLs never get registered as valid streams.
-            byte[] aInit = aT.fetcher.fetch(0L, aT.initEnd);
-            if (aInit == null || aInit.length < 8) return "";
+            // An ftyp box or an mp4a MIME label alone says nothing about AAC-LC support.
+            MorpheRemuxer.validateLegacyAudio(aT);
             return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                 @Override
                 public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
@@ -1688,6 +1789,37 @@ public final class MorpheEngine {
         }
         if (video.isDashTrack() || !video.hasAudio) return "";
         return registerPlayableStreamSlot(ctx, video.directHttpsUrl, video.userAgent, video.mimeType);
+    }
+
+    /** One bounded recovery when a ROM prepares video but exposes no audio track. */
+    public static String startVideoWithAudioFallback(Context ctx, ResolvedPlayback res) {
+        if (res == null || res.audioStreams.isEmpty() || !res.audioStreams.get(0).isDashTrack()) return "";
+        StreamVariant video = pickBestVideoForMux(res);
+        if (video == null || Thread.currentThread().isInterrupted()) return "";
+        // Never retry the same HLS playlist or fall back to a raw/silent video-only URL.
+        return startMuxForVariant(ctx, res, video);
+    }
+
+    /** One alternative container for Android-4 ROMs that reject M4A/HLS with -1010. */
+    public static String startAudioCompatibilityFallback(final Context ctx, ResolvedPlayback res) {
+        if (res == null || Thread.currentThread().isInterrupted()) return "";
+        for (int i = 0; i < res.audioStreams.size() && i < 3; i++) {
+            StreamVariant candidate = res.audioStreams.get(i);
+            if (!candidate.isDashTrack()) continue;
+            try {
+                final MorpheRemuxer.Track track = toRemuxTrack(ctx, candidate);
+                MorpheRemuxer.validateLegacyAudio(track);
+                checkResolutionCancelled();
+                return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
+                    @Override public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
+                        MorpheRemuxer.remuxSingleTrackAdts(track, out, progress);
+                    }
+                }, -1L, "audio/aac");
+            } catch (Exception unsupported) {
+                if (Thread.currentThread().isInterrupted()) return "";
+            }
+        }
+        return "";
     }
 
     /** Spools a single adaptive audio track (or wraps a progressive URL) for the audio player. */
@@ -2451,6 +2583,7 @@ public final class MorpheEngine {
     }
 
     private static String savedIdentity(MediaItem item) {
+        if (item.isArtist()) return "artist:" + item.browseId;
         if(item.isCollection()) {
             if("album".equals(item.collectionType) && item.browseId.length()>0) return "album:"+item.browseId;
             String playlist=item.playlistId.length()>0 ? item.playlistId : item.browseId.startsWith("VL") ? item.browseId.substring(2) : item.browseId;

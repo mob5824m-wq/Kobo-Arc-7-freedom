@@ -136,15 +136,27 @@ public final class MorpheHls {
     }
 
     public static Selection select(Transport transport, String masterUrl, boolean audioOnly) throws Exception {
-        return select(transport, masterUrl, audioOnly, 0);
+        return select(transport, masterUrl, audioOnly, 0, false);
     }
 
-    private static Selection select(Transport transport, String url, boolean audioOnly, int depth) throws Exception {
+    /**
+     * Android 4.2 LiveSession does not implement EXT-X-MEDIA/AUDIO rendition switching.
+     * Prefer actual embedded audio, or separate fMP4 tracks that our remuxer can combine.
+     * Try at most three compatible renditions, then let the caller fall back to DASH/a
+     * different client. Never advertise a video-only TS playlist as successful playback.
+     */
+    public static Selection selectForPlayback(Transport transport, String masterUrl, boolean audioOnly) throws Exception {
+        return select(transport, masterUrl, audioOnly, 0, true);
+    }
+
+    private static Selection select(Transport transport, String url, boolean audioOnly, int depth,
+                                    boolean verifyLegacy) throws Exception {
         if (depth > 3) throw new IOException("Too many nested HLS playlists");
         String raw = text(transport, url);
         if (!raw.contains("#EXT-X-STREAM-INF:")) {
             Selection direct = new Selection();
             if (audioOnly) direct.audio = parseMedia(url, raw); else direct.video = parseMedia(url, raw);
+            if (verifyLegacy) requireLegacyTracks(transport, direct, audioOnly);
             return direct;
         }
         final List<Variant> variants = new ArrayList<Variant>();
@@ -186,6 +198,10 @@ public final class MorpheHls {
                     if (a.hasVideo != b.hasVideo) return a.hasVideo ? 1 : -1;
                     return a.bandwidth < b.bandwidth ? -1 : (a.bandwidth == b.bandwidth ? 0 : 1);
                 }
+                // Embedded audio avoids Android 4.2's unsupported alternate-audio master.
+                // Keep it ahead of separate renditions within the bounded probe budget.
+                if ((a.audioGroup.length() == 0) != (b.audioGroup.length() == 0))
+                    return a.audioGroup.length() == 0 ? -1 : 1;
                 // Prefer SD for this 2013 decoder/network; offer 720p only when SD isn't served.
                 int sa = a.height > 0 && a.height <= 480 ? 1000 + a.height : a.height;
                 int sb = b.height > 0 && b.height <= 480 ? 1000 + b.height : b.height;
@@ -193,25 +209,88 @@ public final class MorpheHls {
             }
         });
         if (variants.isEmpty()) throw new IOException("No Android 4.2 H.264/AAC HLS rendition (720p/30fps maximum)");
-        Variant chosen = variants.get(0);
-        Map<String, String> rendition = null;
-        for (Map<String, String> candidate : audio) {
-            if (!chosen.audioGroup.equals(value(candidate, "GROUP-ID"))) continue;
-            if (rendition == null || "YES".equals(candidate.get("DEFAULT"))) rendition = candidate;
+        Exception failure = null;
+        int limit = verifyLegacy ? Math.min(3, variants.size()) : 1;
+        for (int index = 0; index < limit; index++) {
+            checkCancelled();
+            Variant chosen = variants.get(index);
+            try {
+                Map<String, String> rendition = null;
+                for (Map<String, String> candidate : audio) {
+                    if (!chosen.audioGroup.equals(value(candidate, "GROUP-ID"))) continue;
+                    if (rendition == null || "YES".equals(candidate.get("DEFAULT"))) rendition = candidate;
+                }
+                Selection s;
+                if (audioOnly && rendition != null) {
+                    s = select(transport, absolute(url, rendition.get("URI")), true, depth + 1, false);
+                    s.label = "HLS AAC audio";
+                } else {
+                    s = select(transport, chosen.url, audioOnly, depth + 1, false);
+                    s.label = audioOnly ? "HLS AAC audio" : "HLS " + chosen.height + "p H.264/AAC";
+                    s.codecs = chosen.codecs; s.bandwidth = chosen.bandwidth;
+                    if (!audioOnly && rendition != null) {
+                        Selection a = select(transport, absolute(url, rendition.get("URI")), true, depth + 1, false);
+                        s.audio = a.primary();
+                    }
+                }
+                if (verifyLegacy) requireLegacyTracks(transport, s, audioOnly);
+                return s;
+            } catch (Exception unavailable) {
+                checkCancelled();
+                if (!verifyLegacy) throw unavailable;
+                failure = unavailable;
+            }
         }
-        if (audioOnly && rendition != null) {
-            Selection s = select(transport, absolute(url, rendition.get("URI")), true, depth + 1);
-            s.label = "HLS AAC audio";
-            return s;
+        throw new IOException("No HLS rendition with playable audio: "
+                + (failure != null ? failure.getMessage() : "no compatible stream"), failure);
+    }
+
+    /** Inspect actual tracks, not just CODECS declarations or the first TS sync byte. */
+    static void requireLegacyTracks(Transport transport, Selection selection, boolean audioOnly) throws Exception {
+        if (!selection.fragmented() && selection.video != null && selection.audio != null)
+            throw new IOException("Android 4.2 cannot combine separate MPEG-TS HLS audio/video; a combined stream or DASH remux is required");
+        if (!audioOnly && selection.video == null) throw new IOException("HLS has no video track");
+        if (selection.video != null) requireTracks(transport, selection.video, !audioOnly,
+                selection.audio == null);
+        if (selection.audio != null) requireTracks(transport, selection.audio, false, true);
+    }
+
+    private static void requireTracks(Transport transport, Playlist playlist, boolean video, boolean audio) throws Exception {
+        if (playlist.encrypted) throw new IOException("Cannot verify audio in encrypted HLS; trying another stream");
+        if (playlist.init != null) {
+            byte[] init = read(transport, playlist.init, MAX_PLAYLIST_BYTES);
+            if (video && !MorpheRemuxer.hasTrack(init, true)) throw new IOException("HLS initialization has no H.264 video track");
+            if (audio && !MorpheRemuxer.hasTrack(init, false)) throw new IOException("HLS initialization has no AAC audio track");
+            return;
         }
-        Selection s = select(transport, chosen.url, audioOnly, depth + 1);
-        s.label = audioOnly ? "HLS AAC audio" : "HLS " + chosen.height + "p H.264/AAC";
-        s.codecs = chosen.codecs; s.bandwidth = chosen.bandwidth;
-        if (!audioOnly && rendition != null) {
-            Selection a = select(transport, absolute(url, rendition.get("URI")), true, depth + 1);
-            s.audio = a.primary();
+        Part first = playlist.segments.get(0);
+        Response response = transport.open(first.url, first.range != null ? first.range : "bytes=0-65535");
+        byte[] data;
+        try {
+            if (response.status != 200 && response.status != 206) throw new IOException("HLS media HTTP " + response.status);
+            if (first.range != null && response.status != 206) throw new IOException("HLS byte range was ignored");
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096]; int n;
+            while (out.size() < 65536 && response.body != null
+                    && (n = response.body.read(buffer, 0, Math.min(buffer.length, 65536 - out.size()))) != -1) {
+                checkCancelled(); out.write(buffer, 0, n);
+            }
+            checkCancelled(); data = out.toByteArray();
+        } finally { response.close(); }
+        if (data.length >= 376 && data[0] == 0x47 && data[188] == 0x47) {
+            LegacyTsProbe.Tracks tracks = LegacyTsProbe.tracks(data);
+            if (video && !tracks.video) throw new IOException("HLS transport stream has no H.264 video track");
+            if (audio && !tracks.audio) throw new IOException("HLS transport stream has no AAC audio track");
+        } else {
+            int offset = 0;
+            if (data.length >= 10 && data[0] == 'I' && data[1] == 'D' && data[2] == '3') {
+                offset = 10 + ((data[6] & 127) << 21) + ((data[7] & 127) << 14)
+                        + ((data[8] & 127) << 7) + (data[9] & 127);
+            }
+            boolean aac = offset <= data.length - 7 && (data[offset] & 255) == 255
+                    && (data[offset + 1] & 246) == 240 && (data[offset + 2] >>> 6 & 3) == 1;
+            if (video || !aac) throw new IOException("HLS has no verified H.264/AAC-LC tracks");
         }
-        return s;
     }
 
     private static String value(Map<String, String> map, String name) {

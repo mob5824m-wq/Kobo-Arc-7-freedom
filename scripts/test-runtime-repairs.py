@@ -16,6 +16,8 @@ import subprocess
 import tempfile
 import threading
 import urllib.parse
+from array import array
+from math import sqrt
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "app/src/main/java/ca/arc7freedom/app"
@@ -87,6 +89,54 @@ public class HlsRepairHarness {
         byte[] body=Files.readAllBytes(file.toPath());
         check(body.length>1000,"No actual media was written");
         check(new String(body,4,4,"ISO-8859-1").equals("ftyp"),"Not classic MP4");
+    }
+    static void audioPresenceRegression() throws Exception {
+        String separate="#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"Original\",DEFAULT=YES,URI=\"sound-audio.m3u8\"\n"
+            +"#EXT-X-STREAM-INF:BANDWIDTH=500000,CODECS=\"avc1.42c00a,mp4a.40.2\",RESOLUTION=640x480,AUDIO=\"aac\"\nsilent-video.m3u8\n";
+        put("separate-ts-master.m3u8",separate);
+        MorpheHls.Selection unsafe=MorpheHls.select(transport,BASE+"separate-ts-master.m3u8",false);
+        check(unsafe.video!=null && unsafe.audio!=null,"Separate-TS regression fixture is not separate");
+        boolean failed=false;
+        try { MorpheHlsRelay.register(unsafe,transport); } catch(IOException expected) { failed=true; }
+        check(failed,"Relay handed EXT-X-MEDIA audio to Android 4.2, which ignores it");
+        failed=false;
+        try { MorpheHls.selectForPlayback(transport,BASE+"separate-ts-master.m3u8",false); }
+        catch(IOException expected) { failed=expected.getMessage().contains("separate MPEG-TS"); }
+        check(failed,"Separate TS must fail over to DASH/another client, not silently play video");
+        put("ts-audio-fallback.m3u8",separate
+            +"#EXT-X-STREAM-INF:BANDWIDTH=200000,CODECS=\"avc1.42c00a,mp4a.40.2\",RESOLUTION=64x48\nlegacy.m3u8\n");
+        MorpheHls.Selection safe=MorpheHls.selectForPlayback(transport,BASE+"ts-audio-fallback.m3u8",false);
+        check(safe.audio==null && safe.primary().url.endsWith("legacy.m3u8"),"Did not choose the embedded-audio rendition");
+        // A combined CODECS declaration is not proof that the actual PMT contains audio.
+        put("lying-master.m3u8","#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=500000,CODECS=\"avc1.42c00a,mp4a.40.2\",RESOLUTION=640x480\nsilent-video.m3u8\n"
+            +"#EXT-X-STREAM-INF:BANDWIDTH=200000,CODECS=\"avc1.42c00a,mp4a.40.2\",RESOLUTION=64x48\nlegacy.m3u8\n");
+        check(MorpheHls.selectForPlayback(transport,BASE+"lying-master.m3u8",false).primary().url.endsWith("legacy.m3u8"),
+            "Lying CODECS declaration bypassed the actual audio-track check");
+        failed=false;
+        try { MorpheHls.selectForPlayback(transport,BASE+"silent-video.m3u8",false); }
+        catch(IOException expected) { failed=expected.getMessage().contains("no AAC audio track"); }
+        check(failed,"Direct video-only TS was accepted as audio/video");
+        MorpheHls.Selection audio=MorpheHls.selectForPlayback(transport,BASE+"separate-ts-master.m3u8",true);
+        check(audio.video==null && audio.audio.url.endsWith("sound-audio.m3u8"),"Audio-only should open the real separate audio rendition");
+        check(MorpheHls.selectForPlayback(transport,BASE+"separate-master.m3u8",false).fragmented(),
+            "Separate fMP4 must remain supported through the classic remuxer");
+        byte[] video=Files.readAllBytes(new File(fixtures,"silent-video-00.ts").toPath());
+        LegacyTsProbe.Tracks tracks=LegacyTsProbe.tracks(video);
+        check(tracks.video && !tracks.audio,"Video-only PMT fixture has an audio track");
+        byte[] both=Files.readAllBytes(new File(fixtures,"legacy-00.ts").toPath());
+        tracks=LegacyTsProbe.tracks(both); check(tracks.video && tracks.audio,"Muxed TS tracks not detected");
+        tracks=LegacyTsProbe.tracks(Files.readAllBytes(new File(fixtures,"sound-audio-00.ts").toPath()));
+        check(tracks.audio && !tracks.video,"Audio-only PMT fixture has a video track");
+        boolean corrupted=false;
+        // Corrupt the PAT CRC while leaving sync bytes intact: a sync-only probe used to accept this.
+        for(int offset=0;offset+188<=both.length;offset+=188) {
+            int pid=((both[offset+1]&31)<<8)|(both[offset+2]&255);
+            if(pid==0) { both[offset+8]^=1; corrupted=true; break; }
+        }
+        check(corrupted,"No PAT in fixture"); failed=false;
+        try { LegacyTsProbe.tracks(both); } catch(IOException expected) { failed=true; }
+        check(failed,"Corrupt program table accepted");
+        System.out.println("PASS: Android-4 separate-TS audio trap rejected; bounded combined-rendition fallback, real PMT audio/video/CRC checks, audio-only and separate-fMP4 preservation");
     }
     static void pendingAndCancellation(MorpheHls.Selection selected) throws Exception {
         long originalWait = MorpheStreamServer.preparationWaitMs;
@@ -173,6 +223,7 @@ public class HlsRepairHarness {
             +"#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aac\",NAME=\"English, original\",DEFAULT=YES,URI=\"audio.m3u8\"\n"
             +"#EXT-X-STREAM-INF:BANDWIDTH=200000,CODECS=\"avc1.42c00a,mp4a.40.2\",AUDIO=\"aac\",RESOLUTION=64x48\nvideo.m3u8\n");
         put("muxed-master.m3u8",prefix+"#EXT-X-STREAM-INF:BANDWIDTH=200000,CODECS=\"avc1.42c00a,mp4a.40.2\",RESOLUTION=64x48\nmuxed.m3u8\n");
+        audioPresenceRegression();
         MorpheHls.Selection selected=MorpheHls.select(transport,BASE+"ts-master.m3u8",false);
         check(selected.primary().url.endsWith("legacy.m3u8"),"Unsupported codec/60fps was selected");
         MorpheHls.probe(transport,selected.primary());
@@ -324,6 +375,19 @@ public class CompiledHlsBindingHarness {
         byte[] buffer=new byte[8192]; int n; while((n=in.read(buffer))>=0) out.write(buffer,0,n);
         in.close(); connection.disconnect(); return out.toByteArray();
     }
+    static MorpheEngine.StreamVariant dash(File fixtures, boolean audio, String ua) throws Exception {
+        String prefix=audio ? "audio" : "video";
+        MorpheEngine.StreamVariant stream=new MorpheEngine.StreamVariant();
+        stream.directHttpsUrl="https://fixture.test/media/dash-"+prefix+".mp4";
+        stream.userAgent=ua; stream.mimeType=audio ? "audio/mp4" : "video/mp4";
+        stream.hasAudio=audio; stream.hasVideo=!audio; stream.height=audio ? 0 : 48;
+        stream.label=audio ? "48 kbps M4A" : "48p H.264";
+        stream.approxDurationMs=3000;
+        stream.contentLength=new File(fixtures,prefix+"-init.mp4").length();
+        stream.initEnd=stream.contentLength-1;
+        for(int i=0;i<(audio ? 4 : 3);i++) stream.contentLength+=new File(fixtures,String.format(Locale.US,"%s-%02d.m4s",prefix,i)).length();
+        return stream;
+    }
     public static void main(String[] args) throws Exception {
         MorpheEngine.setGatewayPortForTest(Integer.parseInt(args[0]));
         MorpheStreamServer.setCacheDir(new File(args[1]));
@@ -352,6 +416,43 @@ public class CompiledHlsBindingHarness {
         byte[] m4a=read(audio.localAudioProxyUrl);
         if(m4a.length<1000 || !new String(m4a,4,4,"ISO-8859-1").equals("ftyp")) throw new AssertionError("No playable M4A");
         MorpheEngine.cancelPlayback(ts); MorpheEngine.cancelPlayback(audio);
+        MorpheEngine.ResolvedPlayback separated=new MorpheEngine.ResolvedPlayback();
+        separated.hlsManifestUrl="https://fixture.test/media/fallback-master.m3u8"; separated.hlsUserAgent=ts.hlsUserAgent;
+        separated.videoOnlyStreams.add(dash(new File(args[2]),false,ts.hlsUserAgent));
+        separated.audioStreams.add(dash(new File(args[2]),true,ts.hlsUserAgent));
+        bind.invoke(null,null,separated,false);
+        if(!separated.muxedLocally || separated.localVideoProxyUrl.contains("/hls/"))
+            throw new AssertionError("Separate-TS audio trap did not fall back to the actual DASH H.264/AAC remux");
+        File fallback=new File(args[1],"dash-fallback.mp4"); Files.write(fallback.toPath(),read(separated.localVideoProxyUrl));
+        MorpheRemuxer.validateClassicFile(fallback,false);
+        String recovered=MorpheEngine.startVideoWithAudioFallback(null,separated);
+        File recovery=new File(args[1],"audio-recovery.mp4"); Files.write(recovery.toPath(),read(recovered));
+        MorpheRemuxer.validateClassicFile(recovery,false);
+        MorpheEngine.cancelPlayback(separated); MorpheStreamServer.cancel(recovered);
+        MorpheEngine.ResolvedPlayback music=new MorpheEngine.ResolvedPlayback();
+        music.hlsManifestUrl="https://fixture.test/media/legacy.m3u8"; music.hlsUserAgent=ts.hlsUserAgent;
+        MorpheEngine.StreamVariant lying=dash(new File(args[2]),true,ts.hlsUserAgent);
+        lying.directHttpsUrl="https://fixture.test/media/lying-audio.mp4";
+        music.audioStreams.add(lying); music.audioStreams.add(dash(new File(args[2]),true,ts.hlsUserAgent));
+        bind.invoke(null,null,music,true);
+        File musicPrimary=new File(args[1],"music-primary.m4a");Files.write(musicPrimary.toPath(),read(music.localAudioProxyUrl));
+        MorpheRemuxer.validateClassicFile(musicPrimary,true);
+        if(!music.muxNote.startsWith("Verified AAC-LC") || music.localAudioProxyUrl.contains("/hls/"))
+            throw new AssertionError("Music took HLS before validated audio or accepted an HE-AAC MIME lie");
+        String alternate=MorpheEngine.startAudioCompatibilityFallback(null,music);
+        byte[] adts=read(alternate);
+        if(adts.length<1000 || (adts[0]&255)!=255 || (adts[1]&255)!=241)throw new AssertionError("No actual ADTS compatibility audio");
+        Files.write(new File(args[1],"music-recovery.aac").toPath(),adts);
+        MorpheStreamServer.cancel(alternate);MorpheEngine.cancelPlayback(music);
+        Thread.currentThread().interrupt();
+        try{if(!MorpheEngine.startAudioCompatibilityFallback(null,music).isEmpty())throw new AssertionError("Cancelled audio fallback registered playback");}
+        finally{Thread.interrupted();}
+        System.out.println("PASS: compiled Music binding prefers validated AAC-LC/M4A before HLS, skips lying HE-AAC metadata and produces real ADTS compatibility audio; cancelled recovery registers nothing");
+        MorpheEngine.ResolvedPlayback noAudio=new MorpheEngine.ResolvedPlayback();
+        noAudio.videoOnlyStreams.add(dash(new File(args[2]),false,ts.hlsUserAgent));
+        if(!MorpheEngine.startAudioCompatibilityFallback(null,noAudio).isEmpty()) throw new AssertionError("Music recovery returned silent video");
+        if(!MorpheEngine.startVideoWithAudioFallback(null,noAudio).isEmpty()) throw new AssertionError("Audio repair returned silent video");
+        System.out.println("PASS: compiled engine rejects separate-TS HLS and produces real combined H.264/AAC classic MP4 via DASH; late missing-audio recovery uses the same remux, never raw silent video");
         final MorpheEngine.ResolvedPlayback interrupted=new MorpheEngine.ResolvedPlayback();
         interrupted.hlsManifestUrl="https://fixture.test/media/cancel.m3u8"; interrupted.hlsUserAgent=ts.hlsUserAgent;
         final Method binder=bind;
@@ -377,6 +478,17 @@ def check_compiled_binding(tmp, classes, javac, java, toolchain):
     seen, requests = [], []
     cancel_started, cancel_release = threading.Event(), threading.Event()
     expected_ua = "com.google.visionos.youtube/1.04(RealityDevice17,1; U; CPU visionOS 26_6_0 like Mac OS X; US)"
+    media = {"fallback-master.m3u8": b'#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aac",NAME="Original",DEFAULT=YES,URI="sound-audio.m3u8"\n'
+             b'#EXT-X-STREAM-INF:BANDWIDTH=500000,CODECS="avc1.42c00a,mp4a.40.2",RESOLUTION=640x480,AUDIO="aac"\nsilent-video.m3u8\n'}
+    for prefix, count in (("video", 3), ("audio", 4)):
+        media[f"dash-{prefix}.mp4"] = (FIXTURES / f"{prefix}-init.mp4").read_bytes() + b"".join(
+            (FIXTURES / f"{prefix}-{index:02}.m4s").read_bytes() for index in range(count))
+
+    # Same server MIME / metadata, but real ASC says HE-AAC. The binder must skip it.
+    lie = bytearray(media["dash-audio.mp4"])
+    asc = lie.index(bytes.fromhex("05 80 80 80 05 12 08")) + 5
+    lie[asc] = (5 << 3) | (lie[asc] & 7)
+    media["lying-audio.mp4"] = bytes(lie)
 
     class GatewayFixture(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -426,11 +538,11 @@ def check_compiled_binding(tmp, classes, javac, java, toolchain):
                 self.send_error(404)
                 return
             name = path[len(prefix):]
-            if "/" in name or ".." in name or not (FIXTURES / name).is_file():
+            if "/" in name or ".." in name or (name not in media and not (FIXTURES / name).is_file()):
                 self.send_error(404)
                 return
             seen.append((path, self.headers.get("User-Agent")))
-            body = (FIXTURES / name).read_bytes()
+            body = media[name] if name in media else (FIXTURES / name).read_bytes()
             length = len(body)
             request_range = self.headers.get("Range")
             status, content_range = 200, None
@@ -520,6 +632,14 @@ public class Context { public static final String WIFI_SERVICE="wifi"; Object wi
 public Context(Object wifi) { this.wifi=wifi; } public Object getSystemService(String name) { return wifi; }
 public ContentResolver getContentResolver() { return new ContentResolver(); } }''',
             "android/content/ContentResolver.java": "package android.content; public class ContentResolver {}",
+            "android/media/MediaPlayer.java": '''package android.media;
+public class MediaPlayer {
+ public TrackInfo[] tracks; public int unavailable,volumeCalls; public float left,right;
+ public static class TrackInfo { public static final int MEDIA_TRACK_TYPE_UNKNOWN=0,MEDIA_TRACK_TYPE_VIDEO=1,MEDIA_TRACK_TYPE_AUDIO=2;
+  private int type; public TrackInfo(int type){this.type=type;} public int getTrackType(){return type;} }
+ public TrackInfo[] getTrackInfo(){if(unavailable==1)throw new UnsupportedOperationException();if(unavailable==2)throw new NoSuchMethodError();return tracks;}
+ public void setVolume(float left,float right){this.left=left;this.right=right;volumeCalls++;}
+}''',
             "android/net/Proxy.java": '''package android.net; public class Proxy {
 public static String host; public static int port=-1;
 public static String getDefaultHost() { return host; } public static int getDefaultPort() { return port; } }''',
@@ -568,29 +688,50 @@ public class WifiManager {
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             sources.append(path)
-        sources += [SRC / name for name in ("LegacyMediaPolicy.java", "MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
+        sources += [SRC / name for name in ("LegacyMediaPolicy.java", "LegacyAacConfig.java", "LegacyTsProbe.java", "LegacyPlaybackAudio.java", "MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
+        sources.append(ROOT / "tests/java/PreparedAudioHarness.java")
+        sources.append(ROOT / "tests/java/AudioCompatibilityHarness.java")
         sources.append(ROOT / "launcher-android4/src/main/java/ca/arc7freedom/launcher/BuiltinApps.java")
         sources += list((ROOT / "tests/support/org/json").glob("*.java"))
         classes = tmp / "classes"
         classes.mkdir()
         run([javac, "-nowarn", "-d", classes] + sources)
-        for harness in ("ca.arc7freedom.app.RuntimePolicyHarness", "ca.arc7freedom.launcher.ManagementRepairHarness"):
+        for harness in ("ca.arc7freedom.app.RuntimePolicyHarness", "ca.arc7freedom.app.PreparedAudioHarness", "ca.arc7freedom.launcher.ManagementRepairHarness"):
             run([java, "-cp", classes, harness])
         output = tmp / "output"
         output.mkdir()
         run([java, "-cp", classes, "ca.arc7freedom.app.HlsRepairHarness", FIXTURES, output])
+        run([java, "-cp", classes, "ca.arc7freedom.app.AudioCompatibilityHarness", FIXTURES, output])
         check_compiled_binding(tmp, classes, javac, java, toolchain)
         check_upgrader_commands(tmp)
         ffmpeg = os.environ.get("FFMPEG") or shutil.which("ffmpeg")
         if ffmpeg:
-            for name in ("separate.mp4", "muxed.mp4", "audio.m4a", "muxed-audio.m4a"):
+            decoded_files = ["separate.mp4", "muxed.mp4", "audio.m4a", "muxed-audio.m4a", "verified-audio.m4a", "compatibility-audio.aac"]
+            decoded_files += [name for name in ("dash-fallback.mp4", "audio-recovery.mp4", "music-primary.m4a", "music-recovery.aac") if (output / name).is_file()]
+            for name in decoded_files:
                 run([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror", "-i", output / name, "-f", "null", "-"])
-            print("PASS: FFmpeg decoded real H.264/AAC from both classic MP4 files and both audio-only M4A files")
+                # Default mapping/null output also succeeds for a silent video-only file.
+                # Demand a real audio stream and non-zero decoded PCM from the generated tone.
+                decoded = run([ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-xerror", "-i", output / name,
+                               "-map", "0:a:0", "-ac", "1", "-ar", "16000", "-t", "4", "-f", "s16le", "-"], stdout=subprocess.PIPE).stdout
+                pcm = array("h", decoded)
+                if os.sys.byteorder != "little":
+                    pcm.byteswap()
+                assert len(pcm) > 32000, f"Missing decoded audio samples in {name}"
+                rms = sqrt(sum(int(sample) ** 2 for sample in pcm) / len(pcm))
+                assert rms > 100, f"Silent audio track in {name}: RMS {rms}"
+            print(f"PASS: FFmpeg decoded H.264/AAC, explicitly mapped audio in all {len(decoded_files)} MP4/M4A outputs and verified non-silent PCM (not just successful video decoding)")
         else:
             print("NOTE: optional FFmpeg decoder check skipped (set FFMPEG); protocol/real-fixture remux tests passed")
     service = (SRC / "Arc7AudioService.java").read_text()
     assert "MediaNotificationPolicy.mayPost" in service
     assert "preparing.prepareAsync()" in service and "request != playbackGeneration" in service
+    assert "request != playbackGeneration || activeMorphePlayback == null || audioCompatibilityAttempted" in service
+    assert "audioCompatibilityAttempted = true" in service and "activeMorphePlayback != resolved" in service
+    assert "player == mp && request == playbackGeneration" in service
+    assert "MorpheStreamServer.cancel(alternate); return;" in service and "clearMorpheResolution()" in service
+    assert "LegacyMediaPolicy.audioContainerFailure(what, extra)" in service
+    assert service.index("LegacyPlaybackAudio.enable(mp)", service.index("preparing.setOnPreparedListener")) < service.index("mp.start();", service.index("preparing.setOnPreparedListener"))
     assert service.index("mp.start();", service.index("preparing.setOnPreparedListener")) < service.index("publishOwnPlaybackState(true);", service.index("preparing.setOnPreparedListener"))
     now_playing = (SRC / "NowPlayingManager.java").read_text()
     assert "MediaNotificationPolicy.ownsSession" in now_playing
@@ -610,7 +751,12 @@ public class WifiManager {
     youtube = (SRC / "YouTubeActivity.java").read_text()
     video_prepare = youtube.split("private void prepareForegroundVideo", 1)[1].split("private void failForegroundVideo", 1)[0]
     assert "request != videoRequestGeneration" in video_prepare and "currentPlayback != playback" in video_prepare
-    assert video_prepare.index("videoView.start();") < video_prepare.index("setYouTubeForegroundVideoActive(true)")
+    assert video_prepare.index("LegacyPlaybackAudio.enable(mp)") < video_prepare.index("videoView.start();") < video_prepare.index("setYouTubeForegroundVideoActive(true)")
+    assert "retryForegroundWithAudio(playback, request" in video_prepare and "audioRepairAttempted" in video_prepare
+    assert "startVideoWithAudioFallback" in video_prepare and "MorpheStreamServer.cancel(repaired)" in video_prepare
+    assert "setVolumeControlStream(AudioManager.STREAM_MUSIC)" in youtube and "showSoundDialog()" in youtube
+    assert "requestAudioFocus(videoAudioFocus" in youtube and "abandonAudioFocus(videoAudioFocus)" in youtube
+    assert "MorpheHls.selectForPlayback(transport, res.hlsManifestUrl" in engine
     assert "125000L" in video_prepare and "no playable media was received" in video_prepare
     video_stop = youtube.split("private void stopForegroundVideo()", 1)[1].split("private void toggleFullscreenMode", 1)[0]
     assert "++videoRequestGeneration" in video_stop and "resolutionThread.interrupt()" in video_stop

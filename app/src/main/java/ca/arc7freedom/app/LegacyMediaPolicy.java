@@ -30,6 +30,9 @@ public final class LegacyMediaPolicy {
             return "https://cbcradiolive.akamaized.net/hls/live/2041036/ES_R1ETR/master.m3u8";
         return "";
     }
+    public static boolean audioContainerFailure(int what, int extra) {
+        return what == 1 && (extra == -1010 || extra == -1007 || extra == Integer.MIN_VALUE);
+    }
     public static String error(int what,int extra) {
         String detail=extra==-1010 ? "Unsupported media format. Use AAC-LC audio / H.264 video (720p, 30fps maximum)."
                 : extra==-1004 || extra==1004 ? "Stream I/O failed. Check the station address, connection or provider availability."

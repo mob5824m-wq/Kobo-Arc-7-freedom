@@ -1,0 +1,4 @@
+# Preserve upstream whitespace in vendored QR sources and license files.
+# Local compatibility patches and provenance are documented under third_party/.
+app/src/main/java/com/google/zxing/** -whitespace
+third_party/** -whitespace

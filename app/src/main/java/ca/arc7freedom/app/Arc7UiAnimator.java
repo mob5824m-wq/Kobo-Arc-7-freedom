@@ -30,6 +30,14 @@ public final class Arc7UiAnimator {
             public void run() {
                 View content = activity.findViewById(android.R.id.content);
                 if (content != null) {
+                    if (content instanceof ViewGroup && ((ViewGroup) content).getChildCount() > 0) {
+                        View root = ((ViewGroup) content).getChildAt(0);
+                        if (root.getBackground() instanceof android.graphics.drawable.ColorDrawable) {
+                            int background = ((android.graphics.drawable.ColorDrawable) root.getBackground()).getColor();
+                            root.setBackgroundDrawable(ca.arc7freedom.glass.LiquidGlassDrawable.ambient(
+                                    background, Arc7Skin.current(activity).accent));
+                        }
+                    }
                     float dy = 14f * activity.getResources().getDisplayMetrics().density;
                     content.setAlpha(0f);
                     content.setTranslationY(dy);

@@ -12,8 +12,12 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.inputmethod.EditorInfo;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -177,6 +181,13 @@ public class Arc7RadioRssActivity extends Arc7Activity {
     protected int contentSection() { return 0; }
     private int activeTab = 0; // 0=Radio, 1=Podcasts, 2=RSS
     private LinearLayout bodyBox;
+    private final List<Arc7PodcastLibrary.Show> favoritePodcasts = new ArrayList<Arc7PodcastLibrary.Show>();
+    private LinearLayout podcastFavoriteRows;
+    private TextView podcastFavoriteStatus;
+    private String podcastFavoriteQuery = "";
+    private boolean podcastFavoritesReadable = true, podcastAlive = true, podcastResumed;
+    private int podcastRequest;
+    private Thread podcastThread;
 
     private int dp(int v) { return Arc7Skin.dp(this, v); }
 
@@ -557,135 +568,172 @@ public class Arc7RadioRssActivity extends Arc7Activity {
     }
 
     private void renderPodcastsTab() {
-        LinearLayout card = Arc7Skin.card(this, pal);
-        addTitle(card, "SEARCH & DOWNLOAD PODCAST EPISODES OFFLINE");
-        final EditText q = new EditText(this);
-        q.setSingleLine(true);
-        q.setHint("Search podcasts (e.g. Hardcore History, Science Friday, Linux, Darknet Diaries)...");
-        card.addView(q);
+        LinearLayout favorites = Arc7Skin.card(this, pal);
+        addTitle(favorites, "FAVORITE PODCASTS");
+        LinearLayout filterRow = new LinearLayout(this);
+        filterRow.setGravity(Gravity.CENTER_VERTICAL);
+        final EditText filter = new EditText(this);
+        filter.setSingleLine(true); filter.setHint("Quick search favorites…");
+        filter.setTextColor(pal.textPrimary); filter.setHintTextColor(pal.textMuted); filter.setTextSize(14);
+        filter.setContentDescription("Quick search favorite podcasts by show or publisher");
+        filter.setText(podcastFavoriteQuery);
+        filterRow.addView(filter, new LinearLayout.LayoutParams(0, dp(48), 1f));
+        Button clear = Arc7Skin.secondaryButton(this, pal, "Clear");
+        clear.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { filter.setText(""); } });
+        filterRow.addView(clear); favorites.addView(filterRow);
+        podcastFavoriteStatus = new TextView(this); podcastFavoriteStatus.setTextColor(pal.textMuted);
+        favorites.addView(podcastFavoriteStatus);
+        podcastFavoriteRows = new LinearLayout(this); podcastFavoriteRows.setOrientation(LinearLayout.VERTICAL);
+        favorites.addView(podcastFavoriteRows);
+        filter.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence text, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence text, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable text) { podcastFavoriteQuery = text.toString(); renderPodcastFavorites(); }
+        });
+        bodyBox.addView(favorites, cardSpace());
+        reloadPodcastFavorites();
 
-        Button searchBtn = Arc7Skin.actionButton(this, "Search Podcasts (TLS 1.3)", 0xFF059669);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        LinearLayout card = Arc7Skin.card(this, pal);
+        addTitle(card, "FIND NEW PODCASTS & DOWNLOAD EPISODES");
+        final EditText q = new EditText(this);
+        q.setSingleLine(true); q.setHint("Search the podcast directory…");
+        q.setTextColor(pal.textPrimary); q.setHintTextColor(pal.textMuted);
+        q.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
+        q.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override public boolean onEditorAction(TextView view, int action, KeyEvent event) {
+                if (action == EditorInfo.IME_ACTION_SEARCH || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                        && event.getAction() == KeyEvent.ACTION_UP)) { searchPodcasts(q.getText().toString().trim()); return true; }
+                return false;
+            }
+        });
+        card.addView(q);
+        Button searchBtn = Arc7Skin.actionButton(this, "Search directory", 0xFF059669);
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         slp.topMargin = dp(8);
         searchBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { searchPodcasts(q.getText().toString().trim()); }
         });
         card.addView(searchBtn, slp);
-
-        Button openSavedBtn = Arc7Skin.actionButton(this, "Open Downloaded Episodes in Arc7 Audio", 0xFF334155);
-        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        olp.topMargin = dp(8);
+        TextView help = new TextView(this); help.setTextColor(pal.textMuted);
+        help.setText("Select a result and tap Favorite. Saved shows appear above instantly, even offline. Opening episodes still needs the feed connection.");
+        card.addView(help);
+        Button openSavedBtn = Arc7Skin.actionButton(this, "Open downloaded episodes", 0xFF334155);
         openSavedBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startActivity(new Intent(Arc7RadioRssActivity.this, Arc7AudioPlayerActivity.class));
-            }
+            @Override public void onClick(View v) { startActivity(new Intent(Arc7RadioRssActivity.this, Arc7AudioPlayerActivity.class)); }
         });
-        card.addView(openSavedBtn, olp);
-        bodyBox.addView(card);
+        card.addView(openSavedBtn, slp); bodyBox.addView(card);
     }
+
+    private void reloadPodcastFavorites() {
+        try {
+            List<Arc7PodcastLibrary.Show> saved = Arc7PodcastLibrary.load(this);
+            favoritePodcasts.clear(); favoritePodcasts.addAll(saved); podcastFavoritesReadable = true;
+        } catch (Exception error) {
+            podcastFavoritesReadable = false;
+            if (podcastFavoriteStatus != null) podcastFavoriteStatus.setText(error.getMessage());
+        }
+        renderPodcastFavorites();
+    }
+
+    private void renderPodcastFavorites() {
+        if (podcastFavoriteRows == null) return;
+        podcastFavoriteRows.removeAllViews();
+        if (!podcastFavoritesReadable) return;
+        List<Arc7PodcastLibrary.Show> matches = Arc7PodcastLibrary.filter(favoritePodcasts, podcastFavoriteQuery);
+        podcastFavoriteStatus.setText(favoritePodcasts.isEmpty() ? "No favorites yet. Find a show below and tap Favorite."
+                : matches.isEmpty() ? "No favorite shows match. Clear the search to see all your favorites."
+                : matches.size() + " / " + favoritePodcasts.size() + " favorite shows · tap to open episodes");
+        for (final Arc7PodcastLibrary.Show show : matches) {
+            LinearLayout row = new LinearLayout(this); row.setGravity(Gravity.CENTER_VERTICAL);
+            Button open = Arc7Skin.secondaryButton(this, pal, show.label());
+            open.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); open.setMinHeight(dp(48));
+            open.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { loadPodcastEpisodes(show); } });
+            row.addView(open, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            Button remove = Arc7Skin.secondaryButton(this, pal, "★");
+            remove.setContentDescription("Remove " + show.title + " from favorites");
+            remove.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                new AlertDialog.Builder(Arc7RadioRssActivity.this).setTitle("Remove favorite?").setMessage(show.label())
+                        .setPositiveButton("Remove", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { setPodcastFavorite(show, false); } })
+                        .setNegativeButton("Cancel", null).show();
+            } });
+            row.addView(remove); podcastFavoriteRows.addView(row);
+        }
+    }
+
+    private void setPodcastFavorite(Arc7PodcastLibrary.Show show, boolean favorite) {
+        try {
+            Arc7PodcastLibrary.setFavorite(this, show, favorite); reloadPodcastFavorites();
+            Toast.makeText(this, favorite ? "Podcast added to favorites" : "Podcast removed from favorites", Toast.LENGTH_SHORT).show();
+        } catch (Exception error) { Toast.makeText(this, error.getMessage(), Toast.LENGTH_LONG).show(); }
+    }
+
+    private void showPodcastActions(final Arc7PodcastLibrary.Show show) {
+        final boolean saved = Arc7PodcastLibrary.contains(favoritePodcasts, show);
+        new AlertDialog.Builder(this).setTitle(show.title).setMessage(show.publisher + "\n\n" + show.feedUrl)
+                .setPositiveButton("Episodes", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { loadPodcastEpisodes(show); } })
+                .setNeutralButton(saved ? "Remove favorite" : "Favorite", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { setPodcastFavorite(show, !saved); } })
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    private int nextPodcastRequest() {
+        if (podcastThread != null) podcastThread.interrupt();
+        return ++podcastRequest;
+    }
+
+    private boolean currentPodcastRequest(int request) { return podcastAlive && podcastResumed && !isFinishing() && request == podcastRequest; }
 
     private void searchPodcasts(final String query) {
         if (query.isEmpty()) return;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    String api = "https://itunes.apple.com/search?media=podcast&limit=20&term="
-                            + URLEncoder.encode(query, "UTF-8");
-                    String raw = Arc7BookSources.fetchStringViaTls13(Arc7RadioRssActivity.this, shell, certMgr, api);
-                    JSONArray res = new JSONObject(raw).optJSONArray("results");
-                    final List<String> names = new ArrayList<String>();
-                    final List<String> feeds = new ArrayList<String>();
-                    if (res != null) {
-                        for (int i = 0; i < res.length(); i++) {
-                            JSONObject o = res.getJSONObject(i);
-                            String f = o.optString("feedUrl", "");
-                            if (f.isEmpty()) continue;
-                            names.add(o.optString("collectionName", "Podcast") + " — " + o.optString("artistName", ""));
-                            feeds.add(f);
-                        }
-                    }
-                    ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (names.isEmpty()) {
-                                Toast.makeText(Arc7RadioRssActivity.this, "No podcasts found.", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-                            new AlertDialog.Builder(Arc7RadioRssActivity.this, AlertDialog.THEME_HOLO_DARK)
-                                    .setTitle("Select Podcast to Load Episodes")
-                                    .setItems(names.toArray(new String[0]), new DialogInterface.OnClickListener() {
-                                        @Override
-                                        public void onClick(DialogInterface d, int w) {
-                                            loadPodcastEpisodes(names.get(w), feeds.get(w));
-                                        }
-                                    })
-                                    .show();
-                        }
-                    });
-                } catch (final Throwable t) {
-                    ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(Arc7RadioRssActivity.this, "Podcast search failed: " + t.getMessage(), Toast.LENGTH_LONG).show();
-                        }
-                    });
-                }
-            }
-        }).start();
+        final int request = nextPodcastRequest();
+        Toast.makeText(this, "Searching podcast directory…", Toast.LENGTH_SHORT).show();
+        podcastThread = new Thread(new Runnable() { @Override public void run() {
+            try {
+                String api = "https://itunes.apple.com/search?media=podcast&limit=20&term=" + URLEncoder.encode(query, "UTF-8");
+                String raw = Arc7BookSources.fetchStringViaTls13(Arc7RadioRssActivity.this, shell, certMgr, api);
+                final List<Arc7PodcastLibrary.Show> shows = Arc7PodcastLibrary.parseDirectory(raw);
+                ui.post(new Runnable() { @Override public void run() {
+                    if (!currentPodcastRequest(request)) return;
+                    if (shows.isEmpty()) { Toast.makeText(Arc7RadioRssActivity.this, "No podcasts found.", Toast.LENGTH_SHORT).show(); return; }
+                    String[] labels = new String[shows.size()];
+                    for (int i = 0; i < labels.length; i++) labels[i] = (Arc7PodcastLibrary.contains(favoritePodcasts, shows.get(i)) ? "★ " : "") + shows.get(i).label();
+                    new AlertDialog.Builder(Arc7RadioRssActivity.this).setTitle("Choose a podcast · open or favorite")
+                            .setItems(labels, new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { showPodcastActions(shows.get(w)); } }).show();
+                } });
+            } catch (final Exception error) { ui.post(new Runnable() { @Override public void run() {
+                if (currentPodcastRequest(request)) Toast.makeText(Arc7RadioRssActivity.this, "Podcast search failed: " + error.getMessage(), Toast.LENGTH_LONG).show();
+            } }); }
+        } }, "Arc7-Podcast-Search");
+        podcastThread.start();
     }
 
-    private void loadPodcastEpisodes(final String showTitle, final String rssUrl) {
-        Toast.makeText(this, "Fetching episodes...", Toast.LENGTH_SHORT).show();
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    String xml = Arc7BookSources.fetchStringViaTls13(Arc7RadioRssActivity.this, shell, certMgr, rssUrl);
-                    final List<RssItem> items = parseRssOrAtomXml(xml, true);
-                    final String[] labels = new String[items.size()];
-                    for (int i = 0; i < items.size(); i++) labels[i] = "🎧 " + items.get(i).title;
-                    ui.post(new Runnable() {
-                        @Override
-                        public void run() {
-                            if (items.isEmpty()) {
-                                Toast.makeText(Arc7RadioRssActivity.this, "No audio episodes found in feed.", Toast.LENGTH_SHORT).show();
-                                return;
-                            }
-                            new AlertDialog.Builder(Arc7RadioRssActivity.this, AlertDialog.THEME_HOLO_DARK)
-                                    .setTitle(showTitle)
-                                    .setItems(labels, new DialogInterface.OnClickListener() {
-                                        @Override
-                                        public void onClick(DialogInterface d, final int idx) {
-                                            final RssItem ep = items.get(idx);
-                                            new AlertDialog.Builder(Arc7RadioRssActivity.this, AlertDialog.THEME_HOLO_DARK)
-                                                    .setTitle(ep.title)
-                                                    .setMessage(ep.summary)
-                                                    .setPositiveButton("Stream Now", new DialogInterface.OnClickListener() {
-                                                        @Override
-                                                        public void onClick(DialogInterface d2, int w2) {
-                                                            startBackgroundStream(ep.title, ep.audioOrLink);
-                                                        }
-                                                    })
-                                                    .setNeutralButton("Download episode", new DialogInterface.OnClickListener() {
-                                                        @Override
-                                                        public void onClick(DialogInterface d2, int w2) {
-                                                            downloadEpisodeOffline(ep);
-                                                        }
-                                                    })
-                                                    .setNegativeButton("Cancel", null)
-                                                    .show();
-                                        }
-                                    })
-                                    .show();
-                        }
-                    });
-                } catch (Throwable ignored) {}
-            }
-        }).start();
+    private void loadPodcastEpisodes(final Arc7PodcastLibrary.Show show) {
+        final int request = nextPodcastRequest();
+        Toast.makeText(this, "Fetching episodes…", Toast.LENGTH_SHORT).show();
+        podcastThread = new Thread(new Runnable() { @Override public void run() {
+            try {
+                String xml = Arc7BookSources.fetchStringViaTls13(Arc7RadioRssActivity.this, shell, certMgr, show.feedUrl);
+                final List<RssItem> items = parseRssOrAtomXml(xml, true);
+                final String[] labels = new String[items.size()];
+                for (int i = 0; i < items.size(); i++) labels[i] = "🎧 " + items.get(i).title;
+                ui.post(new Runnable() { @Override public void run() {
+                    if (!currentPodcastRequest(request)) return;
+                    if (items.isEmpty()) { Toast.makeText(Arc7RadioRssActivity.this, "No audio episodes found in feed.", Toast.LENGTH_SHORT).show(); return; }
+                    final boolean saved = Arc7PodcastLibrary.contains(favoritePodcasts, show);
+                    new AlertDialog.Builder(Arc7RadioRssActivity.this).setTitle(show.title)
+                            .setNeutralButton(saved ? "Remove favorite" : "Favorite show", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) { setPodcastFavorite(show, !saved); } })
+                            .setItems(labels, new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int idx) {
+                                final RssItem ep = items.get(idx);
+                                new AlertDialog.Builder(Arc7RadioRssActivity.this).setTitle(ep.title).setMessage(ep.summary)
+                                        .setPositiveButton("Stream now", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d2, int w) { startBackgroundStream(ep.title, ep.audioOrLink); } })
+                                        .setNeutralButton("Download episode", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d2, int w) { downloadEpisodeOffline(ep); } })
+                                        .setNegativeButton("Cancel", null).show();
+                            } }).setNegativeButton("Close", null).show();
+                } });
+            } catch (final Exception error) { ui.post(new Runnable() { @Override public void run() {
+                if (currentPodcastRequest(request)) Toast.makeText(Arc7RadioRssActivity.this, "Podcast feed could not load: " + error.getMessage(), Toast.LENGTH_LONG).show();
+            } }); }
+        } }, "Arc7-Podcast-Feed");
+        podcastThread.start();
     }
 
     private void downloadEpisodeOffline(final RssItem ep) {
@@ -893,4 +941,16 @@ public class Arc7RadioRssActivity extends Arc7Activity {
         lp.bottomMargin = dp(14);
         return lp;
     }
+    @Override protected void onResume() { super.onResume(); podcastResumed = true; }
+    @Override protected void onPause() {
+        podcastResumed = false; nextPodcastRequest();
+        super.onPause();
+    }
+    @Override protected void onDestroy() {
+        podcastAlive = false; ++podcastRequest;
+        if (podcastThread != null) podcastThread.interrupt();
+        ui.removeCallbacksAndMessages(null);
+        super.onDestroy();
+    }
+
 }

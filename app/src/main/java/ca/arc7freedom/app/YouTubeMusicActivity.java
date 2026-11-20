@@ -128,91 +128,35 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF050508);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(musicPalette()));
 
-        // Top Bar
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundDrawable(Arc7Skin.headerDrawable(Arc7Skin.current(this)));
-        topBar.setPadding(dp(12), dp(7), dp(12), dp(7));
-
-        ImageView logoIv = new ImageView(this);
-        logoIv.setImageResource(R.drawable.ic_ytmusic);
-        LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(dp(32), dp(32));
-        llp.rightMargin = dp(8);
-        topBar.addView(logoIv, llp);
-
-        TextView appTitle = new TextView(this);
-        appTitle.setText("YouTube Music");
-        appTitle.setTextColor(Color.WHITE);
-        appTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f);
-        appTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams atlp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        atlp.rightMargin = dp(10);
-        topBar.addView(appTitle, atlp);
-
-        searchEt = new EditText(this);
-        searchEt.setHint("Search songs, artists, albums, playlists...");
-        searchEt.setHintTextColor(0xFF71717A);
-        searchEt.setTextColor(Color.WHITE);
-        searchEt.setSingleLine(true);
-        searchEt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-        searchEt.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        GradientDrawable sbg = new GradientDrawable();
-        sbg.setColor(0xFF191924);
-        sbg.setCornerRadius(dp(18));
-        sbg.setStroke(dp(1), 0xFF2D2D3F);
-        searchEt.setBackgroundDrawable(sbg);
-        searchEt.setPadding(dp(14), dp(7), dp(14), dp(7));
-        searchEt.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                performMusicSearch(searchEt.getText().toString(), searchMode);
-                return true;
-            }
-        });
-        LinearLayout.LayoutParams selp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        selp.rightMargin = dp(6);
-        topBar.addView(searchEt, selp);
-
-        final Button searchBtn = pillBtn("Search · Songs ▾", 0xFFFF0033);
-        searchBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                final String[] modes={"songs","albums","playlists","community_playlists"};
-                final String[] labels={"Songs","Albums","Playlists","Community playlists"};
-                new AlertDialog.Builder(YouTubeMusicActivity.this).setTitle("Search YouTube Music")
-                    .setItems(labels,new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
-                        searchMode=modes[which]; searchBtn.setText("Search · "+labels[which]+" ▾"); performMusicSearch(searchEt.getText().toString(),searchMode);
-                    }}).show();
-            }
-        });
-        topBar.addView(searchBtn, marginRightLp(6));
-
-        Button eqBtn = pillBtn("\uD83C\uDF9A EQ", 0xFF1F2937);
-        eqBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showEqualizerDialog(); }
-        });
-        topBar.addView(eqBtn, marginRightLp(6));
-
-        Button sleepBtn = pillBtn("\uD83C\uDF19 Sleep", 0xFF1F2937);
-        sleepBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showSleepTimerDialog(); }
-        });
-        topBar.addView(sleepBtn, marginRightLp(6));
-
-        Button morpheBtn = pillBtn("\u2728 Morphe", 0xFF059669);
-        morpheBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showMorpheMusicSettings(); }
-        });
-        topBar.addView(morpheBtn);
-        root.addView(topBar);
+        Arc7MediaHeader header = new Arc7MediaHeader(this, musicPalette(), R.drawable.ic_ytmusic,
+                "YouTube Music", "Search songs, artists, albums…", "Songs",
+                new Runnable() { @Override public void run() { performMusicSearch(searchEt.getText().toString(), searchMode); } },
+                new Runnable() { @Override public void run() { showHeaderOptions(); } });
+        searchEt = header.getSearchInput();
+        final Button searchType = header.getModeButton();
+        searchType.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View view) {
+            final String[] modes = {"songs", "artists", "albums", "playlists", "community_playlists"};
+            final String[] labels = {"Songs", "Artists", "Albums", "Playlists", "Community playlists"};
+            new AlertDialog.Builder(YouTubeMusicActivity.this).setTitle("Search type")
+                    .setSingleChoiceItems(labels, java.util.Arrays.asList(modes).indexOf(searchMode), new DialogInterface.OnClickListener() {
+                        @Override public void onClick(DialogInterface dialog, int which) {
+                            searchMode = modes[which];
+                            searchType.setText((which == 4 ? "Community" : labels[which]) + " ▾");
+                            searchType.setContentDescription("Search type: " + labels[which]);
+                            searchEt.setHint("Search " + labels[which].toLowerCase(Locale.US) + "…");
+                            dialog.dismiss();
+                            performMusicSearch(searchEt.getText().toString(), searchMode);
+                        }
+                    }).setNegativeButton("Cancel", null).show();
+        } });
+        root.addView(header);
 
         // Mood / Quick Picks / Library Filter Bar
         HorizontalScrollView moodScroll = new HorizontalScrollView(this);
         moodScroll.setHorizontalScrollBarEnabled(false);
-        moodScroll.setBackgroundColor(0xFF0A0A10);
+        moodScroll.setBackgroundColor(0x00000000);
         LinearLayout moodRow = new LinearLayout(this);
         moodRow.setOrientation(LinearLayout.HORIZONTAL);
         moodRow.setPadding(dp(10), dp(6), dp(10), dp(6));
@@ -264,7 +208,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         LinearLayout playerDeck = new LinearLayout(this);
         playerDeck.setOrientation(LinearLayout.VERTICAL);
         playerDeck.setGravity(Gravity.CENTER_HORIZONTAL);
-        playerDeck.setBackgroundColor(0xFF0D0D15);
+        playerDeck.setBackgroundDrawable(Arc7Skin.elevatedDrawable(this, musicPalette(), 28));
         playerDeck.setPadding(dp(16), dp(12), dp(16), dp(12));
 
         int artSize = landscape ? dp(172) : dp(124);
@@ -490,11 +434,23 @@ public class YouTubeMusicActivity extends Arc7Activity {
         Arc7UiAnimator.startAnimated(this, intent);
     }
 
+    private void showHeaderOptions() {
+        new AlertDialog.Builder(this).setTitle("YouTube Music options")
+                .setItems(new String[]{"Equalizer", "Sleep timer", "Morphe / playback settings", "Open YouTube"}, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) showEqualizerDialog();
+                        else if (which == 1) showSleepTimerDialog();
+                        else if (which == 2) showMorpheMusicSettings();
+                        else openYouTubeApp("https://www.youtube.com/");
+                    }
+                }).setNegativeButton("Close", null).show();
+    }
+
     private void performMusicSearch(final String query, final String mode) {
         if (query == null || query.trim().isEmpty()) return;
         final String clean = query.trim();
         final int request=++musicRequest;
-        String directVid = MorpheEngine.extractVideoIdFromUrlOrQuery(clean);
+        String directVid = "artists".equals(mode) ? null : MorpheEngine.extractVideoIdFromUrlOrQuery(clean);
         if (directVid != null) {
             MorpheEngine.MediaItem single = new MorpheEngine.MediaItem();
             single.videoId = directVid;
@@ -554,10 +510,9 @@ public class YouTubeMusicActivity extends Arc7Activity {
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(10), dp(9), dp(10), dp(9));
 
-            GradientDrawable bg = new GradientDrawable();
-            bg.setColor((isQueueView && idx == activeIdx) ? 0xFF28121E : 0xFF12121C);
-            bg.setCornerRadius(dp(11));
-            bg.setStroke(dp(1), (isQueueView && idx == activeIdx) ? 0xFFFF0033 : 0xFF222233);
+            GradientDrawable bg = (isQueueView && idx == activeIdx)
+                    ? Arc7Skin.buttonDrawable(this, 0xFF58152B, 24)
+                    : Arc7Skin.cardDrawable(this, musicPalette(), 24);
             row.setBackgroundDrawable(bg);
 
             LinearLayout info = new LinearLayout(this);
@@ -571,7 +526,8 @@ public class YouTubeMusicActivity extends Arc7Activity {
             t.setSingleLine(true);
             info.addView(t);
 
-            String sub = it.isCollection() ? it.collectionType.toUpperCase(Locale.US)+" · "+it.author : it.author;
+            String sub = it.isArtist() ? "ARTIST" + (it.author.length() == 0 ? "" : " · " + it.author)
+                    : it.isCollection() ? it.collectionType.toUpperCase(Locale.US)+" · "+it.author : it.author;
             if (it.album != null && it.album.length() > 0) sub += "  \u2022  " + it.album;
             if (it.durationText != null && it.durationText.length() > 0) sub += "  \u2022  " + it.durationText;
             TextView s = new TextView(this);
@@ -584,10 +540,11 @@ public class YouTubeMusicActivity extends Arc7Activity {
             row.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
             if (!isQueueView) {
-                Button addQBtn = pillBtn(it.isCollection() ? "Open" : "+ Queue", 0xFF27272A);
+                Button addQBtn = pillBtn(it.isBrowsable() ? "Open" : "+ Queue", 0xFF27272A);
                 addQBtn.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
+                        if(it.isArtist()) { openMusicArtist(it); return; }
                         if(it.isCollection()) { openMusicCollection(it); return; }
                         if (audioService != null) {
                             audioService.appendToMorpheQueue(it);
@@ -602,6 +559,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
             row.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    if(it.isArtist()) { openMusicArtist(it); return; }
                     if(it.isCollection()) { openMusicCollection(it); return; }
                     if (isQueueView && audioService != null) {
                         audioService.startMorpheQueueAt(idx);
@@ -612,6 +570,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
             });
 
             row.setOnLongClickListener(new View.OnLongClickListener(){ public boolean onLongClick(View v){
+                if(it.isArtist()) { openMusicArtist(it); return true; }
                 if(it.isCollection()) {
                     MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this,"ytm_playlists",it,true);
                     Toast.makeText(YouTubeMusicActivity.this,"Updated saved playlists & albums",Toast.LENGTH_SHORT).show();
@@ -627,7 +586,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
     private void playItems(List<MorpheEngine.MediaItem> items,int start) {
         List<MorpheEngine.MediaItem> playable=new ArrayList<MorpheEngine.MediaItem>(); int selected=0;
-        for(int i=0;i<items.size();i++) { MorpheEngine.MediaItem item=items.get(i); if(!item.isCollection() && (item.videoId.length()>0 || item.localFilePath.length()>0)) { if(i==start) selected=playable.size(); playable.add(item); } }
+        for(int i=0;i<items.size();i++) { MorpheEngine.MediaItem item=items.get(i); if(!item.isBrowsable() && (item.videoId.length()>0 || item.localFilePath.length()>0)) { if(i==start) selected=playable.size(); playable.add(item); } }
         if(playable.isEmpty()) { Toast.makeText(this,"Open an album or playlist to load its songs first.",Toast.LENGTH_LONG).show(); return; }
         if(audioService==null) { pendingMusicQueue=playable; pendingMusicIndex=selected; return; }
         audioService.playMorpheQueue(playable,selected,"YouTube Music","ca.arc7freedom.app.YouTubeMusicActivity");
@@ -635,7 +594,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
     private void quickPlay() {
         List<MorpheEngine.MediaItem> liked=MorpheEngine.loadSavedList(this,"ytm_liked");
         if(!liked.isEmpty()) { playItems(liked,0); return; }
-        if(!browseResults.isEmpty() && !browseResults.get(0).isCollection()) { playItems(browseResults,0); return; }
+        if(!browseResults.isEmpty() && !browseResults.get(0).isBrowsable()) { playItems(browseResults,0); return; }
         performMusicSearch("popular music official audio","songs"); quickPlayRequest=musicRequest;
     }
     private void showMusicPlaylists() {
@@ -644,6 +603,35 @@ public class YouTubeMusicActivity extends Arc7Activity {
         rightPaneHeaderTv.setText("My playlists & albums · "+saved.size()+" · long-press a song to add it; long-press a collection to remove it");
         renderTrackRows(saved,false);
     }
+    private void openMusicArtist(final MorpheEngine.MediaItem artist) {
+        final int request = ++musicRequest; quickPlayRequest = -1; activeRightMode = "browse";
+        final List<MorpheEngine.MediaItem> previous = new ArrayList<MorpheEngine.MediaItem>(browseResults);
+        browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Loading artist · " + artist.title + "…");
+        new Thread(new Runnable() { @Override public void run() {
+            try {
+                final List<MorpheEngine.MediaItem> items = MorpheEngine.browseMusicArtist(YouTubeMusicActivity.this, artist);
+                ui.post(new Runnable() { @Override public void run() {
+                    if (!alive || request != musicRequest) return;
+                    rightPaneHeaderTv.setText(artist.title + " · songs & releases (up to 60 public items) · tap an album to open");
+                    renderTrackRows(items, false);
+                    Button back = pillBtn("← Back to artist results", 0xFF334155);
+                    back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                        ++musicRequest; quickPlayRequest = -1;
+                        rightPaneHeaderTv.setText("Artists · " + previous.size() + " results"); renderTrackRows(previous, false);
+                    } });
+                    rightPaneList.addView(back, 0);
+                } });
+            } catch (final Exception error) { ui.post(new Runnable() { @Override public void run() {
+                if (!alive || request != musicRequest) return;
+                browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Artist unavailable: " + error.getMessage());
+                Button back = pillBtn("← Back to artist results", 0xFF334155);
+                back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                    ++musicRequest; rightPaneHeaderTv.setText("Artists · " + previous.size() + " results"); renderTrackRows(previous, false);
+                } }); rightPaneList.addView(back);
+            } }); }
+        } }, "Arc7-Music-Artist").start();
+    }
+
     private void openMusicCollection(final MorpheEngine.MediaItem item) {
         final int request=++musicRequest; activeRightMode="browse";
         browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Loading "+item.title+"…");
@@ -923,6 +911,12 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 })
                 .setPositiveButton("Close", null)
                 .show();
+    }
+
+    private Arc7Skin.Palette musicPalette() {
+        Arc7Skin.Palette p = Arc7Skin.current(this);
+        // Music's artwork/transport typography stays white, including under the daylight OS skin.
+        return p.lightMode ? Arc7Skin.paletteByIndex(0) : p;
     }
 
     private Button pillBtn(String label,int color) {

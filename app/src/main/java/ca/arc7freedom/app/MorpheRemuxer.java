@@ -268,6 +268,8 @@ public final class MorpheRemuxer {
         }
         if (vMoov == null) throw new IOException("Video init segment has no moov box");
         if (aMoov == null) throw new IOException("Audio init segment has no moov box");
+        new ClassicTrackBuilder(vInit, 1, true, video.durationMs);
+        new ClassicTrackBuilder(aInit, 2, false, audio.durationMs);
         // Always emit our own conservative `isom/iso2/avc1/mp41` header: YouTube's DASH init
         // sometimes uses `iso6`/`dash` major brands that Android 4.2's MPEG4Extractor rejects.
         ftyp = defaultFtyp();
@@ -546,6 +548,41 @@ public final class MorpheRemuxer {
             try { spool.close(); } catch (Throwable ignored) {}
             try { spoolFile.delete(); } catch (Throwable ignored) {}
         }
+    }
+
+    /** Preflight actual AAC config before exposing a local URL as playable. */
+    public static void validateLegacyAudio(Track track) throws Exception {
+        ClassicTrackBuilder builder = new ClassicTrackBuilder(track.fetcher.fetch(0L, track.initEnd), 1, false, track.durationMs);
+        if (builder.isVideo || builder.aac == null) throw new IOException("No compatible AAC-LC audio track");
+    }
+
+    /** Container-only recovery for vendor Stagefright MP4/HLS -1010 errors. No transcoding. */
+    public static void remuxSingleTrackAdts(Track track, RandomAccessFile out, Progress progress) throws Exception {
+        byte[] init = track.fetcher.fetch(0L, track.initEnd);
+        ClassicTrackBuilder builder = new ClassicTrackBuilder(init, 1, false, track.durationMs);
+        if (builder.isVideo || builder.aac == null) throw new IOException("ADTS recovery needs an AAC-LC audio track");
+        java.io.File temp = java.io.File.createTempFile("arc7_adts_", ".bin", outFileDirectory());
+        RandomAccessFile spool = new RandomAccessFile(temp, "rw");
+        try {
+            FragmentStream stream = new FragmentStream(track, 1, init); Fragment fragment;
+            while ((fragment = stream.next()) != null) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("Audio recovery cancelled");
+                builder.consumeFragment(fragment, spool);
+                if (spool.length() > 512L * 1024L * 1024L) throw new IOException("AAC recovery exceeds cache limit");
+                if (progress != null) progress.onStage("Preparing AAC-LC compatibility audio (" + spool.length() / 1048576L + " MB)");
+            }
+            if (builder.numSamples == 0) throw new IOException("AAC track has no samples");
+            out.seek(0L); out.setLength(0L); spool.seek(0L);
+            byte[] sample = new byte[8192];
+            for (int i = 0; i < builder.numSamples; i++) {
+                if (Thread.currentThread().isInterrupted()) throw new IOException("Audio recovery cancelled");
+                int length = builder.sampleSizes[i]; byte[] header = builder.aac.adtsHeader(length);
+                spool.readFully(sample, 0, length); out.write(header); out.write(sample, 0, length);
+            }
+            if (spool.getFilePointer() != spool.length()) throw new IOException("Unmapped AAC sample bytes");
+            out.getFD().sync();
+            if (progress != null) { progress.onBytes(out.length(), out.length()); progress.onStage("complete"); }
+        } finally { try { spool.close(); } finally { temp.delete(); } }
     }
 
     /* ======================================================================
@@ -1033,6 +1070,7 @@ public final class MorpheRemuxer {
         byte[] mediaHeaderBox; // vmhd or smhd
         byte[] dinfBox;
         byte[] stsdBox;
+        LegacyAacConfig aac;
         int timescale = 1000;
         int trexDefDuration = 0;
         int trexDefSize = 0;
@@ -1126,6 +1164,10 @@ public final class MorpheRemuxer {
             String codec = new String(this.stsdBox, 20, 4);
             if (this.isVideo ? !("avc1".equals(codec) || "avc3".equals(codec)) : !"mp4a".equals(codec))
                 throw new IOException("Unsupported Android 4.2 MP4 codec: " + codec);
+            if (!this.isVideo) {
+                this.aac = LegacyAacConfig.fromStsd(this.stsdBox);
+                this.stsdBox = this.aac.normalizedStsd(this.stsdBox);
+            }
             if (this.mediaHeaderBox == null) {
                 if (this.isVideo) {
                     byte[] vm = new byte[12];

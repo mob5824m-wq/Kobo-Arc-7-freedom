@@ -76,6 +76,112 @@ public final class SuiteFeatureHarness {
         reject(()->Arc7Totp.generate(base32(secrets[0]),"SHA1",6,1,59),"unsafe period");
         System.out.println("PASS authenticator: all 18 RFC6238 SHA1/256/512 vectors, 6/8 digits, encoded URI/issuer/period and malformed/duplicate/HOTP rejection");
     }
+    static void vaultImports() throws Exception {
+        String bitwardenCsv="\ufefffolder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\r\n"
+                +"Work,false,login,\"Mail, Work\",\"line one\nline two\",,0,https://mail.example,alice,secret,JBSWY3DPEHPK3PXP\r\n";
+        Arc7VaultImporter.Batch bw=Arc7VaultImporter.parse(bytes(bitwardenCsv));
+        check(bw.passwords.length()==1&&bw.authenticators.length()==1,"Bitwarden CSV login and TOTP imported");
+        JSONObject login=bw.passwords.getJSONObject(0);
+        check(login.getString("title").equals("Mail, Work")&&login.getString("username").equals("alice")
+                &&login.getString("password").equals("secret")&&login.getString("notes").equals("line one\nline two")
+                &&login.getString("url").equals("https://mail.example"),"CSV quoting, multiline notes and header aliases");
+        check(login.getString("totp").equals("JBSWY3DPEHPK3PXP")&&bw.authenticators.getJSONObject(0).optInt("digits",0)==6,
+                "login keeps valid TOTP seed and authenticator item");
+
+        String bitwardenJson="{\"encrypted\":false,\"folders\":[],\"items\":[{\"type\":1,\"name\":\"Bitwarden Mail\",\"notes\":\"memo\",\"login\":{\"username\":\"bob\",\"password\":\"pass\",\"uris\":[{\"uri\":\"https://bw.example\"}],\"totp\":\"JBSWY3DPEHPK3PXP\"}}]}";
+        Arc7VaultImporter.Batch bwJson=Arc7VaultImporter.parse(bytes(bitwardenJson));
+        check(bwJson.passwords.length()==1&&bwJson.authenticators.length()==1&&bwJson.passwords.getJSONObject(0).getString("url").equals("https://bw.example"),
+                "Bitwarden unencrypted JSON nested login fields / URI list / TOTP");
+        reject(()->Arc7VaultImporter.parse(bytes("{\"encrypted\":true,\"data\":\"ciphertext\"}")),"encrypted provider export");
+
+        String protonCsv="name,username,password,url,note,2FA secret\r\nProton Mail,proton-user,mail-pass,https://proton.me,\"secure, mail\",JBSWY3DPEHPK3PXP\r\n";
+        Arc7VaultImporter.Batch proton=Arc7VaultImporter.parse(bytes(protonCsv));
+        check(proton.passwords.length()==1&&proton.authenticators.length()==1&&proton.passwords.getJSONObject(0).getString("notes").equals("secure, mail"),
+                "Proton Pass-compatible CSV aliases");
+        String protonJson="{\"vaults\":[{\"items\":[{\"type\":\"login\",\"name\":\"Proton Login\",\"data\":{\"username\":\"p-user\",\"password\":\"p-pass\",\"urls\":[\"https://p.example\"],\"totp\":\"otpauth://totp/Proton:p-user?secret=JBSWY3DPEHPK3PXP&issuer=Proton\"}},{\"type\":\"totp\",\"name\":\"Separate code\",\"secret\":\"MFRGGZDFMZTWQ2LK\"}]}]}";
+        Arc7VaultImporter.Batch protonJsonBatch=Arc7VaultImporter.parse(bytes(protonJson));
+        check(protonJsonBatch.passwords.length()==1&&protonJsonBatch.authenticators.length()==2,
+                "Proton Pass JSON wrappers, logins, otpauth URIs and standalone TOTP items: passwords="+protonJsonBatch.passwords.length()+", TOTP="+protonJsonBatch.authenticators.length()+", invalid="+protonJsonBatch.invalidTotp);
+        check(protonJsonBatch.authenticators.getJSONObject(0).getString("issuer").equals("Proton"),"otpauth issuer preserved");
+
+        Arc7VaultImporter.Merge merged=Arc7VaultImporter.merge(bw.passwords,bw.passwords,"passwords");
+        check(merged.added==0&&merged.duplicates==1&&merged.entries.length()==1,"append-only duplicate detection");
+        JSONArray full=new JSONArray();for(int i=0;i<200;i++)full.put(new JSONObject().put("title","entry "+i).put("username","u"+i).put("url",""));
+        reject(()->Arc7VaultImporter.merge(full,bw.passwords,"passwords"),"over-capacity merge without partial import");
+        String invalidTotp="type,name,username,password,login_totp\r\nlogin,Broken,user,pass,not-a-seed\r\n";
+        Arc7VaultImporter.Batch invalid=Arc7VaultImporter.parse(bytes(invalidTotp));
+        check(invalid.passwords.length()==1&&invalid.authenticators.length()==0&&invalid.invalidTotp==1,"invalid 2FA is reported but does not discard the login");
+        reject(()->Arc7VaultImporter.parse(new byte[Arc7VaultImporter.MAX_IMPORT_BYTES+1]),"oversized import");
+        System.out.println("PASS vault imports: Bitwarden and Proton CSV/JSON login/TOTP extraction, URI parsing, append-only dedupe/cap, invalid-secret warning and encrypted/oversize rejection");
+    }
+    static String httpBody(HttpURLConnection connection) throws Exception {
+        InputStream input=connection.getInputStream(); ByteArrayOutputStream output=new ByteArrayOutputStream();
+        byte[] block=new byte[4096]; int n; while((n=input.read(block))!=-1)output.write(block,0,n); input.close();
+        return output.toString("UTF-8");
+    }
+    static void qrFileShare() throws Exception {
+        File root=new File(work,"qr-share");root.mkdirs();
+        Files.write(new File(root,"hello.txt").toPath(),bytes("hello from Kobo"));
+        Files.write(new File(root,"<img onerror=alert(1)>.txt").toPath(),bytes("safe filename"));
+        String token="0123456789abcdef0123456789abcdef0123456789abcdef";
+        reject(()->new Arc7QrFileShareServer(root,"short"),"weak QR bearer token");
+        Arc7QrFileShareServer server=new Arc7QrFileShareServer(root,token,new int[]{0});
+        server.start(); check(server.isRunning()&&server.getPort()>0,"QR share server binds on a LAN socket");
+        String base="http://127.0.0.1:"+server.getPort(); String cookie="";
+        try {
+            HttpURLConnection denied=(HttpURLConnection)new URL(base+"/").openConnection();
+            check(denied.getResponseCode()==401,"share rejects unauthenticated requests"); denied.disconnect();
+            HttpURLConnection invalid=(HttpURLConnection)new URL(base+"/?t=wrong").openConnection();
+            invalid.setInstanceFollowRedirects(false);
+            check(invalid.getResponseCode()==401,"invalid QR token is rejected"); invalid.disconnect();
+            HttpURLConnection landing=(HttpURLConnection)new URL(base+"/?t="+token).openConnection();
+            landing.setInstanceFollowRedirects(false);
+            check(landing.getResponseCode()==303&&"/".equals(landing.getHeaderField("Location")),"valid QR link exchanges token for an HttpOnly cookie and hides it from the landing URL");
+            String setCookie=landing.getHeaderField("Set-Cookie"); check(setCookie!=null&&setCookie.contains("HttpOnly")&&setCookie.contains("SameSite=Strict"),"QR bearer is scoped to a no-store browser session cookie");
+            cookie=setCookie.substring(0,setCookie.indexOf(';')); landing.disconnect();
+
+            HttpURLConnection page=(HttpURLConnection)new URL(base+"/").openConnection();page.setRequestProperty("Cookie",cookie);
+            String html=httpBody(page);check(page.getResponseCode()==200&&html.contains("Kobo file share")&&html.contains("Upload selected files"),"authenticated share page supports browsing and upload");
+            check(html.contains("&lt;img onerror=alert(1)&gt;.txt")&&!html.contains("<img onerror=alert(1)>.txt"),"filenames are HTML-escaped");page.disconnect();
+
+            byte[] upload=bytes("hello from PC");
+            HttpURLConnection put=(HttpURLConnection)new URL(base+"/upload?path=&name=incoming.txt").openConnection();
+            put.setRequestMethod("POST");put.setDoOutput(true);put.setFixedLengthStreamingMode(upload.length);
+            put.setRequestProperty("Cookie",cookie);put.setRequestProperty("Origin",base);put.setRequestProperty("X-Arc7-Share",token);put.setRequestProperty("Content-Type","application/octet-stream");
+            OutputStream body=put.getOutputStream();body.write(upload);body.close();
+            check(put.getResponseCode()==201,"same-origin upload is accepted");httpBody(put);put.disconnect();
+            check(Arrays.equals(Files.readAllBytes(new File(root,"incoming.txt").toPath()),upload),"upload bytes reach only selected shared folder");
+
+            HttpURLConnection duplicate=(HttpURLConnection)new URL(base+"/upload?path=&name=incoming.txt").openConnection();
+            duplicate.setRequestMethod("POST");duplicate.setDoOutput(true);duplicate.setFixedLengthStreamingMode(upload.length);
+            duplicate.setRequestProperty("Cookie",cookie);duplicate.setRequestProperty("Origin",base);duplicate.setRequestProperty("X-Arc7-Share",token);
+            OutputStream duplicateBody=duplicate.getOutputStream();duplicateBody.write(upload);duplicateBody.close();
+            check(duplicate.getResponseCode()==201&&new File(root,"incoming (1).txt").isFile(),"upload collision never overwrites an existing file");httpBody(duplicate);duplicate.disconnect();
+
+            HttpURLConnection download=(HttpURLConnection)new URL(base+"/download?path=incoming.txt").openConnection();download.setRequestProperty("Cookie",cookie);
+            check(download.getResponseCode()==200&&new String(download.getInputStream().readAllBytes(),"UTF-8").equals("hello from PC"),"authenticated file download");download.disconnect();
+            HttpURLConnection range=(HttpURLConnection)new URL(base+"/download?path=hello.txt").openConnection();range.setRequestProperty("Cookie",cookie);range.setRequestProperty("Range","bytes=1-3");
+            check(range.getResponseCode()==206&&new String(range.getInputStream().readAllBytes(),"UTF-8").equals("ell"),"HTTP byte-range downloads");range.disconnect();
+
+            HttpURLConnection traversal=(HttpURLConnection)new URL(base+"/?path=..").openConnection();traversal.setRequestProperty("Cookie",cookie);
+            check(traversal.getResponseCode()==403,"canonical path guard rejects parent-folder traversal");traversal.disconnect();
+            HttpURLConnection badName=(HttpURLConnection)new URL(base+"/upload?path=&name=..%2Foutside.txt").openConnection();
+            badName.setRequestMethod("POST");badName.setDoOutput(true);badName.setFixedLengthStreamingMode(0);badName.setRequestProperty("Cookie",cookie);badName.setRequestProperty("Origin",base);badName.setRequestProperty("X-Arc7-Share",token);
+            badName.getOutputStream().close();check(badName.getResponseCode()==400,"upload filename traversal is rejected");badName.disconnect();
+            Socket crossOrigin=new Socket("127.0.0.1",server.getPort());
+            String forged="POST /upload?path=&name=csrf.txt HTTP/1.1\r\nHost: 127.0.0.1:"+server.getPort()
+                    +"\r\nCookie: "+cookie+"\r\nOrigin: http://attacker.invalid\r\nX-Arc7-Share: "+token
+                    +"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            crossOrigin.getOutputStream().write(bytes(forged));
+            ByteArrayOutputStream rejection=new ByteArrayOutputStream();byte[] reply=new byte[1024];int replySize;
+            while((replySize=crossOrigin.getInputStream().read(reply))!=-1)rejection.write(reply,0,replySize);
+            crossOrigin.close();
+            check(new String(rejection.toByteArray(),"UTF-8").startsWith("HTTP/1.1 403 Forbidden"),"cross-origin browser upload is rejected");
+        } finally { server.stop(); }
+        check(!server.isRunning(),"stop closes QR file share listener and clients");
+        System.out.println("PASS QR file share: short-lived bearer login, cookie/CSRF guard, folder traversal isolation, safe HTML names, collision-safe upload, download/range and stop lifecycle");
+    }
+
     static void keys() throws Exception {
         check(Arc7KeyBinding.normalize(" shift-control-a ").equals("CTRL+SHIFT+A"),"keybind canonical order");
         check(Arc7KeyBinding.normalize("CMD+RETURN").equals("WIN+ENTER"),"key aliases");
@@ -143,6 +249,79 @@ public final class SuiteFeatureHarness {
         int before=posts;MorpheEngine.searchYouTubeMusic(c,"fixture","community_playlists");
         check(posts==before+1&&lastPost.contains("EgeKAQQoAEABagwQDhAKEAMQBBAJEAU"),"community filter requests its own endpoint once");
         System.out.println("PASS Music collections: real album/playlist identities, persistent aliases/removal, local playlists, selected collection tracks, no recommendation substitution and community search filter");
+    }
+    static JSONObject text(String value) { return new JSONObject().put("runs",new JSONArray().put(new JSONObject().put("text",value))); }
+    static JSONObject artistRenderer(String id, boolean responsive) {
+        JSONObject browse = new JSONObject().put("browseId",id).put("browseEndpointContextSupportedConfigs",
+                new JSONObject().put("browseEndpointContextMusicConfig",new JSONObject().put("pageType","MUSIC_PAGE_TYPE_ARTIST")));
+        JSONObject nav = new JSONObject().put("browseEndpoint",browse);
+        JSONObject title = new JSONObject().put("runs",new JSONArray().put(new JSONObject().put("text","Artist "+id.charAt(2)).put("navigationEndpoint",nav)));
+        JSONObject renderer = new JSONObject().put("menu",new JSONObject().put("videoId","radioFake01"));
+        if (responsive) {
+            renderer.put("flexColumns",new JSONArray()
+                    .put(new JSONObject().put("musicResponsiveListItemFlexColumnRenderer",new JSONObject().put("text",title)))
+                    .put(new JSONObject().put("musicResponsiveListItemFlexColumnRenderer",new JSONObject().put("text",text("Artist • 2M subscribers")))));
+        } else renderer.put("title",title).put("navigationEndpoint",nav).put("subtitle",text("Artist"));
+        return new JSONObject().put(responsive ? "musicResponsiveListItemRenderer" : "musicTwoRowItemRenderer",renderer);
+    }
+    static JSONObject songRenderer(String id) {
+        return new JSONObject().put("musicResponsiveListItemRenderer",new JSONObject().put("playlistItemData",new JSONObject().put("videoId",id))
+                .put("flexColumns",new JSONArray().put(new JSONObject().put("musicResponsiveListItemFlexColumnRenderer",new JSONObject().put("text",text("Artist song"))))));
+    }
+    static JSONObject releaseRenderer(String id) {
+        return new JSONObject().put("musicTwoRowItemRenderer",new JSONObject().put("title",text("Artist release"))
+                .put("navigationEndpoint",new JSONObject().put("browseEndpoint",new JSONObject().put("browseId",id))));
+    }
+    static JSONObject carousel(String title, JSONObject... items) {
+        JSONArray contents=new JSONArray();for(JSONObject item:items)contents.put(item);
+        return new JSONObject().put("musicCarouselShelfRenderer",new JSONObject()
+                .put("header",new JSONObject().put("musicCarouselShelfBasicHeaderRenderer",new JSONObject().put("title",text(title))))
+                .put("contents",contents));
+    }
+    static JSONObject artistPage(JSONArray rows) {
+        return new JSONObject().put("header",new JSONObject().put("musicShelfRenderer",new JSONObject().put("contents",new JSONArray().put(songRenderer("headerBad01")))))
+                .put("contents",new JSONObject().put("singleColumnBrowseResultsRenderer",new JSONObject().put("tabs",new JSONArray()
+                .put(new JSONObject().put("tabRenderer",new JSONObject().put("content",new JSONObject().put("sectionListRenderer",new JSONObject().put("contents",rows))))))));
+    }
+    static void artists(Context c) throws Exception {
+        String a="UCAAAAAAAAAAAAAAAAAAAAAA",b="UCBBBBBBBBBBBBBBBBBBBBBB";
+        JSONObject first=artistRenderer(a,false),second=artistRenderer(b,true),song=songRenderer("artistSong1");
+        JSONObject album=releaseRenderer("MPREb_artist_album");
+        response=new JSONObject().put("contents",new JSONArray().put(first).put(second).put(song).put(album).put(first)).toString();
+        int before=posts;List<MorpheEngine.MediaItem> found=MorpheEngine.searchYouTubeMusic(c,"TaylorSwift","artists");
+        check(posts==before+1&&new JSONObject(lastPost).getString("params").equals("EgWKAQIgAWoMEA4QChADEAQQCRAF"),"artist search has its own real filter request");
+        check(found.size()==2&&found.get(0).isArtist()&&found.get(1).isArtist(),"two-row and flex-column artist identities, dedup and artist-only filtering");
+        check(found.get(0).videoId.isEmpty()&&!found.get(0).isCollection()&&found.get(0).isBrowsable(),"artist is not a fake song, radio/shuffle menu video or playlist");
+        check(found.get(1).author.contains("subscribers"),"artist subtitle from responsive columns");
+        MorpheEngine.addOrToggleSavedItem(c,"artist-fixture",found.get(0),false);
+        MorpheEngine.addOrToggleSavedItem(c,"artist-fixture",found.get(0),false);
+        check(MorpheEngine.loadSavedList(c,"artist-fixture").size()==1&&MorpheEngine.loadSavedList(c,"artist-fixture").get(0).isArtist(),"artist kind and identity persist without a video id");
+        response=new JSONObject().put("contents",new JSONArray().put(song).put(album)).toString();
+        before=posts;check(MorpheEngine.searchYouTubeMusic(c,"No artists","artists").isEmpty()&&posts==before+1,"empty artist search never falls back to songs");
+        response="[]";before=posts;reject(()->MorpheEngine.searchYouTubeMusic(c,"Denied","artists"),"failed artist request replaced by unrelated song results");
+        check(posts==before+1,"failed artist search does not invoke video fallback");
+
+        JSONArray rows=new JSONArray().put(new JSONObject().put("musicShelfRenderer",new JSONObject().put("title",text("Songs")).put("contents",new JSONArray().put(song).put(first))))
+                .put(carousel("Albums",album,first)).put(carousel("Singles & EPs",releaseRenderer("MPREb_artist_single")))
+                .put(carousel("Fans might also like",second,releaseRenderer("MPREb_unrelated"),songRenderer("unrelated01")))
+                .put(carousel("Videos",songRenderer("videoFake01")));
+        response=artistPage(rows).toString();before=posts;
+        List<MorpheEngine.MediaItem> page=MorpheEngine.browseMusicArtist(c,found.get(0));
+        check(posts==before+1&&new JSONObject(lastPost).getString("browseId").equals(a),"tap artist browses that exact public artist identity");
+        check(page.size()==3&&page.get(0).videoId.equals("artistSong1")&&page.get(1).browseId.equals("MPREb_artist_album")&&page.get(2).isCollection(),"artist songs/albums/singles only, no related carousel/header/menu substitutions");
+        JSONObject scoped=artistPage(rows);
+        JSONObject primary=scoped.getJSONObject("contents").getJSONObject("singleColumnBrowseResultsRenderer");
+        scoped.put("contents",new JSONObject().put("twoColumnBrowseResultsRenderer",new JSONObject()
+                .put("secondaryContents",new JSONObject().put("sectionListRenderer",new JSONObject().put("contents",new JSONArray()
+                        .put(new JSONObject().put("musicShelfRenderer",new JSONObject().put("contents",new JSONArray().put(songRenderer("sidebarBad1"))))))))
+                .put("tabs",primary.getJSONArray("tabs"))));
+        check(MorpheEngine.parseMusicArtistPage(scoped).get(0).videoId.equals("artistSong1"),"artist primary tab wins over unrelated sidebar");
+        before=posts;reject(()->MorpheEngine.browseMusicArtist(c,new MorpheEngine.MediaItem()),"invalid artist browse");
+        check(posts==before,"invalid artist never fetched");
+        reject(()->MorpheEngine.parseMusicArtistPage(artistPage(new JSONArray().put(carousel("Fans might also like",song)))),"related carousel substituted for unavailable artist releases");
+        JSONArray many=new JSONArray();for(int i=0;i<75;i++)many.put(songRenderer(String.format(Locale.US,"song%07d",i)));
+        check(MorpheEngine.parseMusicArtistPage(artistPage(new JSONArray().put(new JSONObject().put("musicShelfRenderer",new JSONObject().put("contents",many))))).size()==60,"artist page is bounded to 60 public items");
+        System.out.println("PASS Music artists: real filtered requests, responsive/two-row identities, no song fallback or fake queue items, exact artist browse, songs/releases-only scope and 60-item bound");
     }
     static void pins(Context c) throws Exception {
         String a="UCAAAAAAAAAAAAAAAAAAAAAA",b="UCBBBBBBBBBBBBBBBBBBBBBB";
@@ -252,10 +431,10 @@ public final class SuiteFeatureHarness {
     public static void main(String[] args) throws Exception {
         work=new File(args[0]);fixtures=new File(args[1]);work.mkdirs();Environment.root=new File(work,"sdcard");Environment.root.mkdirs();
         Context c=new Context();c.cache=work;
-        crypto();totp();keys();codecs();downloadUi();
+        crypto();totp();vaultImports();qrFileShare();keys();codecs();downloadUi();
         HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);server.createContext("/",SuiteFeatureHarness::serve);
         server.setExecutor(Executors.newCachedThreadPool(r->{Thread t=new Thread(r);t.setDaemon(true);return t;}));server.start();
-        try {MorpheEngine.setGatewayPortForTest(server.getAddress().getPort());collections(c);pins(c);ranges();downloads(c);}
+        try {MorpheEngine.setGatewayPortForTest(server.getAddress().getPort());collections(c);artists(c);pins(c);ranges();downloads(c);}
         finally {server.stop(0);}
     }
 }

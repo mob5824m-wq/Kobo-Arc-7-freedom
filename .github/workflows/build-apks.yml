@@ -29,6 +29,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Node.js for offline browser/Android QR interoperability tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Install Android API 17 (4.2.2) platform, Zig, Certifi, QRCode & Androguard
         run: |
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
@@ -64,6 +69,7 @@ jobs:
             releases/AuroraStore.apk \
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
+            tools/qr-transfer.html \
             tools/Start-PC-Stream-Deck.py \
             tools/Start-PC-Stream-Deck.bat \
             tools/Start-PC-Stream-Deck.sh \
@@ -96,6 +102,8 @@ jobs:
           path: |
             releases/apps/*.apk
             releases/SUITE-FEATURES.md
+            releases/GLASS-MUSIC-QR.md
+            tools/qr-transfer.html
             releases/WEATHER-FEATURES.md
             releases/INSTALL-RUNTIME-FIXES.md
             releases/Upgrade-My-Kobo-To-v2.6.0.apk
@@ -132,12 +140,16 @@ jobs:
           - 38 signed APKs bundled offline: Home, stores, YouTube/Music and 32 independent default apps. New Podcasts, News, Authenticator and Passwords identities; Radio retains its installed data/package.
           - PATCHES is an Arc7 Freedom tab. PC/backup tools and the upgrader no longer force a patch screen. Rootless confirmations, byte verification, same-version maintenance and safe pending/error reports remain; no automatic uninstall/wipe.
           - F-Droid 1306 adds pinned F-Droid/Guardian legacy archives and default-All catalog/empty-state repairs, preserving existing pins, credentials and custom repos plus prior parser/TLS/signature fixes.
-          - Weather high/low and independent/legacy widget bridge; lightweight glass-style custom-app surfaces; in-app Quick Switcher removed without removing Home's pinned dock.
-          - CBC regional MP3 repairs, conservative H.264/AAC-LC selection, actual-player notifications and cancellable verified MP4/M4A downloads. Music adds quick play, public albums/community playlists and local libraries; YouTube adds local pinned channel feeds. No provider authentication/bot bypass or account sync.
+          - Apple-Liquid-Glass-inspired translucent lenses, specular rims and static cached wallpaper frost in the Home dock/top capsule (Android-4-compatible, not Apple's renderer or live background blur). Weather high/low and independent/legacy widget bridge; in-app Quick Switcher removed without removing Home's pinned dock.
+          - CBC regional MP3 repairs, conservative H.264/AAC-LC selection, actual-player notifications and cancellable verified MP4/M4A downloads. YouTube rejects the Android-4 separate-TS HLS audio trap, verifies embedded audio, falls back to combined DASH, and adds a prepared audio-track guard plus Sound/media-volume controls. Music adds quick play, public albums/community playlists and local libraries; YouTube adds local pinned channel feeds. No provider authentication/bot bypass or account sync.
+          - Podcasts adds persistent favorite shows and instant local title/publisher filtering (up to 200 shows). YouTube Music adds real Artists search and public artist songs/albums/singles, without substituting unrelated song results. Both YouTube headers give search its own row and put secondary controls in More.
           - Stream Deck touch key/modifier picker, strict grammar and ordered/owned held-key input. Native Wayland and macOS holds remain unsupported.
-          - Local encrypted TOTP/password vaults with auto-lock and encrypted backups, no Internet permission. Android 4.x is unsupported; these apps are not independently security-audited. No cloud/QR scanning/autofill/recovery.
+          - Local encrypted Passwords/Authenticator vaults import unencrypted Proton Pass and Bitwarden CSV/JSON locally; login TOTP secrets are retained and valid TOTP accounts can be imported separately. Imports append/skip duplicates, never replace existing entries. No provider-encrypted exports, 2FA QR scanning, autofill, cloud sync or recovery. Android 4.x is unsupported and these apps are not independently security-audited.
+          - YouTube Music now preflights real AAC-LC esds/ASC bytes, normalizes sample-entry channels/rate, prefers audio-only classic M4A before HLS and retries one ADTS compatibility container on supported decoder/container errors. No transcoding, DRM or sign-in bypass.
+          - Files adds offline camera multi-QR byte transport (1 MiB maximum), out-of-order/repeated/missing-frame handling, CRC32/SHA-256 checks and explicit collision-safe saving; a self-contained offline browser sender/receiver is included as qr-transfer.html. Optical codes are not encrypted.
+          - Files retains a separate 30-minute, folder-scoped QR link share for browser uploads/downloads on a trusted local network. It uses a random bearer link and an intentionally unencrypted local HTTP connection; stop it in Files when done.
 
-          **Validation:** API17/ARMv7/DEX035/permanent signatures; exact 38-payload reconstruction; executable vault/TOTP vectors, catalog migrations, range/download/remux/FFmpeg decoding, Weather and existing installer/routing/proxy/media regressions. All PC key backends are mocked. No physical Kobo/emulator, live YouTube/CBC/weather/catalog session, real PC key input, ROM flash or Bluetooth PAN hardware validation. Host results are not a security audit or a playback guarantee.
+          **Validation:** production podcast favorite persistence/filter/error tests, recorded two-row media-header allocations/events at 320/360/600/1024dp, real artist-filter/browse request fixtures with songs/releases-only scoping; synthetic camera QR encode/decode plus Java/browser byte-for-byte interoperability and integrity/bounds regressions; recording-Canvas glass/lifecycle tests; actual AAC-LC config validation and sample-exact ADTS remux; API17/ARMv7/DEX035/permanent signatures; exact 38-payload reconstruction; executable vault/TOTP and Proton/Bitwarden import fixtures; QR-share HTTP auth/CSRF/path/upload/download/range tests; catalog migrations, range/download/remux/FFmpeg decoding with explicit non-silent audio PCM checks and separate-TS-to-DASH recovery, Weather and existing installer/routing/proxy/media regressions. All PC key backends are mocked. No physical Kobo/emulator, live YouTube/CBC/weather/catalog session, real PC key input, ROM flash or Bluetooth PAN hardware validation. Host results are not a security audit or a playback guarantee.
 
           See `releases/SUITE-FEATURES.md`, `releases/INSTALL-RUNTIME-FIXES.md`, `releases/WEATHER-FEATURES.md` and `SHA256SUMS.txt`. Stop playback and back up important data. Update in place; individual APKs update only that app.
           EOF
@@ -155,7 +167,7 @@ jobs:
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
-              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md \
+              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
               releases/logo-banner.png \
               releases/index.html \
               tools/Start-PC-Stream-Deck.py \
@@ -172,7 +184,7 @@ jobs:
               --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.6.0 \
               releases/Upgrade-My-Kobo-To-v2.6.0.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
               releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
-              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md \
+              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
               releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
               tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.bat tools/Start-PC-Stream-Deck.sh \
               tools/Start-PC-School-VPN-Relay.py tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py \
@@ -189,7 +201,7 @@ jobs:
               releases/FDroidClassicLegacy.apk \
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
-              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md \
+              releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
               releases/logo-banner.png \
               releases/index.html \
               tools/Start-PC-Stream-Deck.py \

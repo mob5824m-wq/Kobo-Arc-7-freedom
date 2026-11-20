@@ -12,6 +12,8 @@ android {
         versionName "5.6.0"
     }
 
+    sourceSets.main.java.srcDirs += ["${rootProject.projectDir}/shared/java"]
+
     // Uses the Android Gradle Plugin's conventional src/main/{AndroidManifest.xml,java,res} layout.
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_7

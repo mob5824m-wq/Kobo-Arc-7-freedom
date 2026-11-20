@@ -178,7 +178,20 @@ def static_checks():
     assert 'synchronized(vaultIo)' in vault and 'request!=generation' in vault
     assert 'putString(' not in vault and 'outState.put' not in vault
     assert 'setSaveEnabled(false)' in vault and '30000' in vault and '120000' in vault
+    assert 'Import Proton Pass / Bitwarden export' in vault and 'Arc7VaultImporter.merge' in vault
     assert 'independent security audit' in vault and 'there is no recovery' in vault.lower()
+    importer = (SRC/'Arc7VaultImporter.java').read_text()
+    assert 'MAX_IMPORT_BYTES' in importer and 'object.opt("encrypted")' in importer
+    assert 'Arc7Totp.parse(totp)' in importer and '"logintotp"' in importer
+    file_share = (SRC/'Arc7QrFileShareServer.java').read_text()
+    assert 'new InetSocketAddress(InetAddress.getByName("0.0.0.0")' in file_share
+    assert 'SameSite=Strict' in file_share and 'HttpOnly' in file_share and 'getCanonicalFile()' in file_share
+    assert 'never overwritten' in file_share.lower()
+    file_ui = (SRC/'Arc7FileManagerActivity.java').read_text()
+    assert 'QR File Share' in file_ui and 'QrCodeEncoder.renderQrBitmap(address' in file_ui
+    assert 'unencrypted HTTP' in file_ui and 'Arc7QrFileShareService.startShare' in file_ui
+    share_manifest = ET.parse(ROOT/'split-apps/filemanager/AndroidManifest.xml').getroot()
+    assert any(c.get(NS+'name') == 'ca.arc7freedom.app.Arc7QrFileShareService' for c in share_manifest.findall('application/service'))
     shared = (SRC/'Arc7Skin.java').read_text()
     assert 'showQuickAppBarSwitcher' not in shared and '.setColors(' not in shared
     launcher = (ROOT/'launcher-android4/src/main/java/ca/arc7freedom/launcher/VanillaHomeActivity.java').read_text()
@@ -220,7 +233,7 @@ def main():
             file.write_text(content)
             files.append(file)
         files += list((ROOT/'tests/support/org/json').glob('*.java'))
-        files += [SRC/name for name in ('Arc7VaultCrypto.java', 'Arc7Totp.java', 'Arc7KeyBinding.java', 'LegacyMediaPolicy.java', 'Arc7DownloadUi.java',
+        files += [SRC/name for name in ('Arc7VaultCrypto.java', 'Arc7Totp.java', 'Arc7VaultImporter.java', 'Arc7QrFileShareServer.java', 'Arc7KeyBinding.java', 'LegacyMediaPolicy.java', 'LegacyAacConfig.java', 'LegacyTsProbe.java', 'Arc7DownloadUi.java',
                                        'MorpheEngine.java', 'MorpheRemuxer.java', 'MorpheHls.java', 'MorpheHlsRelay.java', 'MorpheStreamServer.java')]
         files.append(ROOT/'tests/java/SuiteFeatureHarness.java')
         classes = tmp/'classes'

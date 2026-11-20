@@ -69,11 +69,47 @@ RSS reader/custom feeds. They are not links to old Radio tabs. Shared Java sourc
 share a process or data. Radio data stays in place; its optional **Copy existing custom
 feeds to News** action copies only URLs, after confirmation in News, without deleting data.
 
-Shared cards, buttons and headers now use light gradient highlights, restrained rounded
-edges and translucent glass-style surfaces. This is Android 4.x `GradientDrawable` styling,
-**not real-time background blur or a claim of modern GPU effects**. The in-app Quick App
+Shared cards, buttons and headers now use **Apple-Liquid-Glass-inspired** translucent lenses,
+directional specular rims, fine inner edges and capsule curves. Home's default dock and top
+capsule add a small, cached, screen-aligned wallpaper frost; app pages use static ambient colour.
+This is an API15-compatible Canvas material, **not Apple's renderer or live background
+refraction/blur**. Solid/minimal Home alternatives and opacity controls remain.
+See the [glass, Music and optical QR guide](GLASS-MUSIC-QR.md). The in-app Quick App
 Bar Switcher is removed. Home's pinned dock, app slots, search button and other layout/
 header controls remain; old switcher settings cannot turn it back on.
+
+## Quick access: podcast favorites and uncrowded search
+
+### Favorite podcasts
+
+1. In **Podcasts**, search the directory, select a show and tap **Favorite**. You can also
+   favorite a show from its episode list without starting playback or downloading an episode.
+2. The **Favorite podcasts** card is at the top. **Quick search favorites** filters as you type
+   by show title and publisher, case/accent-insensitively, with all query words required.
+   **Clear** restores the full list. No network request is made by this local filter.
+3. Tap a saved show to load its episodes, then stream/download as before. Tap its **★** and
+   confirm to remove just that favorite. Up to **200** shows are retained across restarts;
+   duplicate feed identities are not added again and existing Radio/News data is untouched.
+
+The favorite names/feed URLs can be searched offline; opening the actual episodes still needs
+an available feed connection. This is local storage, not podcast-provider account sync.
+Invalid feed entries, failed saves and corrupt saved lists are reported rather than claimed
+as success or silently replaced. Late directory/feed dialogs are ignored after another request,
+Pause or destruction.
+
+### YouTube and Music headers
+
+Both apps now use a compact logo/title/**More** row and a separate full-width search row.
+There is no row of EQ/Sleep/Morphe/app-switch buttons squeezing the text field. Tap **Go**
+or the keyboard Search/Enter action to submit. Music's short **Songs ▾** selector changes
+search type (including **Artists**); the full type names remain in its chooser.
+
+- **YouTube → More:** open YouTube Music, or Morphe / playback settings.
+- **Music → More:** Equalizer, Sleep timer, Morphe / playback settings, or open YouTube.
+
+The title can ellipsize instead of stealing input width. Go/More/type controls have at least
+48dp targets; the input has its own weighted space, including at 320dp widths. Host tests
+record allocations and events, not real Android font rendering or keyboard/window behavior.
 
 ## CBC and media playback
 
@@ -100,6 +136,33 @@ format instead of pretending playback worked.
   `/sdcard/Music/YouTubeMusic/`. Live/TS HLS is playback-only, not an offline MP4 promise.
   Finite fMP4/DASH preparation may need substantial free cache/storage and time.
 
+### YouTube video without sound
+
+The previous HLS relay could generate a master with separate MPEG-TS video/audio playlists.
+Android 4.2's HLS player ignores that alternate-audio playlist, so a picture could start
+without sound even with `MediaPlayer` volume enabled. Playback now prefers an embedded-audio
+rendition, inspects actual TS PAT/PMT audio/video tables (including checksums), and tries up to
+three compatible HLS renditions before falling back to a combined H.264/AAC DASH remux or
+another client. Separate **fMP4** renditions are still remuxed; separate **TS** renditions
+are not falsely claimed to work. An unavailable compatible pair remains an explicit error.
+
+The prepared-player audio guard runs before start/Playing in video and background playback.
+If the video player reports no audio, one bounded DASH recovery is attempted with cancellation
+and stale-request guards. ROMs without track-info APIs are marked unverified, not falsely
+classified as audio-less. This is not a guarantee of audible output on untested hardware.
+
+Install this build's [YouTube.apk](YouTube.apk) in place, then reopen YouTube. The version
+remains 2.6.0/260; an older public “latest” file may not contain the repair. **Sound** opens
+media-volume controls and the current audio-check result. Hardware volume buttons target
+media, audio-focus loss pauses/ducks video, and zero media volume produces a warning. The
+app never forces speaker/Bluetooth routing or raises the system volume automatically.
+
+Host regressions reproduce the separate-TS trap, a lying CODECS declaration, missing/corrupt
+program tables, combined-rendition and actual DASH fallback, and prepared-player audio checks.
+With FFmpeg enabled they explicitly select the audio stream and require decoded non-silent
+PCM in all ten generated MP4/M4A/ADTS outputs; decoding only the video is not a passing audio test.
+Actual Kobo speaker/headphone/Bluetooth output and live provider behavior still need testing.
+
 ### YouTube and Shorts
 
 **Pinned Channels** is explicitly local. Add a channel ID, public channel URL or handle;
@@ -112,11 +175,26 @@ is supplied or promised**; some Shorts/videos will remain unavailable on this de
 
 ### YouTube Music
 
+- **Unsupported-format (`1/-1010`) repair:** prefer verified AAC-LC adaptive audio before HLS,
+  parse real `mp4a/esds` AudioSpecificConfig bytes, reject HE-AAC/SBR/encryption/unsupported
+  channel-rate modes and normalize MP4 sample-entry channel/rate fields. Music prepares an
+  audio-only classic M4A rather than unnecessarily opening a video/HLS container.
+- One request-scoped **ADTS AAC-LC** retry handles supported container/decoder errors. It
+  preserves the AAC samples, cancels late/stopped requests and never loops or hides failure
+  by advancing tracks. This is not transcoding; unavailable compatible audio remains an error.
+
 - **Quick play** uses local Liked Songs, otherwise loaded songs, otherwise one public-song
   search. It is bound to that request, not a late response from a different search.
-- The search picker offers **Songs, Albums, Playlists and Community playlists**. A
-  collection opens its own tracks; recommendations do not replace an unavailable playlist.
-  Public remote collections load up to **60 tracks on the first page**, as shown in the UI.
+- The search picker offers **Songs, Artists, Albums, Playlists and Community playlists**.
+  **Artists** requests actual artist results and retains their public browse identities, not
+  a pretend song ID. Tap/Open an artist to see its public songs, albums and singles/EPs
+  (up to **60** first-page items); tap an album to open its own tracks. **Back to artist
+  results** restores the prior result list. An 11-letter artist name is still a name, not
+  automatically interpreted as a video ID in this mode.
+- Artist/album/playlist searches return honest empty/error states, not unrelated song search
+  fallbacks. Artist headers' radio/shuffle controls, unrelated sidebars and related-artist
+  carousels are not substituted for that artist's songs/releases. Unsupported/sign-in-only
+  layouts remain unavailable. Public remote collections load up to **60 first-page tracks**.
 - Save albums/playlists to the local library. Long-press a song to add it to a local
   playlist; create one with **+ New playlist**. Use **Play results** to start loaded songs.
   Long-press a saved collection to remove it. Local playlists preserve addition order.
@@ -161,7 +239,7 @@ or hardware security key. Keep provider recovery codes and encrypted backups els
 
 - Each app has its own private, purpose-bound encrypted vault and no `INTERNET` permission.
   Android automatic app-data backup is disabled. There is no cloud sync, recovery service,
-  password autofill, QR scanning, HOTP or push authentication.
+  password autofill, 2FA QR scanning, HOTP or push authentication.
 - Create a strong unique master passphrase (minimum 10 characters). Password derivation
   uses PBKDF2-HMAC-SHA256 at 600,000 iterations with random salt; independent AES-256-CBC
   and HMAC-SHA256 keys authenticate the header/IV/ciphertext **before decrypting**.
@@ -181,29 +259,59 @@ or hardware security key. Keep provider recovery codes and encrypted backups els
   There is no forgotten-password recovery. Android uninstall deletes the private vault.
 - Limits: 200 entries, approximately 1MiB plaintext vault data. Cancelled/failed operations
   retain previously committed data; a save already committed before cancellation is kept.
+- Both apps import unencrypted Proton Pass and Bitwarden CSV/JSON exports locally (up to 4 MiB
+  per file / 200 entries). Passwords retains supported login TOTP secrets; Authenticator imports
+  valid TOTP secrets/`otpauth://` values. Imports append and skip duplicates; they do not replace
+  existing entries. Provider-encrypted exports, passkeys, push approvals and recovery codes are
+  not imported. The selected export is parsed on-device and is not uploaded.
+- Files offers a consent-based, 30-minute QR link to a folder inside shared internal storage.
+  A browser on the same trusted LAN can upload/download files; the random bearer link is folder-
+  scoped but local HTTP is unencrypted. Stop sharing in Files when finished; this is not suitable
+  for sensitive transfers or an untrusted network.
+
+## Files: offline camera QR bytes, separate from LAN links
+
+Long-press a file → **Send file bytes via QR (offline)**. On the other Kobo, use **Receive QR
+bytes**, or use the self-contained [browser companion](../tools/qr-transfer.html) on another
+computer/phone. File bytes travel in repeated QR frames, not a URL. Maximum **1 MiB**; about
+one minute per 10 KiB at normal speed before any missed-frame retries. ZIP folders first.
+
+Accept the header, watch missing-frame progress and replay frames as needed. CRC32 and full-file
+SHA-256 checks precede explicit **Save verified file**. Kobo saves collision-safe completed files
+to `/sdcard/Download/QR Received/`, without opening/installing them. Front-only/rotated cameras,
+focus, speed and pause/replay controls are supported. No shared network is needed, but codes
+are **not encrypted or authenticated**. Closing cancels; process-death recovery is not provided.
+Browser camera reception needs a secure context (HTTPS/localhost; local files work in some
+browsers); a saved page can display codes for the Kobo camera offline.
+
+The older **QR link · LAN share** remains a separate, temporary, folder-scoped HTTP share.
+See [setup, protocol, limits and tests](GLASS-MUSIC-QR.md).
 
 ## Validation
 
 **This build passed:** the complete signed build and full `scripts/verify-apks.py`
 run, including the compiled MorpheEngine integration (not skipped), host FFmpeg,
 new feature/catalog/Weather regressions and byte-exact reconstruction of all **38**
-embedded APKs. All **52** release/app/tool checksums were independently checked.
+embedded APKs. All **53** release/app/tool checksums were independently checked.
 This is host/binary evidence, not tablet playback or a security audit.
 
-Suite SHA-256:
-`2ee0ef1a09f66f79710fdfb3b9f1d4e5f59346d9b8268aaa2f0d48c7038f6460`
-
-Upgrader SHA-256:
-`d6b82cbbaf86784aea86faadb18a4744763fe46c0d4eb8f78b5b4c6b453f3a68`
+Exact suite, upgrader, YouTube/Music, Podcasts and other artifact hashes are generated in
+[SHA256SUMS.txt](SHA256SUMS.txt). Use that authoritative manifest for the current signed build;
+CI rebuilds can change APK bytes without changing the retained app version numbers.
 
 Automated host and binary checks are recorded in the ignored build logs and run by `make verify`:
 
 | Gate | What it establishes |
 | --- | --- |
 | API17/ARMv7 build + zipalign/signature/DEX/manifest checks | Old Android packaging and permanent certificate; not decoder/UI execution |
-| `make test-features` | Real PBKDF2/vault authentication/tamper/atomic-save tests, all 18 RFC6238 vectors, key grammar, player/collection/pin parsers, synthetic HTTP ranges and real MP4/M4A downloads |
+| `make test-features` | Real PBKDF2/vault authentication/tamper/atomic-save tests, all 18 RFC6238 vectors, Proton/Bitwarden CSV/JSON import fixtures and real QR-share HTTP auth/CSRF/path/upload/download/range/stop tests, plus key grammar, player/collection/pin parsers and real MP4/M4A downloads |
+| `make test-discovery` | Production podcast favorite persistence/filtering/URL validation, safe failure/capacity cases and two-row header allocations/events at 320/360/600/1024dp using host preferences/layout fakes; not physical Android rendering |
+| Artist discovery in `make test-features` | Actual filtered request payloads, two-row/responsive artist identities, no song fallback, exact public artist browse, scoped songs/albums/singles and first-page bounds |
+| `make test-optical` | Actual Java/browser QR encoders and camera-luma readers, byte-for-byte cross-language reassembly, rotation/mirror/noise, CRC/SHA, missing/repeated/out-of-order frames, path/size/collision/cancel bounds; not a physical camera test |
+| `make test-glass` | Production lens layers/alpha/pressed states, bounded cached wallpaper frost and screen alignment with recording Android graphics fakes; not GPU screenshots |
+| AAC compatibility/runtime | Actual esds/ASC validation and normalization, MIME lies/HE-AAC rejection, sample-exact ADTS recovery, compiled Music-before-HLS binding and cancellation |
 | Download controller fakes | Actual progress/cancel/overlap/destroy logic; not Android window rendering |
-| Host FFmpeg | Synthetic downloaded/remuxed H.264/AAC media actually decodes; not the Kobo hardware decoder |
+| Host FFmpeg | Synthetic downloaded/remuxed H.264/AAC decodes, with explicit audio mapping and non-silent PCM checks for HLS/DASH recovery; not the Kobo hardware decoder |
 | PC input mocks + framed sockets | Windows/Mac/X11 mapping/error paths, overlapping holds/rollback/disconnect cleanup; no real keyboard events emitted |
 | `make test-fdroid` | Pinned cert retention, idempotent actual DEX/resource edits, generated Java migration + real host SQLite including credentials/failure cases |
 | `make test-weather` | Real production models/cache/service/widget/bridge logic with synthetic providers and Android fakes |
@@ -226,7 +334,14 @@ still require testing. Live TLS tests, where run, only establish the tested TLS 
   Restart, retry a failed sync and verify custom repositories/pins/credentials remain.
 - Open Radio, Podcasts and News independently. Test both CBC regional buttons, a stream
   failure/timeout, rapid station changes and actual screen-off audio/owned notifications.
-- Play an accessible YouTube video/Short and Music song, then test volume, pause/seek/stop,
+- Favorite two podcast shows, filter by title/publisher, clear, restart and filter offline.
+  Reconnect to open episodes, remove one favorite, and leave during a directory/feed request.
+- Check YouTube/Music headers in portrait/landscape and with larger text/keyboard visible.
+  Submit via Go and keyboard Search; confirm all More actions still open. Search **Artists**,
+  open a real artist's songs/album, return to results and switch modes during a pending request.
+- Install this build's YouTube.apk and play an accessible video/Short and Music song.
+  Use Sound to confirm media volume and the prepared audio-check result; listen on the
+  speaker and headphones/Bluetooth as available. Test pause/seek/stop, audio-focus loss,
   notifications, screen-off, a real unsupported stream and a real sign-in/bot denial.
 - Download video and M4A, play both offline, cancel mid-transfer, navigate away, exhaust
   free space safely and confirm no broken partial file appears as a completed download.
@@ -239,3 +354,11 @@ still require testing. Live TLS tests, where run, only establish the tested TLS 
 - Use only disposable vault/2FA fixtures first: wrong password, background/idle lock,
   screenshots, clipboard ownership/expiry, rotation, cancelled derivation, encrypted export/
   restore, password change and interrupted saves. Compare a TOTP with a trusted authenticator.
+  Also test Proton Pass/Bitwarden plaintext CSV/JSON selection, preview, duplicate skipping and
+  invalid/encrypted-export warnings; verify no entries are replaced.
+- Check Home's glass dock/top capsule over several wallpapers, all skins/opacity modes,
+  pressed-state/text contrast and scrolling/battery behavior. Transfer a disposable file in
+  both optical directions with Wi-Fi disabled; miss/replay frames, cancel, retry front-camera
+  focus/portrait/lighting and compare the saved file's hash. Test duplicate-name saves.
+- On a trusted LAN, test QR share confirmation, QR/link access, upload/download, duplicate-name
+  handling, manual stop and automatic expiry. Do not use sensitive files or an untrusted network.

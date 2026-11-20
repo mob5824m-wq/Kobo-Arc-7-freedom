@@ -108,10 +108,12 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
             return;
         }
         button(list,authenticator() ? "Add 2FA account" : "Add password",new View.OnClickListener(){ public void onClick(View v){ edit(-1); }});
+        button(list,"Import Proton Pass / Bitwarden export…",new View.OnClickListener(){ public void onClick(View v){ chooseImport(); }});
         button(list,"Lock now",new View.OnClickListener(){ public void onClick(View v){ lock(); }});
         button(list,"Export encrypted backup",new View.OnClickListener(){ public void onClick(View v){ exportBackup(); }});
         button(list,"Change master password",new View.OnClickListener(){ public void onClick(View v){ promptChangePassword(); }});
-        if(authenticator()) text(list,"Codes need the correct device date and time. Enter a Base32 key or paste an otpauth://totp URI. HOTP, QR scanning, push approvals and recovery codes are not supported. Keep your provider's recovery codes separately.");
+        if(authenticator()) text(list,"Codes need the correct device date and time. Enter a Base32 key or paste an otpauth://totp URI. You can import TOTP secrets included in an unencrypted Proton Pass or Bitwarden export. HOTP, QR scanning, push approvals and recovery codes are not supported. Keep your provider's recovery codes separately.");
+        else text(list,"Imports are processed locally from an unencrypted Proton Pass or Bitwarden CSV/JSON export. Login TOTP secrets are kept with the password and can be copied as a current code; import the same file in Authenticator to keep codes there too.");
         if(entries.length()==0) text(list,"No entries yet. Your master password is never stored.");
         for(int i=0;i<entries.length();i++) {
             final int index=i; final JSONObject item=entries.optJSONObject(i); if(item==null) continue;
@@ -127,6 +129,10 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
                 text(card,item.optString("username")+ (item.optString("url").length()>0 ? "\n"+item.optString("url") : ""));
                 button(card,"Copy username",new View.OnClickListener(){ public void onClick(View v){ copy(item.optString("username")); }});
                 button(card,"Copy password (clears in 30s)",new View.OnClickListener(){ public void onClick(View v){ copy(item.optString("password")); }});
+                if(item.optString("totp").length()>0) button(card,"Copy current 2FA code (clears in 30s)",new View.OnClickListener(){ public void onClick(View v){
+                    try { copy(Arc7Totp.generate(item.getString("totp"),item.optString("totp_algorithm","SHA1"),item.optInt("totp_digits",6),item.optInt("totp_period",30),System.currentTimeMillis()/1000)); }
+                    catch(Exception invalid){ message("Cannot generate this 2FA code. Edit the entry and check the secret and device time."); }
+                }});
             }
             button(card,"Edit / remove",new View.OnClickListener(){ public void onClick(View v){ edit(index); }});
         }
@@ -168,8 +174,10 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
     private void validate(JSONArray data) throws Exception {
         if(data.length()>200) throw new IOException("At most 200 entries are supported");
         for(int i=0;i<data.length();i++) {
-            JSONObject item=data.getJSONObject(i); if(item.optString("title").length()>200) throw new IOException("Entry title too long");
+            JSONObject item=data.getJSONObject(i);
+            if(item.optString("title").length()==0 || item.optString("title").length()>200) throw new IOException("Entry title is empty or too long");
             if(authenticator()) Arc7Totp.generate(item.getString("secret"),item.optString("algorithm","SHA1"),item.optInt("digits",6),item.optInt("period",30),0);
+            else if(item.optString("totp").length()>0) Arc7Totp.generate(item.getString("totp"),item.optString("totp_algorithm","SHA1"),item.optInt("totp_digits",6),item.optInt("totp_period",30),0);
         }
     }
     private void edit(final int index) {
@@ -178,6 +186,7 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
         final LinearLayout b=form(); final EditText title=input(b,"Title / account",old.optString("title"),false);
         final EditText user=input(b,authenticator() ? "Issuer (optional)" : "Username",old.optString(authenticator() ? "issuer" : "username"),false);
         final EditText secret=input(b,authenticator() ? "Base32 secret or otpauth://totp URI" : "Password",old.optString(authenticator() ? "secret" : "password"),true);
+        final EditText passwordTotp=authenticator() ? null : input(b,"2FA secret or otpauth://totp URI (optional)",old.optString("totp"),true);
         final EditText url=input(b,authenticator() ? "Algorithm: SHA1, SHA256 or SHA512" : "Website (not opened automatically)",old.optString(authenticator() ? "algorithm" : "url",authenticator() ? "SHA1" : ""),false);
         final EditText notes=input(b,authenticator() ? "Digits (6 or 8)" : "Notes",authenticator() ? ""+old.optInt("digits",6) : old.optString("notes"),false);
         final EditText period=authenticator() ? input(b,"Period in seconds (15–120)",""+old.optInt("period",30),false) : null;
@@ -196,7 +205,14 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
                     Arc7Totp.generate(a.secret,a.algorithm,a.digits,a.period,0);
                     if(label.length()==0) label=a.label;
                     item.put("issuer",user.getText().length()>0 ? user.getText().toString() : a.issuer).put("secret",a.secret).put("algorithm",a.algorithm).put("digits",a.digits).put("period",a.period);
-                } else item.put("username",user.getText().toString()).put("password",secret.getText().toString()).put("url",url.getText().toString()).put("notes",notes.getText().toString());
+                } else {
+                    item.put("username",user.getText().toString()).put("password",secret.getText().toString()).put("url",url.getText().toString()).put("notes",notes.getText().toString());
+                    String rawTotp=passwordTotp.getText().toString().trim();
+                    if(rawTotp.length()>0) {
+                        Arc7Totp.Account twoFactor=Arc7Totp.parse(rawTotp);
+                        item.put("totp",twoFactor.secret).put("totp_algorithm",twoFactor.algorithm).put("totp_digits",twoFactor.digits).put("totp_period",twoFactor.period);
+                    }
+                }
                 if(label.length()==0 || label.length()>200) throw new Exception("Enter a title of 1–200 characters"); item.put("title",label);
                 dialog.dismiss(); dialog=null; for(EditText f:sensitive) f.setText(""); sensitive.clear(); change(index,item);
             } catch(Exception invalid){ message(safeError(invalid)); }
@@ -254,6 +270,57 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
                     && clipboardValue.contentEquals(c.getPrimaryClip().getItemAt(0).coerceToText(this))) c.setPrimaryClip(ClipData.newPlainText("",""));
         } catch(Exception ignored) {} clipboardValue=null;
     }
+    private void chooseImport() {
+        if(busy || session==null) return;
+        try {
+            Intent picker=new Intent(Intent.ACTION_GET_CONTENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE);
+            startActivityForResult(Intent.createChooser(picker,"Choose a Proton Pass or Bitwarden export"),7202);
+        } catch(Exception missing) { message("No file picker is installed. Copy a CSV or JSON export to the Kobo and try again."); }
+    }
+    private void importExport(Uri uri) {
+        if(busy || session==null) return;
+        byte[] bytes=null;
+        try {
+            if(!"content".equals(uri.getScheme()) && !"file".equals(uri.getScheme())) throw new IOException("Choose a local CSV or JSON export");
+            bytes=Arc7VaultImporter.read(getContentResolver().openInputStream(uri));
+            Arc7VaultImporter.Batch batch=Arc7VaultImporter.parse(bytes);
+            Arc7VaultCrypto.wipe(bytes); bytes=null;
+            final JSONArray incoming=authenticator() ? batch.authenticators : batch.passwords;
+            if(incoming.length()==0) {
+                if(authenticator() && batch.passwords.length()>0)
+                    message("Found " + batch.passwords.length() + " login records but no valid TOTP secrets. Export TOTP fields from the provider or choose an Authenticator export.");
+                else if(!authenticator() && batch.authenticators.length()>0)
+                    message("Found " + batch.authenticators.length() + " TOTP codes but no login records. Import this file in Authenticator instead.");
+                else message("No supported " + (authenticator() ? "TOTP accounts" : "login entries") + " were found. Choose an unencrypted Proton Pass or Bitwarden CSV/JSON export.");
+                return;
+            }
+            final Arc7VaultImporter.Merge merge=Arc7VaultImporter.merge(entries,incoming,purpose());
+            if(merge.added==0) { message("No new entries to import. All " + merge.duplicates + " matching entries were already in this vault."); return; }
+            String summary="Found " + batch.passwords.length() + " login entries and " + batch.authenticators.length() + " valid 2FA accounts in " + batch.source + ".\n\n"
+                    + "Import " + merge.added + " new " + (authenticator() ? "2FA account(s)" : "login(s)")
+                    + " and skip " + merge.duplicates + " duplicate(s)? Existing entries will be kept; nothing is uploaded.";
+            if(batch.invalidTotp>0) summary += "\n\n" + batch.invalidTotp + " invalid or unsupported TOTP value(s) will not be imported.";
+            if(authenticator() && batch.passwords.length()>0) summary += "\n\nImport the same export in Passwords to add its logins there.";
+            if(!authenticator() && batch.authenticators.length()>0) summary += "\n\nImport the same export in Authenticator to keep the 2FA accounts there too.";
+            dialog=new AlertDialog.Builder(this).setTitle("Review local import")
+                    .setMessage(summary)
+                    .setPositiveButton("Import " + merge.added, new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
+                        try {
+                            validate(merge.entries);
+                            byte[] plain=merge.entries.toString().getBytes("UTF-8");
+                            try { Arc7VaultCrypto.atomicWrite(vault(),Arc7VaultCrypto.seal(session,plain)); }
+                            finally { Arc7VaultCrypto.wipe(plain); }
+                            entries=merge.entries; render();
+                            message("Imported " + merge.added + " entr" + (merge.added==1 ? "y" : "ies") + ". Existing vault data was merged, not replaced.");
+                        } catch(Exception failure) { message("Import was not saved; existing vault data is unchanged. " + safeError(failure)); }
+                    }})
+                    .setNegativeButton("Cancel",null).create();
+            dialog.show(); dialog.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        } catch(Exception invalid) {
+            Arc7VaultCrypto.wipe(bytes);
+            message("Import failed; the existing vault is unchanged. " + safeError(invalid));
+        }
+    }
     private void chooseBackup() {
         if(busy) return;
         final EditText path=new EditText(this); path.setSingleLine(true);
@@ -271,8 +338,9 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
-        if(request!=7201 || result!=RESULT_OK || data==null || data.getData()==null) return;
-        readBackup(data.getData());
+        if(result!=RESULT_OK || data==null || data.getData()==null) return;
+        if(request==7201) readBackup(data.getData());
+        else if(request==7202) importExport(data.getData());
     }
     private void readBackup(Uri uri) {
         if(busy) return;

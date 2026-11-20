@@ -132,6 +132,8 @@ compile_java_and_dex() {
     local out_classes="$1"
     local out_dex_dir="$2"
     shift 2
+    # Shared, API-15-compatible glass material used by both launcher and applications.
+    set -- "$@" shared/java/ca/arc7freedom/glass/*.java
 
     if [ -f "$ECJ" ]; then
         "$JAVA_BIN" -jar "$ECJ" -1.8 -source 1.8 -target 1.8 \
@@ -407,6 +409,7 @@ build_standalone_app() {
 
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
+    cp -R app/src/main/assets/licenses "$work/assets/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -429,7 +432,8 @@ build_standalone_app() {
         "$work/classes" \
         "$work/dex" \
         "$work/gen/ca/arc7freedom/app/R.java" \
-        app/src/main/java/ca/arc7freedom/app/*.java
+        app/src/main/java/ca/arc7freedom/app/*.java \
+        $(find app/src/main/java/com/google/zxing -name "*.java" -print | LC_ALL=C sort)
 
     cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/"
     cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/"
@@ -468,6 +472,7 @@ build_default_split_apps() {
 
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
+    cp -R app/src/main/assets/licenses "$work/assets/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -493,7 +498,8 @@ build_default_split_apps() {
         "$work/classes" \
         "$work/dex" \
         "$work/gen/ca/arc7freedom/app/R.java" \
-        app/src/main/java/ca/arc7freedom/app/*.java
+        app/src/main/java/ca/arc7freedom/app/*.java \
+        $(find app/src/main/java/com/google/zxing -name "*.java" -print | LC_ALL=C sort)
 
     cp -f build/native/armeabi-v7a/libarc7tls.so "$work/stage/lib/armeabi-v7a/"
     cp -f build/native/armeabi/libarc7tls.so "$work/stage/lib/armeabi/"
@@ -504,6 +510,7 @@ build_default_split_apps() {
     network_apps=" $("$PY_BIN" -c 'import runpy; print(" ".join(sorted(runpy.run_path("scripts/gen-split-apps.py")["NETWORK_APPS"])))') "
     local empty_assets="$work/empty_assets"
     mkdir -p "$empty_assets"
+    cp -R app/src/main/assets/licenses "$empty_assets/"
 
     local built=0
     while IFS=$'\t' read -r key fname label desc; do
@@ -636,6 +643,7 @@ cp -f releases/YouTubeMusic.apk app/src/main/assets/starter-apps/YouTubeMusic.ap
 
 echo "==> [3c/9] Building 32 separately installable default apps (releases/apps/*.apk)..."
 "$PY_BIN" scripts/gen-split-apps.py
+"$PY_BIN" scripts/build-qr-companion.py
 build_default_split_apps
 
 mkdir -p app/src/main/assets/starter-apps
@@ -724,7 +732,8 @@ compile_java_and_dex \
     build/app/classes \
     build/app/dex \
     build/app/gen/ca/arc7freedom/app/R.java \
-    app/src/main/java/ca/arc7freedom/app/*.java
+    app/src/main/java/ca/arc7freedom/app/*.java \
+        $(find app/src/main/java/com/google/zxing -name "*.java" -print | LC_ALL=C sort)
 
 cp build/native/armeabi-v7a/*.so build/app/stage/lib/armeabi-v7a/
 cp build/native/armeabi/*.so build/app/stage/lib/armeabi/
@@ -810,7 +819,8 @@ chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Interne
     Backup-Kobo-To-Laptop-ADB.bat \
     Backup-Kobo-To-Laptop-ADB.sh \
     Start-Kobo-WiFi-Server.bat \
-    Start-Kobo-WiFi-Server.sh) >> releases/SHA256SUMS.txt
+    Start-Kobo-WiFi-Server.sh \
+    qr-transfer.html) >> releases/SHA256SUMS.txt
 (cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
 # Fold the 32 standalone-app hashes into the top-level checksum file so a single
 # releases/latest/download/SHA256SUMS.txt verifies the whole release.
