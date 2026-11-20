@@ -1,7 +1,7 @@
 TOOLCHAIN_DIR ?= $(if $(wildcard /opt/toolchain/jdk/bin/java),/opt/toolchain,$(CURDIR)/build/toolchain)
 PYTHON ?= $(if $(wildcard $(TOOLCHAIN_DIR)/venv/bin/python),$(TOOLCHAIN_DIR)/venv/bin/python,python3)
 
-.PHONY: all apks icons test test-isolation test-runtime test-audio-state test-install test-weather test-features test-optical test-glass test-discovery test-windows test-release test-fdroid verify clean bootstrap sideload
+.PHONY: all apks icons test test-isolation test-runtime test-audio-state test-reliability test-install test-weather test-features test-optical test-glass test-discovery test-windows test-release test-fdroid verify clean bootstrap sideload
 
 all: apks verify
 
@@ -24,6 +24,9 @@ test-runtime:
 
 test-audio-state:
 	TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" $(PYTHON) scripts/test-audio-state.py
+
+test-reliability:
+	TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" $(PYTHON) scripts/test-reliability.py
 
 test-install:
 	TOOLCHAIN_DIR="$(TOOLCHAIN_DIR)" $(PYTHON) scripts/test-install-maintenance.py

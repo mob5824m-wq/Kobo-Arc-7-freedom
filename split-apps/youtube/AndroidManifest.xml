@@ -68,6 +68,14 @@
         </activity>
 
         <!-- Own package-local TLS 1.3 gateway + universal background audio/notification service -->
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools"
+            android:taskAffinity="ca.arc7freedom.youtube.task.support" android:exported="true" />
+        <activity android:name="ca.arc7freedom.app.Arc7PlaybackDiagnosticsActivity" android:label="Playback diagnostics"
+            android:taskAffinity="ca.arc7freedom.youtube.task.diagnostics" android:exported="false" />
+        <receiver android:name="ca.arc7freedom.app.Arc7MediaButtonReceiver" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON" /></intent-filter>
+        </receiver>
+
         <service android:name="ca.arc7freedom.app.Arc7TlsGatewayService" android:exported="false" />
         <service android:name="ca.arc7freedom.app.Arc7AudioService" android:exported="false" />
 

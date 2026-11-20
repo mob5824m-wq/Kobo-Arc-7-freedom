@@ -27,7 +27,8 @@ public final class Arc7QrFileShareService extends Service {
     public static final long SESSION_MILLIS = 30L * 60L * 1000L;
     private static final int NOTIFICATION_ID = 8091;
 
-    private static volatile boolean running;
+    private static final Object LIFECYCLE = new Object();
+    private static volatile boolean running, starting;
     private static volatile String token = "";
     private static volatile String host = "";
     private static volatile String rootName = "";
@@ -50,11 +51,23 @@ public final class Arc7QrFileShareService extends Service {
 
     public static void startShare(Context context, File directory) {
         if (context == null || directory == null) return;
-        error = "";
-        Intent intent = new Intent(context, Arc7QrFileShareService.class);
-        intent.setAction(ACTION_START);
-        intent.putExtra(EXTRA_ROOT, directory.getAbsolutePath());
-        context.startService(intent);
+        synchronized(LIFECYCLE) {
+            if(running || starting)return;
+            starting=true;error="";
+            Intent intent = new Intent(context, Arc7QrFileShareService.class);
+            intent.setAction(ACTION_START);
+            intent.putExtra(EXTRA_ROOT, directory.getAbsolutePath());
+            try { if(context.startService(intent)==null)throw new IllegalStateException("File-share service unavailable"); }
+            catch(RuntimeException failure){starting=false;throw failure;}
+        }
+    }
+
+    /** Atomic with start/stop, including the queued startService → onStartCommand gap. */
+    public static void discardPendingIfStopped(Arc7ResumableUploads uploads) throws java.io.IOException {
+        synchronized(LIFECYCLE) {
+            if(running || starting)throw new java.io.IOException("Stop sharing before discarding pending uploads");
+            uploads.discardPending();
+        }
     }
 
     public static void stopShare(Context context) {
@@ -78,6 +91,13 @@ public final class Arc7QrFileShareService extends Service {
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        synchronized(LIFECYCLE) {
+            try { return handleStartCommand(intent); }
+            finally { starting=false; }
+        }
+    }
+
+    private int handleStartCommand(Intent intent) {
         if (intent != null && ACTION_STOP.equals(intent.getAction())) {
             error = "";
             stopSelf();
@@ -101,7 +121,10 @@ public final class Arc7QrFileShareService extends Service {
             StringBuilder hex = new StringBuilder(48);
             for (byte value : random) hex.append(String.format(Locale.US, "%02x", value & 255));
             Arc7VaultCrypto.wipe(random);
-            Arc7QrFileShareServer next = new Arc7QrFileShareServer(root, hex.toString());
+            Arc7QrFileShareServer next = new Arc7QrFileShareServer(root, hex.toString(),
+                    new int[]{8091,8092,8093}, new File(getFilesDir(),"lan-uploads"), new Arc7QrFileShareServer.ClientAssets() {
+                        public java.io.InputStream open(String name) throws java.io.IOException { return getAssets().open("lan-share/"+name); }
+                    });
             next.start();
             if (!next.isRunning()) throw new Exception("The local file-share server did not start.");
 
@@ -117,6 +140,7 @@ public final class Arc7QrFileShareService extends Service {
             handler.postDelayed(expire, SESSION_MILLIS);
             startForeground(NOTIFICATION_ID, notification("Folder " + rootName + " · " + host + ":" + port + " · auto-stops in 30 min"));
         } catch (Exception failure) {
+            ca.arc7freedom.support.DebugLog.error("lan.share_start_failed", failure);
             error = failure.getMessage() == null ? "Could not start the QR file share." : failure.getMessage();
             stopInternal();
             stopForeground(true);
@@ -180,10 +204,12 @@ public final class Arc7QrFileShareService extends Service {
     }
 
     private void stopInternal() {
-        handler.removeCallbacks(expire);
-        running = false;
-        if (server != null) { server.stop(); server = null; }
-        token = ""; host = ""; rootName = ""; port = 0; expiresAt = 0;
+        synchronized(LIFECYCLE) {
+            handler.removeCallbacks(expire);
+            if (server != null) { server.stop(); server = null; }
+            running = false;starting=false;
+            token = ""; host = ""; rootName = ""; port = 0; expiresAt = 0;
+        }
     }
 
     @Override public void onDestroy() {

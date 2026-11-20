@@ -138,8 +138,11 @@ def integration_checks():
     for activity in (video, music):
         assert 'new Arc7MediaHeader(' in activity and 'topBar.addView' not in activity
         assert 'getSearchInput()' in activity and 'showHeaderOptions()' in activity
-    assert 'openYouTubeMusicApp(); else showMorphePatchesDialog();' in video
-    for action in ('showEqualizerDialog()', 'showSleepTimerDialog()', 'showMorpheMusicSettings()'):
+    video_options = video.split('private void showHeaderOptions()', 1)[1].split('private void runUserSearchOrUrl(', 1)[0]
+    assert 'if (which == 0) openYouTubeMusicApp(); else if (which == 1) showMorphePatchesDialog();' in video_options
+    assert 'which == 2' in video_options and 'Arc7PlaybackDiagnosticsActivity.class' in video_options
+    assert 'AppSupport.open(YouTubeActivity.this)' in video_options
+    for action in ('showEqualizerDialog()', 'showSleepTimerDialog()', 'showMorpheMusicSettings()', 'Arc7PlaybackDiagnosticsActivity.class', 'AppSupport.open(YouTubeMusicActivity.this)'):
         assert action in music.split('private void showHeaderOptions()', 1)[1].split('private void performMusicSearch(', 1)[0]
     assert '"songs", "artists", "albums", "playlists", "community_playlists"' in music
     assert '"artists".equals(mode) ? null' in music  # An 11-letter artist name is not a video id.

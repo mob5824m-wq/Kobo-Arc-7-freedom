@@ -436,12 +436,14 @@ public class YouTubeMusicActivity extends Arc7Activity {
 
     private void showHeaderOptions() {
         new AlertDialog.Builder(this).setTitle("YouTube Music options")
-                .setItems(new String[]{"Equalizer", "Sleep timer", "Morphe / playback settings", "Open YouTube"}, new DialogInterface.OnClickListener() {
+                .setItems(new String[]{"Equalizer", "Sleep timer", "Morphe / playback settings", "Open YouTube", "Playback diagnostics / sound test", "App tools · logs, RAM & storage"}, new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface dialog, int which) {
                         if (which == 0) showEqualizerDialog();
                         else if (which == 1) showSleepTimerDialog();
                         else if (which == 2) showMorpheMusicSettings();
-                        else openYouTubeApp("https://www.youtube.com/");
+                        else if (which == 3) openYouTubeApp("https://www.youtube.com/");
+                        else if (which == 4) startActivity(new Intent(YouTubeMusicActivity.this, Arc7PlaybackDiagnosticsActivity.class));
+                        else ca.arc7freedom.support.AppSupport.open(YouTubeMusicActivity.this);
                     }
                 }).setNegativeButton("Close", null).show();
     }

@@ -189,6 +189,7 @@ public class UpgraderActivity extends Activity {
     }
 
     private void uiProgress(final int pct, final String sub) {
+        ca.arc7freedom.support.DebugLog.number("upgrade.progress_percent",pct);
         ui.post(new Runnable() {
             @Override
             public void run() {
@@ -281,6 +282,7 @@ public class UpgraderActivity extends Activity {
 
     private void startUpgradeAsync() {
         if (running) return;
+        ca.arc7freedom.support.DebugLog.event("upgrade.started");
         running = true; actionBtn.setEnabled(false);
         new Thread(new Runnable() {
             @Override public void run() {
@@ -320,6 +322,7 @@ public class UpgraderActivity extends Activity {
                     }
                     if (combined.contains("ARC7_APK_INSTALL_OK")) {
                         if (!installedMainMatches()) throw new IOException("Installed suite checksum not verified; not claiming success. Existing data retained.");
+                        ca.arc7freedom.support.DebugLog.event("upgrade.suite_verified");
                         uiProgress(100, "Suite update verified. Opening shared patch pipeline for ALL companion/default apps and system repairs...");
                         uiLog("Suite APK verified. Remaining patch results and any root/signature/storage restrictions appear in Install / Repair All Patches.");
                         ui.post(new Runnable() { @Override public void run() { launchMainApp(); } });
@@ -343,6 +346,7 @@ public class UpgraderActivity extends Activity {
                         });
                     }
                 } catch (final Exception error) {
+                    ca.arc7freedom.support.DebugLog.error("upgrade.failed",error);
                     uiLog("ERROR: " + error.getMessage()); uiProgress(100, "Not complete: " + error.getMessage());
                     ui.post(new Runnable() { @Override public void run() { actionBtn.setEnabled(true); } });
                 } finally { running = false; }
@@ -389,4 +393,14 @@ public class UpgraderActivity extends Activity {
             uiLog("Launch error: " + t.getMessage());
         }
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
 }

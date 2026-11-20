@@ -688,6 +688,7 @@ public class WifiManager {
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             sources.append(path)
+        sources += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','RuntimePolicy.java','MediaCache.java')]
         sources += [SRC / name for name in ("LegacyMediaPolicy.java", "LegacyAacConfig.java", "LegacyTsProbe.java", "LegacyPlaybackAudio.java", "MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
         sources.append(ROOT / "tests/java/PreparedAudioHarness.java")
         sources.append(ROOT / "tests/java/AudioCompatibilityHarness.java")
@@ -731,8 +732,9 @@ public class WifiManager {
     assert "player == mp && request == playbackGeneration" in service
     assert "MorpheStreamServer.cancel(alternate); return;" in service and "clearMorpheResolution()" in service
     assert "LegacyMediaPolicy.audioContainerFailure(what, extra)" in service
-    assert service.index("LegacyPlaybackAudio.enable(mp)", service.index("preparing.setOnPreparedListener")) < service.index("mp.start();", service.index("preparing.setOnPreparedListener"))
-    assert service.index("mp.start();", service.index("preparing.setOnPreparedListener")) < service.index("publishOwnPlaybackState(true);", service.index("preparing.setOnPreparedListener"))
+    assert service.index("LegacyPlaybackAudio.enable(mp)", service.index("preparing.setOnPreparedListener")) < service.index("startPreparedPlayback(mp);", service.index("preparing.setOnPreparedListener"))
+    start_helper = service.split("boolean startPreparedPlayback(MediaPlayer mp)",1)[1].split("private synchronized void abandonFocus",1)[0]
+    assert start_helper.index("requestAudioFocus") < start_helper.index("mp.start();") < start_helper.index("publishOwnPlaybackState(true);")
     now_playing = (SRC / "NowPlayingManager.java").read_text()
     assert "MediaNotificationPolicy.ownsSession" in now_playing
     assert "triggerServiceNotification" not in now_playing
@@ -755,7 +757,15 @@ public class WifiManager {
     assert "retryForegroundWithAudio(playback, request" in video_prepare and "audioRepairAttempted" in video_prepare
     assert "startVideoWithAudioFallback" in video_prepare and "MorpheStreamServer.cancel(repaired)" in video_prepare
     assert "setVolumeControlStream(AudioManager.STREAM_MUSIC)" in youtube and "showSoundDialog()" in youtube
-    assert "requestAudioFocus(videoAudioFocus" in youtube and "abandonAudioFocus(videoAudioFocus)" in youtube
+    assert "requestAudioFocus(videoAudioFocus" in youtube and "abandonAudioFocus(old)" in youtube
+    video_focus = youtube.split("private boolean takeVideoAudioFocus()", 1)[1].split("private void showSoundDialog()", 1)[0]
+    assert video_focus.index("final MediaPlayer owner=foregroundPlayer") < video_focus.index("videoAudioFocus=new AudioManager.OnAudioFocusChangeListener()")
+    assert "videoAudioFocus!=callback" in video_focus and "request!=videoRequestGeneration" in video_focus and "foregroundPlayer!=owner" in video_focus
+    assert "old=videoAudioFocus;videoAudioFocus=null" in video_focus, "Abandon the captured listener and invalidate queued callbacks"
+    assert "videoPlayWhenPrepared && takeVideoAudioFocus()" in video_prepare and "videoPlayWhenPrepared=false" in youtube
+    quality = youtube.split("private void showQualityPickerDialog()", 1)[1].split("private void promptOfflineDownload()", 1)[0]
+    assert quality.index("releaseVideoAudioFocus()") < quality.index("resolutionThread = new Thread")
+    assert quality.index("MorpheEngine.cancelPlayback(selectedPlayback)") < quality.index("resolutionThread = new Thread")
     assert "MorpheHls.selectForPlayback(transport, res.hlsManifestUrl" in engine
     assert "125000L" in video_prepare and "no playable media was received" in video_prepare
     video_stop = youtube.split("private void stopForegroundVideo()", 1)[1].split("private void toggleFullscreenMode", 1)[0]

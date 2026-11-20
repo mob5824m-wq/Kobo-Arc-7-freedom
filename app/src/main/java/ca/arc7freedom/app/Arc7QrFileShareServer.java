@@ -9,6 +9,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
+import ca.arc7freedom.support.DebugLog;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
@@ -40,6 +42,9 @@ public final class Arc7QrFileShareServer {
 
     private final File root;
     private final String token;
+    private final Arc7ResumableUploads uploads;
+    private final ClientAssets assets;
+    public interface ClientAssets { InputStream open(String name) throws IOException; }
     private final int[] ports;
     private final Object fileLock = new Object();
     private final Set<Socket> clients = Collections.synchronizedSet(new HashSet<Socket>());
@@ -54,6 +59,11 @@ public final class Arc7QrFileShareServer {
 
     /** The port-list overload also lets offline tests request an OS-assigned port with {0}. */
     public Arc7QrFileShareServer(File root, String token, int[] ports) throws IOException {
+        this(root, token, ports, new File(root, ".arc7-share-journals"), null);
+    }
+
+    /** Android passes a private files/lan-uploads journal and bundled, offline-only client assets. */
+    public Arc7QrFileShareServer(File root, String token, int[] ports, File journalDirectory, ClientAssets assets) throws IOException {
         if (root == null || token == null || !validToken(token) || ports == null || ports.length == 0)
             throw new IOException("Invalid file-share configuration");
         File canonical = root.getCanonicalFile();
@@ -61,6 +71,8 @@ public final class Arc7QrFileShareServer {
         this.root = canonical;
         this.token = token;
         this.ports = ports.clone();
+        this.uploads = new Arc7ResumableUploads(canonical, journalDirectory);
+        this.assets = assets;
     }
 
     public synchronized void start() throws IOException {
@@ -78,6 +90,7 @@ public final class Arc7QrFileShareServer {
                         new ArrayBlockingQueue<Runnable>(12));
                 workers.allowCoreThreadTimeOut(true);
                 running = true;
+                DebugLog.event("lan.share_started");
                 Thread accept = new Thread(new Runnable() { public void run() { acceptLoop(); } }, "Arc7-QR-Share-Accept");
                 accept.setDaemon(true);
                 accept.start();
@@ -106,6 +119,7 @@ public final class Arc7QrFileShareServer {
         workers = null;
         if (pool != null) pool.shutdownNow();
         activePort = 0;
+        DebugLog.event("lan.share_stopped");
     }
 
     private void acceptLoop() {
@@ -134,7 +148,6 @@ public final class Arc7QrFileShareServer {
     }
 
     private void handle(Socket socket) {
-        boolean responseStarted = false;
         try {
             InputStream input = new BufferedInputStream(socket.getInputStream(), 16384);
             OutputStream output = new BufferedOutputStream(socket.getOutputStream(), 16384);
@@ -161,6 +174,39 @@ public final class Arc7QrFileShareServer {
             if ("POST".equals(request.method)
                     && (!sameOrigin(request.origin, request.host) || !secureEquals(request.shareHeader, token))) {
                 writeText(output, "403 Forbidden", "The upload session could not be verified.", false, setCookie); return;
+            }
+            if (("/sha256.js".equals(request.path) || "/upload.js".equals(request.path))
+                    && ("GET".equals(request.method) || "HEAD".equals(request.method)) && assets != null) {
+                InputStream source = assets.open(request.path.substring(1));
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try { byte[] b = new byte[4096]; int n; while ((n=source.read(b))!=-1) {
+                    if (bytes.size()+n>32768) throw new IOException("Client asset too large"); bytes.write(b,0,n);
+                }} finally { source.close(); }
+                writeBytes(output,"200 OK","application/javascript; charset=utf-8",bytes.toByteArray(),"HEAD".equals(request.method),setCookie,null);return;
+            }
+            if (request.path.startsWith("/upload/") && "POST".equals(request.method)) {
+                if (request.transferEncoding.length()>0 || request.contentLength<0) throw new ClientInputException("411 Length Required", "Content-Length is required.");
+                boolean chunk = "/upload/chunk".equals(request.path);
+                if ((!chunk && request.contentLength!=0) || (chunk && (request.contentLength<=0 || request.contentLength>Arc7ResumableUploads.CHUNK_BYTES)))
+                    throw new ClientInputException("413 Payload Too Large", "Upload control bodies must be empty; chunks are limited to 1 MiB.");
+                if (request.expect.toLowerCase(Locale.US).contains("100-continue")) {
+                    output.write("HTTP/1.1 100 Continue\r\n\r\n".getBytes("US-ASCII")); output.flush();
+                }
+                String id=queryParam(request.query,"id");
+                Arc7ResumableUploads.Result result;
+                Arc7ResumableUploads.Running control = new Arc7ResumableUploads.Running() { public boolean active(){return running;} };
+                if ("/upload/init".equals(request.path)) {
+                    File directory=resolveDirectory(queryParam(request.query,"path"));
+                    if(directory==null)throw new ClientInputException("403 Forbidden","Folder outside the share.");
+                    result=uploads.begin(directory,queryParam(request.query,"name"),unsigned(queryParam(request.query,"size")),queryParam(request.query,"sha256"),control);
+                } else if ("/upload/status".equals(request.path)) result=uploads.status(id,control);
+                else if (chunk) result=uploads.chunk(id,unsigned(queryParam(request.query,"offset")),request.contentLength,queryParam(request.query,"sha256"),input,control);
+                else if ("/upload/finish".equals(request.path)) result=uploads.finish(id,control);
+                else if ("/upload/cancel".equals(request.path)) { uploads.cancel(id);writeText(output,"200 OK","Pending upload discarded. Saved files were not deleted.",false,setCookie);return; }
+                else throw new ClientInputException("404 Not Found","Upload endpoint not found.");
+                String json="{\"id\":"+json(result.id)+",\"offset\":"+result.offset+",\"size\":"+result.size+",\"complete\":"+result.complete
+                        +",\"name\":"+json(result.name)+",\"sha256\":"+json(result.sha256)+"}";
+                writeBytes(output,"200 OK","application/json; charset=utf-8",json.getBytes("UTF-8"),false,setCookie,null);return;
             }
             if ("/".equals(request.path) && ("GET".equals(request.method) || "HEAD".equals(request.method))) {
                 File directory = resolveDirectory(queryParam(request.query, "path"));
@@ -194,8 +240,8 @@ public final class Arc7QrFileShareServer {
                 if (request.contentLength < 0) {
                     writeText(output, "411 Length Required", "The upload must include a Content-Length header.", false, setCookie); return;
                 }
-                if (request.contentLength > MAX_UPLOAD_BYTES) {
-                    writeText(output, "413 Payload Too Large", "The upload exceeds the 4 GiB limit.", false, setCookie); return;
+                if (request.contentLength > 8L * 1024L * 1024L) {
+                    writeText(output, "413 Payload Too Large", "Use the resumable 1 MiB chunk uploader for files larger than 8 MiB (4 GiB total limit).", false, setCookie); return;
                 }
                 File directory = resolveDirectory(queryParam(request.query, "path"));
                 if (directory == null) {
@@ -211,16 +257,22 @@ public final class Arc7QrFileShareServer {
                 if (request.expect.toLowerCase(Locale.US).contains("100-continue")) {
                     output.write("HTTP/1.1 100 Continue\r\n\r\n".getBytes("US-ASCII")); output.flush();
                 }
-                File saved = receiveUpload(input, directory, name, request.contentLength);
+                String expectedSha=queryParam(request.query,"sha256");
+                if(expectedSha.length()>0&&!Arc7ResumableUploads.validSha(expectedSha))throw new ClientInputException("400 Bad Request","Invalid SHA-256.");
+                String[] checksum={""};
+                File saved = receiveUpload(input, directory, name, request.contentLength,expectedSha,checksum);
                 String message = "Uploaded " + saved.getName() + " (" + saved.length() + " bytes).";
-                writeText(output, "201 Created", message, false, setCookie);
+                writeBytes(output,"201 Created","text/plain; charset=utf-8",message.getBytes("UTF-8"),false,setCookie,"X-Arc7-SHA256: "+checksum[0]+"\r\n");
                 return;
             }
             writeText(output, "404 Not Found", "Page not found.", "HEAD".equals(request.method), setCookie);
+        } catch (Arc7ResumableUploads.Failure invalid) {
+            try { writeText(new BufferedOutputStream(socket.getOutputStream()), invalid.status,invalid.getMessage(),false,null); } catch (Exception ignored) {}
         } catch (ClientInputException invalid) {
             try { writeText(new BufferedOutputStream(socket.getOutputStream()), invalid.status,
                     invalid.getMessage(), false, null); } catch (Exception ignored) {}
         } catch (Exception failure) {
+            DebugLog.error("lan.request_failed", failure);
             if (running) try { writeText(new BufferedOutputStream(socket.getOutputStream()), "500 Internal Server Error",
                     "The file operation failed; existing files were not replaced.", false, null); } catch (Exception ignored) {}
         } finally {
@@ -229,9 +281,10 @@ public final class Arc7QrFileShareServer {
         }
     }
 
-    private File receiveUpload(InputStream input, File directory, String name, long length) throws Exception {
+    private File receiveUpload(InputStream input, File directory, String name, long length,String expectedSha,String[] checksum) throws Exception {
         File temporary = File.createTempFile(".arc7-share-", ".part", directory);
         boolean moved = false;
+        MessageDigest digest=MessageDigest.getInstance("SHA-256");
         try {
             FileOutputStream file = new FileOutputStream(temporary);
             try {
@@ -242,15 +295,17 @@ public final class Arc7QrFileShareServer {
                     int count = input.read(block, 0, (int) Math.min((long) block.length, remaining));
                     if (count < 0) throw new IOException("Upload ended before all bytes arrived");
                     if (count == 0) continue;
-                    file.write(block, 0, count);
+                    file.write(block, 0, count); digest.update(block,0,count);
                     remaining -= count;
                 }
                 file.flush(); file.getFD().sync();
                 java.util.Arrays.fill(block, (byte) 0);
             } finally { file.close(); }
+            StringBuilder hex=new StringBuilder();for(byte b:digest.digest())hex.append(String.format(Locale.US,"%02x",b&255));checksum[0]=hex.toString();
+            if(expectedSha.length()>0&&!expectedSha.equals(checksum[0]))throw new ClientInputException("422 Unprocessable Entity","SHA-256 mismatch; nothing was saved.");
             synchronized (fileLock) {
                 File destination = uniqueDestination(directory, name);
-                if (!temporary.renameTo(destination)) throw new IOException("Could not finish upload");
+                if (!temporary.renameTo(destination)) { if(destination.length()==0)destination.delete(); throw new IOException("Could not finish upload"); }
                 moved = true;
                 return destination;
             }
@@ -261,13 +316,13 @@ public final class Arc7QrFileShareServer {
 
     private File uniqueDestination(File directory, String name) throws IOException {
         File candidate = new File(directory, name);
-        if (!candidate.exists()) return candidate;
+        if (candidate.createNewFile()) return candidate;
         int dot = name.lastIndexOf('.');
         String base = dot > 0 ? name.substring(0, dot) : name;
         String extension = dot > 0 ? name.substring(dot) : "";
         for (int i = 1; i <= 9999; i++) {
             candidate = new File(directory, base + " (" + i + ")" + extension);
-            if (!candidate.exists()) return candidate;
+            if (candidate.createNewFile()) return candidate;
         }
         throw new IOException("Too many files with that name");
     }
@@ -285,8 +340,12 @@ public final class Arc7QrFileShareServer {
             .append("button{background:#1675d1;border:0;border-radius:10px;color:white;font:inherit;font-weight:600;padding:12px 16px;margin:8px 8px 0 0}input{max-width:100%;padding:8px}")
             .append("progress{width:100%;height:18px}code{overflow-wrap:anywhere}</style></head><body><main>")
             .append("<section class=\"card\"><h1>Kobo file share</h1><div class=\"muted\">Shared folder: <code>")
-            .append(html(display)).append("</code></div><p>Download files from the Kobo or upload files into this folder. Existing files are never overwritten; duplicate names receive a number.</p>")
+            .append(html(display)).append("</code></div><p>Download files from the Kobo or upload files into this folder. Existing files are never overwritten; duplicate names receive a number. ")
+            .append(assets != null ? "Uploads use durable 1 MiB chunks (up to 4 GiB per file) and verify SHA-256 before publishing. After a disconnect, reselect the same file and click Upload to resume. If the 30-minute share expires, start a new QR share for the same Kobo folder. Pending uploads are kept for recovery for seven days; discard unwanted partials from Files on the Kobo."
+                    : "Compatibility uploader: at most 8 MiB per file, without resume. Interrupted or lost-response uploads must be checked on the Kobo before retrying. For resumable, verified large-file uploads, restart sharing from the updated Files app with its bundled offline client.")
+            .append("</p>")
             .append("<input id=\"files\" type=\"file\" multiple><br><button type=\"button\" onclick=\"uploadFiles()\">Upload selected files</button>")
+            .append("<button id=\"pause\" type=\"button\" onclick=\"pauseUpload()\">Pause</button>")
             .append("<progress id=\"progress\" max=100 value=0></progress><div id=\"status\" class=\"muted\">Only this folder is shared.</div>")
             .append("<input id=\"currentPath\" type=\"hidden\" value=\"").append(html(relative)).append("\"></section>")
             .append("<section class=\"card\"><strong>Files and folders</strong>");
@@ -316,8 +375,27 @@ public final class Arc7QrFileShareServer {
             }
         }
         html.append("</section><section class=\"card muted\">The link is a temporary access key for anyone who has it. Use only on a trusted local network; HTTP is not encrypted. Stop sharing on the Kobo when finished.</section>")
-            .append("</main><script>var shareKey='").append(token).append("';async function uploadFiles(){var input=document.getElementById('files'),files=input.files;if(!files.length)return;var path=document.getElementById('currentPath').value,bar=document.getElementById('progress'),status=document.getElementById('status');for(var i=0;i<files.length;i++){var f=files[i];status.textContent='Uploading '+f.name+' ('+(i+1)+'/'+files.length+')';try{var response=await fetch('/upload?path='+encodeURIComponent(path)+'&name='+encodeURIComponent(f.name),{method:'POST',headers:{'X-Arc7-Share':shareKey},body:f});if(!response.ok)throw new Error(await response.text());bar.value=Math.round((i+1)*100/files.length);}catch(error){status.textContent='Upload stopped: '+error.message;return;}}status.textContent='Upload complete. Refresh the page to see new files.';input.value='';}</script></body></html>");
-        return html.toString();
+            .append("</main><script>var shareKey='").append(token).append("';</script>");
+        if (assets != null) html.append("<script src=\"/sha256.js\"></script><script src=\"/upload.js\"></script>");
+        else html.append("<script>").append(legacyClientScript()).append("</script>");
+        return html.append("</body></html>").toString();
+    }
+
+    /** Asset-less Java callers retain a functional small-file client, never broken script URLs. */
+    private static String legacyClientScript() {
+        return "var legacyBusy=false,legacyRequest=null;"
+            + "function pauseUpload(){if(legacyRequest)legacyRequest.abort();}"
+            + "function uploadFiles(){if(legacyBusy)return;var input=document.getElementById('files'),files=input.files;"
+            + "if(!files.length)return;var path=document.getElementById('currentPath').value,bar=document.getElementById('progress'),status=document.getElementById('status'),index=0;legacyBusy=true;"
+            + "function stop(message){legacyRequest=null;legacyBusy=false;status.textContent=message;}"
+            + "function next(){if(index>=files.length){stop('Upload complete. Refresh to see saved files.');return;}var file=files[index];"
+            + "if(file.size>8388608){stop('Compatibility upload stopped: 8 MiB maximum. Use the updated Files app for resumable large uploads.');return;}"
+            + "var xhr=new XMLHttpRequest();legacyRequest=xhr;xhr.open('POST','/upload?path='+encodeURIComponent(path)+'&name='+encodeURIComponent(file.name),true);"
+            + "xhr.setRequestHeader('X-Arc7-Share',shareKey);"
+            + "xhr.onload=function(){if(xhr.status!==201){stop('Upload stopped: '+xhr.responseText);return;}index++;bar.value=Math.round(index*100/files.length);next();};"
+            + "xhr.onerror=function(){stop('Connection lost. Check saved files on the Kobo before retrying; this compatibility uploader has no resume.');};"
+            + "xhr.onabort=function(){stop('Paused. Check saved files before retrying; compatibility uploads restart from zero.');};"
+            + "status.textContent='Uploading '+file.name;xhr.send(file);}next();}";
     }
 
     private void streamFile(OutputStream output, File file, String rangeHeader, boolean headOnly, String setCookie) throws Exception {
@@ -366,10 +444,12 @@ public final class Arc7QrFileShareServer {
         try {
             if (relative == null) relative = "";
             if (relative.indexOf('\u0000') >= 0 || relative.indexOf('\\') >= 0) return null;
+            for (String segment : relative.split("/")) if (segment.startsWith(".arc7-share-")) return null;
             File candidate = new File(root, relative).getCanonicalFile();
             String rootPath = root.getCanonicalPath();
             String path = candidate.getCanonicalPath();
-            if (path.equals(rootPath) || path.startsWith(rootPath + File.separator)) return candidate;
+            if (path.equals(rootPath)) return candidate;
+            if (path.startsWith(rootPath + File.separator) && !reserved(path.substring(rootPath.length()+1))) return candidate;
         } catch (Exception ignored) {}
         return null;
     }
@@ -384,8 +464,13 @@ public final class Arc7QrFileShareServer {
     private boolean insideRoot(File file) {
         try {
             String base = root.getCanonicalPath(), path = file.getCanonicalPath();
-            return path.equals(base) || path.startsWith(base + File.separator);
+            return path.equals(base) || (path.startsWith(base + File.separator) && !reserved(path.substring(base.length()+1)));
         } catch (Exception invalid) { return false; }
+    }
+
+    private static boolean reserved(String relative) {
+        for(String segment:relative.replace(File.separatorChar,'/').split("/"))if(segment.startsWith(".arc7-share-"))return true;
+        return false;
     }
 
     private static Request readRequest(InputStream input) throws Exception {
@@ -410,7 +495,9 @@ public final class Arc7QrFileShareServer {
             String key = line.substring(0, colon).trim().toLowerCase(Locale.US);
             String value = line.substring(colon + 1).trim();
             if ("content-length".equals(key)) {
-                try { request.contentLength = Long.parseLong(value); }
+                if(request.lengthSeen)throw new ClientInputException("400 Bad Request","Duplicate Content-Length.");
+                request.lengthSeen=true;
+                try { if(!value.matches("0|[1-9][0-9]{0,10}"))throw new NumberFormatException();request.contentLength = Long.parseLong(value); }
                 catch (Exception invalid) { throw new ClientInputException("400 Bad Request", "Invalid Content-Length."); }
             } else if ("transfer-encoding".equals(key)) request.transferEncoding = value;
             else if ("cookie".equals(key)) request.cookie = value;
@@ -488,7 +575,7 @@ public final class Arc7QrFileShareServer {
         header.append("HTTP/1.1 ").append(status).append("\r\nContent-Type: ").append(type)
                 .append("\r\nContent-Length: ").append(length)
                 .append("\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\n")
-                .append("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'\r\n");
+                .append("Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'\r\n");
         if (setCookie != null) header.append("Set-Cookie: ").append(cookieValue()).append("\r\n");
         if (extraHeaders != null) header.append(extraHeaders);
         header.append("Connection: close\r\n\r\n");
@@ -540,6 +627,15 @@ public final class Arc7QrFileShareServer {
         }
     }
 
+    private static long unsigned(String text) throws ClientInputException {
+        try { if(!text.matches("0|[1-9][0-9]{0,10}"))throw new NumberFormatException();return Long.parseLong(text); }
+        catch (Exception invalid) { throw new ClientInputException("400 Bad Request","Invalid size or offset."); }
+    }
+    private static String json(String text) {
+        StringBuilder out=new StringBuilder("\"");
+        for(int i=0;i<text.length();i++){char c=text.charAt(i);if(c=='\\'||c=='\"')out.append('\\');if(c<32)out.append(' ');else out.append(c);}
+        return out.append('\"').toString();
+    }
     private static String queryParam(String query, String key) {
         if (query == null || query.length() == 0) return "";
         for (String item : query.split("&")) {
@@ -557,7 +653,7 @@ public final class Arc7QrFileShareServer {
         if (value == null) return null;
         String name = value.trim();
         if (name.length() == 0 || name.equals(".") || name.equals("..") || name.length() > 240
-                || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\u0000') >= 0) return null;
+                || name.startsWith(".arc7-share-") || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0 || name.indexOf('\u0000') >= 0) return null;
         try { if (name.getBytes("UTF-8").length > 240) return null; }
         catch (Exception impossible) { return null; }
         for (int i = 0; i < name.length(); i++) if (Character.isISOControl(name.charAt(i))) return null;
@@ -602,6 +698,7 @@ public final class Arc7QrFileShareServer {
     private static final class Request {
         String method = "", path = "", query = "", cookie = "", origin = "", host = "", range = "", transferEncoding = "", expect = "", shareHeader = "";
         long contentLength = -1;
+        boolean lengthSeen;
     }
 
     private static final class ClientInputException extends IOException {

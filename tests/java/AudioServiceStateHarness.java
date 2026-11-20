@@ -77,6 +77,7 @@ public final class AudioServiceStateHarness {
         Handler.drain();
         noMisuse("Service cleanup");
         check(Handler.timers().isEmpty(), "Service left checkpoint/preparation callbacks behind");
+        check(!ca.arc7freedom.support.MediaCache.busy(), "Service leaked a media cache lease");
     }
 
     @SuppressWarnings("unchecked")
@@ -333,6 +334,61 @@ public final class AudioServiceStateHarness {
         System.out.println("PASS: preparation timeout is clean; player getters and concurrent release share the same lifecycle lock");
     }
 
+    private static void focusAndHeadphones() throws Exception {
+        Arc7AudioService service=create();MediaPlayer p=startMusic(service);
+        check(service.audio.requests==0&&!Arc7AudioService.acceptsMediaButtons(),"Preparing/silent watchers must not steal focus/buttons");
+        p.emitPrepared();Handler.drain();
+        check(service.isPlaying()&&service.audio.requests==1&&service.audio.registrations==1&&Arc7AudioService.acceptsMediaButtons(),"Prepared playback must acquire focus + media buttons");
+        service.audio.change(-3);Handler.drain();check(service.isPlaying()&&Math.abs(p.volume-.2f)<.001,"Duck must preserve playback at 20%");
+        service.audio.change(1);Handler.drain();check(Math.abs(p.volume-1f)<.001,"Gain must restore app volume, not force system volume");
+        service.audio.change(-2);Handler.drain();check(!service.isPlaying(),"Transient loss must pause");
+        service.audio.change(-2);Handler.drain();service.audio.change(1);Handler.drain();check(service.isPlaying(),"Repeated transient loss must resume the same player on gain");
+        service.audio.change(-2);Handler.drain();android.media.AudioManager.OnAudioFocusChangeListener stale=service.audio.listener;
+        service.pausePlayback();stale.onAudioFocusChange(1);Handler.drain();check(!service.isPlaying(),"User pause during transient loss must veto auto-resume");
+        service.togglePlayPause();check(service.isPlaying(),"Explicit play should request focus again");
+        android.content.BroadcastReceiver noisy=(android.content.BroadcastReceiver)get(service,"noisyReceiver");
+        noisy.onReceive(service,new android.content.Intent().setAction(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        check(!service.isPlaying(),"Headphone unplug must pause");
+        if(service.audio.listener!=null)service.audio.change(1);Handler.drain();check(!service.isPlaying(),"Reconnect/gain must not auto-resume an unplugged player");
+        service.togglePlayPause();service.audio.change(-1);Handler.drain();check(!service.isPlaying()&&!Arc7AudioService.acceptsMediaButtons(),"Permanent loss must pause and unregister media buttons");
+        service.togglePlayPause();stale=service.audio.listener;
+        MediaPlayer replacement=startMusic(service);prepare(service,replacement);int starts=replacement.starts;
+        stale.onAudioFocusChange(-1);Handler.drain();check(replacement.starts==starts&&service.isPlaying(),"Queued focus callback from old player must not pause replacement");
+        replacement.bufferingListener.onBufferingUpdate(replacement,57);service.recordDiagnosticSnapshot();
+        check(service.getDiagnosticReport().contains("57%")&&!service.getDiagnosticReport().contains("http://fixture"),"Diagnostic report must expose buffering but not source URLs");
+        close(service);check(!Arc7AudioService.acceptsMediaButtons()&&service.audio.registrations==0,"Destroy must drop button ownership");
+
+        service=create();p=startMusic(service);service.audio.result=0;p.emitPrepared();Handler.drain();
+        check(!service.isPlaying()&&p.starts==0&&service.getDiagnosticReport().contains("Waiting for audio focus"),"Denied focus must never start audible playback");
+        service.audio.result=1;service.togglePlayPause();check(service.isPlaying(),"Manual retry after focus denial should work");close(service);
+
+        service=create();p=startMusic(service);noisy=(android.content.BroadcastReceiver)get(service,"noisyReceiver");
+        noisy.onReceive(service,new android.content.Intent().setAction(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        p.emitPrepared();Handler.drain();check(p.starts==0&&!service.isPlaying()&&service.audio.requests==0,"Unplug during prepare must veto late auto-start without invalid native calls");
+        service.togglePlayPause();check(service.isPlaying(),"Explicit play after pending unplug should work");close(service);
+        System.out.println("PASS: prepared-only focus/buttons, duck/restore, repeated transient recovery, user-pause/unplug/permanent-loss veto, stale callbacks, denied-focus retry and sanitized diagnostics (recording Android fakes)");
+    }
+
+    private static void headsetButtons() throws Exception {
+        android.content.Context context=new android.content.Context();Arc7MediaButtonReceiver receiver=new Arc7MediaButtonReceiver();
+        android.content.Intent intent=new android.content.Intent().setAction(android.content.Intent.ACTION_MEDIA_BUTTON)
+            .putExtra(android.content.Intent.EXTRA_KEY_EVENT,new android.view.KeyEvent(0,85,0));
+        receiver.onReceive(context,intent);check(context.lastService==null,"Cold/silent APK must not react to media buttons");
+        Arc7AudioService service=create();MediaPlayer p=startMusic(service);prepare(service,p);
+        int[] keys={79,85,126,127,87,88,89,90,86};
+        String[] actions={Arc7AudioService.ACTION_TOGGLE,Arc7AudioService.ACTION_TOGGLE,Arc7AudioService.ACTION_PLAY,Arc7AudioService.ACTION_PAUSE,Arc7AudioService.ACTION_NEXT,Arc7AudioService.ACTION_PREV,Arc7AudioService.ACTION_REWIND_30,Arc7AudioService.ACTION_FFWD_30,Arc7AudioService.ACTION_STOP_DISMISS};
+        for(int i=0;i<keys.length;i++){
+            context.lastService=null;intent.putExtra(android.content.Intent.EXTRA_KEY_EVENT,new android.view.KeyEvent(0,keys[i],0));receiver.onReceive(context,intent);
+            check(context.lastService!=null&&actions[i].equals(context.lastService.getAction()),"Wrong headset mapping: "+keys[i]);
+        }
+        for(int[] key:new int[][]{{1,85,0},{0,85,1},{0,1,0}}){context.lastService=null;intent.putExtra(android.content.Intent.EXTRA_KEY_EVENT,new android.view.KeyEvent(key[0],key[1],key[2]));receiver.onReceive(context,intent);check(context.lastService==null,"Key-up/repeat/unknown event must not double-toggle");}
+        service.onStartCommand(new android.content.Intent().setAction(Arc7AudioService.ACTION_PAUSE),0,1);check(!service.isPlaying(),"Explicit PAUSE must not toggle to playing");
+        service.onStartCommand(new android.content.Intent().setAction(Arc7AudioService.ACTION_PAUSE),0,1);check(!service.isPlaying(),"Repeated explicit PAUSE must stay paused");
+        service.onStartCommand(new android.content.Intent().setAction(Arc7AudioService.ACTION_PLAY),0,1);check(service.isPlaying(),"Explicit PLAY should resume");
+        int starts=p.starts;service.onStartCommand(new android.content.Intent().setAction(Arc7AudioService.ACTION_PLAY),0,1);check(p.starts==starts,"Repeated PLAY must not restart a playing track");
+        close(service);System.out.println("PASS: real headset receiver ownership, play/pause/next/previous/seek/stop mapping, single key-down handling and idempotent explicit play/pause commands");
+    }
+
     public static void main(String[] args) throws Exception {
         asynchronousErrorModel();
         preparingAndNormalTransport();
@@ -341,5 +397,7 @@ public final class AudioServiceStateHarness {
         compatibilityRetryAndFailure();
         cancellationDuringCompatibility();
         timeoutAndConcurrentRelease();
+        focusAndHeadphones();
+        headsetButtons();
     }
 }

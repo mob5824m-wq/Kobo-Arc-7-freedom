@@ -39,6 +39,8 @@
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
 
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools" android:taskAffinity="ca.arc7freedom.radiorss.task.support" android:exported="true" />
+
         <activity
             android:name="ca.arc7freedom.app.Arc7RadioRssActivity"
             android:label="Radio"
@@ -60,6 +62,20 @@
         <service
             android:name="ca.arc7freedom.app.Arc7TlsGatewayService"
             android:exported="false" />
+
+        <activity
+            android:name="ca.arc7freedom.app.Arc7PlaybackDiagnosticsActivity"
+            android:label="Playback diagnostics"
+            android:taskAffinity="ca.arc7freedom.radiorss.task.arc7playbackdiagnosticsactivity"
+            android:exported="false" />
+
+        <receiver
+            android:name="ca.arc7freedom.app.Arc7MediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

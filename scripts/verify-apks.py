@@ -138,6 +138,8 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
         expected_acts = (
             "ca.arc7freedom.app.MainActivity",
             "ca.arc7freedom.app.InstallMaintenanceActivity",
+            "ca.arc7freedom.support.SupportActivity",
+            "ca.arc7freedom.app.Arc7PlaybackDiagnosticsActivity",
             "ca.arc7freedom.app.SplitAppLaunchActivity",
             "ca.arc7freedom.app.Arc7QrTransferHomeActivity",
             "ca.arc7freedom.app.Arc7QrTransferActivity",
@@ -186,7 +188,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             assert taff and taff.startswith("ca.arc7freedom.task."), f"Activity {aff} missing isolated taskAffinity: {taff}"
             assert taff not in affinities, f"Duplicate taskAffinity {taff} on {aff}!"
             affinities.add(taff)
-        assert len(affinities) == 40, f"Expected 40 distinct taskAffinity entries (including private optical transfer), got {len(affinities)}"
+        assert len(affinities) == 42, f"Expected 42 distinct taskAffinity entries (including private optical transfer, App tools and playback diagnostics), got {len(affinities)}"
         # Verify Android 4.2 VpnService contract: BIND_VPN_SERVICE permission + android.net.VpnService action!
         vpn_svc_ok = False
         for svc_el in manifest_xml.findall(".//service"):
@@ -217,6 +219,7 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.Arc7ClockWidgetProvider",
             "ca.arc7freedom.app.Arc7CalendarWidgetProvider",
             "ca.arc7freedom.app.Arc7AudioWidgetProvider",
+            "ca.arc7freedom.app.Arc7MediaButtonReceiver",
             "ca.arc7freedom.app.Arc7PowerWidgetProvider",
         ):
             assert req_rec in recs, f"Missing receiver/widget {req_rec}!"
@@ -3808,7 +3811,7 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
     assert _update_service_handlers_are_throwable(dex1), (
         "UpdateService.onHandleIntent still catches only java.lang.Exception — OutOfMemoryError would crash the app!"
     )
-    for needle in ("arc7-last-crash.txt", "Arc7CrashGuard", "installCrashGuard"):
+    for needle in ("arc7-last-crash.txt", "fdroid.crash_guard_installed", "installCrashGuard", "process.uncaught"):
         assert needle in dex_strings, f"Missing F-Droid crash guard string {needle!r}"
     for name in (
         "safeNotifyContentProviders",
@@ -3850,8 +3853,8 @@ def verify_v251_alarm_days_and_fdroid_stability(main_apk: str, upgrader_apk: str
     assert "Ljava/lang/Throwable;->getMessage()Ljava/lang/String;" in post_sync_calls, (
         "UpdateService.onHandleIntent catch(Throwable) still invokes Exception.getMessage()!"
     )
-    print("  [PASS] F-Droid v1306: largeHeap=true, Throwable catch in UpdateService, crash guard writing "
-          "arc7-last-crash.txt + post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
+    print("  [PASS] F-Droid v1306: largeHeap=true, Throwable catch in UpdateService, bounded sanitized private crash events (obsolete raw log removed) "
+          "+ post-sync notify/update calls wrapped in Arc7Bridge.safe* guards")
 
     up_obj = APK(upgrader_apk)
     assert str(up_obj.get_androidversion_name()) == "2.6.5", f"Expected upgrader 2.6.5, got {up_obj.get_androidversion_name()}"
@@ -4225,6 +4228,7 @@ def main() -> None:
                     "--native", os.path.join(ROOT, "build/host-test/arc7tls")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-runtime-repairs.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-audio-state.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-reliability.py"), "--apks"], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-install-maintenance.py"), "--apks"], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-weather.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-suite-features.py")], check=True)

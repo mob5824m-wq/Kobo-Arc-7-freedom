@@ -76,7 +76,7 @@ def main():
         temp = Path(directory); sources = []
         for name,text in STUBS.items():
             path = temp/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_text(text); sources.append(path)
-        harness = temp/'GlassHarness.java'; harness.write_text(HARNESS); sources += [SOURCE,harness]
+        harness = temp/'GlassHarness.java'; harness.write_text(HARNESS); sources += [SOURCE,harness,ROOT/'shared/java/ca/arc7freedom/support/RuntimePolicy.java',ROOT/'shared/java/ca/arc7freedom/support/DebugLog.java']
         subprocess.run(list(map(str,[javac,'-nowarn','-d',temp/'classes',*sources])),check=True)
         subprocess.run(list(map(str,[java,'-cp',temp/'classes','GlassHarness'])),check=True)
     source = SOURCE.read_text()

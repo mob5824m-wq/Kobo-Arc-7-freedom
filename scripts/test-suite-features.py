@@ -233,8 +233,9 @@ def main():
             file.write_text(content)
             files.append(file)
         files += list((ROOT/'tests/support/org/json').glob('*.java'))
-        files += [SRC/name for name in ('Arc7VaultCrypto.java', 'Arc7Totp.java', 'Arc7VaultImporter.java', 'Arc7QrFileShareServer.java', 'Arc7KeyBinding.java', 'LegacyMediaPolicy.java', 'LegacyAacConfig.java', 'LegacyTsProbe.java', 'Arc7DownloadUi.java',
+        files += [SRC/name for name in ('Arc7VaultCrypto.java', 'Arc7Totp.java', 'Arc7VaultImporter.java', 'Arc7QrFileShareServer.java', 'Arc7ResumableUploads.java', 'Arc7KeyBinding.java', 'LegacyMediaPolicy.java', 'LegacyAacConfig.java', 'LegacyTsProbe.java', 'Arc7DownloadUi.java',
                                        'MorpheEngine.java', 'MorpheRemuxer.java', 'MorpheHls.java', 'MorpheHlsRelay.java', 'MorpheStreamServer.java')]
+        files += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','RuntimePolicy.java','MediaCache.java')]
         files.append(ROOT/'tests/java/SuiteFeatureHarness.java')
         classes = tmp/'classes'
         classes.mkdir()

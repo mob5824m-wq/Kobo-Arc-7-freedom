@@ -39,6 +39,7 @@ import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
@@ -2839,6 +2840,12 @@ public class VanillaHomeActivity extends Activity {
                 final AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
                 final int accent = cfg.accentOverride != 0 ? cfg.accentOverride : skin.accentColor;
 
+                Button supportTools = new Button(VanillaHomeActivity.this);
+                supportTools.setText("Home app tools · debug log, low-RAM & storage");
+                ca.arc7freedom.support.SupportUi.panel(VanillaHomeActivity.this,supportTools,true);
+                supportTools.setOnClickListener(new View.OnClickListener(){public void onClick(View v){ca.arc7freedom.support.AppSupport.open(VanillaHomeActivity.this);}});
+                rootBox.addView(supportTools);
+
                 // Section 1: Pinned App Bar Slots (live reorder / replace / remove / add)
                 addStudioHeader(rootBox, "1. PINNED APP BAR SLOTS (" + cfg.items.size() + " / " + AppBarConfigStore.MAX_SLOTS + ")", accent);
 
@@ -3896,4 +3903,14 @@ public class VanillaHomeActivity extends Activity {
         }
         if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
 }

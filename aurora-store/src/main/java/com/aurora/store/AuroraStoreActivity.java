@@ -384,6 +384,10 @@ public class AuroraStoreActivity extends Activity {
         accountSummaryTv.setPadding(0, dp(8), 0, dp(12));
         card.addView(accountSummaryTv);
 
+        Button supportTools=makeButton("APP TOOLS · PRIVATE DEBUG LOG & STORAGE",0xFF2563EB);
+        supportTools.setOnClickListener(new View.OnClickListener(){public void onClick(View v){ca.arc7freedom.support.AppSupport.open(AuroraStoreActivity.this);}});
+        card.addView(supportTools);
+
         Button anonBtn = makeButton("REQUEST FRESH ANONYMOUS AURORA SESSION TOKEN (TLS 1.3)", 0xFF0D9488);
         anonBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -466,6 +470,7 @@ public class AuroraStoreActivity extends Activity {
     /* ==================== LIVE MULTI-SOURCE TLS 1.3 SEARCH ==================== */
 
     private void performLiveSearch(final String rawQuery) {
+        ca.arc7freedom.support.DebugLog.event("store.search_requested");
         final String q = rawQuery == null ? "" : rawQuery.trim();
         if (q.isEmpty()) {
             renderAppsList(getCuratedCatalog(), "Showing Featured Verified Apps for Kobo Arc 7");
@@ -924,6 +929,7 @@ public class AuroraStoreActivity extends Activity {
     /* ==================== 1-TAP VALIDATED + V1-SIGNED + ROOT STAGE INSTALLER ==================== */
 
     private void downloadAndInstallApp(final StoreAppItem item, final Button actionBtn) {
+        ca.arc7freedom.support.DebugLog.event("store.install_requested");
         actionBtn.setEnabled(false);
         actionBtn.setText("RESOLVING...");
         busyBar.setVisibility(View.VISIBLE);
@@ -981,6 +987,7 @@ public class AuroraStoreActivity extends Activity {
                             }
                             lastFailure = check.errorReason != null ? check.errorReason : "Incompatible APK binary";
                         } catch (Throwable dlErr) {
+                            ca.arc7freedom.support.DebugLog.error("store.download_candidate_failed",dlErr);
                             lastFailure = dlErr.getMessage() != null ? dlErr.getMessage() : dlErr.toString();
                         }
                     }
@@ -1005,6 +1012,7 @@ public class AuroraStoreActivity extends Activity {
                     final Arc7ApkKit.RootInstallOutcome outcome =
                             Arc7ApkKit.stageAndInstallApk(AuroraStoreActivity.this, verifiedApk, true);
 
+                    ca.arc7freedom.support.DebugLog.number("store.install_succeeded",outcome.succeeded?1:0);
                     final File publicApk = new File(dlDir, targetPkg + ".apk");
                     try {
                         copyLocalFile(outcome.worldReadableFallbackApk, publicApk);
@@ -1055,6 +1063,7 @@ public class AuroraStoreActivity extends Activity {
                         }
                     });
                 } catch (final Throwable t) {
+                    ca.arc7freedom.support.DebugLog.error("store.install_failed",t);
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
@@ -1748,4 +1757,14 @@ public class AuroraStoreActivity extends Activity {
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
 }

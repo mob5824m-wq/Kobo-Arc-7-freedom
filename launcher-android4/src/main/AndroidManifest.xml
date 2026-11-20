@@ -15,6 +15,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
+        android:name="ca.arc7freedom.support.SupportApplication"
         android:icon="@drawable/ic_launcher_home"
         android:label="Home"
         android:hardwareAccelerated="true"
@@ -38,5 +39,7 @@
                 <category android:name="android.intent.category.MONKEY" />
             </intent-filter>
         </activity>
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools"
+            android:taskAffinity="ca.arc7freedom.launcher.task.support" android:exported="true" />
     </application>
 </manifest>

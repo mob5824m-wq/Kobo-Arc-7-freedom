@@ -5,6 +5,8 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
+import ca.arc7freedom.support.DebugLog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -41,6 +43,8 @@ public class Arc7AudioService extends Service {
 
     public static final int NOTIF_ID_MEDIA = 4207;
 
+    public static final String ACTION_PLAY = "ca.arc7freedom.app.AUDIO_PLAY";
+    public static final String ACTION_PAUSE = "ca.arc7freedom.app.AUDIO_PAUSE";
     public static final String ACTION_TOGGLE               = "ca.arc7freedom.app.AUDIO_TOGGLE";
     public static final String ACTION_PREV                 = "ca.arc7freedom.app.AUDIO_PREV";
     public static final String ACTION_NEXT                 = "ca.arc7freedom.app.AUDIO_NEXT";
@@ -88,8 +92,25 @@ public class Arc7AudioService extends Service {
     // Android 4.2 getDuration() while Preparing posts asynchronous MEDIA_ERROR(-38, 0):
     // catching Java exceptions does not protect the player from an early UI/checkpoint poll.
     private MediaPlayer player;
+    private ca.arc7freedom.support.MediaCache.Lease playerCacheLease;
+    private String selfTestFormat = "";
     private volatile boolean playerPrepared = false;
     private WifiManager.WifiLock wifiLock;
+    private AudioManager audioManager;
+    private final AudioFocusPolicy focus = new AudioFocusPolicy();
+    private boolean mediaButtonsRegistered;
+    private static volatile boolean mediaButtonOwner;
+    public static boolean acceptsMediaButtons() { return mediaButtonOwner; }
+    private boolean playWhenPrepared = true;
+    private float sleepVolume = 1f;
+    private int bufferingPercent = -1, lastErrorWhat, lastErrorExtra;
+    private String diagnosticState = "Idle";
+    private AudioManager.OnAudioFocusChangeListener focusListener;
+    private final BroadcastReceiver noisyReceiver = new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            if (intent != null && AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())) headphonesDisconnected();
+        }
+    };
     private Equalizer equalizer;
     private BassBoost bassBoost;
     private int currentEqPreset = 0;
@@ -153,6 +174,7 @@ public class Arc7AudioService extends Service {
             long remMs = sleepDeadlineMs - System.currentTimeMillis();
             if (remMs <= 0L) {
                 sleepDeadlineMs = 0L;
+                playWhenPrepared = false;
                 setPlayerVolumeSafe(1.0f);
                 pausePlayback();
             } else if (remMs <= 30000L) {
@@ -180,9 +202,135 @@ public class Arc7AudioService extends Service {
     }
 
     private synchronized void setPlayerVolumeSafe(float v) {
+        sleepVolume = Math.max(0f, Math.min(1f, v));
+        applyPlayerVolume();
+    }
+
+    private synchronized void applyPlayerVolume() {
         if (player != null && playerPrepared) {
-            try { player.setVolume(v, v); } catch (Throwable ignored) {}
+            float volume = sleepVolume * (focus.ducked() ? 0.2f : 1f);
+            try { player.setVolume(volume, volume); } catch (Throwable error) { DebugLog.error("audio.volume_failed", error); }
         }
+    }
+
+    private synchronized boolean startPreparedPlayback(MediaPlayer mp) {
+        if (player != mp || !playerPrepared) return false;
+        resolvingMorpheTrack = false;
+        if (!playWhenPrepared) {
+            diagnosticState = "Paused"; playbackStatus = "Paused before start. Tap Play when ready.";
+            releaseWifiLockSafe(); publishOwnPlaybackState(false); return false;
+        }
+        boolean granted = focus.held();
+        if (!granted) {
+            abandonFocus(false); // invalidate queued callbacks from an earlier explicit focus request
+            final int request = playbackGeneration;
+            final MediaPlayer target = mp;
+            focusListener = new AudioManager.OnAudioFocusChangeListener() {
+                public void onAudioFocusChange(final int change) {
+                    final AudioManager.OnAudioFocusChangeListener callback = this;
+                    handler.post(new Runnable() { public void run() { synchronized (Arc7AudioService.this) {
+                        if (focusListener == callback && player == target && playbackGeneration == request) handleFocusChange(change);
+                    }}});
+                }
+            };
+            try { granted = audioManager != null && audioManager.requestAudioFocus(focusListener,
+                    AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED; }
+            catch (Throwable unavailable) { DebugLog.error("audio.focus_request_failed", unavailable); }
+            focus.requested(granted);
+        }
+        if (!granted) {
+            diagnosticState = "Waiting for audio focus"; playbackStatus = "Another app owns audio focus. Tap Play to retry.";
+            releaseWifiLockSafe(); DebugLog.event("audio.focus_denied"); publishOwnPlaybackState(false); return false;
+        }
+        try {
+            if (!mediaButtonsRegistered && audioManager != null) {
+                audioManager.registerMediaButtonEventReceiver(new ComponentName(this, Arc7MediaButtonReceiver.class));
+                mediaButtonsRegistered = true; mediaButtonOwner = true;
+            }
+        } catch (Throwable unavailable) { DebugLog.error("audio.media_buttons_unavailable", unavailable); }
+        acquireWifiLockSafe(); applyPlayerVolume();
+        mp.start();
+        diagnosticState = "Playing"; playbackStatus = "";
+        DebugLog.event("audio.started");
+        publishOwnPlaybackState(true);
+        return true;
+    }
+
+    private synchronized void abandonFocus(boolean unregisterButtons) {
+        focus.abandon();
+        AudioManager.OnAudioFocusChangeListener previous = focusListener;
+        focusListener = null;
+        try { if (audioManager != null && previous != null) audioManager.abandonAudioFocus(previous); } catch (Throwable ignored) {}
+        if (unregisterButtons && mediaButtonsRegistered) {
+            try { audioManager.unregisterMediaButtonEventReceiver(new ComponentName(this, Arc7MediaButtonReceiver.class)); } catch (Throwable ignored) {}
+            mediaButtonsRegistered = false; mediaButtonOwner = false;
+        }
+    }
+
+    private synchronized void handleFocusChange(int change) {
+        int action = focus.change(change, isPlaying(), playbackGeneration);
+        DebugLog.number("audio.focus_change", change);
+        if (action == AudioFocusPolicy.PAUSE) {
+            if (player != null && playerPrepared && isPlaying()) {
+                try { saveCurrentPosition(); player.pause(); } catch (Throwable e) { DebugLog.error("audio.focus_pause_failed", e); }
+                releaseWifiLockSafe(); diagnosticState = "Paused for audio focus"; publishOwnPlaybackState(false);
+            }
+            if (change == AudioManager.AUDIOFOCUS_LOSS) abandonFocus(true);
+        } else if (action == AudioFocusPolicy.RESUME) {
+            if (player != null && playerPrepared && playWhenPrepared) {
+                try { startPreparedPlayback(player); } catch (Throwable e) { failPlayback(playbackGeneration, e); }
+            }
+        } else if (action == AudioFocusPolicy.DUCK || action == AudioFocusPolicy.RESTORE) applyPlayerVolume();
+    }
+
+    private synchronized void headphonesDisconnected() {
+        if (player == null && !resolvingMorpheTrack) return;
+        playWhenPrepared = false;
+        pausePlayback(); abandonFocus(false);
+        diagnosticState = "Paused after headphone disconnect";
+        playbackStatus = "Headphones disconnected. Tap Play to resume; reconnect never auto-resumes.";
+        DebugLog.event("audio.headphones_disconnected");
+    }
+
+    /** Report contains state/counters only, never titles, URLs, tokens or local paths. */
+    public synchronized String getDiagnosticReport() {
+        String mime = MorpheStreamServer.getMimeType(activeDataSource);
+        String container = "audio/mp4".equals(mime) ? "classic M4A / MP4" : "video/mp4".equals(mime) ? "MP4" : "audio/aac".equals(mime) ? "AAC / ADTS" : "not independently reported";
+        return "Player: " + diagnosticState + "\nPrepared: " + playerPrepared
+                + "\nPlaying: " + isPlaying() + "\nAudio focus: " + focus.held()
+                + "\nDucked: " + focus.ducked() + "\nBuffering: " + (bufferingPercent < 0 ? "not reported" : bufferingPercent + "%")
+                + "\nPosition / duration: " + getPositionMs() + " / " + getDurationMs() + " ms"
+                + "\nContainer: " + container
+                + (selfTestFormat.length() == 0 ? "" : "\nVerified offline fixture: " + selfTestFormat)
+                + "\nCodec: " + (activeMorphePlayback != null && activeMorphePlayback.verifiedAudio ? "AAC-LC (verified configuration)" : "not independently reported")
+                + "\nLast MediaPlayer error: " + lastErrorWhat + "/" + lastErrorExtra
+                + "\nCompatibility retry used: " + audioCompatibilityAttempted
+                + "\nPrepared/started is not proof of audible output. Use the offline clips and confirm what you hear.";
+    }
+
+    public synchronized void recordDiagnosticSnapshot() {
+        DebugLog.number("audio.snapshot_prepared", playerPrepared ? 1 : 0);
+        DebugLog.number("audio.snapshot_playing", isPlaying() ? 1 : 0);
+        DebugLog.number("audio.snapshot_focus", focus.held() ? 1 : 0);
+        DebugLog.number("audio.snapshot_buffer_percent", bufferingPercent);
+        DebugLog.number("audio.snapshot_position_ms", getPositionMs());
+        DebugLog.number("audio.snapshot_duration_ms", getDurationMs());
+        DebugLog.number("audio.snapshot_error_what", lastErrorWhat);
+        DebugLog.number("audio.snapshot_error_extra", lastErrorExtra);
+    }
+
+    /** Explicit user-confirmed offline test; never contacts a provider or changes system volume. */
+    public synchronized void playDiagnosticClip(File file, int codec) {
+        int request = ++playbackGeneration;
+        if (resolutionThread != null) resolutionThread.interrupt();
+        saveCurrentPosition(); releasePlayer(); clearMorpheResolution();
+        morpheIndex = -1; currentIndex = -1; playWhenPrepared = true; sleepVolume = 1f;
+        lastErrorWhat = lastErrorExtra = 0;
+        setSleepTimerMinutes(0);
+        selfTestFormat = codec == 0 ? "PCM 16-bit mono / WAV" : codec == 1 ? "MP3 mono" : "AAC-LC mono / classic M4A";
+        DebugLog.number("audio.self_test_started", codec);
+        playPreparedDataSource(file.getAbsolutePath(), "Offline sound test", "Generated quiet test tone", "Sound test", "",
+                "ca.arc7freedom.app.Arc7PlaybackDiagnosticsActivity", false, request);
     }
 
     public static void ensureWatcherRunning(Context ctx) {
@@ -197,6 +345,10 @@ public class Arc7AudioService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        try { registerReceiver(noisyReceiver, new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY)); }
+        catch (Throwable unavailable) { DebugLog.error("audio.noisy_receiver_failed", unavailable); }
+        DebugLog.event("audio.service_created");
         try {
             WifiManager wm = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wm != null) {
@@ -253,6 +405,10 @@ public class Arc7AudioService extends Service {
                     return START_STICKY;
                 }
                 togglePlayPause();
+            } else if (ACTION_PLAY.equals(act)) {
+                synchronized (this) { if (player != null && playerPrepared && !isPlaying()) { playWhenPrepared = true; try { startPreparedPlayback(player); } catch (Throwable e) { failPlayback(playbackGeneration, e); } } }
+            } else if (ACTION_PAUSE.equals(act)) {
+                synchronized (this) { playWhenPrepared = false; pausePlayback(); }
             } else if (ACTION_PREV.equals(act)) {
                 if (NowPlayingManager.isYouTubeForegroundVideoActive()
                         || !getPackageName().equals(NowPlayingManager.getSnapshot(this).sourcePkg)) {
@@ -442,8 +598,10 @@ public class Arc7AudioService extends Service {
         ++playbackGeneration;
         if (resolutionThread != null) resolutionThread.interrupt();
         resolvingMorpheTrack = false;
-        playbackStatus = "Stopped";
+        playbackStatus = "Stopped"; diagnosticState = "Stopped"; playWhenPrepared = false;
+        DebugLog.event("audio.stopped");
         pausePlayback();
+        diagnosticState = "Stopped";
         releasePlayer(); clearMorpheResolution();
         morpheIndex = -1;
         activeStreamTitle = null;
@@ -525,6 +683,9 @@ public class Arc7AudioService extends Service {
             activeArtworkUrl = item.bestThumb();
             activeSkipSegments.clear();
             resolvingMorpheTrack = true;
+            selfTestFormat = "";
+            playWhenPrepared = true; sleepVolume = 1f; lastErrorWhat = lastErrorExtra = 0;
+            diagnosticState = "Resolving"; DebugLog.event("audio.resolve_started");
             playbackStatus = "Resolving playable audio...";
             publishOwnPlaybackState(false);
         }
@@ -586,6 +747,7 @@ public class Arc7AudioService extends Service {
         if (request != playbackGeneration) return;
         String preparationError = MorpheStreamServer.getFailure(activeDataSource);
         releasePlayer(); resolvingMorpheTrack = false;
+        diagnosticState = "Failed"; DebugLog.error("audio.playback_failed", error);
         playbackStatus = "Playback failed: " + (preparationError.length() > 0 ? preparationError
                 : (error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName()));
         NowPlayingManager.clearSession(getApplicationContext());
@@ -661,6 +823,9 @@ public class Arc7AudioService extends Service {
         if (resolutionThread != null) resolutionThread.interrupt();
         saveCurrentPosition(); releasePlayer(); clearMorpheResolution();
         resolvingMorpheTrack = true;
+        selfTestFormat = "";
+        playWhenPrepared = true; sleepVolume = 1f; lastErrorWhat = lastErrorExtra = 0;
+        diagnosticState = "Resolving"; DebugLog.event("audio.stream_requested");
         playbackStatus = "Preparing audio...";
         morpheIndex = -1;
         radioFallbackUrl = LegacyMediaPolicy.radioFallback(streamUrl); radioFallbackGeneration=request;
@@ -705,6 +870,7 @@ public class Arc7AudioService extends Service {
         activeSourceApp = sourceApp != null ? sourceApp : "Music";
         activeArtworkUrl = thumbUrl != null ? thumbUrl : "";
         activeLaunchClass = launchCls != null ? launchCls : "ca.arc7freedom.app.Arc7AudioPlayerActivity";
+        diagnosticState = "Preparing"; bufferingPercent = -1; DebugLog.event("audio.prepare_started");
         playbackStatus = "Preparing Android 4.2 audio...";
         resolvingMorpheTrack = true;
         FileInputStream localFis = null;
@@ -712,6 +878,7 @@ public class Arc7AudioService extends Service {
             acquireWifiLockSafe();
             final MediaPlayer preparing = new MediaPlayer();
             player = preparing;
+            playerCacheLease = ca.arc7freedom.support.MediaCache.lease();
             preparing.setAudioStreamType(AudioManager.STREAM_MUSIC);
             preparing.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
             preparing.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
@@ -722,22 +889,27 @@ public class Arc7AudioService extends Service {
                         try {
                             LegacyPlaybackAudio.enable(mp);
                             playerPrepared = true;
-                            applyEqualizerPreset(currentEqPreset);
-                            mp.start();
-                            resolvingMorpheTrack = false; playbackStatus = "";
-                            // Publish PLAYING only after prepare AND start have succeeded.
-                            publishOwnPlaybackState(true);
+                            if(selfTestFormat.length()==0)applyEqualizerPreset(currentEqPreset);
+                            DebugLog.event("audio.prepared");
+                            startPreparedPlayback(mp);
                         } catch (Throwable error) {
                             if (!retryMorpheAudio(request, error)) failPlayback(request, error);
                         }
                     }
                 }
             });
+            preparing.setOnBufferingUpdateListener(new MediaPlayer.OnBufferingUpdateListener() {
+                public void onBufferingUpdate(MediaPlayer mp, int percent) { synchronized (Arc7AudioService.this) {
+                    if (player == mp && request == playbackGeneration) bufferingPercent = Math.max(0, Math.min(100, percent));
+                }}
+            });
             preparing.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override public boolean onError(MediaPlayer mp, int what, int extra) {
                     synchronized (Arc7AudioService.this) {
                         if (player == mp && request == playbackGeneration) {
                             playerPrepared = false;
+                            lastErrorWhat = what; lastErrorExtra = extra;
+                            DebugLog.number("audio.error_what", what); DebugLog.number("audio.error_extra", extra);
                             String fallback = request==radioFallbackGeneration ? radioFallbackUrl : ""; radioFallbackUrl = "";
                             if (fallback.length()>0) {
                                 playbackStatus = "Trying alternate CBC stream after " + what + "/" + extra;
@@ -755,6 +927,8 @@ public class Arc7AudioService extends Service {
                 @Override public void onCompletion(MediaPlayer mp) {
                     synchronized (Arc7AudioService.this) {
                         if (request != playbackGeneration || player != mp) return;
+                        diagnosticState = "Completed"; DebugLog.event("audio.completed");
+                        abandonFocus(false);
                         if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty()) {
                             if (repeatMode == REPEAT_ONE) startMorpheQueueAt(morpheIndex);
                             else if (morpheIndex + 1 < morpheQueue.size()) startMorpheQueueAt(morpheIndex + 1);
@@ -796,6 +970,7 @@ public class Arc7AudioService extends Service {
         final String initialError = original.getMessage() != null ? original.getMessage() : "audio decoder rejected the stream";
         releasePlayer();
         resolvingMorpheTrack = true;
+        diagnosticState = "Compatibility retry"; DebugLog.event("audio.compatibility_retry");
         playbackStatus = "Retrying once with verified AAC-LC / ADTS compatibility audio…";
         publishOwnPlaybackState(false);
         resolutionThread = new Thread(new Runnable() { @Override public void run() {
@@ -875,6 +1050,11 @@ public class Arc7AudioService extends Service {
         morpheIndex = -1;
         currentIndex = idx;
         final File track = playlist.get(idx);
+        playWhenPrepared = true; sleepVolume = 1f; diagnosticState = "Preparing local file";
+        lastErrorWhat = lastErrorExtra = 0; bufferingPercent = 100; selfTestFormat = "";
+        activeDataSource = track.getAbsolutePath();
+        final int localRequest = playbackGeneration;
+        DebugLog.event("audio.local_requested");
         activeSourceApp = "Music";
         activeLaunchClass = "ca.arc7freedom.app.Arc7AudioPlayerActivity";
         activeStreamArtist = track.getParentFile() != null ? track.getParentFile().getName() : "Local Library";
@@ -882,6 +1062,7 @@ public class Arc7AudioService extends Service {
 
         try {
             player = new MediaPlayer();
+            playerCacheLease = ca.arc7freedom.support.MediaCache.lease();
             player.setAudioStreamType(AudioManager.STREAM_MUSIC);
             player.setWakeMode(getApplicationContext(), PowerManager.PARTIAL_WAKE_LOCK);
             player.setDataSource(track.getAbsolutePath());
@@ -900,6 +1081,9 @@ public class Arc7AudioService extends Service {
             player.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
                 @Override
                 public void onCompletion(MediaPlayer mp) {
+                    synchronized (Arc7AudioService.this) {
+                    if (player != mp || playbackGeneration != localRequest) return;
+                    abandonFocus(false); diagnosticState = "Completed"; DebugLog.event("audio.completed");
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                             .putInt("pos_" + track.getAbsolutePath().hashCode(), 0).commit();
                     if (repeatMode == REPEAT_ONE) {
@@ -911,19 +1095,31 @@ public class Arc7AudioService extends Service {
                     } else {
                         publishOwnPlaybackState(false);
                     }
+                    }
                 }
             });
-            player.start();
+            player.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                public boolean onError(MediaPlayer mp,int what,int extra) { synchronized (Arc7AudioService.this) {
+                    if (player != mp || playbackGeneration != localRequest) return true;
+                    playerPrepared=false; lastErrorWhat=what; lastErrorExtra=extra;
+                    DebugLog.number("audio.error_what",what); DebugLog.number("audio.error_extra",extra);
+                    failPlayback(localRequest,new Exception(LegacyMediaPolicy.error(what,extra)));return true;
+                }}
+            });
+            startPreparedPlayback(player);
             getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                     .putString("last_track", track.getAbsolutePath()).commit();
-            publishOwnPlaybackState(true);
         } catch (Throwable t) {
             failPlayback(playbackGeneration, t);
         }
     }
 
     public synchronized void togglePlayPause() {
-        if (resolvingMorpheTrack) return;
+        if (resolvingMorpheTrack) {
+            playWhenPrepared = !playWhenPrepared;
+            DebugLog.number("audio.pending_play_intent", playWhenPrepared ? 1 : 0);
+            return;
+        }
         if (player == null) {
             if (!morpheQueue.isEmpty() && morpheIndex >= 0) {
                 startMorpheQueueAt(morpheIndex);
@@ -939,14 +1135,14 @@ public class Arc7AudioService extends Service {
         if (player.isPlaying()) {
             pausePlayback();
         } else {
-            acquireWifiLockSafe();
-            player.setVolume(1.0f, 1.0f);
-            player.start();
-            publishOwnPlaybackState(true);
+            playWhenPrepared = true;
+            try { startPreparedPlayback(player); } catch (Throwable error) { failPlayback(playbackGeneration, error); }
         }
     }
 
     public synchronized void pausePlayback() {
+        playWhenPrepared = false; abandonFocus(false);
+        diagnosticState = playerPrepared ? "Paused" : "Paused before ready"; DebugLog.event("audio.user_paused");
         if (!playerPrepared) return;
         if (player != null && player.isPlaying()) {
             saveCurrentPosition();
@@ -1092,6 +1288,7 @@ public class Arc7AudioService extends Service {
 
     private synchronized void releasePlayer() {
         playerPrepared = false;
+        abandonFocus(true);
         if (prepareTimeout != null) { handler.removeCallbacks(prepareTimeout); prepareTimeout = null; }
         MorpheStreamServer.cancel(activeDataSource); MorpheHlsRelay.cancel(activeDataSource);
         activeDataSource = "";
@@ -1109,10 +1306,12 @@ public class Arc7AudioService extends Service {
             // release() is legal while Preparing/in Error; stop() is not and may post -38/0.
             // Detach listeners as well as guarding queued callbacks by player/request identity.
             try { releasing.setOnPreparedListener(null); } catch (Throwable ignored) {}
+            try { releasing.setOnBufferingUpdateListener(null); } catch (Throwable ignored) {}
             try { releasing.setOnErrorListener(null); } catch (Throwable ignored) {}
             try { releasing.setOnCompletionListener(null); } catch (Throwable ignored) {}
             try { releasing.release(); } catch (Throwable ignored) {}
         }
+        if (playerCacheLease != null) { playerCacheLease.close(); playerCacheLease = null; }
         releaseWifiLockSafe();
     }
 
@@ -1123,6 +1322,8 @@ public class Arc7AudioService extends Service {
         resolvingMorpheTrack = false;
         handler.removeCallbacks(checkpointTask);
         try { unregisterReceiver(externalMediaReceiver); } catch (Throwable ignored) {}
+        try { unregisterReceiver(noisyReceiver); } catch (Throwable ignored) {}
+        DebugLog.event("audio.service_destroyed");
         saveCurrentPosition();
         releasePlayer(); clearMorpheResolution();
         super.onDestroy();

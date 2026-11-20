@@ -8,7 +8,8 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 
 ## This build
 
-**[2.6 feature, installation and device-test guide](releases/SUITE-FEATURES.md)** ·
+**[App tools: diagnostics, logs, low-RAM, storage and resumable uploads](releases/APP-TOOLS.md)** ·
+[2.6 feature, installation and device-test guide](releases/SUITE-FEATURES.md) ·
 [Glass, Music and optical QR guide](releases/GLASS-MUSIC-QR.md) ·
 [Maintenance safety](releases/INSTALL-RUNTIME-FIXES.md) · [Weather details](releases/WEATHER-FEATURES.md)
 
@@ -41,6 +42,25 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
   preparation and serializes them with release. Preparing/failed players are released directly,
   not stopped in an invalid state. `make test-audio-state` reproduces the old asynchronous-error
   bug with the production service and recording fakes; it is not physical Kobo playback proof.
+- **Playback diagnostics / sound test** shows prepared/focus/buffering/container state where
+  known and exact native error numbers. Three bundled, checksum-pinned quiet WAV/MP3/AAC-LC
+  tones work offline; tests stop current playback, cancel its sleep timer and bypass app EQ,
+  but never raise system volume. Actual audible output is explicitly confirmed by the user.
+- Shared audio owners now coordinate **audio focus, headphone disconnects and legacy headset
+  media buttons**. Duck, pause, guarded transient resume and explicit Play/Pause behavior are
+  consistent; unplugging or a manual pause vetoes automatic resume. Foreground YouTube also
+  pauses on disconnect; official VLC retains its native playback policy.
+- **App tools → Low-RAM profile** optionally reduces artwork, thumbnail caches, worker queues,
+  media-preparation admission and Home's wallpaper sampling without replacing transparent glass.
+  **Storage** separately counts saved-media folders and managed/other cache; configurable
+  **32–1024 MiB** limits and confirmed temporary-cache-only clearing preserve saved media,
+  vaults, app data and both optical/LAN receive checkpoints. Active cache users block clearing.
+- Each Arc7-owned app, Home, Aurora, upgrader and patched F-Droid gets its own private,
+  bounded **debug log** (three × 128 KiB, 64 KiB report), with enable/clear/view and confirmed
+  copy/save controls. Structured constants/counters/class frames omit URLs, tokens, exception
+  messages and content. **Menu → App tools** or **App Manager → Manage app → App tools** opens
+  the owner's screen. Official, upstream-signed VLC keeps its own debug recorder instead;
+  those native logs are not Arc7-sanitized and need review before sharing.
 - Music adds **Quick play**, **Artists** alongside song/album/playlist/community search, public
   artist songs/releases, saved collections and local playlists. Choose **Artists** beside the
   search field, type a name and tap **Go**; open an artist, then a song or album. Artist results
@@ -69,9 +89,14 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
   before retries; optical transfer is deliberately offline, not fast. Includes a self-contained [offline browser sender/receiver](tools/qr-transfer.html).
   Codes are not encrypted or authenticated; both ends need the Arc7 protocol.
 - **Files → QR link · LAN share** separately displays a QR link for the currently selected folder inside shared
-  internal storage. A computer/phone browser on the same LAN can upload and download files;
-  the random link is temporary (30 minutes), folder-scoped and stopped from Files. The local
-  HTTP connection is **not encrypted**—use a trusted network and do not share sensitive files.
+  internal storage. A computer/phone browser on the same LAN can upload and download files.
+  The bundled offline uploader hashes incrementally and sends durable **1 MiB chunks**, up to
+  **4 GiB per file**, with per-chunk and final SHA-256 verification. Pause/reselect the same file
+  to resume from its acknowledged offset, including after restarting the share for the exact
+  same root folder. Recovery lasts seven days; explicit partial-only cleanup is separate from
+  media cache and optical QR data. Completed receipts are rehashed before reuse. The random
+  link is temporary (30 minutes), folder-scoped and stopped from Files. The local HTTP
+  connection is **not encrypted**—checksums do not authenticate peers; use a trusted network.
 
 Provider sign-in/bot/age restrictions are reported, **not bypassed**. Host tests and media
 decoding are not proof of live YouTube/CBC availability or physical Kobo behaviour.
@@ -295,11 +320,17 @@ remain unsupported on security-obsolete Android 4.x and have not had an independ
 
 1. Open **Files** and navigate to the folder you want to transfer (for example `Download`). QR
    sharing is limited to folders inside shared internal storage, not `/` or private app data.
-2. Tap **QR File Share** in the bookmark strip and confirm. Scan the displayed QR code with the
-   computer/phone camera, or type the shown address into its browser. Both devices normally need
-   to be on the same Wi-Fi/LAN.
-3. The browser page can **download from** the Kobo and **upload to** that folder. Existing files are
-   not overwritten; a duplicate upload gets a numbered filename. Stop sharing from Files when done.
+2. Tap **QR link · LAN share** in the bookmark strip and confirm. Scan the displayed QR code with
+   the computer/phone camera, or type the shown address into a current desktop/phone browser.
+   Both devices normally need to be on the same Wi-Fi/LAN.
+3. The offline browser page can **download from** the Kobo and **upload to** that folder. Uploads
+   use durable 1 MiB chunks, per-chunk and final SHA-256 checks, with a 4 GiB per-file limit subject
+   to filesystem/free space. Existing files are not overwritten; collisions get numbered names.
+   Identical name/bytes reuses its still-valid, rechecked completion receipt rather than duplicating.
+4. To resume after interruption, reselect the exact same file and click Upload. After share expiry,
+   start a new share for the exact same Kobo root folder and use its new link. Recovery lasts seven
+   days; stop sharing before the Kobo's confirmed **Pending uploads** cleanup. Stop the share when
+   finished. See [upload details and limitations](releases/APP-TOOLS.md#5-large-file-trusted-lan-uploads-resume-and-final-sha-256).
 
 The random bearer link expires automatically after 30 minutes and can be stopped earlier. Anyone
 who gets the link and can reach the Kobo can access that one folder while the share is active.
@@ -312,6 +343,8 @@ notification while the share runs.
 ```sh
 make test-isolation
 make test-runtime
+make test-audio-state
+make test-reliability
 make test-features
 make test-discovery
 make test-release
@@ -327,7 +360,11 @@ make verify
 
 **Automated validation:** offline feature tests cover vault encryption/TOTP vectors, Proton/Bitwarden
 CSV/JSON import, duplicate/size limits, and the real QR-share HTTP server (auth, CSRF, traversal,
-upload, download, ranges and stop). Discovery tests exercise persistent podcast favourites,
+upload, download, ranges and stop). Reliability regressions add log rotation/privacy/permissions,
+low-RAM worker admission, active-cache cleanup/combined-spool budgets, durable checkpoint restart,
+checksum rejection, rehashed completion receipts and production offline browser SHA/resume code.
+The full verifier checks initialized App tools/asset coverage in all 39 owned shipped APKs, while
+retaining official VLC's separate native recorder/signature. Discovery tests exercise persistent podcast favourites,
 local filtering and the production two-row header with recording layout/event fakes; Music
 fixtures exercise actual artist-filter requests and artist-scoped songs/releases. The full
 verifier also covers ARMv7/API17 builds,
@@ -411,9 +448,11 @@ These existing repairs are not new device-validation claims:
      **`Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()`**, which run
      the original private methods reflectively inside a `catch (Throwable)` — a broken refresh or
      notification step now only loses that step while F-Droid stays open;
-   * appends every caught `Throwable` **plus** every uncaught crash to
-     `files/arc7-last-crash.txt` (tag `Arc7CrashGuard`, mirrored to logcat) via the
-     `installCrashGuard()` uncaught-exception handler installed at the first sync;
+   * records guarded failures and uncaught Java crashes in the **bounded private App tools
+     log**, using class/frame identifiers without exception messages, causes or repository
+     URLs, and delegates crashes to Android's previous handler. A private startup provider
+     preserves `FDroidApp`; the older raw `files/arc7-last-crash.txt` collector is retired
+     and that obsolete file is removed, not mirrored to logcat;
    * retypes **every `UpdateService.onHandleIntent()` catch handler to `java.lang.Throwable`**, so
      anything thrown *inside* the sync itself becomes a clean *"error updating repository"*
      status instead of a force-close;
@@ -514,9 +553,11 @@ Permanent certificate SHA-256:
    `Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()` reflective
    `Throwable` guards, so a failing refresh/notification no longer force-closes the app; all
    in-sync handlers are retyped `Exception → Throwable`, the binary manifest gains
-   `largeHeap="true"`, an `Arc7CrashGuard` uncaught-exception handler appends every stack trace to
-   `files/arc7-last-crash.txt`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types
-   instead of throwing. These earlier patches remain in the current 1306 build.
+   `largeHeap="true"`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types instead
+   of throwing. The earlier raw `files/arc7-last-crash.txt` collector has now been replaced
+   by the bounded, sanitized private App tools logger (including caught-operation and
+   uncaught-crash frames); its bootstrap preserves the original `FDroidApp`. The stability
+   repairs remain in the current 1306 build.
 
 ## What's New in `v2.5.0` (still included)
 

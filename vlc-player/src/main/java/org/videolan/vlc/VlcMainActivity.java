@@ -442,4 +442,12 @@ public class VlcMainActivity extends Activity {
         ui.removeCallbacksAndMessages(null);
         super.onDestroy();
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {ca.arc7freedom.support.AppSupport.open(this);return true;}
+        return super.onOptionsItemSelected(item);
+    }
+
 }

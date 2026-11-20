@@ -294,6 +294,82 @@ def patch_manifest_add_large_heap(axml: bytes) -> bytes:
     return bytes(out)
 
 
+def patch_manifest_support(axml: bytes) -> bytes:
+    """Append a private bootstrap provider + owner-UID tools Activity without replacing FDroidApp.
+
+    Preserve every existing string/resource index and sorted Android attribute IDs. Idempotent
+    on an already-patched binary manifest; no intent extra can export/clear logs automatically.
+    """
+    header_size = struct.unpack_from("<H", axml, 2)[0]
+    chunks, strings, rmap = [], None, None
+    pool_pos = map_pos = None
+    position = header_size
+    while position < len(axml):
+        kind, header, size = struct.unpack_from("<HHI", axml, position)
+        assert size >= 8 and position + size <= len(axml)
+        chunks.append((kind, position, size))
+        if kind == 1:
+            assert pool_pos is None
+            pool_pos = position
+            strings, utf8, flags = _axml_read_string_pool(axml, position)
+        if kind == 0x180:
+            map_pos = position
+            rmap = list(struct.unpack_from(f"<{(size-header)//4}I", axml, position+header))
+        position += size
+    assert strings is not None and rmap is not None
+    if "ca.arc7freedom.support.SupportProvider" in strings and "ca.arc7freedom.support.SupportActivity" in strings:
+        return axml
+
+    def index(text):
+        if text not in strings: strings.append(text)
+        return strings.index(text)
+
+    android = index("http://schemas.android.com/apk/res/android")
+    ids = {"label": 0x01010001, "name": 0x01010003, "exported": 0x01010010,
+           "taskAffinity": 0x01010012, "authorities": 0x01010018}
+    for name, resource in ids.items():
+        i = index(name)
+        rmap.extend([0] * max(0, i+1-len(rmap)))
+        assert rmap[i] in (0, resource)
+        rmap[i] = resource
+
+    def component(tag, attributes):
+        records = []
+        for key, value in sorted(attributes.items(), key=lambda pair: ids[pair[0]]):
+            name = index(key)
+            if isinstance(value, bool): raw, kind, data = 0xffffffff, 0x12, 0xffffffff if value else 0
+            else: raw, kind, data = index(value), 3, index(value)
+            records.append(struct.pack("<IIIHBBI", android, name, raw, 8, 0, kind, data))
+        name = index(tag)
+        start = struct.pack("<HHIII", 0x102, 16, 36+len(records)*20, 1, 0xffffffff)
+        start += struct.pack("<IIHHHHHH", 0xffffffff, name, 20, 20, len(records), 0, 0, 0)
+        end = struct.pack("<HHIIIII", 0x103, 16, 24, 1, 0xffffffff, 0xffffffff, name)
+        return start + b"".join(records) + end
+
+    addition = component("activity", {"name":"ca.arc7freedom.support.SupportActivity", "label":"App tools", "exported":True,
+                                      "taskAffinity":"eu.bubu1.fdroidclassic.debug.task.support"})
+    addition += component("provider", {"name":"ca.arc7freedom.support.SupportProvider", "exported":False,
+                                      "authorities":"eu.bubu1.fdroidclassic.debug.arc7support.bootstrap"})
+    out = bytearray(struct.pack("<HHI", 3, header_size, 0))
+    inserted = False
+    for kind, position, size in chunks:
+        if position == pool_pos:
+            out += _axml_build_string_pool(strings, utf8, flags & ~1)  # appended strings are not sorted
+        elif position == map_pos:
+            out += struct.pack("<HHI", 0x180, 8, len(rmap)*4+8)
+            out += struct.pack(f"<{len(rmap)}I", *rmap)
+        else:
+            if kind == 0x103:
+                name = struct.unpack_from("<I", axml, position+20)[0]
+                if strings[name] == "application":
+                    out += addition
+                    inserted = True
+            out += axml[position:position+size]
+    assert inserted
+    struct.pack_into("<I", out, 4, len(out))
+    return bytes(out)
+
+
 def patch_update_service_catch_throwable(raw_dex: bytes) -> bytes:
     """
     Retypes every `catch (java.lang.Exception)` handler in
@@ -624,7 +700,7 @@ def strip_classes_from_dex(raw_dex: bytes, drop_descriptors: set) -> bytes:
         item = bytes(buf[class_defs_off + i * 32 : class_defs_off + (i + 1) * 32])
         cls_idx = struct.unpack_from("<I", item, 0)[0]
         desc = get_type(cls_idx)
-        if desc not in drop_descriptors and not desc.startswith("Lorg/fdroid/fdroid/Arc7"):
+        if desc not in drop_descriptors and not desc.startswith(("Lorg/fdroid/fdroid/Arc7", "Lca/arc7freedom/support/", "Lca/arc7freedom/glass/")):
             kept.append(item)
 
     if len(kept) == class_defs_size:
@@ -1285,7 +1361,6 @@ import android.content.pm.PackageInfo;
 import android.database.sqlite.SQLiteDatabase;
 import android.net.Uri;
 import android.os.Build;
-import android.util.Log;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -1301,8 +1376,6 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.net.HttpURLConnection;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -1360,58 +1433,27 @@ public final class Arc7Bridge {
             CURRENT_CTX.set(appCtx);
             LAST_APP_CTX = appCtx;
             installCrashGuard(appCtx);
+            ca.arc7freedom.support.DebugLog.event("fdroid.repo_context");
             sanitizeExistingRepoDbOnce(appCtx);
         }
     }
 
-    /**
-     * Installs a process-wide uncaught exception handler the first time a repo sync starts.
-     * Any hard crash after that (including `OutOfMemoryError`, which Android 4.2.2's
-     * `UpdateService catch (Exception)` cannot see) is written to
-     * `files/arc7-last-crash.txt` — readable from the Kobo Arc 7 Freedom app via root —
-     * and mirrored to logcat before the previous handler runs.
-     */
+    /** Keep the existing entry point, but never persist raw messages, thread names or logcat. */
     public static void installCrashGuard(final Context ctx) {
         if (ctx == null || !CRASH_GUARD_INSTALLED.compareAndSet(false, true)) return;
-        try {
-            final Context appCtx = ctx.getApplicationContext() != null ? ctx.getApplicationContext() : ctx;
-            final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
-            Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-                @Override
-                public void uncaughtException(Thread thread, Throwable error) {
-                    try {
-                        writeCrashLog(appCtx, thread, error);
-                    } catch (Throwable ignored) {
-                    }
-                    if (previous != null) previous.uncaughtException(thread, error);
-                }
-            });
-        } catch (Throwable ignored) {
-        }
+        Context app = ctx.getApplicationContext();
+        if (app instanceof android.app.Application) ca.arc7freedom.support.AppSupport.install((android.app.Application) app);
+        ca.arc7freedom.support.DebugLog.installCrashHandler();
+        // Older builds stored arbitrary exception text here. Remove only that obsolete private log.
+        File old = new File(ctx.getFilesDir(), CRASH_LOG_NAME);
+        if (old.isFile()) old.delete();
+        ca.arc7freedom.support.DebugLog.event("fdroid.crash_guard_installed");
     }
 
-    public static File crashLogFile(Context ctx) {
-        if (ctx == null) return null;
-        return new File(ctx.getFilesDir(), CRASH_LOG_NAME);
-    }
+    public static File crashLogFile(Context ctx) { return ctx == null ? null : new File(ctx.getFilesDir(), CRASH_LOG_NAME); }
 
     private static void writeCrashLog(Context ctx, Thread thread, Throwable error) {
-        StringWriter sw = new StringWriter();
-        error.printStackTrace(new PrintWriter(sw));
-        String text = "F-Droid Classic Android 4.2 crash " + new Date().toString()
-                + "\\nthread: " + thread.getName() + "\\n" + sw.toString();
-        FileOutputStream out = null;
-        try {
-            out = new FileOutputStream(new File(ctx.getFilesDir(), CRASH_LOG_NAME));
-            out.write(text.getBytes("UTF-8"));
-            out.flush();
-        } catch (Throwable ignored) {
-        } finally {
-            if (out != null) {
-                try { out.close(); } catch (Throwable ignored) {}
-            }
-        }
-        Log.e("Arc7CrashGuard", text);
+        ca.arc7freedom.support.DebugLog.error("fdroid.recoverable_failure", error);
     }
 
     /**
@@ -1452,29 +1494,9 @@ public final class Arc7Bridge {
         }
     }
 
-    /** Appends a caught-but-non-fatal `Throwable` to `files/arc7-last-crash.txt` + logcat. */
+    /** Bounded class/frame identifiers only. Never persist `where`, messages, causes or repo URLs. */
     public static void logCaught(String where, Throwable error) {
-        StringWriter sw = new StringWriter();
-        sw.write("F-Droid Classic Android 4.2 caught error in " + where + " at "
-                + new Date().toString() + "\\n");
-        if (error != null) {
-            error.printStackTrace(new PrintWriter(sw));
-        }
-        String text = sw.toString();
-        Log.e("Arc7CrashGuard", text);
-        Context ctx = LAST_APP_CTX;
-        if (ctx == null) return;
-        FileOutputStream out = null;
-        try {
-            out = new FileOutputStream(new File(ctx.getFilesDir(), CRASH_LOG_NAME), true);
-            out.write(text.getBytes("UTF-8"));
-            out.flush();
-        } catch (Throwable ignored) {
-        } finally {
-            if (out != null) {
-                try { out.close(); } catch (Throwable ignored) {}
-            }
-        }
+        ca.arc7freedom.support.DebugLog.error("fdroid.operation_failed", error);
     }
 
     /**
@@ -1530,7 +1552,7 @@ public final class Arc7Bridge {
             }
         } catch (Throwable error) {
             DB_SANITIZED.set(false);
-            Log.w("Arc7LegacyRepos", "Repository migration did not complete; retrying on next registration", error);
+            ca.arc7freedom.support.DebugLog.error("fdroid.repo_migration_failed", error);
         } finally {
             if (db != null) {
                 try { db.close(); } catch (Throwable ignored) {}
@@ -2693,13 +2715,11 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
 import androidx.fragment.app.FragmentActivity;
 import org.fdroid.fdroid.Arc7Bridge;
 import org.fdroid.fdroid.data.Apk;
 
 public class DefaultInstallerActivity extends FragmentActivity {
-    private static final String TAG = "DefaultInstallerActivit";
     static final String ACTION_INSTALL_PACKAGE = "org.fdroid.fdroid.installer.DefaultInstaller.action.INSTALL_PACKAGE";
     static final String ACTION_UNINSTALL_PACKAGE = "org.fdroid.fdroid.installer.DefaultInstaller.action.UNINSTALL_PACKAGE";
     private static final int REQUEST_CODE_INSTALL = 0;
@@ -2765,7 +2785,7 @@ public class DefaultInstallerActivity extends FragmentActivity {
         try {
             startActivityForResult(intent, REQUEST_CODE_INSTALL);
         } catch (ActivityNotFoundException e) {
-            Log.e(TAG, "ActivityNotFoundException", e);
+            ca.arc7freedom.support.DebugLog.error("fdroid.install_activity_missing", e);
             installer.sendBroadcastInstall(
                     downloadUri,
                     "org.fdroid.fdroid.installer.Installer.action.INSTALL_INTERRUPTED",
@@ -2778,7 +2798,7 @@ public class DefaultInstallerActivity extends FragmentActivity {
         try {
             getPackageManager().getPackageInfo(packageName, 0);
         } catch (PackageManager.NameNotFoundException e) {
-            Log.e(TAG, "NameNotFoundException", e);
+            ca.arc7freedom.support.DebugLog.error("fdroid.uninstall_package_missing", e);
             installer.sendBroadcastUninstall(
                     "org.fdroid.fdroid.installer.Installer.action.UNINSTALL_INTERRUPTED",
                     "Package that is scheduled for uninstall is not installed!");
@@ -2793,7 +2813,7 @@ public class DefaultInstallerActivity extends FragmentActivity {
         try {
             startActivityForResult(intent, REQUEST_CODE_UNINSTALL);
         } catch (ActivityNotFoundException e) {
-            Log.e(TAG, "ActivityNotFoundException", e);
+            ca.arc7freedom.support.DebugLog.error("fdroid.uninstall_activity_missing", e);
             installer.sendBroadcastUninstall(
                     "org.fdroid.fdroid.installer.Installer.action.UNINSTALL_INTERRUPTED",
                     "This Android rom does not support ACTION_UNINSTALL_PACKAGE!");
@@ -2845,6 +2865,12 @@ public class DefaultInstallerActivity extends FragmentActivity {
     shared_transport = os.path.join(repo_root, "common/src/main/java/ca/arc7freedom/net/OwnTlsGateway.java")
     with open(shared_transport, encoding="utf-8") as source:
         impl_files.append(write_java(impl_dir, "ca/arc7freedom/net/OwnTlsGateway.java", source.read()))
+    import glob
+    for source in sorted(glob.glob(os.path.join(repo_root, "shared/java/ca/arc7freedom/support/*.java"))
+                         + glob.glob(os.path.join(repo_root, "shared/java/ca/arc7freedom/glass/*.java"))):
+        with open(source, encoding="utf-8") as src:
+            relative = os.path.relpath(source, os.path.join(repo_root, "shared/java"))
+            impl_files.append(write_java(impl_dir, relative, src.read()))
     return stub_files, impl_files
 
 
@@ -2989,11 +3015,11 @@ def patch_fdroid_apk(apk_path: str, zipalign_bin: str, java_bin: str, apksigner_
         assert os.path.isfile(payload), f"Build the native TLS engine before patching F-Droid: {payload}"
 
     with zipfile.ZipFile(apk_path, "r") as zf_in, tempfile.TemporaryDirectory() as tmp:
-        manifest_patched = patch_manifest_add_large_heap(
+        manifest_patched = patch_manifest_support(patch_manifest_add_large_heap(
             patch_manifest_version_code(
                 zf_in.read("AndroidManifest.xml"), TARGET_FDROID_VERSION_CODE
             )
-        )
+        ))
         legacy_catalog = []
         arsc_patched, fixed_repos = patch_arsc_bytes(zf_in.read("resources.arsc"), legacy_catalog)
 

@@ -135,6 +135,9 @@ APP_EXTRAS = {
 }
 for key in NETWORK_APPS:
     APP_EXTRAS[key] = APP_EXTRAS.get(key, ()) + (("service", "Arc7TlsGatewayService"),)
+for key in ("audioplayer", "radiorss", "podcasts", "recorder", "clock"):
+    APP_EXTRAS[key] = APP_EXTRAS.get(key, ()) + (("activity", "Arc7PlaybackDiagnosticsActivity"), ("receiver", "Arc7MediaButtonReceiver"))
+
 
 SUITE_HEADER = """<?xml version="1.0" encoding="utf-8"?>
 <!--
@@ -267,6 +270,9 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     lines.append('        android:theme="@android:style/Theme.Holo">')
     lines.append("")
 
+    lines.append(f'        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools" android:taskAffinity="{pkg}.task.support" android:exported="true" />')
+    lines.append("")
+
     lines += indent(render_component(
         "activity", target_activity,
         name="ca.arc7freedom.app." + attr(target_activity, "name").lstrip("."),
@@ -293,6 +299,8 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
                 break
         assert src is not None, f"{key}: {tag} {comp_name} missing from the suite manifest"
         extra_override = {"exported": "false"}
+        if comp_name == "Arc7MediaButtonReceiver":
+            extra_override["exported"] = "true"
         if comp_name == "Arc7WeatherWidgetBridge":
             extra_override.update(exported="true", authorities="ca.arc7freedom.weather.widget")
         if comp_name == "Arc7WeatherWidgetRequestReceiver":

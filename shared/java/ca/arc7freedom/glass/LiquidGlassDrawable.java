@@ -196,7 +196,7 @@ public final class LiquidGlassDrawable extends GradientDrawable {
             Drawable wallpaper = WallpaperManager.getInstance(context).getDrawable();
             if (wallpaper == null) return null;
             int width = Math.max(1, wallpaper.getIntrinsicWidth()), height = Math.max(1, wallpaper.getIntrinsicHeight());
-            float scale = 160f / Math.max(width, height);
+            float scale = ca.arc7freedom.support.RuntimePolicy.wallpaperEdge() / (float) Math.max(width, height);
             width = Math.max(1, Math.round(width * scale)); height = Math.max(1, Math.round(height * scale));
             Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             Rect old = new Rect(wallpaper.getBounds());

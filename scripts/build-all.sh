@@ -133,7 +133,7 @@ compile_java_and_dex() {
     local out_dex_dir="$2"
     shift 2
     # Shared, API-15-compatible glass material used by both launcher and applications.
-    set -- "$@" shared/java/ca/arc7freedom/glass/*.java
+    set -- "$@" shared/java/ca/arc7freedom/glass/*.java shared/java/ca/arc7freedom/support/*.java
 
     if [ -f "$ECJ" ]; then
         "$JAVA_BIN" -jar "$ECJ" -1.8 -source 1.8 -target 1.8 \
@@ -415,6 +415,8 @@ build_standalone_app() {
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
     cp -R app/src/main/assets/licenses "$work/assets/"
+    cp -R app/src/main/assets/audio-self-test "$work/assets/"
+    cp -R app/src/main/assets/lan-share "$work/assets/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -488,6 +490,8 @@ PRUNE_APPS
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
     cp -R app/src/main/assets/licenses "$work/assets/"
+    cp -R app/src/main/assets/audio-self-test "$work/assets/"
+    cp -R app/src/main/assets/lan-share "$work/assets/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -526,6 +530,9 @@ PRUNE_APPS
     local empty_assets="$work/empty_assets"
     mkdir -p "$empty_assets"
     cp -R app/src/main/assets/licenses "$empty_assets/"
+    # Non-network audio owners (notably Voice Recorder) still expose local sound tests.
+    # Keep the clips offline without adding TLS binaries, CAs or Internet permission.
+    cp -R app/src/main/assets/audio-self-test "$empty_assets/"
 
     local built=0
     while IFS=$'\t' read -r key fname label desc; do

@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
 
     <application
+        android:name="ca.arc7freedom.support.SupportApplication"
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
         android:label="Upgrade Kobo v2.6.5"
@@ -28,5 +29,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools"
+            android:taskAffinity="ca.arc7freedom.upgrader.task.support" android:exported="true" />
     </application>
 </manifest>

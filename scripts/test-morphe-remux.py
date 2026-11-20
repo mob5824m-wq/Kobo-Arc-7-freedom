@@ -404,6 +404,7 @@ def main():
             f.write(JAVA_DRIVER)
         javac = os.environ.get("JAVAC") or shutil.which("javac") or "/opt/toolchain/jdk/bin/javac"
         cp_src = [os.path.join(SRC, "LegacyAacConfig.java"), os.path.join(SRC, "MorpheRemuxer.java"), os.path.join(SRC, "MorpheStreamServer.java"), driver]
+        cp_src += [os.path.join(ROOT, "shared/java/ca/arc7freedom/support", name) for name in ("DebugLog.java", "RuntimePolicy.java", "MediaCache.java")]
         r = subprocess.run([javac, "-nowarn", "-d", classes] + cp_src, capture_output=True, text=True)
         assert r.returncode == 0, f"javac failed:\n{r.stdout}\n{r.stderr}"
 

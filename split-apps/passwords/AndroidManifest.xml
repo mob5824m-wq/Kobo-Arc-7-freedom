@@ -35,6 +35,8 @@
         android:allowBackup="false"
         android:theme="@android:style/Theme.Holo">
 
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools" android:taskAffinity="ca.arc7freedom.passwords.task.support" android:exported="true" />
+
         <activity
             android:name="ca.arc7freedom.app.Arc7PasswordsActivity"
             android:label="Passwords"

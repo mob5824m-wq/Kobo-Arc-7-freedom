@@ -248,7 +248,8 @@ public class Arc7AppManagerActivity extends Arc7Activity {
             "Export .APK Backup to Storage (`APK-Backups/`)",
             freezeLabel,
             "Clear App Data & Cache (`pm clear`)",
-            uninstallLabel
+            uninstallLabel,
+            "App tools · private debug log / RAM / media cache"
         };
         new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
                 .setTitle(app.label + " (" + app.pkg + ")")
@@ -265,6 +266,18 @@ public class Arc7AppManagerActivity extends Arc7Activity {
                             toggleFreezeApp(app);
                         } else if (which == 3) {
                             runRootPkgCmd("pm clear " + app.pkg, "Cleared app data for " + app.label);
+                        } else if (which == 5) {
+                            if ("org.videolan.vlc".equals(app.pkg)) {
+                                new AlertDialog.Builder(Arc7AppManagerActivity.this).setTitle("VLC's own debug log")
+                                    .setMessage("Official VLC is kept unchanged to preserve its VideoLAN signature and data. Open VLC → Settings → Advanced → Debug logs. Start recording, reproduce the problem, stop, then save/share or clear. VLC's native log can include media paths/URLs and is not Arc7's sanitized bounded event log; review it before sharing. Arc7 never collects it automatically.")
+                                    .setPositiveButton("Open VLC",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){Intent open=getPackageManager().getLaunchIntentForPackage(app.pkg);if(open!=null)startActivity(open);}})
+                                    .setNegativeButton("Cancel",null).show();return;
+                            }
+                            try { Intent support = new Intent().setClassName(app.pkg, "ca.arc7freedom.support.SupportActivity");
+                                getPackageManager().getActivityInfo(support.getComponent(), 0); startActivity(support); }
+                            catch (Exception unavailable) { new AlertDialog.Builder(Arc7AppManagerActivity.this)
+                                .setMessage("This installed version has no Arc7 App tools screen. Update that app first. Official third-party VLC keeps its own debug-log controls; Arc7 never reads another app's private files or re-signs it to inject logging.")
+                                .setPositiveButton("OK", null).show(); }
                         } else if (which == 4) {
                             if (canUninstall) {
                                 confirmUninstall(app);

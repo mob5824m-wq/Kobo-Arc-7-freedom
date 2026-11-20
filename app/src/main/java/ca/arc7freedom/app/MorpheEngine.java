@@ -1,5 +1,8 @@
 package ca.arc7freedom.app;
 
+import ca.arc7freedom.support.MediaCache;
+import ca.arc7freedom.support.DebugLog;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -229,6 +232,7 @@ public final class MorpheEngine {
         public long durationSec = 0L;
         public String thumbnailUrl = "";
         public String spoofClientUsed = "";
+        public boolean verifiedAudio;
         public String localVideoProxyUrl = "";
         public String localAudioProxyUrl = "";
         public String hlsManifestUrl = "";
@@ -1377,7 +1381,7 @@ public final class MorpheEngine {
                                                             boolean quick) throws Exception {
         ensureStreamProxyStarted(ctx);
         if (ctx != null) {
-            try { MorpheStreamServer.setCacheDir(ctx.getCacheDir()); } catch (Throwable ignored) {}
+            try { MorpheStreamServer.setCacheDir(MediaCache.directory() != null ? MediaCache.directory() : ctx.getCacheDir()); } catch (Throwable ignored) {}
         }
         int prefIdx = getPreferredSpoofClient(ctx);
 
@@ -1523,6 +1527,7 @@ public final class MorpheEngine {
                 String audio = spoolAudioTrack(ctx, candidate);
                 if (audio.length() > 0) {
                     res.localAudioProxyUrl = audio; res.localVideoProxyUrl = audio;
+                    res.verifiedAudio = true;
                     res.muxedLocally = true; res.muxNote = "Verified AAC-LC · preparing audio-only classic M4A";
                     return;
                 }
@@ -1809,6 +1814,7 @@ public final class MorpheEngine {
             try {
                 final MorpheRemuxer.Track track = toRemuxTrack(ctx, candidate);
                 MorpheRemuxer.validateLegacyAudio(track);
+                res.verifiedAudio = true;
                 checkResolutionCancelled();
                 return MorpheStreamServer.register(0, new MorpheStreamServer.JobBody() {
                     @Override public void run(RandomAccessFile out, MorpheRemuxer.Progress progress) throws Exception {
@@ -2443,6 +2449,7 @@ public final class MorpheEngine {
     public static File downloadResolvedOffline(final Context ctx,ResolvedPlayback resolved,String title,
                                                 boolean audioOnly,final DownloadProgressListener listener) throws Exception {
         if(resolved==null) throw new IOException("Resolve a playable video first");
+        if(MediaCache.directory()!=null)MorpheStreamServer.setCacheDir(MediaCache.directory());
         File dir=new File(Environment.getExternalStorageDirectory(),audioOnly ? "Music/YouTubeMusic" : "Movies/YouTube");
         if(!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Download folder is unavailable");
         String name=(title==null ? "media" : title).replaceAll("[^A-Za-z0-9 _.-]","").trim();
@@ -2451,6 +2458,8 @@ public final class MorpheEngine {
         final File partial=File.createTempFile(name+"-arc7-", ".part",dir);
         File target=new File(dir,partial.getName().substring(0,partial.getName().length()-5)+(audioOnly ? ".m4a" : ".mp4"));
         boolean complete=false;
+        final MediaCache.Lease cacheLease = MediaCache.lease();
+        DebugLog.event("media.download_started");
         final MorpheRemuxer.Progress progress=new MorpheRemuxer.Progress() {
             public void onBytes(long done,long total) { if(listener!=null) listener.onProgress(total>0 ? (int)Math.min(99,done*100/total) : -1,done,total); }
             public void onStage(String stage) {}
@@ -2484,7 +2493,7 @@ public final class MorpheEngine {
             complete=true;
             if(listener!=null) listener.onProgress(100,target.length(),target.length());
             return target;
-        } finally { if(out!=null) try{out.close();}catch(Exception ignored){} if(!complete) partial.delete(); }
+        } finally { if(out!=null) try{out.close();}catch(Exception ignored){} if(!complete) partial.delete(); cacheLease.close(); DebugLog.event(complete ? "media.download_completed" : "media.download_cancelled_or_failed"); }
     }
 
     public interface DownloadProgressListener {

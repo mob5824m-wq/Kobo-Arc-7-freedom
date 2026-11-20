@@ -40,6 +40,8 @@
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
 
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools" android:taskAffinity="ca.arc7freedom.camera.task.support" android:exported="true" />
+
         <activity
             android:name="ca.arc7freedom.app.Arc7CameraActivity"
             android:label="Camera"

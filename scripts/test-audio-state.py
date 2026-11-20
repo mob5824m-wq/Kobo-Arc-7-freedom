@@ -40,19 +40,21 @@ public class Handler {
     'android/content/Intent.java': '''package android.content; import java.util.*;
 public class Intent {private String action;private Map<String,Object> extras=new HashMap<String,Object>();
  public Intent(){}public Intent(Context c,Class<?> t){}public Intent setAction(String a){action=a;return this;}public String getAction(){return action;}
- public Intent putExtra(String key,int n){extras.put(key,n);return this;}
+ public static final String ACTION_MEDIA_BUTTON="android.intent.action.MEDIA_BUTTON",EXTRA_KEY_EVENT="event";
+ public Intent putExtra(String key,int n){extras.put(key,n);return this;}public Intent putExtra(String key,Object v){extras.put(key,v);return this;}public Object getParcelableExtra(String k){return extras.get(k);}
  public String getStringExtra(String key){Object o=extras.get(key);return o instanceof String?(String)o:null;}public int getIntExtra(String k,int d){Object o=extras.get(k);return o instanceof Integer?(Integer)o:d;}}
 ''',
-    'android/content/IntentFilter.java': 'package android.content;public class IntentFilter {public void addAction(String s){}}',
-    'android/content/BroadcastReceiver.java': 'package android.content;public abstract class BroadcastReceiver {public abstract void onReceive(Context c,Intent i);}',
+    'android/content/IntentFilter.java': 'package android.content;public class IntentFilter {public IntentFilter(){}public IntentFilter(String s){}public void addAction(String s){}}',
+    'android/content/ComponentName.java': 'package android.content;public class ComponentName {public ComponentName(Context c,Class<?> t){}}',
+    'android/content/BroadcastReceiver.java': 'package android.content;public abstract class BroadcastReceiver {public boolean isOrderedBroadcast(){return true;}public void abortBroadcast(){}public abstract void onReceive(Context c,Intent i);}',
     'android/content/SharedPreferences.java': '''package android.content;import java.util.*;
 public class SharedPreferences {private Map<String,Object> values=new HashMap<String,Object>();public int getInt(String k,int d){Object v=values.get(k);return v instanceof Integer?(Integer)v:d;}public String getString(String k,String d){Object v=values.get(k);return v instanceof String?(String)v:d;}
  public Editor edit(){return new Editor();}public class Editor {public Editor putInt(String k,int v){values.put(k,v);return this;}public Editor putString(String k,String v){values.put(k,v);return this;}public boolean commit(){return true;}}}''',
     'android/content/Context.java': '''package android.content;import java.util.*;
-public class Context {public static final String WIFI_SERVICE="wifi",NOTIFICATION_SERVICE="notification";public static final int MODE_PRIVATE=0;
- private Map<String,SharedPreferences> prefs=new HashMap<String,SharedPreferences>();private android.net.wifi.WifiManager wifi=new android.net.wifi.WifiManager();private android.app.NotificationManager notices=new android.app.NotificationManager();
- public Context getApplicationContext(){return this;}public String getPackageName(){return "ca.arc7freedom.ytmusic";}public Object getSystemService(String s){return WIFI_SERVICE.equals(s)?wifi:notices;}
- public void startService(Intent i){}public void registerReceiver(BroadcastReceiver r,IntentFilter f){}public void unregisterReceiver(BroadcastReceiver r){}
+public class Context {public static final String WIFI_SERVICE="wifi",NOTIFICATION_SERVICE="notification",AUDIO_SERVICE="audio";public static final int MODE_PRIVATE=0;
+ private Map<String,SharedPreferences> prefs=new HashMap<String,SharedPreferences>();private android.net.wifi.WifiManager wifi=new android.net.wifi.WifiManager();private android.app.NotificationManager notices=new android.app.NotificationManager();public android.media.AudioManager audio=new android.media.AudioManager();
+ public Context getApplicationContext(){return this;}public String getPackageName(){return "ca.arc7freedom.ytmusic";}public Object getSystemService(String s){return WIFI_SERVICE.equals(s)?wifi:AUDIO_SERVICE.equals(s)?audio:notices;}
+ public Intent lastService;public void startService(Intent i){lastService=i;}public void registerReceiver(BroadcastReceiver r,IntentFilter f){}public void unregisterReceiver(BroadcastReceiver r){}
  public SharedPreferences getSharedPreferences(String n,int m){if(!prefs.containsKey(n))prefs.put(n,new SharedPreferences());return prefs.get(n);}}
 ''',
     'android/app/Service.java': '''package android.app;import android.content.*;import android.os.*;
@@ -64,18 +66,31 @@ public class Service extends Context {public static final int START_STICKY=1;pub
     'android/widget/RemoteViews.java': '''package android.widget;public class RemoteViews {public RemoteViews(String p,int id){}public void setTextViewText(int id,String s){}public void setImageViewBitmap(int id,Object b){}public void setImageViewResource(int id,int n){}public void setOnClickPendingIntent(int id,android.app.PendingIntent p){}public void setProgressBar(int id,int max,int p,boolean i){}}''',
     'android/widget/Toast.java': '''package android.widget;import java.util.*;public class Toast {public static final int LENGTH_LONG=1;public static final List<String> messages=new ArrayList<String>();private String text;public static Toast makeText(android.content.Context c,String s,int d){Toast t=new Toast();t.text=s;return t;}public void show(){messages.add(text);}}''',
     'android/net/wifi/WifiManager.java': '''package android.net.wifi;public class WifiManager {public static final int WIFI_MODE_FULL_HIGH_PERF=3;public WifiLock createWifiLock(int m,String s){return new WifiLock();}public static class WifiLock {private boolean held;public void setReferenceCounted(boolean b){}public boolean isHeld(){return held;}public void acquire(){held=true;}public void release(){held=false;}}}''',
-    'android/media/AudioManager.java': 'package android.media;public class AudioManager {public static final int STREAM_MUSIC=3;}',
+    'android/view/KeyEvent.java': '''package android.view;public class KeyEvent {
+ public static final int ACTION_DOWN=0,ACTION_UP=1,KEYCODE_HEADSETHOOK=79,KEYCODE_MEDIA_PLAY_PAUSE=85,KEYCODE_MEDIA_PLAY=126,KEYCODE_MEDIA_PAUSE=127,KEYCODE_MEDIA_NEXT=87,KEYCODE_MEDIA_PREVIOUS=88,KEYCODE_MEDIA_REWIND=89,KEYCODE_MEDIA_FAST_FORWARD=90,KEYCODE_MEDIA_STOP=86;
+ private int action,code,repeat;public KeyEvent(int a,int k,int r){action=a;code=k;repeat=r;}public int getAction(){return action;}public int getKeyCode(){return code;}public int getRepeatCount(){return repeat;}
+}''',
+    'android/media/AudioManager.java': '''package android.media;public class AudioManager {
+ public static final int STREAM_MUSIC=3,AUDIOFOCUS_GAIN=1,AUDIOFOCUS_LOSS=-1,AUDIOFOCUS_LOSS_TRANSIENT=-2,AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK=-3,AUDIOFOCUS_REQUEST_GRANTED=1;
+ public static final String ACTION_AUDIO_BECOMING_NOISY="android.media.AUDIO_BECOMING_NOISY";
+ public interface OnAudioFocusChangeListener {void onAudioFocusChange(int change);}
+ public OnAudioFocusChangeListener listener;public int result=1,requests,abandons,registrations;
+ public int requestAudioFocus(OnAudioFocusChangeListener l,int stream,int duration){listener=l;requests++;return result;}
+ public int abandonAudioFocus(OnAudioFocusChangeListener l){if(listener==l)listener=null;abandons++;return 1;}
+ public void registerMediaButtonEventReceiver(android.content.ComponentName c){registrations++;}public void unregisterMediaButtonEventReceiver(android.content.ComponentName c){registrations--;}
+ public void change(int c){OnAudioFocusChangeListener l=listener;if(l!=null)l.onAudioFocusChange(c);}
+}''',
     'android/media/audiofx/Equalizer.java': '''package android.media.audiofx;public class Equalizer {public static int created;public Equalizer(int p,int session){created++;}public void setEnabled(boolean b){}public short getNumberOfBands(){return 5;}public short[] getBandLevelRange(){return new short[]{-1200,1200};}public void setBandLevel(short b,short l){}public void release(){}}''',
     'android/media/audiofx/BassBoost.java': 'package android.media.audiofx;public class BassBoost {public BassBoost(int p,int s){}public void setEnabled(boolean b){}public void setStrength(short s){}public void release(){}}',
     'ca/arc7freedom/app/Arc7AudioWidgetProvider.java': 'package ca.arc7freedom.app;public class Arc7AudioWidgetProvider {public static void refreshAll(android.content.Context c,String s,boolean p){}}',
     'ca/arc7freedom/app/MorpheHlsRelay.java': 'package ca.arc7freedom.app;public class MorpheHlsRelay {public static void cancel(String s){}}',
-    'ca/arc7freedom/app/MorpheStreamServer.java': '''package ca.arc7freedom.app;import java.util.*;public class MorpheStreamServer {public static final Set<String> cancelled=Collections.synchronizedSet(new HashSet<String>());public static String getFailure(String s){return "";}public static String getPreparationStatus(String s){return "";}public static void cancel(String s){if(s!=null)cancelled.add(s);}}''',
+    'ca/arc7freedom/app/MorpheStreamServer.java': '''package ca.arc7freedom.app;import java.util.*;public class MorpheStreamServer {public static final Set<String> cancelled=Collections.synchronizedSet(new HashSet<String>());public static String getMimeType(String s){return "audio/mp4";}public static String getFailure(String s){return "";}public static String getPreparationStatus(String s){return "";}public static void cancel(String s){if(s!=null)cancelled.add(s);}}''',
     'ca/arc7freedom/app/MorpheEngine.java': '''package ca.arc7freedom.app;import java.util.*;import java.util.concurrent.*;import android.content.*;
 public class MorpheEngine {
  public static volatile int resolves,compatibilityCalls;public static volatile boolean sponsorEnabled;public static volatile CountDownLatch fallbackEntered,fallbackRelease;
  public static class MediaItem {public String title="Fixture song",author="Fixture artist",videoId="fixture0001",localFilePath="";public String bestThumb(){return "";}}
  public static class SkipSegment {public float startSec,endSec;}
- public static class ResolvedPlayback {public String title="Fixture song",author="Fixture artist",thumbnailUrl="",localAudioProxyUrl="",localVideoProxyUrl="";public List<SkipSegment> skipSegments=new ArrayList<SkipSegment>();public List<MediaItem> relatedItems=new ArrayList<MediaItem>();}
+ public static class ResolvedPlayback {public boolean verifiedAudio;public String title="Fixture song",author="Fixture artist",thumbnailUrl="",localAudioProxyUrl="",localVideoProxyUrl="";public List<SkipSegment> skipSegments=new ArrayList<SkipSegment>();public List<MediaItem> relatedItems=new ArrayList<MediaItem>();}
  public interface ResolutionProgressListener {void onProgress(String message);}
  public static ResolvedPlayback resolveStreams(Context c,String id,boolean audio,ResolutionProgressListener progress){ResolvedPlayback r=new ResolvedPlayback();r.localAudioProxyUrl="http://fixture/audio-"+(++resolves)+".m4a";return r;}
  public static String startAudioCompatibilityFallback(Context c,ResolvedPlayback r){int call=++compatibilityCalls;if(fallbackEntered!=null){fallbackEntered.countDown();boolean interrupted=false;while(true){try{fallbackRelease.await();break;}catch(InterruptedException e){interrupted=true;}}if(interrupted)Thread.currentThread().interrupt();}return "http://fixture/compat-"+call+".aac";}
@@ -99,6 +114,8 @@ import java.util.concurrent.*;
 import android.os.*;
 /** Recording fake of Android 4.2 JNI errors: invalid calls post OnError, they do NOT throw. */
 public class MediaPlayer {
+ public interface OnBufferingUpdateListener {void onBufferingUpdate(MediaPlayer p,int percent);}
+ public OnBufferingUpdateListener bufferingListener;public void setOnBufferingUpdateListener(OnBufferingUpdateListener l){bufferingListener=l;}
  public interface OnPreparedListener {void onPrepared(MediaPlayer p);}public interface OnErrorListener {boolean onError(MediaPlayer p,int what,int extra);}public interface OnCompletionListener {void onCompletion(MediaPlayer p);}
  public static final int IDLE=0,INITIALIZED=1,PREPARING=2,PREPARED=3,STARTED=4,PAUSED=5,COMPLETED=6,ERROR=7,RELEASED=8;
  public static volatile MediaPlayer latest;public static final List<String> invalidCalls=Collections.synchronizedList(new ArrayList<String>());
@@ -160,7 +177,8 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
             sources.append(path)
-        sources += [SRC/name for name in ('Arc7AudioService.java', 'LegacyMediaPolicy.java', 'LegacyPlaybackAudio.java', 'MediaNotificationPolicy.java')]
+        sources += [SRC/name for name in ('Arc7AudioService.java', 'Arc7MediaButtonReceiver.java', 'AudioFocusPolicy.java', 'LegacyMediaPolicy.java', 'LegacyPlaybackAudio.java', 'MediaNotificationPolicy.java')]
+        sources += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','MediaCache.java')]
         sources.append(ROOT/'tests/java/AudioServiceStateHarness.java')
         subprocess.run(list(map(str, [javac, '-nowarn', '-d', tmp/'classes', *sources])), check=True, timeout=90)
         subprocess.run(list(map(str, [java, '-ea', '-cp', tmp/'classes', 'ca.arc7freedom.app.AudioServiceStateHarness'])), check=True, timeout=45)

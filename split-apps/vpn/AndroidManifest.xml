@@ -41,6 +41,8 @@
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
 
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools" android:taskAffinity="ca.arc7freedom.vpn.task.support" android:exported="true" />
+
         <activity
             android:name="ca.arc7freedom.app.Arc7VpnActivity"
             android:label="Wi-Fi &amp; VPN"
