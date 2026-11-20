@@ -1,13 +1,13 @@
 @echo off
 setlocal EnableExtensions
-title Kobo Arc 7 - Direct USB ADB Auto-Upgrade ^& Laptop Backup Tool (v2.6.0)
+title Kobo Arc 7 - Direct USB ADB Auto-Upgrade ^& Laptop Backup Tool (v2.6.5)
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference = 'Stop';" ^
   "$scriptDir = '%~dp0';" ^
   "Write-Host '';" ^
   "Write-Host '=====================================================================' -ForegroundColor Cyan;" ^
-  "Write-Host '  KOBO ARC 7 FREEDOM v2.6.0 - USB ADB AUTO-UPGRADE & BACKUP TOOL' -ForegroundColor Cyan;" ^
+  "Write-Host '  KOBO ARC 7 FREEDOM v2.6.5 - USB ADB AUTO-UPGRADE & BACKUP TOOL' -ForegroundColor Cyan;" ^
   "Write-Host '  Auto-upgrades older APKs + streams backups using 0 MB tablet space!' -ForegroundColor Gray;" ^
   "Write-Host '=====================================================================' -ForegroundColor Cyan;" ^
   "Write-Host '';" ^

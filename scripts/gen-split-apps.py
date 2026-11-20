@@ -461,8 +461,20 @@ final class BuiltinApps {
 def main() -> None:
     tree = ET.parse(SUITE_MANIFEST)
     manifest = tree.getroot()
-    version_code = manifest.get(NS + "versionCode", "260")
-    version_name = manifest.get(NS + "versionName", "2.6.0")
+    version_code = manifest.attrib[NS + "versionCode"]
+    version_name = manifest.attrib[NS + "versionName"]
+    # The media manifests own their components, but inherit the suite release version.
+    for key in ("youtube", "ytmusic"):
+        path = os.path.join(OUT_DIR, key, "AndroidManifest.xml")
+        with open(path, encoding="utf-8") as fp:
+            text = fp.read()
+        for attribute, value in (("versionCode", version_code), ("versionName", version_name)):
+            text, count = re.subn(r'android:' + attribute + r'="[^"]*"',
+                                  'android:' + attribute + '="' + value + '"', text, count=1)
+            if count != 1:
+                raise ValueError(f"Missing {attribute} in {path}")
+        with open(path, "w", encoding="utf-8") as fp:
+            fp.write(text)
     android = manifest.find("application")
     assert android is not None
 

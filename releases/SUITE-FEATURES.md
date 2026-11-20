@@ -1,15 +1,15 @@
-# Arc7 Freedom 2.6.0 — app and runtime repairs
+# Arc7 Freedom 2.6.5 — app and runtime repairs
 
 Native Android **4.0.3–4.2.2**, minSdk15 / targetSdk17, ARMv7, DEX035.
-Suite, default apps, YouTube/Music and upgrader: **2.6.0 / 260**.
+Suite, default apps, YouTube/Music and upgrader: **2.6.5 / 265**.
 Home: **5.6.0 / 56**. Patched F-Droid: **1306**. Permanent signing identity retained.
-This branch build is **not a newly published GitHub release**.
+The matching **v2.6.5** GitHub release is published only after the main-branch workflow succeeds.
 
 ## Install without clearing data
 
 1. Back up important data and stop playback. Install [KoboArc7Freedom.apk](KoboArc7Freedom.apk)
    **in place**, then open it once. Alternatively install the
-   [2.6.0 upgrader](Upgrade-My-Kobo-To-v2.6.0.apk), which embeds exactly the same suite.
+   [2.6.5 upgrader](Upgrade-My-Kobo-To-v2.6.5.apk), which embeds exactly the same suite.
 2. Open **Arc7 Freedom → PATCHES → Apply / Retry All Patches** and inspect the report.
    Patch management is a tab, not a screen automatically opened by PC scripts or the
    upgrader. The old App Patches activity only redirects old manual shortcuts to that tab.
@@ -152,7 +152,7 @@ and stale-request guards. ROMs without track-info APIs are marked unverified, no
 classified as audio-less. This is not a guarantee of audible output on untested hardware.
 
 Install this build's [YouTube.apk](YouTube.apk) in place, then reopen YouTube. The version
-remains 2.6.0/260; an older public “latest” file may not contain the repair. **Sound** opens
+is now 2.6.5/265; an older public “latest” file may not contain the repair. **Sound** opens
 media-volume controls and the current audio-check result. Hardware volume buttons target
 media, audio-focus loss pauses/ducks video, and zero media volume produces a warning. The
 app never forces speaker/Bluetooth routing or raises the system volume automatically.
@@ -297,12 +297,15 @@ This is host/binary evidence, not tablet playback or a security audit.
 
 Exact suite, upgrader, YouTube/Music, Podcasts and other artifact hashes are generated in
 [SHA256SUMS.txt](SHA256SUMS.txt). Use that authoritative manifest for the current signed build;
-CI rebuilds can change APK bytes without changing the retained app version numbers.
+CI rebuilds can change APK bytes without changing their version numbers. In this release,
+suite/upgrader and all 34 standalone app binaries must explicitly be **2.6.5 / 265**;
+Home, stores and third-party VLC retain their independent versions.
 
 Automated host and binary checks are recorded in the ignored build logs and run by `make verify`:
 
 | Gate | What it establishes |
 | --- | --- |
+| `make test-release` + `scripts/check-release-version.py --artifacts` | Detect a workflow-only version bump, stale manifest/Gradle/tool paths, missing/corrupt payloads and obsolete upgrader artifacts before staging; all 53 SHA-256 entries must match |
 | API17/ARMv7 build + zipalign/signature/DEX/manifest checks | Old Android packaging and permanent certificate; not decoder/UI execution |
 | `make test-features` | Real PBKDF2/vault authentication/tamper/atomic-save tests, all 18 RFC6238 vectors, Proton/Bitwarden CSV/JSON import fixtures and real QR-share HTTP auth/CSRF/path/upload/download/range/stop tests, plus key grammar, player/collection/pin parsers and real MP4/M4A downloads |
 | `make test-discovery` | Production podcast favorite persistence/filtering/URL validation, safe failure/capacity cases and two-row header allocations/events at 320/360/600/1024dp using host preferences/layout fakes; not physical Android rendering |

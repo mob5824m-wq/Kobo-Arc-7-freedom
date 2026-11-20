@@ -23,6 +23,9 @@ jobs:
         with:
           ref: ${{ github.head_ref || github.ref_name }}
 
+      - name: Check release versions and workflow artifact paths before building
+        run: python3 scripts/test-release-version.py
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
@@ -39,7 +42,7 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography qrcode imageio-ffmpeg
 
-      - name: Generate 49 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.6.0 APKs
+      - name: Generate 49 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.6.5 APKs
         run: |
           chmod +x scripts/build-all.sh tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
@@ -56,7 +59,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm -rf --ignore-unmatch docs releases/Upgrade-My-Kobo-To-v1.9.0.apk releases/Upgrade-My-Kobo-To-v1.9.1.apk releases/Upgrade-My-Kobo-To-v2.0.0.apk releases/Upgrade-My-Kobo-To-v2.1.0.apk releases/Upgrade-My-Kobo-To-v2.2.0.apk releases/Upgrade-My-Kobo-To-v2.3.0.apk releases/Upgrade-My-Kobo-To-v2.3.1.apk releases/Upgrade-My-Kobo-To-v2.4.0.apk releases/Upgrade-My-Kobo-To-v2.4.1.apk releases/Upgrade-My-Kobo-To-v2.5.3.apk releases/Upgrade-My-Kobo-To-v2.5.4.apk
+          python3 scripts/check-release-version.py --artifacts
+          git rm -rf --ignore-unmatch docs
+          # Record obsolete upgrader removals as well as the newly named APK.
+          git add -u -- releases
           git add \
             releases/index.html \
             releases/logo-banner.png \
@@ -99,6 +105,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kobo-arc-7-freedom-v2.6.5-apks
+          if-no-files-found: error
           path: |
             releases/apps/*.apk
             releases/SUITE-FEATURES.md
@@ -137,6 +144,7 @@ jobs:
           cat > /tmp/release-notes.md << 'EOF'
           ## Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs
 
+          - Actual suite/upgrader and all 34 standalone app versions are 2.6.5 / 265. Builder, updater filename, Wi-Fi portals and release uploads are aligned; source and exact-artifact/checksum gates catch version drift before staging. Home/stores keep their independent versions and all signing identities/data are retained.
           - 38 signed APKs bundled offline: Home, stores, YouTube/Music and 32 independent default apps. New Podcasts, News, Authenticator and Passwords identities; Radio retains its installed data/package.
           - PATCHES is an Arc7 Freedom tab. PC/backup tools and the upgrader no longer force a patch screen. Rootless confirmations, byte verification, same-version maintenance and safe pending/error reports remain; no automatic uninstall/wipe.
           - F-Droid 1306 adds pinned F-Droid/Guardian legacy archives and default-All catalog/empty-state repairs, preserving existing pins, credentials and custom repos plus prior parser/TLS/signature fixes.
