@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.6.0
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.6.5
 
 on:
   push:
@@ -46,12 +46,12 @@ jobs:
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.6.0 end-to-end verification suite
+      - name: Run full v2.6.5 end-to-end verification suite
         run: |
           export FFMPEG="$(python3 -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
           python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.6.0 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
+      - name: Commit refreshed signed v2.6.5 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
@@ -61,7 +61,7 @@ jobs:
             releases/index.html \
             releases/logo-banner.png \
             releases/icons \
-            releases/Upgrade-My-Kobo-To-v2.6.0.apk \
+            releases/Upgrade-My-Kobo-To-v2.6.5.apk \
             releases/KoboArc7Freedom.apk \
             releases/YouTube.apk \
             releases/YouTubeMusic.apk \
@@ -91,14 +91,14 @@ jobs:
             app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh \
             app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.6.0 APKs (independent apps, media, catalog and widget repairs) [skip ci]"
+            git commit -m "chore: update pre-built signed v2.6.5 APKs (independent apps, media, catalog and widget repairs) [skip ci]"
             git push origin "$(git branch --show-current)"
           fi
 
-      - name: Upload built v2.6.0 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
+      - name: Upload built v2.6.5 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.6.0-apks
+          name: kobo-arc-7-freedom-v2.6.5-apks
           path: |
             releases/apps/*.apk
             releases/SUITE-FEATURES.md
@@ -106,7 +106,7 @@ jobs:
             tools/qr-transfer.html
             releases/WEATHER-FEATURES.md
             releases/INSTALL-RUNTIME-FIXES.md
-            releases/Upgrade-My-Kobo-To-v2.6.0.apk
+            releases/Upgrade-My-Kobo-To-v2.6.5.apk
             releases/YouTube.apk
             releases/YouTubeMusic.apk
             releases/KoboArc7Freedom.apk
@@ -129,13 +129,13 @@ jobs:
             tools/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.6.0 APKs (suite + 32 standalone default apps + YouTube / YouTube Music) to GitHub Releases
+      - name: Publish signed v2.6.5 APKs (suite + 32 standalone default apps + YouTube / YouTube Music) to GitHub Releases
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.6.0 — Independent Apps, Media & Widget Repairs
+          ## Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs
 
           - 38 signed APKs bundled offline: Home, stores, YouTube/Music and 32 independent default apps. New Podcasts, News, Authenticator and Passwords identities; Radio retains its installed data/package.
           - PATCHES is an Arc7 Freedom tab. PC/backup tools and the upgrader no longer force a patch screen. Rootless confirmations, byte verification, same-version maintenance and safe pending/error reports remain; no automatic uninstall/wipe.
@@ -155,10 +155,10 @@ jobs:
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.6.0 >/dev/null 2>&1; then
-            gh release edit v2.6.0 --latest --title "Kobo Arc 7 Freedom v2.6.0 — Independent Apps, Media & Widget Repairs" --notes-file /tmp/release-notes.md
-            gh release upload v2.6.0 \
-              releases/Upgrade-My-Kobo-To-v2.6.0.apk \
+          if gh release view v2.6.5 >/dev/null 2>&1; then
+            gh release edit v2.6.5 --latest --title "Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs" --notes-file /tmp/release-notes.md
+            gh release upload v2.6.5 \
+              releases/Upgrade-My-Kobo-To-v2.6.5.apk \
               releases/KoboArc7Freedom.apk \
               releases/YouTube.apk \
               releases/YouTubeMusic.apk \
@@ -181,8 +181,8 @@ jobs:
               tools/Start-Kobo-WiFi-Server.bat \
               tools/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
-              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.6.0 \
-              releases/Upgrade-My-Kobo-To-v2.6.0.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
+              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.6.5 \
+              releases/Upgrade-My-Kobo-To-v2.6.5.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
               releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
               releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
               releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
@@ -191,8 +191,8 @@ jobs:
               tools/Backup-Kobo-To-Laptop-ADB.bat tools/Backup-Kobo-To-Laptop-ADB.sh \
               tools/Start-Kobo-WiFi-Server.bat tools/Start-Kobo-WiFi-Server.sh --clobber; }
           else
-            gh release create v2.6.0 \
-              releases/Upgrade-My-Kobo-To-v2.6.0.apk \
+            gh release create v2.6.5 \
+              releases/Upgrade-My-Kobo-To-v2.6.5.apk \
               releases/KoboArc7Freedom.apk \
               releases/YouTube.apk \
               releases/YouTubeMusic.apk \
@@ -217,6 +217,6 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.6.0 — Independent Apps, Media & Widget Repairs" \
+              --title "Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs" \
               --notes-file /tmp/release-notes.md
           fi
