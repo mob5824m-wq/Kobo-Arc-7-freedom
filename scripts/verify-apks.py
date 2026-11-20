@@ -139,7 +139,8 @@ def check_apk(apk_path: str, expected_pkg: str, expect_libs: list) -> None:
             "ca.arc7freedom.app.MainActivity",
             "ca.arc7freedom.app.InstallMaintenanceActivity",
             "ca.arc7freedom.app.SplitAppLaunchActivity",
-            "ca.arc7freedom.app.Arc7BluetoothInternetActivity",
+            "ca.arc7freedom.app.Arc7QrTransferHomeActivity",
+            "ca.arc7freedom.app.Arc7QrTransferActivity",
             "ca.arc7freedom.app.YouTubeActivity",
             "ca.arc7freedom.app.YouTubeMusicActivity",
             "ca.arc7freedom.app.Arc7BrowserActivity",
@@ -1191,8 +1192,18 @@ def verify_wifi_server_and_drive_fixes() -> None:
         ):
             with open(os.path.join(iso_files, seed_name), "wb") as sf:
                 sf.write(b"PK\x03\x04" + b"\x00" * 512)
+        # No network is needed: a fake curl immediately fails and fixtures supply payloads.
+        fake_bin = os.path.join(iso_dir, "bin"); os.makedirs(fake_bin)
+        fake_curl = os.path.join(fake_bin, "curl")
+        with open(fake_curl, "w") as fixture: fixture.write("#!/bin/sh\nexit 22\n")
+        os.chmod(fake_curl, 0o755)
+        os.makedirs(os.path.join(iso_files, "apps"))
+        optical_payload = b"standalone QR APK fixture bytes"
+        with open(os.path.join(iso_files, "apps/QR-Transfer.apk"), "wb") as fixture: fixture.write(optical_payload)
+        with open(os.path.join(iso_files, "qr-transfer.html"), "wb") as fixture: fixture.write(b"<!doctype html><title>Offline QR</title>")
         sh_proc = subprocess.Popen(
             ["bash", iso_sh, "18893"],
+            env=dict(os.environ, PATH=fake_bin + os.pathsep + os.environ["PATH"]),
             cwd=iso_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -1225,7 +1236,20 @@ def verify_wifi_server_and_drive_fixes() -> None:
                 assert ri.status == 200 and ct_sh.startswith("image/") and (not cd_sh or "attachment" not in cd_sh.lower())
                 assert b_sh[:8] == b"\x89PNG\r\n\x1a\n"
                 Image.open(io.BytesIO(b_sh)).verify()
-            print(f"  [PASS] Standalone `Start-Kobo-WiFi-Server.sh` (isolated outside repo, even offline): HTTP 200 inline PNG banner decoded cleanly!")
+            assert "QR-Transfer.apk" in sh_body and "qr-transfer.html" in sh_body
+            assert "Bluetooth-Internet.apk" not in sh_body and "Radio-Podcasts.apk" not in sh_body
+            for method, target, headers, expected_status, expected in (
+                ("GET", "/apps/QR-Transfer.apk", {}, 200, optical_payload),
+                ("HEAD", "/apps/QR-Transfer.apk", {}, 200, b""),
+                ("GET", "/apps/QR-Transfer.apk", {"Range":"bytes=2-5"}, 206, optical_payload[2:6]),
+                ("GET", "/apps/QR-Transfer.apk", {"Range":"bytes=-4"}, 206, optical_payload[-4:]),
+                ("GET", "/apps/QR-Transfer.apk", {"Range":"bytes=999999-"}, 416, b""),
+                ("GET", "/../apps/QR-Transfer.apk", {}, 404, None),
+            ):
+                ci = http.client.HTTPConnection("127.0.0.1", 18893, timeout=5)
+                ci.request(method, target, headers=headers); ri=ci.getresponse(); body=ri.read(); ci.close()
+                assert ri.status==expected_status and (expected is None or body==expected), (method,target,ri.status)
+            print("  [PASS] Standalone shell portal outside repo/offline: real nested QR APK GET/HEAD/ranges, updated catalog and inline fallback PNG")
         finally:
             # Kill the whole process group: the .sh hands off to a `python3` child, which would
             # otherwise keep :18893 bound and make every later verification run fail.
@@ -4070,6 +4094,22 @@ def verify_glass_music_optical() -> None:
     activity = next(a for a in files.get_android_manifest_xml().findall("application/activity")
                     if a.get(ns + "name").endswith(".Arc7QrTransferActivity"))
     assert activity.get(ns + "exported") == "false" and int(activity.get(ns + "screenOrientation"), 0) == 1
+    qr_path = os.path.join(ROOT, "releases/apps/QR-Transfer.apk")
+    qr_app = APK(qr_path)
+    assert qr_app.get_package() == "ca.arc7freedom.qrtransfer"
+    assert qr_app.get_main_activity() == "ca.arc7freedom.app.Arc7QrTransferHomeActivity"
+    assert "android.permission.CAMERA" in qr_app.get_permissions() and "android.permission.INTERNET" not in qr_app.get_permissions()
+    qr_manifest = qr_app.get_android_manifest_xml().find("application")
+    assert qr_manifest.get(ns + "allowBackup") == "false" and not qr_manifest.findall("service")
+    assert not os.path.exists(os.path.join(ROOT, "releases/apps/Bluetooth-Internet.apk")), "Retired APK remains in generated release outputs"
+    with zipfile.ZipFile(qr_path) as archive:
+        dex = DEX(archive.read("classes.dex")); classes = {c.get_name() for c in dex.get_classes()}
+        assert "Lca/arc7freedom/app/Arc7QrTransferHomeActivity;" in classes
+        assert "Lca/arc7freedom/app/Arc7BluetoothInternetActivity;" not in classes
+        assert "Lca/arc7freedom/app/BluetoothInternetManager;" not in classes
+        methods = {(m.get_class_name(), m.get_name()) for m in dex.get_methods()}
+        for name in ("checkpoint", "pending", "discardPending", "missing", "verify", "save"):
+            assert ("Lca/arc7freedom/app/Arc7QrTransfer$Receiver;", name) in methods, name
     with zipfile.ZipFile(files_path) as archive:
         classes = {c.get_name() for c in DEX(archive.read("classes.dex")).get_classes()}
         for name in ("Lca/arc7freedom/app/Arc7QrTransferActivity;", "Lca/arc7freedom/app/Arc7QrCameraDecoder;",
@@ -4088,7 +4128,7 @@ def verify_glass_music_optical() -> None:
                 methods = {(m.get_class_name(), m.get_name()) for m in dex.get_methods()}
                 assert ("Lca/arc7freedom/app/MorpheRemuxer;", "remuxSingleTrackAdts") in methods
                 assert ("Lca/arc7freedom/app/MorpheEngine;", "startAudioCompatibilityFallback") in methods
-    print("  [PASS] Files APK includes its private camera activity, actual QR encoder/decoder and license notices; shipped Music/suite/Home contain the glass material and AAC/ADTS recovery")
+    print("  [PASS] Standalone QR APK owns offline send/receive/resume/save; retired Bluetooth app absent; Files retains camera encoder/decoder/licenses; Music/suite/Home retain glass and AAC/ADTS recovery")
 
 
 def verify_media_discovery() -> None:
@@ -4190,6 +4230,7 @@ def main() -> None:
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-fdroid-catalog.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-optical-transfer.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-liquid-glass.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-windows-tools.py"), "--apks"], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-media-discovery.py")], check=True)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 

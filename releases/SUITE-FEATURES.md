@@ -273,14 +273,18 @@ or hardware security key. Keep provider recovery codes and encrypted backups els
 
 Long-press a file → **Send file bytes via QR (offline)**. On the other Kobo, use **Receive QR
 bytes**, or use the self-contained [browser companion](../tools/qr-transfer.html) on another
-computer/phone. File bytes travel in repeated QR frames, not a URL. Maximum **1 MiB**; about
-one minute per 10 KiB at normal speed before any missed-frame retries. ZIP folders first.
+computer/phone. The independent **QR-Transfer.apk** adds its own offline send/receive hub,
+built-in Kobo file browser, optional system picker/Share, density profiles and **Saved receives**.
+Actual bytes travel in repeated frames, not a URL. Maximum **64 MiB** in v2; **Legacy v1**
+remains 1 MiB. Standard 512-byte density takes about 27 minutes per MiB for a perfect clean
+pass at normal speed (64 MiB can exceed a day); missed frames add time. ZIP folders first.
 
-Accept the header, watch missing-frame progress and replay frames as needed. CRC32 and full-file
-SHA-256 checks precede explicit **Save verified file**. Kobo saves collision-safe completed files
-to `/sdcard/Download/QR Received/`, without opening/installing them. Front-only/rotated cameras,
-focus, speed and pause/replay controls are supported. No shared network is needed, but codes
-are **not encrypted or authenticated**. Closing cancels; process-death recovery is not provided.
+Accept the header, watch missing frames and replay as needed. CRC32 and full-file SHA-256
+checks precede explicit **Save verified file**. Public files are collision-safe, never opened
+or installed automatically. Native send/receive buffers are bounded and bytes stay on disk;
+receive checkpoints sync every 32 new frames, on completion and on close. Resume from the
+same file/name/profile, or explicitly Discard private progress. Browser receive data remains
+in memory only while the page is open. Codes are **not encrypted or authenticated**.
 Browser camera reception needs a secure context (HTTPS/localhost; local files work in some
 browsers); a saved page can display codes for the Kobo camera offline.
 
@@ -365,3 +369,17 @@ still require testing. Live TLS tests, where run, only establish the tested TLS 
   focus/portrait/lighting and compare the saved file's hash. Test duplicate-name saves.
 - On a trusted LAN, test QR share confirmation, QR/link access, upload/download, duplicate-name
   handling, manual stop and automatic expiry. Do not use sensitive files or an untrusted network.
+
+## Windows launchers / Bluetooth Internet retirement
+
+Download and **Extract All** from the matching `Windows-Tools.zip`; see
+[Windows instructions](../tools/WINDOWS-TOOLS.md). All six tracked `.bat` files share a pinned
+PowerShell helper: no working-directory/apostrophe interpolation, Python required only for
+Stream Deck, no application-failure interpreter retry, no silent successful exit on errors.
+Wi-Fi is read-only/manifest-driven with ranges; USB updates preserve data; backups stream,
+check supplied hashes, safely extract and clean up their tunnel. Fake-device Windows CI is
+separate from actual hardware validation.
+
+Bluetooth Internet is no longer built, registered, listed or bundled. The standalone QR
+Transfer app replaces its catalog slot, not its tethering behavior. No old installation is
+silently uninstalled; old pinned Bluetooth tokens open Android Bluetooth settings.

@@ -110,7 +110,7 @@ public final class AppBarConfigStore {
     };
 
     public static final String[] IN_APP_STYLE_NAMES = new String[]{
-            "OS Skin Gradient Header",
+            "Floating Liquid Glass Header",
             "Flat Solid Surface Header",
             "Tinted Accent Header",
             "Minimal Dark + Accent Underline"

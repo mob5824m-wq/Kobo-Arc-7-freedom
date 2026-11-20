@@ -3,7 +3,7 @@
 Generates ALL custom Kobo Arc 7 OS Skin vector assets & Reskinned System App Icon Pack:
   1. High-resolution project logo banner (`releases/logo-banner.png`, 960x240 — NO `docs/`!)
   2. Header emblem drawable (`app/src/main/res/drawable-xhdpi/arc7_logo_header.png`, 96x96)
-  3. 28 crisp 2x-SSAA multi-DPI (`mdpi`=48, `hdpi`=72, `xhdpi`=96, `xxhdpi`=144) squircle
+  3. 49 crisp 2x-SSAA multi-DPI (`mdpi`=48, `hdpi`=72, `xhdpi`=96, `xxhdpi`=144) squircle
      icons generated into BOTH `app/src/main/res/drawable-*/` AND `launcher-android4/src/main/res/drawable-*/`
      reskinning EVERY built-in app AND EVERY default Android 4.2 / Kobo system app:
        - ic_launcher.png        (Kobo Arc 7 Freedom Control Center — Unlocked Cyan Shield)
@@ -94,29 +94,46 @@ class Canvas:
         self.buf[idx + 3] = int(min(255.0, out_a * 255.0 + 0.5))
 
     def rounded_tile(self, top_rgb, bot_rgb, border_rgb=None):
+        """A translucent moulded-glass tile, not a flat opaque gradient sticker."""
         n = self.n
-        margin = 0.055 * n
-        rad = 0.225 * n
+        margin, rad = 0.065 * n, 0.235 * n
         x0, y0, x1, y1 = margin, margin, n - margin, n - margin
         for py in range(n):
             t = py / max(1.0, n - 1.0)
-            r = int(top_rgb[0] * (1.0 - t) + bot_rgb[0] * t)
-            g = int(top_rgb[1] * (1.0 - t) + bot_rgb[1] * t)
-            b = int(top_rgb[2] * (1.0 - t) + bot_rgb[2] * t)
-            for py_off in (0,):
-                pass
+            base = tuple(int(a * (1-t) + b * t) for a,b in zip(top_rgb,bot_rgb))
             for px in range(n):
                 cx = min(max(px + 0.5, x0 + rad), x1 - rad)
                 cy = min(max(py + 0.5, y0 + rad), y1 - rad)
-                dist = math.hypot((px + 0.5) - cx, (py + 0.5) - cy)
-                if dist <= rad:
-                    self.blend(px, py, r, g, b, 255)
-                    if py < margin + 0.16 * n:
-                        self.blend(px, py, 255, 255, 255, 30)
-                    elif py > y1 - 0.10 * n:
-                        self.blend(px, py, 0, 0, 0, 34)
-                    if border_rgb and dist >= rad - max(1.8, 0.024 * n):
-                        self.blend(px, py, border_rgb[0], border_rgb[1], border_rgb[2], 205)
+                dist = math.hypot(px + 0.5 - cx, py + 0.5 - cy)
+                if dist > rad:
+                    # Quiet floating contact shadow within the icon's transparent margins.
+                    sy = min(max(py - n * 0.025 + 0.5, y0 + rad), y1 - rad)
+                    sd = math.hypot(px + 0.5 - cx, py - n * 0.025 + 0.5 - sy)
+                    if sd < rad + n * 0.018:
+                        self.blend(px, py, 8, 16, 35, 26)
+                    continue
+                edge = min(px+0.5-x0, x1-px-0.5, py+0.5-y0, y1-py-0.5, rad-dist)
+                fresnel = max(0.0, 1-edge/(0.052*n))
+                # Real PNG alpha transmits the wallpaper. An almost-opaque 238-alpha
+                # gradient is not glass; only the narrow Fresnel lip is dense.
+                self.blend(px, py, *base, int(148 + 40*fresnel))
+                u, v = px / n, py / n
+                highlight = max(0.0, 1 - math.hypot((u-0.22)*1.05,(v-0.12)*1.35))
+                self.blend(px, py, 255, 255, 255, int(37 * highlight ** 3))
+                # Fresnel thickness and a directional white glint separated by a dark seam.
+                # A faint opposite reflection and lower caustic, not a solid inset.
+                opposite = max(0.0, 1-math.hypot((u-.81)*1.5,(v-.90)*2.0))
+                self.blend(px,py,218,242,255,int(20*opposite**4))
+                if edge < 0.042*n:
+                    fresnel = max(0.0,1-edge/(0.042*n))
+                    self.blend(px,py,211,237,255,int(38*fresnel))
+                if edge < max(1.2,0.011*n):
+                    strength = int(200 * (0.45 + 0.55 * (1-(u+v)/2)))
+                    self.blend(px,py,255,255,255,strength)
+                elif edge < 0.021*n:
+                    self.blend(px,py,20,30,55,38)
+                if 0.021*n < edge < 0.029*n and border_rgb:
+                    self.blend(px,py,*border_rgb,80)
 
     def circle(self, ux, uy, ur, color, stroke_u=0.0):
         n = self.n
@@ -238,7 +255,7 @@ W = (255, 255, 255, 255)
 W_SOFT = (235, 245, 255, 220)
 
 
-# ==================== 28 CUSTOM SQUIRCLE ICON DRAWERS ====================
+# ==================== CUSTOM GLASS ICON DRAWERS ====================
 
 def draw_ic_launcher(c):
     c.rounded_tile((12, 34, 62), (7, 16, 30), (56, 189, 248))
@@ -388,6 +405,18 @@ def draw_ic_notes(c):
         c.line(0.26, y, 0.64, y, 0.035, (120, 53, 15, 185))
     c.line(0.56, 0.72, 0.80, 0.44, 0.085, (15, 23, 42, 255))
     c.triangle((0.50, 0.78), (0.53, 0.68), (0.61, 0.75), (239, 68, 68, 255))
+
+
+def draw_ic_qrtransfer(c):
+    c.rounded_tile((73, 146, 255), (91, 75, 215), (210, 235, 255))
+    c.rect(0.17, 0.17, 0.83, 0.83, (248, 252, 255, 245), 0.14)
+    ink = (30, 52, 100, 255)
+    for x, y in ((0.25, 0.25), (0.57, 0.25), (0.25, 0.57)):
+        c.rect(x, y, x + 0.19, y + 0.19, ink, 0.025)
+        c.rect(x + 0.045, y + 0.045, x + 0.145, y + 0.145, (240, 248, 255, 255), 0.012)
+        c.rect(x + 0.073, y + 0.073, x + 0.117, y + 0.117, ink, 0.005)
+    for x,y in ((0.56,0.55),(0.66,0.55),(0.72,0.65),(0.56,0.72),(0.65,0.72),(0.72,0.74),(0.59,0.63)):
+        c.rect(x,y,x+0.055,y+0.055,ink,0.006)
 
 
 def draw_ic_files(c):
@@ -688,7 +717,7 @@ ALL_ICONS = [
     ("ic_appmgr.png", draw_ic_appmgr),
     ("ic_terminal.png", draw_ic_terminal),
     ("ic_wired_net.png", draw_ic_wired_net),
-    ("ic_bluetooth.png", draw_ic_bluetooth),
+    ("ic_qrtransfer.png", draw_ic_qrtransfer),
     ("ic_calendar.png", draw_ic_calendar),
     ("ic_calculator.png", draw_ic_calculator),
     ("ic_notes.png", draw_ic_notes),

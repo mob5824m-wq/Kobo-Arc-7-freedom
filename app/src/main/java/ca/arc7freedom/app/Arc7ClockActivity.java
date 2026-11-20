@@ -1101,10 +1101,7 @@ public class Arc7ClockActivity extends Arc7Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(16), dp(14), dp(16), dp(14));
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(0xFF172330);
-        gd.setCornerRadius(dp(10));
-        gd.setStroke(dp(1), 0xFF2A3E52);
+        GradientDrawable gd = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF172638,0xFF9CCFFF,dp(28),getResources().getDisplayMetrics().density,128);
         card.setBackgroundDrawable(gd);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
@@ -1124,10 +1121,7 @@ public class Arc7ClockActivity extends Arc7Activity {
     }
 
     private void styleButtonBg(Button b, int bgColor) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(bgColor);
-        gd.setCornerRadius(dp(7));
-        gd.setStroke(dp(1), 0x44FFFFFF);
+        GradientDrawable gd = Arc7Skin.buttonDrawable(this, bgColor, 26);
         b.setBackgroundDrawable(gd);
     }
 

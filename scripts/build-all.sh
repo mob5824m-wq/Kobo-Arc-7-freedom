@@ -464,7 +464,7 @@ build_standalone_app() {
 }
 
 build_default_split_apps() {
-    # 28 separately installable default apps (Browser, Clock, Calculator, …).
+    # 32 separately installable default apps (Browser, Clock, Calculator, …).
     #
     # The shared Java sources are compiled to ONE `classes.dex`; every app then only pays for
     # one `aapt2 link` + zip + signature, so publishing all 32 stays fast.
@@ -474,6 +474,16 @@ build_default_split_apps() {
     mkdir -p "$work/res_compiled" "$work/gen" "$work/classes" "$work/dex" \
              "$work/assets/cacerts" "$work/stage/lib/armeabi-v7a" "$work/stage/lib/armeabi" \
              releases/apps
+
+    # A cached build must not retain retired APKs in globbed checksums/releases.
+    "$PY_BIN" - <<'PRUNE_APPS'
+from pathlib import Path
+expected = {line.split("\t")[1] for line in Path("split-apps/apps.tsv").read_text().splitlines() if line}
+for path in Path("releases/apps").glob("*.apk"):
+    if path.name not in expected:
+        path.unlink()
+        print("Removed retired generated APK:", path.name)
+PRUNE_APPS
 
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
@@ -648,6 +658,7 @@ cp -f releases/YouTubeMusic.apk app/src/main/assets/starter-apps/YouTubeMusic.ap
 
 echo "==> [3c/9] Building 32 separately installable default apps (releases/apps/*.apk)..."
 "$PY_BIN" scripts/build-qr-companion.py
+"$PY_BIN" scripts/build-windows-tools.py
 build_default_split_apps
 
 mkdir -p app/src/main/assets/starter-apps
@@ -709,6 +720,7 @@ cp -f tools/Start-Chromebook-Wired-Internet.sh app/src/main/assets/chromebook/St
 cp -f tools/Start-Kobo-Second-Screen.py app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
 cp -f tools/Start-PC-Stream-Deck.py app/src/main/assets/chromebook/Start-PC-Stream-Deck.py
 cp -f tools/Start-PC-Stream-Deck.bat app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat
+cp -f tools/Arc7-Windows.ps1 app/src/main/assets/chromebook/Arc7-Windows.ps1
 cp -f tools/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh
 cp -f tools/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
@@ -829,7 +841,12 @@ chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Interne
     Backup-Kobo-To-Laptop-ADB.sh \
     Start-Kobo-WiFi-Server.bat \
     Start-Kobo-WiFi-Server.sh \
-    qr-transfer.html) >> releases/SHA256SUMS.txt
+    qr-transfer.html \
+    Arc7-Windows.ps1 \
+    Windows-Tools.zip \
+    WINDOWS-TOOLS.md \
+    usb-sideload-and-root.bat \
+    serve-over-wifi.bat) >> releases/SHA256SUMS.txt
 (cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
 # Fold the 32 standalone-app hashes into the top-level checksum file so a single
 # releases/latest/download/SHA256SUMS.txt verifies the whole release.

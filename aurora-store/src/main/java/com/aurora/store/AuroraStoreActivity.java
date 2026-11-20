@@ -149,16 +149,14 @@ public class AuroraStoreActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF0B1120);
+        root.setBackgroundDrawable(ca.arc7freedom.glass.LiquidGlassDrawable.ambient(0xFF0B1120,0xFF60A5FA));
 
         // Top Aurora Gradient Header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(16), dp(12), dp(16), dp(12));
-        GradientDrawable hbg = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0F766E, 0xFF1D4ED8, 0xFF6D28D9});
+        GradientDrawable hbg = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF183551,0xFF99CFFF,dp(28),getResources().getDisplayMetrics().density,144);
         header.setBackgroundDrawable(hbg);
 
         LinearLayout titleCol = new LinearLayout(this);
@@ -194,7 +192,7 @@ public class AuroraStoreActivity extends Activity {
         // Animated Navigation Tabs
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setOrientation(LinearLayout.HORIZONTAL);
-        tabRow.setBackgroundColor(0xFF111827);
+        tabRow.setBackgroundDrawable(new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF172538,0xFF93C5FD,dp(28),getResources().getDisplayMetrics().density,106));
         tabRow.setPadding(dp(8), dp(6), dp(8), dp(6));
 
         tabDiscoverBtn = makeTabButton("DISCOVER & SEARCH", 0);
@@ -1701,10 +1699,7 @@ public class AuroraStoreActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF162033);
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), 0xFF283854);
+        GradientDrawable bg = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF162033,0xFF93C5FD,dp(28),getResources().getDisplayMetrics().density,100);
         card.setBackgroundDrawable(bg);
         return card;
     }
@@ -1746,10 +1741,7 @@ public class AuroraStoreActivity extends Activity {
     }
 
     private void styleButton(Button b, int colorArgb) {
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(colorArgb);
-        bg.setCornerRadius(dp(9));
-        bg.setStroke(dp(1), 0x44FFFFFF);
+        GradientDrawable bg = new ca.arc7freedom.glass.LiquidGlassDrawable(colorArgb,0xFFDDEBFF,dp(26),getResources().getDisplayMetrics().density,182);
         b.setBackgroundDrawable(bg);
     }
 

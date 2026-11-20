@@ -20,7 +20,7 @@ public final class QrCodeEncoder {
     public static boolean[][] encodeMatrix(String text) {
         if (text == null) text = "";
         try {
-            if (text.getBytes("UTF-8").length > 271) throw new IllegalArgumentException("QR text exceeds 271 UTF-8 bytes");
+            if (text.getBytes("UTF-8").length > Arc7QrTransfer.MAX_TEXT) throw new IllegalArgumentException("QR text exceeds the bounded encoder capacity");
             EnumMap<EncodeHintType,Object> hints = new EnumMap<EncodeHintType,Object>(EncodeHintType.class);
             // ASCII needs no ECI overhead; real Unicode is explicitly marked as UTF-8.
             for (int i = 0; i < text.length(); i++) if (text.charAt(i) > 127) { hints.put(EncodeHintType.CHARACTER_SET, "UTF-8"); break; }

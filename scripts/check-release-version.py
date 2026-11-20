@@ -23,9 +23,7 @@ PATH_CONSUMERS = (
     "scripts/test-install-maintenance.py",
     "tools/serve-over-wifi.py",
     "tools/serve-over-wifi.sh",
-    "tools/serve-over-wifi.bat",
     "tools/Start-Kobo-WiFi-Server.sh",
-    "tools/Start-Kobo-WiFi-Server.bat",
     "README.md",
     "releases/SUITE-FEATURES.md",
     "releases/INSTALL-RUNTIME-FIXES.md",
@@ -103,7 +101,8 @@ def check_artifacts(root: Path = ROOT) -> None:
                 "Start-PC-Stream-Deck.py", "Start-PC-Stream-Deck.bat", "Start-PC-Stream-Deck.sh",
                 "Start-PC-School-VPN-Relay.py", "Start-Chromebook-Wired-Internet.sh", "Start-Kobo-Second-Screen.py",
                 "Backup-Kobo-To-Laptop-ADB.bat", "Backup-Kobo-To-Laptop-ADB.sh",
-                "Start-Kobo-WiFi-Server.bat", "Start-Kobo-WiFi-Server.sh"}
+                "Start-Kobo-WiFi-Server.bat", "Start-Kobo-WiFi-Server.sh", "Arc7-Windows.ps1", "Windows-Tools.zip",
+                "WINDOWS-TOOLS.md", "usb-sideload-and-root.bat", "serve-over-wifi.bat"}
     apps = [row.split("\t")[1] for row in (root / "split-apps/apps.tsv").read_text().splitlines() if row]
     require(len(apps) == 32 and len(set(apps)) == 32, "Expected 32 distinct standalone default APKs")
     required.update(apps)

@@ -53,10 +53,16 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
   unencrypted CSV/JSON by the provider. Both apps keep encrypted backups and auto-lock, have no
   Internet permission, and remain **unsupported on security-obsolete Android 4.x and not
   independently security-audited**. No 2FA QR scanning, autofill, cloud sync or password recovery.
+- Stronger shared **Liquid-Glass-inspired** material: transparent thick lenses, opposing
+  specular/Fresnel/prismatic edges, floating headers, new glass icon tiles and multi-light
+  page backgrounds. Home samples its cached wallpaper at different centre/edge scales;
+  there is no live capture/blur of app content or Apple's proprietary renderer.
 - **Files → Receive QR bytes**, and long-press **Send file bytes via QR (offline)**, transfer
   actual file bytes through multiple camera-scanned QR codes, without shared Wi-Fi. Repeats,
-  out-of-order/missing frames, CRC32/SHA-256 and safe explicit saving are handled. **1 MiB max**;
-  small files work best. Includes a self-contained [offline browser sender/receiver](tools/qr-transfer.html).
+  out-of-order/missing frames, CRC32/SHA-256 and safe explicit saving are handled. **64 MiB max** (legacy mode: 1 MiB);
+  use the new standalone **QR-Transfer.apk** for a built-in Kobo file picker, density controls
+  and on-disk receive checkpoints/resume. Standard density takes about 27 minutes per MiB
+  before retries; optical transfer is deliberately offline, not fast. Includes a self-contained [offline browser sender/receiver](tools/qr-transfer.html).
   Codes are not encrypted or authenticated; both ends need the Arc7 protocol.
 - **Files → QR link · LAN share** separately displays a QR link for the currently selected folder inside shared
   internal storage. A computer/phone browser on the same LAN can upload and download files;
@@ -238,30 +244,32 @@ permissions can prevent playback. Finite fMP4 needs cache space and may take tim
   Weather/Music widgets now belong to their own apps; replace legacy suite widgets with the
   corresponding standalone widget to see that app's data.
 
-### Share Wi-Fi by Bluetooth
+### QR Transfer app & repaired Windows tools
 
-Install **`Bluetooth-Internet.apk`** (`ca.arc7freedom.bluetoothinternet`). Open it from the
-app drawer, Arc7 Freedom's network tab, or Wi-Fi & VPN's Bluetooth button.
+Install **`QR-Transfer.apk`** (`ca.arc7freedom.qrtransfer`) from the matching build's
+`apps` folder. Open **QR Transfer**, choose a file with its built-in storage browser (or
+another app's picker / Share action), then show its QR codes. The other device uses
+**Receive**, Files' existing **Receive QR bytes**, or the same
+[offline webpage](tools/qr-transfer.html). Nothing is uploaded, opened or installed
+without your action. New v2 supports **64 MiB**, Easy-focus/Standard/Dense profiles and
+native **Saved receives → Resume / Discard**. Reselect identical bytes, filename and
+profile at the sender to continue. The webpage's unsaved receive data lasts only while
+it stays open; older apps/pages need **Legacy v1** (1 MiB) sending. [Protocol and limits](releases/GLASS-MUSIC-QR.md).
 
-**Kobo Wi-Fi → another device:**
+**Bluetooth Internet has been removed** from source, manifests, default app bundles and
+the installer catalog. It is not replaced with another Bluetooth/Wi-Fi tethering app.
+Already-installed copies are not silently uninstalled; remove an old copy through Android
+Settings if wanted. Old pinned `@bluetooth` controls now open Android's Bluetooth settings.
+Wi-Fi & VPN, USB Internet and normal OS Bluetooth settings remain.
 
-1. Connect the Kobo to Wi-Fi and enable Bluetooth.
-2. Use **Pair devices / Bluetooth settings** to pair the phone/computer.
-3. Tap **Share Kobo Wi-Fi via Bluetooth**, or enable **Bluetooth tethering** in **Android
-   tethering settings** if the ROM restricts app control.
-4. On the receiving device, select the Kobo and enable **Internet access / Connect to network**.
-
-**Phone/computer → Kobo:** enable Bluetooth tethering on the other device, pair it, select
-it in Bluetooth Internet, and tap **Connect to selected device's internet**. Some phones
-share mobile data only, rather than their Wi-Fi; some Kobo ROMs support sharing but not
-receiving Bluetooth PAN. Follow the settings fallback when the ROM denies the hidden PAN API.
-
-**Hardware limit:** some Kobo Arc variants have **no Bluetooth adapter**. The app checks for
-this and says so; software cannot add the missing radio. Use Wi-Fi or USB Internet instead.
-A paired device or connected PAN link alone is **not proof of internet access**. The UI
-reports OS connection/tethering state, not a fabricated successful internet test. Routing
-and DHCP are handled by Android PAN, **not an Arc7 proxy or VPN**. No root is required for
-the settings-based flow, but the ROM must actually support PAN/tethering.
+On Windows, download **[Windows-Tools.zip](tools/Windows-Tools.zip)** from the matching PR
+artifact/release and **Extract All** before running a launcher. All six tracked `.bat`
+files (including the Kobo's Stream Deck mirror) now use small ASCII/CRLF wrappers and a
+matching SHA-256-pinned PowerShell helper. Paths do not depend on the current working
+directory; failures are visible and propagate a nonzero exit code. Wi-Fi/USB/backup need
+no Python/admin URL reservation; Stream Deck probes Python 3.9+ and starts the app only
+once. USB updates never uninstall/clear data to work around errors. See
+[Windows setup, arguments, offline use and troubleshooting](tools/WINDOWS-TOOLS.md).
 
 ### Import passwords and 2FA codes
 
@@ -308,7 +316,7 @@ make test-fdroid
 FFMPEG=/path/to/ffmpeg make test-runtime
 # Optionally test two native gateways concurrently after building a host TLS binary:
 python3 scripts/test-app-isolation.py --native build/native/host/arc7tls
-# Normal release build (includes Bluetooth Internet and the independent store transports):
+# Normal release build (includes QR Transfer and the independent store transports):
 ./scripts/build-all.sh
 make verify
 ```

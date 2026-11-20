@@ -5,6 +5,7 @@ Asserts translucent layers, two-tone rims, pressed/alpha behavior, bounded wallp
 frost and integration. Not a GPU screenshot or physical Kobo visual test.
 """
 from pathlib import Path
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -30,28 +31,39 @@ STUBS = {
     'android/graphics/Bitmap.java': '''package android.graphics;public class Bitmap{public enum Config{ARGB_8888}private int w,h;private int[] p;public static Bitmap createBitmap(int w,int h,Config c){Bitmap b=new Bitmap();b.w=w;b.h=h;b.p=new int[w*h];return b;}public int getWidth(){return w;}public int getHeight(){return h;}public boolean isRecycled(){return false;}public void getPixels(int[] out,int o,int stride,int x,int y,int w,int h){System.arraycopy(p,0,out,0,p.length);}public void setPixels(int[] in,int o,int stride,int x,int y,int w,int h){System.arraycopy(in,0,p,0,p.length);}}''',
     'android/graphics/Canvas.java': '''package android.graphics;import java.util.*;public class Canvas{public static final int ALL_SAVE_FLAG=31;public static class Draw{public Paint paint;public float radius;Draw(Paint p,float r){paint=new Paint(p);radius=r;}}public List<Draw> draws=new ArrayList<Draw>();public int layerAlpha=255,restores;public Canvas(){}public Canvas(Bitmap b){}public int saveLayerAlpha(float l,float t,float r,float b,int a,int flags){layerAlpha=a;return 1;}public void restoreToCount(int n){restores++;}public void drawRoundRect(RectF r,float x,float y,Paint p){draws.add(new Draw(p,x));}public void drawRect(Rect r,Paint p){draws.add(new Draw(p,0));}}''',
     'android/graphics/drawable/Drawable.java': '''package android.graphics.drawable;import android.graphics.*;public abstract class Drawable{public interface Callback{}private Rect bounds=new Rect();private Callback callback;public abstract void draw(Canvas c);public abstract void setAlpha(int a);public abstract void setColorFilter(ColorFilter f);public abstract int getOpacity();protected void onBoundsChange(Rect r){}protected boolean onStateChange(int[] s){return false;}public boolean setState(int[] s){return onStateChange(s);}public boolean isStateful(){return false;}public void invalidateSelf(){}public Rect getBounds(){return bounds;}public void setBounds(int l,int t,int r,int b){bounds.left=l;bounds.top=t;bounds.right=r;bounds.bottom=b;onBoundsChange(bounds);}public void setBounds(Rect r){setBounds(r.left,r.top,r.right,r.bottom);}public int getIntrinsicWidth(){return 2000;}public int getIntrinsicHeight(){return 1000;}public void setCallback(Callback c){callback=c;}public Callback getCallback(){return callback;}}''',
-    'android/graphics/drawable/GradientDrawable.java': '''package android.graphics.drawable;import android.graphics.*;public class GradientDrawable extends Drawable{public void draw(Canvas c){}public void setAlpha(int a){}public void setColorFilter(ColorFilter f){}public int getOpacity(){return -1;}public void setCornerRadius(float r){}}''',
+    'android/graphics/drawable/GradientDrawable.java': '''package android.graphics.drawable;import android.graphics.*;public class GradientDrawable extends Drawable{public void draw(Canvas c){}public void setAlpha(int a){}public void setColorFilter(ColorFilter f){}public int getOpacity(){return -1;}public void setCornerRadius(float r){}public void setColor(int c){}public void setStroke(int w,int c){}}''',
     'android/app/WallpaperManager.java': '''package android.app;import android.content.*;import android.graphics.drawable.*;public class WallpaperManager{public static int reads;public static Drawable wallpaper=new GradientDrawable();public static WallpaperManager getInstance(Context c){return new WallpaperManager();}public Drawable getDrawable(){reads++;return wallpaper;}}''',
     'android/view/View.java': '''package android.view;public class View implements android.graphics.drawable.Drawable.Callback{public int x=31,y=47;public void getLocationOnScreen(int[] p){p[0]=x;p[1]=y;}}''',
 }
 HARNESS = '''import ca.arc7freedom.glass.LiquidGlassDrawable;import android.graphics.*;import android.graphics.drawable.*;import android.util.*;
-public class GlassHarness{static void check(boolean b,String m){if(!b)throw new AssertionError(m);}public static void main(String[] args){
- LiquidGlassDrawable g=new LiquidGlassDrawable(0xff132638,0xff22d3ee,60,2,108);g.setBounds(0,0,400,200);Canvas c=new Canvas();g.draw(c);
- check(c.draws.size()==6,"Expected lift/body/sheen/rim/inner lens layers");check(c.draws.get(2).paint.alpha==108,"Glass body became opaque");
- check(((LinearGradient)c.draws.get(3).paint.shader).colors[0]>>>24<100,"Sheen overwhelms transmitted background");
- int[] rim=((LinearGradient)c.draws.get(4).paint.shader).colors;check((rim[0]>>>24)>(rim[1]>>>24)&&rim[0]!=rim[3],"No directional specular rim");
- check(g.getOpacity()==PixelFormat.TRANSLUCENT&&g.isStateful(),"Material flags");g.setState(new int[]{android.R.attr.state_pressed});c=new Canvas();g.draw(c);check(c.draws.size()==7,"No pressed lens highlight");
- g.setState(new int[0]);g.setAlpha(64);c=new Canvas();g.draw(c);check(c.layerAlpha==64&&c.restores==1,"Drawable alpha/layer restore broken");
- Bitmap frost=LiquidGlassDrawable.frostedWallpaper(new android.content.Context());check(frost.getWidth()==160&&frost.getHeight()==80,"Wallpaper blur is not bounded");
- int captures=android.app.WallpaperManager.reads;g=new LiquidGlassDrawable(0xff102030,0xff00bbdd,90,1,110).withBackdrop(frost,new DisplayMetrics());g.setCallback(new android.view.View());g.setBounds(0,0,300,60);
- for(int i=0;i<100;i++){c=new Canvas();g.draw(c);}check(android.app.WallpaperManager.reads==captures,"Wallpaper captured during draw");check(c.draws.size()==7&&c.draws.get(2).paint.shader instanceof BitmapShader,"Cached frost not rendered");
+public class GlassHarness{
+ static void check(boolean b,String m){if(!b)throw new AssertionError(m);}static void near(float a,float b){check(Math.abs(a-b)<0.01,"Matrix mismatch: "+a+" != "+b);}
+ public static void main(String[] args){
+ LiquidGlassDrawable g=new LiquidGlassDrawable(0xff132638,0xff22d3ee,60,2,92);g.setBounds(0,0,400,200);Canvas c=new Canvas();g.draw(c);
+ check(c.draws.size()==10,"Expected contact shadow, transmitted body, sheen, caustic, Fresnel thickness and optical rims");check(c.draws.get(3).paint.alpha==92,"Body is no longer translucent");
+ check(((LinearGradient)c.draws.get(4).paint.shader).colors[0]>>>24<100,"Sheen overwhelms the transmitted scene");
+ check(c.draws.get(5).paint.shader instanceof RadialGradient,"No lower caustic light");check(c.draws.get(6).paint.width==10,"No broad Fresnel edge");
+ int[] rim=((LinearGradient)c.draws.get(7).paint.shader).colors;check((rim[0]>>>24)>(rim[1]>>>24)&&rim[0]!=rim[3],"No opposing directional highlights");
+ int[] prism=((LinearGradient)c.draws.get(9).paint.shader).colors;check((prism[0]&0xffffff)!=(prism[3]&0xffffff),"Prismatic rim lost its colour separation");
+ check(g.getOpacity()==PixelFormat.TRANSLUCENT&&g.isStateful(),"Material flags");g.setState(new int[]{android.R.attr.state_pressed});c=new Canvas();g.draw(c);check(c.draws.size()==11,"No pressed highlight");
+ g.setState(new int[0]);g.setColor(0xffcc3344);g.setStroke(3,0xff78cfff);c=new Canvas();g.draw(c);check((c.draws.get(3).paint.color&0xffffff)==0xcc3344,"Existing GradientDrawable colour setters no longer work");check(c.draws.get(10).paint.width==3,"Selection/error strokes no longer work");
+ g.setAlpha(64);c=new Canvas();g.draw(c);check(c.layerAlpha==64&&c.restores==1,"Alpha/layer restore broken");
+ Bitmap frost=LiquidGlassDrawable.frostedWallpaper(new android.content.Context());check(frost.getWidth()==160&&frost.getHeight()==80,"Wallpaper work is not bounded to 160px");
+ int captures=android.app.WallpaperManager.reads;g=new LiquidGlassDrawable(0xff102030,0xff00bbdd,90,1,88).withBackdrop(frost,new DisplayMetrics());g.setCallback(new android.view.View());g.setBounds(0,0,300,60);
+ for(int i=0;i<100;i++){c=new Canvas();g.draw(c);}check(android.app.WallpaperManager.reads==captures,"Wallpaper capture during draw");check(c.draws.size()==12,"Expected cached centre and refractive-edge samples");
  for(Canvas.Draw d:c.draws)check(d.radius<=30,"Capsule radius exceeds bounds");
- BitmapShader shader=(BitmapShader)c.draws.get(2).paint.shader;check(shader.matrix.x==-191&&shader.matrix.y==-47,"Backdrop is not screen-aligned");
- LiquidGlassDrawable clear=new LiquidGlassDrawable(0xff102030,0xff00bbdd,30,1,0).withBackdrop(frost,new DisplayMetrics());clear.setBounds(0,0,200,70);c=new Canvas();clear.draw(c);check(c.draws.get(2).paint.alpha==0&&c.draws.get(3).paint.alpha==0,"Crystal-clear opacity override ignored");
- Drawable ambient=LiquidGlassDrawable.ambient(0xff090e16,0xff22d3ee);ambient.setBounds(0,0,600,1000);c=new Canvas();ambient.draw(c);check(c.draws.get(0).paint.shader instanceof RadialGradient,"No ambient backdrop");
+ BitmapShader centre=(BitmapShader)c.draws.get(3).paint.shader,edge=(BitmapShader)c.draws.get(4).paint.shader;
+ near(centre.matrix.scaleX,6*1.018f);near(edge.matrix.scaleX,6*1.075f);check(edge.matrix.scaleX>centre.matrix.scaleX,"Edge must refract more than the centre");
+ near(centre.matrix.x,-191*1.018f+150*(1-1.018f));near(centre.matrix.y,-47*1.018f+28.5f*(1-1.018f));
+ check(c.draws.get(4).paint.style==Paint.Style.STROKE,"Edge sampling must be a ring, not a second opaque rectangle");
+ LiquidGlassDrawable clear=new LiquidGlassDrawable(0xff102030,0xff00bbdd,30,1,0).withBackdrop(frost,new DisplayMetrics());clear.setBounds(0,0,200,70);c=new Canvas();clear.draw(c);check(c.draws.get(3).paint.alpha==0&&c.draws.get(4).paint.alpha==0&&c.draws.get(5).paint.alpha==0,"Clear override ignored");
+ Drawable ambient=LiquidGlassDrawable.ambient(0xff090e16,0xff22d3ee);ambient.setBounds(0,0,600,1000);c=new Canvas();ambient.draw(c);check(c.draws.size()==3,"Ambient colour field missing");for(Canvas.Draw d:c.draws)check(d.paint.shader instanceof RadialGradient,"Ambient scene became flat");
+ ambient.setAlpha(12);check(ambient.getOpacity()==PixelFormat.TRANSLUCENT,"Ambient opacity contract");
+ g.setBounds(0,0,1,1);g.draw(new Canvas());g.setBounds(0,0,40,20);g.draw(new Canvas());
  android.app.WallpaperManager.wallpaper=null;check(LiquidGlassDrawable.frostedWallpaper(new android.content.Context())==null,"Missing wallpaper fallback");
- System.out.println("PASS: production liquid-glass translucent body, specular lens rims, pressed/alpha/clear states, bounded cached wallpaper frost and screen alignment (recording graphics fakes)");}}
+ System.out.println("PASS: transparent thick-lens material, Fresnel/prismatic/specular/caustic layers, pressed/alpha/clear/selection states, bounded cached wallpaper with stronger edge refraction and screen anchoring (recording graphics fakes)");}}
 '''
+
 
 def main():
     default_tools = Path('/opt/toolchain') if Path('/opt/toolchain/jdk/bin/java').is_file() else ROOT/'build/toolchain'
@@ -80,7 +92,20 @@ def main():
     assert 'ACTION_WALLPAPER_CHANGED' in launcher and 'if (glassWallpaper == null)' in launcher
     for gradle in ('app/build.gradle','launcher-android4/build.gradle'):
         assert '/shared/java' in (ROOT/gradle).read_text()
-    print('ALL LIQUID-GLASS REGRESSIONS PASSED (Android graphics fakes, not GPU/device visual validation)')
+    for name in ('Arc7AudioPlayerActivity','Arc7BrowserActivity','Arc7ClockActivity','Arc7TerminalActivity','Arc7WallpaperPickerActivity','MainActivity'):
+        text = (ROOT/'app/src/main/java/ca/arc7freedom/app'/(name+'.java')).read_text()
+        assert 'LiquidGlassDrawable' in text or 'Arc7Skin.buttonDrawable' in text, name
+    for name in ('aurora-store/src/main/java/com/aurora/store/AuroraStoreActivity.java','upgrader/src/main/java/ca/arc7freedom/upgrader/UpgraderActivity.java'):
+        assert 'LiquidGlassDrawable.ambient' in (ROOT/name).read_text()
+    spec = importlib.util.spec_from_file_location('arc7_icons', ROOT/'scripts/generate-icons.py')
+    icons = importlib.util.module_from_spec(spec); spec.loader.exec_module(icons)
+    tile = icons.Canvas(96); tile.rounded_tile((56,140,230),(60,50,150),(190,220,255))
+    alpha = lambda x,y: tile.buf[(int(y*tile.n)*tile.n+int(x*tile.n))*4+3]
+    assert 120 <= alpha(.5,.5) <= 180, 'Icon body must actually transmit wallpaper, not be an opaque gradient'
+    assert alpha(.5,.07) > alpha(.5,.5) + 40, 'Fresnel icon lip should be denser than the body'
+    assert alpha(.01,.01) == 0, 'Floating icon margins must stay clear'
+    print('PASS: generated icon material has real transmitted PNG alpha, denser Fresnel lip and clear margins')
+    print('ALL LIQUID-GLASS REGRESSIONS PASSED (Android graphics fakes and PNG alpha, not GPU/device visual validation)')
 
 if __name__ == '__main__':
     main()

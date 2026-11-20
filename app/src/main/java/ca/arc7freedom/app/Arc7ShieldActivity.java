@@ -84,7 +84,7 @@ public class Arc7ShieldActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         root.addView(Arc7Skin.buildAppTopBar(
                 this, pal, R.drawable.ic_shield,

@@ -294,10 +294,7 @@ public class Arc7AudioPlayerActivity extends Arc7Activity {
 
     @SuppressWarnings("deprecation")
     private void setCardBg(View v) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setCornerRadius(dp(10));
-        gd.setColor(Color.parseColor("#1E293B"));
-        gd.setStroke(dp(1), Color.parseColor("#334155"));
+        GradientDrawable gd = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF172638,0xFF9CCFFF,dp(28),getResources().getDisplayMetrics().density,128);
         v.setBackgroundDrawable(gd);
     }
 
@@ -310,9 +307,7 @@ public class Arc7AudioPlayerActivity extends Arc7Activity {
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         b.setPadding(dp(12), dp(8), dp(12), dp(8));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(6));
-        bg.setColor(Color.parseColor(hex));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(hex), 24);
         b.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

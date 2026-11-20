@@ -120,7 +120,7 @@ lifecycle bindings are source-audited and API17-compiled; fake-service tests are
 Android UI renderer. **No physical Kobo, emulator or live weather/radar/alert service was
 available for validation here.** Current provider availability, actual widget scheduling,
 location fixes, map rendering/touch behaviour and notification delivery still need device
-checks. The same applies to earlier ROM/media/Bluetooth hardware limitations.
+checks. The same applies to earlier ROM/media and device-specific network limitations. The shared translucent glass surfaces are API17-compiled and recording-graphics-tested, not GPU/physical-screen validation.
 
 ### Suggested Kobo smoke test
 

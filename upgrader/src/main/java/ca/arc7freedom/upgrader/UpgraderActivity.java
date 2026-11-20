@@ -59,11 +59,8 @@ public class UpgraderActivity extends Activity {
     }
 
     private GradientDrawable box(int fill, int stroke, int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(fill);
-        g.setCornerRadius(dp(radiusDp));
-        if (stroke != 0) g.setStroke(dp(1), stroke);
-        return g;
+        return new ca.arc7freedom.glass.LiquidGlassDrawable(fill, 0xFF9BCBFF, dp(Math.max(26,radiusDp)),
+                getResources().getDisplayMetrics().density, stroke == 0 ? 196 : 112);
     }
 
     @Override
@@ -76,7 +73,7 @@ public class UpgraderActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#080C12"));
+        root.setBackgroundDrawable(ca.arc7freedom.glass.LiquidGlassDrawable.ambient(0xFF080C12,0xFF80B7FF));
         root.setPadding(dp(18), dp(18), dp(18), dp(18));
 
         LinearLayout card = new LinearLayout(this);

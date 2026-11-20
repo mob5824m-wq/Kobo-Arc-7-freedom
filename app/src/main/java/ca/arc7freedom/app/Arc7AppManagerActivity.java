@@ -198,10 +198,8 @@ public class Arc7AppManagerActivity extends Arc7Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(12), dp(9), dp(12), dp(9));
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(dp(7));
-            bg.setColor(Color.parseColor("#1E293B"));
-            bg.setStroke(dp(1), Color.parseColor(app.enabled ? "#334155" : "#9333EA"));
+            GradientDrawable bg = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF1E293B,0xFF9DCFFF,dp(26),getResources().getDisplayMetrics().density,124);
+            if (!app.enabled) bg.setStroke(dp(1),0xFFB987FF);
             row.setBackgroundDrawable(bg);
 
             LinearLayout col = new LinearLayout(this);
@@ -478,9 +476,7 @@ public class Arc7AppManagerActivity extends Arc7Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
         b.setPadding(dp(10), dp(6), dp(10), dp(6));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(5));
-        bg.setColor(Color.parseColor(hex));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(hex), 24);
         b.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

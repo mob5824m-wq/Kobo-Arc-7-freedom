@@ -167,11 +167,8 @@ public class MainActivity extends Arc7Activity {
     }
 
     private GradientDrawable box(int fill, int stroke, int strokeDp, int radiusDp) {
-        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.rgb(Math.min(255,Color.red(fill)+16), Math.min(255,Color.green(fill)+16), Math.min(255,Color.blue(fill)+16)), fill});
-        gd.setCornerRadius(dp(Math.max(12,radiusDp)));
-        if (strokeDp > 0) gd.setStroke(dp(strokeDp), stroke);
-        return gd;
+        return new ca.arc7freedom.glass.LiquidGlassDrawable(fill, stroke, dp(Math.max(26, radiusDp)),
+                getResources().getDisplayMetrics().density, 132);
     }
 
     @SuppressWarnings("deprecation")
@@ -581,17 +578,6 @@ public class MainActivity extends Arc7Activity {
 
         certCard.addView(subRow);
         page.addView(certCard, cardMargin());
-
-        LinearLayout bluetoothCard = makeCard();
-        addCardHeader(bluetoothCard, "Bluetooth Internet — share Wi-Fi without the suite proxy",
-                "Share this Kobo's Wi-Fi over Bluetooth PAN, or receive internet from a paired phone/computer. "
-                + "Requires Bluetooth hardware and ROM PAN support; no root or VPN required.");
-        addToolActionRow(bluetoothCard, "Bluetooth tethering / receive internet",
-                "Opens the separate Bluetooth Internet app with pairing, PAN controls and live connection status.",
-                "Bluetooth Internet", new View.OnClickListener() {
-                    @Override public void onClick(View v) { launchBuiltInActivity(Arc7BluetoothInternetActivity.class); }
-                });
-        page.addView(bluetoothCard, cardMargin());
 
         // NEW v1.3.0 Upgrade #1: System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT 127.0.0.1:8118`)
         LinearLayout sysProxyCard = makeCard();

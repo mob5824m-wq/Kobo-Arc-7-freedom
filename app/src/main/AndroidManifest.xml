@@ -27,11 +27,6 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 
-    <!-- Optional Bluetooth PAN; devices with no Bluetooth still install and show guidance. -->
-    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-
     <!-- Storage, Camera, HD Video Audio, Wallpapers, Alarms & Boot -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
@@ -84,11 +79,10 @@
             android:taskAffinity="ca.arc7freedom.task.shortcuts"
             android:exported="false" />
 
-        <activity android:name=".Arc7BluetoothInternetActivity"
-            android:label="Bluetooth Internet"
-            android:icon="@drawable/ic_bluetooth"
-            android:launchMode="singleTask"
-            android:taskAffinity="ca.arc7freedom.task.bluetoothinternet"
+        <activity android:name=".Arc7QrTransferHomeActivity"
+            android:label="QR Transfer"
+            android:icon="@drawable/ic_qrtransfer"
+            android:taskAffinity="ca.arc7freedom.task.qrtransfer"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false">
         </activity>
@@ -632,15 +626,20 @@
           `SplitAppIconSync` disables them as soon as the real app is present, so the launcher
           and the `Open with` chooser never show the same app twice. Aliases NEVER run suite copies.
         -->
-        <activity-alias android:name=".launch.Arc7BluetoothInternet"
+        <activity-alias android:name=".launch.Arc7QrTransferHome"
             android:targetActivity=".SplitAppLaunchActivity"
             android:enabled="true"
             android:exported="true"
-            android:icon="@drawable/ic_bluetooth"
-            android:label="Bluetooth Internet">
+            android:icon="@drawable/ic_qrtransfer"
+            android:label="QR Transfer">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
             </intent-filter>
         </activity-alias>
         <activity-alias android:name=".launch.Arc7Browser"

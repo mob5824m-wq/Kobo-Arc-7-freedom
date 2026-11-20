@@ -161,10 +161,8 @@ public class Arc7BrowserActivity extends Arc7Activity {
 
     @SuppressWarnings("deprecation")
     private void setBg(View v, int fill, int stroke, int radiusDp) {
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(fill);
-        gd.setCornerRadius(dp(radiusDp));
-        gd.setStroke(dp(1), stroke);
+        GradientDrawable gd = new ca.arc7freedom.glass.LiquidGlassDrawable(fill, stroke, dp(Math.max(24,radiusDp)),
+                getResources().getDisplayMetrics().density, 174);
         v.setBackgroundDrawable(gd);
     }
 

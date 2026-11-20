@@ -30,7 +30,7 @@ import java.util.concurrent.Executors;
 /** Legacy Camera API optical transport: actual file bytes, no Wi-Fi, account or scanner app. */
 @SuppressWarnings("deprecation")
 public final class Arc7QrTransferActivity extends Activity implements SurfaceHolder.Callback {
-    public static final String EXTRA_SEND = "send_file", EXTRA_DIRECTORY = "receive_directory";
+    public static final String EXTRA_SEND = "send_file", EXTRA_DIRECTORY = "receive_directory", EXTRA_URI = "send_uri", EXTRA_NAME = "send_name";
     private final Handler ui = new Handler();
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Arc7QrCameraDecoder decoder = new Arc7QrCameraDecoder();
@@ -65,27 +65,29 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
         super.onCreate(saved);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-        sending = getIntent().hasExtra(EXTRA_SEND);
+        sending = getIntent().hasExtra(EXTRA_SEND) || getIntent().hasExtra(EXTRA_URI);
         String dir = getIntent().getStringExtra(EXTRA_DIRECTORY);
         destination = dir != null ? new File(dir) : new File(android.os.Environment.getExternalStorageDirectory(), "Download/QR Received");
         Arc7Skin.Palette p = Arc7Skin.current(this);
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(p.bgPage); root.setPadding(dp(16), dp(14), dp(16), dp(12));
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(p)); root.setPadding(dp(16), dp(14), dp(16), dp(12));
         root.setGravity(Gravity.CENTER_HORIZONTAL);
         TextView title = label(sending ? "Send file · optical QR" : "Receive file · camera", 22, p.textPrimary);
         root.addView(title);
         TextView hint = label(sending
-                ? "These QR codes contain the file bytes, not a link. On the other device open Files → Receive QR bytes, or the offline tools/qr-transfer.html page. Keep both screens awake."
+                ? "These QR codes contain the file bytes, not a link. On the other device open QR Transfer → Receive, Files → Receive QR bytes, or the offline qr-transfer.html page. Keep both screens awake."
                 : "Point this camera at the other device’s animated Arc7 byte-transfer QRs. Frames may repeat or arrive out of order. No Wi-Fi is needed. Tap the preview to focus.", 13, p.textMuted);
         root.addView(hint);
         status = label("Preparing…", 16, p.accent); root.addView(status);
-        detail = label("Optical transfer is not encrypted; anyone who can see the codes can copy the file. Best for small files (1 MiB maximum).", 12, p.textMuted);
+        detail = label("Optical transfer is not encrypted; anyone who can see the codes can copy the file. Up to 64 MiB in v2 profiles (Legacy: 1 MiB). Large files can take hours; receiving progress is checkpointed privately on disk.", 12, p.textMuted);
         root.addView(detail);
         if (sending) buildSender(root); else buildReceiver(root);
         Button back = Arc7Skin.secondaryButton(this, p, "Close / cancel transfer");
+        back.setText(sending ? "Close sender" : "Close · keep receive progress");
         back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { finish(); } }); root.addView(back);
         setContentView(root);
         if (sending) prepareSender();
+        else if (getIntent().hasExtra("qr_resume")) resumeReceiver(getIntent().getStringExtra("qr_resume"));
     }
 
     private void buildSender(LinearLayout root) {
@@ -124,15 +126,37 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
             try { int count = Camera.getNumberOfCameras(); if (count > 0) cameraId = (cameraId + 1) % count; } catch (RuntimeException ignored) {}
             openCamera();
         } }); root.addView(switchCamera);
+        Button discard = Arc7Skin.secondaryButton(this, Arc7Skin.current(this), "Discard this unfinished receive…");
+        discard.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            if (receiver == null) return;
+            new AlertDialog.Builder(Arc7QrTransferActivity.this).setTitle("Discard unfinished bytes?")
+                    .setMessage("This removes only this transfer’s private partial file and checkpoint. Files already saved in Downloads are kept.")
+                    .setPositiveButton("Discard", new DialogInterface.OnClickListener() { public void onClick(DialogInterface d, int which) {
+                        worker.execute(new Runnable() { public void run() { try {
+                            Arc7QrTransfer.Receiver old = receiver; if (old != null) old.discard(); receiver = null; verified = false;
+                            ui.post(new Runnable() { public void run() { if (!destroyed) { save.setVisibility(View.GONE); status.setText("Waiting for a file header…"); openCamera(); } }});
+                        } catch (Exception e) { error(e); } }});
+                    }}).setNegativeButton("Keep progress", null).show();
+        }}); root.addView(discard);
         save = Arc7Skin.actionButton(this, "Save verified file", 0xFF167D68); save.setVisibility(View.GONE);
         save.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { saveReceived(); } }); root.addView(save);
     }
 
     private void prepareSender() {
         final String path = getIntent().getStringExtra(EXTRA_SEND);
+        final String uri = getIntent().getStringExtra(EXTRA_URI), name = getIntent().getStringExtra(EXTRA_NAME);
+        final int density = getIntent().getIntExtra("qr_density", Arc7QrTransfer.CHUNK_BYTES);
+        final boolean legacy = getIntent().getBooleanExtra("qr_legacy", false);
         worker.execute(new Runnable() { @Override public void run() {
             try {
-                final Arc7QrTransfer.Sender ready = new Arc7QrTransfer.Sender(new File(path == null ? "" : path), getCacheDir());
+                final Arc7QrTransfer.Sender ready;
+                if (uri != null) {
+                    android.net.Uri source = android.net.Uri.parse(uri);
+                    if (!("content".equals(source.getScheme()) || "file".equals(source.getScheme()))) throw new java.io.IOException("Only local files can be sent");
+                    java.io.InputStream stream = getContentResolver().openInputStream(source);
+                    if (stream == null) throw new java.io.IOException("Could not read the selected file");
+                    ready = new Arc7QrTransfer.Sender(stream, name, getCacheDir(), density, legacy);
+                } else ready = new Arc7QrTransfer.Sender(new File(path == null ? "" : path), getCacheDir(), density, legacy);
                 sender = ready;
                 if (destroyed) { ready.close(); return; }
                 ui.post(new Runnable() { @Override public void run() { if (!destroyed) { nextFrame = -1; renderFrame(); } } });
@@ -140,6 +164,23 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
         } });
     }
 
+    private File receiveStore() { return new File(getFilesDir(), "optical-receives"); }
+    private void resumeReceiver(final String id) {
+        prompting = true;
+        worker.execute(new Runnable() { public void run() {
+            try {
+                Arc7QrTransfer.Frame header = Arc7QrTransfer.Receiver.pending(receiveStore(), id);
+                final Arc7QrTransfer.Receiver ready = new Arc7QrTransfer.Receiver(header, receiveStore(), true);
+                receiver = ready;
+                if (destroyed) ready.close();
+                else if (ready.complete()) {
+                    ready.verify(); verified = true;
+                    ui.post(new Runnable() { public void run() { if (!destroyed) { closeCamera(); status.setText("SHA-256 verified · ready to save"); detail.setText(ready.metadata.name); save.setVisibility(View.VISIBLE); } }});
+                } else updateProgress(ready);
+            } catch (Exception e) { error(e); }
+            finally { prompting = false; }
+        }});
+    }
     private void selectFrame(int index) {
         if (sender == null || rendering) return;
         playing = false; pause.setText("Play loop"); ui.removeCallbacks(advance);
@@ -169,7 +210,8 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
                     qr.setImageBitmap(image); displayed = index;
                     status.setText(source.name + " · " + (index < 0 ? "file header" : "frame " + (index + 1) + " / " + source.total));
                     detail.setText(source.size + " bytes · SHA-256 " + source.sha256.substring(0, 16) + "…\n"
-                            + "Loop repeats headers and all frames. Receiver can request missing frame numbers. No network is used.");
+                            + source.chunk + " bytes/QR · one clean pass ≈ " + Math.max(1, Math.round(source.total * interval * 1.125 / 60000.0)) + " min at this speed. Missed frames add time.\n"
+                            + "Re-select the identical file/name/profile to resume a saved receiver. No network is used.");
                     // Repeat metadata every eight data frames, including at the start of each loop.
                     if (index < 0) nextFrame = pendingData;
                     else if (index + 1 >= source.total) { pendingData = 0; nextFrame = -1; }
@@ -240,7 +282,7 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
     }
 
     private void processFrame(String text) throws Exception {
-        if (destroyed || verified || !text.startsWith("A7Q1|")) return;
+        if (destroyed || verified || !(text.startsWith("A7Q1|") || text.startsWith("A7Q2|"))) return;
         final Arc7QrTransfer.Frame frame = Arc7QrTransfer.parse(text);
         Arc7QrTransfer.Receiver sink = receiver;
         if (sink == null) {
@@ -254,7 +296,7 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
                         .setPositiveButton("Receive bytes", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
                             worker.execute(new Runnable() { @Override public void run() {
                                 try {
-                                    Arc7QrTransfer.Receiver ready = new Arc7QrTransfer.Receiver(frame, getCacheDir()); receiver = ready;
+                                    Arc7QrTransfer.Receiver ready = new Arc7QrTransfer.Receiver(frame, receiveStore(), true); receiver = ready;
                                     if (destroyed) ready.close(); else updateProgress(ready);
                                 } catch (Exception e) { error(e); }
                                 finally { prompting = false; }
@@ -277,17 +319,23 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
     private String frameName() { return receiver != null ? receiver.metadata.name : ""; }
     private void updateProgress(final Arc7QrTransfer.Receiver sink) {
         final String text = sink.metadata.name + " · " + sink.receivedCount() + " / " + sink.metadata.total + " frames";
-        final String missing = "Missing frame numbers: " + sink.missing() + "\nKeep scanning the loop, or pause the sender and choose Go to frame.";
+        final String missing = "Missing frame numbers: " + sink.missing() + "\nProgress is checkpointed to private storage every 32 frames and on close. Keep scanning, or replay the listed frames.";
         ui.post(new Runnable() { @Override public void run() { if (!destroyed) { status.setText(text); detail.setText(missing); } } });
     }
     private void saveReceived() {
         if (!verified || receiver == null) return;
+        final Arc7QrTransfer.Receiver sink = receiver;
+        final String hash = sink.metadata.sha256;
         save.setEnabled(false);
         worker.execute(new Runnable() { @Override public void run() {
             try {
-                final File file = receiver.save(destination);
+                final File file = sink.save(destination);
+                String cleanup = "";
+                try { sink.discard(); receiver = null; }
+                catch (java.io.IOException failedCleanup) { cleanup = "\nSaved successfully, but private progress could not be removed. Discard it from Saved receives."; }
+                final String notice = cleanup;
                 ui.post(new Runnable() { @Override public void run() {
-                    if (!destroyed) { status.setText("Saved · " + file.getName()); detail.setText(file.getAbsolutePath() + "\nSHA-256: " + receiver.metadata.sha256); save.setVisibility(View.GONE); }
+                    if (!destroyed) { status.setText("Saved · " + file.getName()); detail.setText(file.getAbsolutePath() + "\nSHA-256: " + hash + notice); save.setVisibility(View.GONE); }
                 } });
             } catch (Exception e) { error(e); ui.post(new Runnable() { @Override public void run() { if (!destroyed) save.setEnabled(true); } }); }
         } });
@@ -313,7 +361,11 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
         row.addView(b, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)); return b;
     }
     @Override protected void onResume() { super.onResume(); resumed = true; if (sending) { if (playing) ui.post(advance); } else openCamera(); }
-    @Override protected void onPause() { resumed = false; ui.removeCallbacks(advance); closeCamera(); super.onPause(); }
+    @Override protected void onPause() {
+        resumed = false; ui.removeCallbacks(advance); closeCamera();
+        if (!worker.isShutdown()) worker.execute(new Runnable() { public void run() { try { if (receiver != null) receiver.checkpoint(); } catch (Exception e) { error(e); } }});
+        super.onPause();
+    }
     @Override protected void onDestroy() {
         destroyed = true; ui.removeCallbacksAndMessages(null); closeCamera(); worker.shutdownNow();
         try { if (sender != null) sender.close(); } catch (Exception ignored) {}

@@ -33,6 +33,7 @@ def main():
     if not node:
         raise SystemExit('Node.js 18+ is required for the offline browser/Android QR interoperability tests')
     run(['python3', 'scripts/build-qr-companion.py', '--check'])
+    run([node, 'tests/js/qr-browser-ui-harness.cjs'])
     with tempfile.TemporaryDirectory(prefix='arc7-optical-') as temporary:
         temp = Path(temporary)
         (temp/'payload.bin').write_bytes(random.Random(713).randbytes(8193))
@@ -48,16 +49,29 @@ def main():
     assert any(p.get(NS+'name') == 'android.permission.CAMERA' for p in manifest.findall('uses-permission'))
     component = next(a for a in manifest.findall('application/activity') if a.get(NS+'name').endswith('.Arc7QrTransferActivity'))
     assert component.get(NS+'exported') == 'false' and component.get(NS+'screenOrientation') == 'portrait'
+    standalone = ET.parse(ROOT/'split-apps/qrtransfer/AndroidManifest.xml').getroot()
+    assert standalone.get('package') == 'ca.arc7freedom.qrtransfer'
+    permissions = {p.get(NS+'name') for p in standalone.findall('uses-permission')}
+    assert 'android.permission.CAMERA' in permissions and 'android.permission.INTERNET' not in permissions
+    assert standalone.find('application').get(NS+'allowBackup') == 'false'
+    home = next(a for a in standalone.findall('application/activity') if a.get(NS+'name').endswith('Arc7QrTransferHomeActivity'))
+    assert home.get(NS+'exported') == 'true'
+    assert any(a.get(NS+'name') == 'android.intent.action.SEND' for a in home.findall('intent-filter/action'))
+    native_home = (SRC/'ca/arc7freedom/app/Arc7QrTransferHomeActivity.java').read_text()
+    for hook in ('ACTION_GET_CONTENT', 'directory.listFiles()', 'Uri.fromFile(file)', 'OpenableColumns.DISPLAY_NAME', 'qr_density', 'qr_legacy', 'qr_resume', 'discardPending'):
+        assert hook in native_home, hook
     files = (SRC/'ca/arc7freedom/app/Arc7FileManagerActivity.java').read_text()
     assert 'Send file bytes via QR (offline)' in files and 'Receive QR bytes' in files
     assert 'Arc7QrFileShareService.startShare' in files, 'Preserve separate LAN sharing'
     camera = (SRC/'ca/arc7freedom/app/Arc7QrTransferActivity.java').read_text()
     for hook in ('Camera.open(cameraId)', 'CAMERA_FACING_BACK', 'CAMERA_FACING_FRONT', 'setPreviewCallbackWithBuffer',
-                 'decoder.decode(bytes, width, height)', 'sink.verify()', 'receiver.save(destination)', 'newSingleThreadExecutor',
+                 'decoder.decode(bytes, width, height)', 'sink.verify()', 'sink.save(destination)', 'newSingleThreadExecutor',
                  'surfaceDestroyed', 'onPause()', 'worker.shutdownNow()', 'sender.close()', 'receiver.close()',
                  'Go to frame', 'pendingData', '700'):
         assert hook in camera, hook
     assert 'http://' not in camera and 'https://' not in camera and 'BarcodeDetector' not in camera
+    for hook in ('receiveStore(), true', 'receiver.checkpoint()', 'qr_resume', 'openInputStream', 'getFD'):
+        assert hook in camera or hook in (SRC/'ca/arc7freedom/app/Arc7QrTransfer.java').read_text(), hook
     browser = (ROOT/'tools/qr-transfer/browser.js').read_text()
     assert 'fetch(' not in browser and 'XMLHttpRequest' not in browser and 'new WebSocket' not in browser
     html = (ROOT/'tools/qr-transfer.html').read_text()

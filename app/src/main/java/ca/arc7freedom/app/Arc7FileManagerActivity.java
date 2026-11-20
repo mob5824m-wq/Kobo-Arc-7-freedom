@@ -79,7 +79,7 @@ public class Arc7FileManagerActivity extends Arc7Activity {
         Arc7Skin.Palette pal = Arc7Skin.current(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         LinearLayout topActions = new LinearLayout(this);
         topActions.setOrientation(LinearLayout.HORIZONTAL);

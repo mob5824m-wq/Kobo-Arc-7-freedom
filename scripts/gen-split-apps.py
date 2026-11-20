@@ -57,7 +57,7 @@ APP_META = {
     "notes": ("Notes.apk", "Notes / notepad with autosave"),
     "filemanager": ("Files.apk", "File manager with offline camera QR-byte transfer and optional Wi-Fi sharing"),
     "wiredinternet": ("USB-Internet.apk", "Share your PC internet to the tablet over USB"),
-    "bluetoothinternet": ("Bluetooth-Internet.apk", "Share Wi-Fi over Bluetooth PAN, or receive tethered internet"),
+    "qrtransfer": ("QR-Transfer.apk", "Offline camera QR file bytes, 64 MiB, resumable native receiver"),
     "packageinstaller": ("Package-Installer.apk", "APK installer with signature checks"),
     "pdfviewer": ("PDF-Reader.apk", "PDF reader with page jump + night mode"),
     "weather": ("Weather.apk", "48-hour + 14-day weather, saved cities, air quality, alerts, radar & widget"),
@@ -89,12 +89,12 @@ APP_PERMISSIONS = {key: {"READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"} for 
 for key in NETWORK_APPS:
     APP_PERMISSIONS[key].update(("INTERNET", "ACCESS_NETWORK_STATE"))
 for key in ("browser", "audioplayer", "radiorss", "podcasts", "secondscreen", "streamdeck", "filemanager",
-            "wiredinternet", "vpn", "bluetoothinternet"):
+            "wiredinternet", "vpn"):
     APP_PERMISSIONS[key].add("ACCESS_WIFI_STATE")
 for key in ("audioplayer", "radiorss", "podcasts", "recorder", "clock", "calendar", "secondscreen",
             "streamdeck", "wiredinternet", "vpn", "ebookreader"):
     APP_PERMISSIONS[key].add("WAKE_LOCK")
-for key in ("wiredinternet", "vpn", "bluetoothinternet"):
+for key in ("wiredinternet", "vpn"):
     APP_PERMISSIONS[key].add("CHANGE_NETWORK_STATE")
 for key in ("wiredinternet", "vpn"):
     APP_PERMISSIONS[key].add("CHANGE_WIFI_STATE")
@@ -111,11 +111,12 @@ APP_PERMISSIONS["camera"].update(("CAMERA", "RECORD_AUDIO", "WAKE_LOCK"))
 APP_PERMISSIONS["recorder"].add("RECORD_AUDIO")
 APP_PERMISSIONS["clock"].add("SET_TIME_ZONE")
 APP_PERMISSIONS["weather"].update(("ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "RECEIVE_BOOT_COMPLETED", "WAKE_LOCK"))
-APP_PERMISSIONS["bluetoothinternet"].update(("BLUETOOTH", "BLUETOOTH_ADMIN", "ACCESS_NETWORK_STATE"))
+APP_PERMISSIONS["qrtransfer"].update(("CAMERA", "WAKE_LOCK"))
 
 # Only private support components of this app. Cross-app activities are launched via
 # SplitAppRouter, not copied into the caller's manifest/process/data directory.
 APP_EXTRAS = {
+    "qrtransfer": (("activity", "Arc7QrTransferActivity"),),
     "filemanager": (("service", "Arc7QrFileShareService"), ("activity", "Arc7QrTransferActivity")),
     "vpn": (("service", "Arc7VpnService"),),
     "wiredinternet": (("service", "Arc7ChromebookUsbService"),),
@@ -164,7 +165,7 @@ def activity_key(class_name: str) -> str:
     base = class_name.rsplit(".", 1)[-1]
     base = re.sub(r"^Arc7", "", base)
     base = re.sub(r"Activity$", "", base)
-    return base.lower()
+    return "qrtransfer" if base == "QrTransferHome" else base.lower()
 
 
 def activity_label(class_name: str) -> str:
@@ -243,9 +244,10 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     lines.append("")
     lines.append('    <uses-feature android:name="android.hardware.camera" android:required="false" />')
     lines.append('    <uses-feature android:name="android.hardware.microphone" android:required="false" />')
+    if "CAMERA" in APP_PERMISSIONS[key]:
+        lines.append('    <uses-feature android:name="android.hardware.camera.front" android:required="false" />')
+        lines.append('    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />')
     lines.append("")
-    if key == "bluetoothinternet":
-        lines.append('    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />')
     if key == "weather":
         lines.append('    <permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" android:protectionLevel="signature" />')
         lines.append('    <uses-permission android:name="ca.arc7freedom.permission.WEATHER_WIDGET" />')
@@ -261,7 +263,7 @@ def build_app(key: str, meta, version_code: str, version_name: str, target_activ
     lines.append(f'        android:label="{xml_escape(label)}"')
     lines.append('        android:hardwareAccelerated="true"')
     lines.append('        android:largeHeap="true"')
-    lines.append('        android:allowBackup="%s"' % ("false" if key in ("authenticator", "passwords") else "true"))
+    lines.append('        android:allowBackup="%s"' % ("false" if key in ("authenticator", "passwords", "qrtransfer") else "true"))
     lines.append('        android:theme="@android:style/Theme.Holo">')
     lines.append("")
 

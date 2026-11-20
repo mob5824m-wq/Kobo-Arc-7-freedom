@@ -65,7 +65,7 @@ public class Arc7CalendarActivity extends Arc7Activity {
         Arc7Skin.Palette pal = Arc7Skin.current(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         LinearLayout headerActions = new LinearLayout(this);
         headerActions.setOrientation(LinearLayout.HORIZONTAL);

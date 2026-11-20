@@ -12,7 +12,7 @@ final class SplitApps {
     private SplitApps() {}
 
     static final String[][] ALL = {
-            { ".launch.Arc7BluetoothInternet", "ca.arc7freedom.bluetoothinternet", "Bluetooth Internet", "ca.arc7freedom.app.Arc7BluetoothInternetActivity" },
+            { ".launch.Arc7QrTransferHome", "ca.arc7freedom.qrtransfer", "QR Transfer", "ca.arc7freedom.app.Arc7QrTransferHomeActivity" },
             { ".launch.Arc7Browser", "ca.arc7freedom.browser", "Browser", "ca.arc7freedom.app.Arc7BrowserActivity" },
             { ".launch.Arc7EbookReader", "ca.arc7freedom.ebookreader", "Books", "ca.arc7freedom.app.Arc7EbookReaderActivity" },
             { ".launch.Arc7AudioPlayer", "ca.arc7freedom.audioplayer", "Music", "ca.arc7freedom.app.Arc7AudioPlayerActivity" },

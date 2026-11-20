@@ -53,7 +53,8 @@ class ReleaseTests(unittest.TestCase):
         names.update(app_names)
         tool_names = {"Start-PC-Stream-Deck.py", "Start-PC-Stream-Deck.bat", "Start-PC-Stream-Deck.sh", "Start-PC-School-VPN-Relay.py",
                       "Start-Chromebook-Wired-Internet.sh", "Start-Kobo-Second-Screen.py", "Backup-Kobo-To-Laptop-ADB.bat",
-                      "Backup-Kobo-To-Laptop-ADB.sh", "Start-Kobo-WiFi-Server.bat", "Start-Kobo-WiFi-Server.sh", "qr-transfer.html"}
+                      "Backup-Kobo-To-Laptop-ADB.sh", "Start-Kobo-WiFi-Server.bat", "Start-Kobo-WiFi-Server.sh", "qr-transfer.html", "Arc7-Windows.ps1", "Windows-Tools.zip",
+                      "WINDOWS-TOOLS.md", "usb-sideload-and-root.bat", "serve-over-wifi.bat"}
         names.update(tool_names)
         lines = []
         for name in sorted(names):

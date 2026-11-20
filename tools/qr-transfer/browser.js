@@ -18,7 +18,7 @@
     for (let y=0;y<size;y++) for (let x=0;x<size;x++) if (code.isDark(y,x)) c.fillRect((x+4)*cell,(y+4)*cell,cell,cell);
     displayed = next;
     message(tx.name + ' · ' + (displayed < 0 ? 'file header' : 'frame '+(displayed+1)+' / '+tx.total));
-    $('sendInfo').textContent = tx.size+' bytes · SHA-256 '+tx.sha256;
+    $('sendInfo').textContent = tx.size+' bytes · '+tx.chunk+' bytes/QR · one clean pass ≈ '+Math.max(1,Math.ceil(tx.total*Number($('speed').value)*1.125/60000))+' min at this speed (missed frames add time). SHA-256 '+tx.sha256;
     if (next < 0) next = pending;
     else if (next+1 >= tx.total) { pending=0; next=-1; }
     else if ((next+1)%8===0) { pending=next+1; next=-1; }
@@ -47,7 +47,7 @@
         canvas.width=Math.round(video.videoWidth*scale); canvas.height=Math.round(video.videoHeight*scale);
         const c=canvas.getContext('2d',{willReadFrequently:true}); c.drawImage(video,0,0,canvas.width,canvas.height);
         const image=c.getImageData(0,0,canvas.width,canvas.height), result=jsQR(image.data,image.width,image.height,{inversionAttempts:'dontInvert'});
-        if (result && result.data.startsWith('A7Q1|')) acceptText(result.data);
+        if (result && /^A7Q[12]\|/.test(result.data)) acceptText(result.data);
       }
     } catch (error) { failure(error); }
     if (scanning && request===cameraGeneration) setTimeout(()=>scanLoop(request),170);
@@ -76,15 +76,20 @@
       }).catch(error=>{if(request===receiveGeneration)failure(error);}).finally(()=>{if(request===receiveGeneration)verifying=false;});
     }
   }
-  $('file').addEventListener('change',async event=>{
+  async function prepareFile() {
+    stopSend(); tx=null; const request=++fileGeneration, file=$('file').files[0];
+    if(!file) return;
     try {
-      stopSend(); const request=++fileGeneration; const file=event.target.files[0]; if(!file) return;
-      if(file.size>protocol.MAX) throw new Error('Choose a file up to 1 MiB; optical QR is slow. Use LAN sharing for larger files.');
-      const ready=await protocol.sender(new Uint8Array(await file.arrayBuffer()),file.name);
+      const legacy=$('density').value==='legacy', chunk=legacy?128:Number($('density').value);
+      if(file.size>(legacy?protocol.LEGACY_MAX:protocol.MAX)) throw new Error(legacy ? 'Compatibility mode supports 1 MiB; choose Standard or Dense for larger files.' : 'Choose a file up to 64 MiB. Large optical transfers can take hours; use LAN sharing when speed matters.');
+      message('Preparing '+file.name+' · calculating SHA-256 locally…');
+      const ready=await protocol.sender(new Uint8Array(await file.arrayBuffer()),file.name,undefined,{legacy,chunk});
       if(request!==fileGeneration) return;
       tx=ready; next=-1; pending=0; playing=true; $('play').textContent='Pause'; showFrame();
-    } catch(error) { failure(error); }
-  });
+    } catch(error) { if(request===fileGeneration)failure(error); }
+  }
+  $('file').addEventListener('change',prepareFile);
+  $('density').addEventListener('change',prepareFile);
   $('play').onclick=()=>{ if(!tx) return; if(playing) stopSend(); else { playing=true; $('play').textContent='Pause'; showFrame(); } };
   $('prev').onclick=()=>{if(!tx)return;stopSend();next=Math.max(-1,displayed-1);showFrame();};
   $('next').onclick=()=>{if(!tx)return;stopSend();next=Math.min(tx.total-1,displayed+1);showFrame();};

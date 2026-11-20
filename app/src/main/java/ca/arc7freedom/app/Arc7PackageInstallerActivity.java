@@ -80,7 +80,7 @@ public class Arc7PackageInstallerActivity extends Arc7Activity {
         Arc7Skin.Palette pal = Arc7Skin.current(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         Button rescanBtn = Arc7Skin.actionButton(this, "Scan APKs", pal.accentDark);
         rescanBtn.setOnClickListener(new View.OnClickListener() {

@@ -1,7 +1,6 @@
 shield	Ad-Blocker.apk	Ad Blocker	System-wide ad / tracker blocker
 appmanager	App-Manager.apk	App Manager	Install / uninstall / back up every app
 authenticator	Authenticator.apk	Authenticator	Offline encrypted TOTP codes with Proton Pass / Bitwarden import
-bluetoothinternet	Bluetooth-Internet.apk	Bluetooth Internet	Share Wi-Fi over Bluetooth PAN, or receive tethered internet
 ebookreader	Books.apk	Books	E-book reader (EPUB / CBZ) with 4-store search
 browser	Browser.apk	Browser	Web browser with TLS 1.3 + 118 bundled 2026 root CAs
 calculator	Calculator.apk	Calculator	Scientific calculator with history
@@ -18,6 +17,7 @@ passwords	Passwords.apk	Passwords	Offline encrypted password vault with Proton P
 pdfviewer	PDF-Reader.apk	PDF Reader	PDF reader with page jump + night mode
 photos	Photos.apk	Photos	Gallery with pinch-zoom and slideshow
 podcasts	Podcasts.apk	Podcasts	Podcast search, feeds, playback and downloads
+qrtransfer	QR-Transfer.apk	QR Transfer	Offline camera QR file bytes, 64 MiB, resumable native receiver
 radiorss	Radio.apk	Radio	Live Internet radio and station directory
 secondscreen	Second-Screen.apk	Second Screen	Use the tablet as a PC second screen
 splitview	Split-View.apk	Split View	Two apps side by side

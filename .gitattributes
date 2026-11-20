@@ -2,3 +2,11 @@
 # Local compatibility patches and provenance are documented under third_party/.
 app/src/main/java/com/google/zxing/** -whitespace
 third_party/** -whitespace
+
+# Launchers are byte-pinned and shipped unchanged on Windows and Unix checkouts.
+*.bat -text whitespace=cr-at-eol
+*.ps1 text eol=lf
+tools/*.py text eol=lf
+tools/*.sh text eol=lf
+tools/*.html text eol=lf
+tools/*.md text eol=lf
