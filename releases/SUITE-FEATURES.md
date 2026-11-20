@@ -78,6 +78,39 @@ See the [glass, Music and optical QR guide](GLASS-MUSIC-QR.md). The in-app Quick
 Bar Switcher is removed. Home's pinned dock, app slots, search button and other layout/
 header controls remain; old switcher settings cannot turn it back on.
 
+## Quick access: podcast favorites and uncrowded search
+
+### Favorite podcasts
+
+1. In **Podcasts**, search the directory, select a show and tap **Favorite**. You can also
+   favorite a show from its episode list without starting playback or downloading an episode.
+2. The **Favorite podcasts** card is at the top. **Quick search favorites** filters as you type
+   by show title and publisher, case/accent-insensitively, with all query words required.
+   **Clear** restores the full list. No network request is made by this local filter.
+3. Tap a saved show to load its episodes, then stream/download as before. Tap its **★** and
+   confirm to remove just that favorite. Up to **200** shows are retained across restarts;
+   duplicate feed identities are not added again and existing Radio/News data is untouched.
+
+The favorite names/feed URLs can be searched offline; opening the actual episodes still needs
+an available feed connection. This is local storage, not podcast-provider account sync.
+Invalid feed entries, failed saves and corrupt saved lists are reported rather than claimed
+as success or silently replaced. Late directory/feed dialogs are ignored after another request,
+Pause or destruction.
+
+### YouTube and Music headers
+
+Both apps now use a compact logo/title/**More** row and a separate full-width search row.
+There is no row of EQ/Sleep/Morphe/app-switch buttons squeezing the text field. Tap **Go**
+or the keyboard Search/Enter action to submit. Music's short **Songs ▾** selector changes
+search type (including **Artists**); the full type names remain in its chooser.
+
+- **YouTube → More:** open YouTube Music, or Morphe / playback settings.
+- **Music → More:** Equalizer, Sleep timer, Morphe / playback settings, or open YouTube.
+
+The title can ellipsize instead of stealing input width. Go/More/type controls have at least
+48dp targets; the input has its own weighted space, including at 320dp widths. Host tests
+record allocations and events, not real Android font rendering or keyboard/window behavior.
+
 ## CBC and media playback
 
 The reported **MediaPlayer 1/1004** is kept literally, distinct from negative `1/-1004`.
@@ -152,9 +185,16 @@ is supplied or promised**; some Shorts/videos will remain unavailable on this de
 
 - **Quick play** uses local Liked Songs, otherwise loaded songs, otherwise one public-song
   search. It is bound to that request, not a late response from a different search.
-- The search picker offers **Songs, Albums, Playlists and Community playlists**. A
-  collection opens its own tracks; recommendations do not replace an unavailable playlist.
-  Public remote collections load up to **60 tracks on the first page**, as shown in the UI.
+- The search picker offers **Songs, Artists, Albums, Playlists and Community playlists**.
+  **Artists** requests actual artist results and retains their public browse identities, not
+  a pretend song ID. Tap/Open an artist to see its public songs, albums and singles/EPs
+  (up to **60** first-page items); tap an album to open its own tracks. **Back to artist
+  results** restores the prior result list. An 11-letter artist name is still a name, not
+  automatically interpreted as a video ID in this mode.
+- Artist/album/playlist searches return honest empty/error states, not unrelated song search
+  fallbacks. Artist headers' radio/shuffle controls, unrelated sidebars and related-artist
+  carousels are not substituted for that artist's songs/releases. Unsupported/sign-in-only
+  layouts remain unavailable. Public remote collections load up to **60 first-page tracks**.
 - Save albums/playlists to the local library. Long-press a song to add it to a local
   playlist; create one with **+ New playlist**. Use **Play results** to start loaded songs.
   Long-press a saved collection to remove it. Local playlists preserve addition order.
@@ -255,14 +295,9 @@ new feature/catalog/Weather regressions and byte-exact reconstruction of all **3
 embedded APKs. All **53** release/app/tool checksums were independently checked.
 This is host/binary evidence, not tablet playback or a security audit.
 
-Suite SHA-256:
-`7c7205699ba1ec685d3b27f2566fb587ce7ea68e0cefec36821be9c5f89fe588`
-
-Upgrader SHA-256:
-`a798d4c062d61677239a67525f41f40cd52f98ce40b68a19c6a7d255acfd4a52`
-
-YouTube audio-repair APK SHA-256:
-`e6e688e5f4fa2ebf48c12889b4f1de983fe20507471f5b634136ab5d93378d31`
+Exact suite, upgrader, YouTube/Music, Podcasts and other artifact hashes are generated in
+[SHA256SUMS.txt](SHA256SUMS.txt). Use that authoritative manifest for the current signed build;
+CI rebuilds can change APK bytes without changing the retained app version numbers.
 
 Automated host and binary checks are recorded in the ignored build logs and run by `make verify`:
 
@@ -270,6 +305,8 @@ Automated host and binary checks are recorded in the ignored build logs and run 
 | --- | --- |
 | API17/ARMv7 build + zipalign/signature/DEX/manifest checks | Old Android packaging and permanent certificate; not decoder/UI execution |
 | `make test-features` | Real PBKDF2/vault authentication/tamper/atomic-save tests, all 18 RFC6238 vectors, Proton/Bitwarden CSV/JSON import fixtures and real QR-share HTTP auth/CSRF/path/upload/download/range/stop tests, plus key grammar, player/collection/pin parsers and real MP4/M4A downloads |
+| `make test-discovery` | Production podcast favorite persistence/filtering/URL validation, safe failure/capacity cases and two-row header allocations/events at 320/360/600/1024dp using host preferences/layout fakes; not physical Android rendering |
+| Artist discovery in `make test-features` | Actual filtered request payloads, two-row/responsive artist identities, no song fallback, exact public artist browse, scoped songs/albums/singles and first-page bounds |
 | `make test-optical` | Actual Java/browser QR encoders and camera-luma readers, byte-for-byte cross-language reassembly, rotation/mirror/noise, CRC/SHA, missing/repeated/out-of-order frames, path/size/collision/cancel bounds; not a physical camera test |
 | `make test-glass` | Production lens layers/alpha/pressed states, bounded cached wallpaper frost and screen alignment with recording Android graphics fakes; not GPU screenshots |
 | AAC compatibility/runtime | Actual esds/ASC validation and normalization, MIME lies/HE-AAC rejection, sample-exact ADTS recovery, compiled Music-before-HLS binding and cancellation |
@@ -297,6 +334,11 @@ still require testing. Live TLS tests, where run, only establish the tested TLS 
   Restart, retry a failed sync and verify custom repositories/pins/credentials remain.
 - Open Radio, Podcasts and News independently. Test both CBC regional buttons, a stream
   failure/timeout, rapid station changes and actual screen-off audio/owned notifications.
+- Favorite two podcast shows, filter by title/publisher, clear, restart and filter offline.
+  Reconnect to open episodes, remove one favorite, and leave during a directory/feed request.
+- Check YouTube/Music headers in portrait/landscape and with larger text/keyboard visible.
+  Submit via Go and keyboard Search; confirm all More actions still open. Search **Artists**,
+  open a real artist's songs/album, return to results and switch modes during a pending request.
 - Install this build's YouTube.apk and play an accessible video/Short and Music song.
   Use Sound to confirm media volume and the prepared audio-check result; listen on the
   speaker and headphones/Bluetooth as available. Test pause/seek/stop, audio-focus loss,

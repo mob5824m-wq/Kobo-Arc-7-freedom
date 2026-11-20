@@ -4088,6 +4088,23 @@ def verify_glass_music_optical() -> None:
     print("  [PASS] Files APK includes its private camera activity, actual QR encoder/decoder and license notices; shipped Music/suite/Home contain the glass material and AAC/ADTS recovery")
 
 
+def verify_media_discovery() -> None:
+    from androguard.core.dex import DEX
+    print("\n=== Verifying packaged podcast favourites, artist search and uncrowded media headers ===")
+    for filename in ("YouTube.apk", "YouTubeMusic.apk", "apps/Podcasts.apk", "KoboArc7Freedom.apk"):
+        with zipfile.ZipFile(os.path.join(ROOT, "releases", filename)) as archive:
+            dex = DEX(archive.read("classes.dex"))
+            classes = {c.get_name() for c in dex.get_classes()}
+            for name in ("Lca/arc7freedom/app/Arc7MediaHeader;", "Lca/arc7freedom/app/Arc7PodcastLibrary;"):
+                assert name in classes, (filename, name)
+            methods = {(m.get_class_name(), m.get_name()) for m in dex.get_methods()}
+            for owner, method in (("MorpheEngine", "browseMusicArtist"), ("MorpheEngine$MediaItem", "isArtist"),
+                                  ("Arc7PodcastLibrary", "filter"), ("Arc7RadioRssActivity", "renderPodcastFavorites"),
+                                  ("YouTubeActivity", "showHeaderOptions"), ("YouTubeMusicActivity", "showHeaderOptions")):
+                assert ("Lca/arc7freedom/app/" + owner + ";", method) in methods, (filename, method)
+    print("  [PASS] Shipped suite/Podcasts/YouTube/Music contain local favourite filtering, artist identities/browse and the shared two-row header/overflow")
+
+
 def main() -> None:
     upgrader_apk = os.path.join(ROOT, "releases/Upgrade-My-Kobo-To-v2.6.0.apk")
     for stale_ver in ("v2.3.0", "v2.3.1", "v2.4.0", "v2.4.1", "v2.5.4"):
@@ -4149,6 +4166,7 @@ def main() -> None:
     verify_expanded_weather()
     verify_v260_features()
     verify_glass_music_optical()
+    verify_media_discovery()
     verify_independent_companion_transports()
     verify_repository_layout_and_app_manager(main_apk)
     verify_requested_runtime_hardening()
@@ -4167,6 +4185,7 @@ def main() -> None:
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-fdroid-catalog.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-optical-transfer.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-liquid-glass.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-media-discovery.py")], check=True)
     print("\nALL VERIFICATION GATES PASSED 100%!")
 
 

@@ -250,6 +250,79 @@ public final class SuiteFeatureHarness {
         check(posts==before+1&&lastPost.contains("EgeKAQQoAEABagwQDhAKEAMQBBAJEAU"),"community filter requests its own endpoint once");
         System.out.println("PASS Music collections: real album/playlist identities, persistent aliases/removal, local playlists, selected collection tracks, no recommendation substitution and community search filter");
     }
+    static JSONObject text(String value) { return new JSONObject().put("runs",new JSONArray().put(new JSONObject().put("text",value))); }
+    static JSONObject artistRenderer(String id, boolean responsive) {
+        JSONObject browse = new JSONObject().put("browseId",id).put("browseEndpointContextSupportedConfigs",
+                new JSONObject().put("browseEndpointContextMusicConfig",new JSONObject().put("pageType","MUSIC_PAGE_TYPE_ARTIST")));
+        JSONObject nav = new JSONObject().put("browseEndpoint",browse);
+        JSONObject title = new JSONObject().put("runs",new JSONArray().put(new JSONObject().put("text","Artist "+id.charAt(2)).put("navigationEndpoint",nav)));
+        JSONObject renderer = new JSONObject().put("menu",new JSONObject().put("videoId","radioFake01"));
+        if (responsive) {
+            renderer.put("flexColumns",new JSONArray()
+                    .put(new JSONObject().put("musicResponsiveListItemFlexColumnRenderer",new JSONObject().put("text",title)))
+                    .put(new JSONObject().put("musicResponsiveListItemFlexColumnRenderer",new JSONObject().put("text",text("Artist • 2M subscribers")))));
+        } else renderer.put("title",title).put("navigationEndpoint",nav).put("subtitle",text("Artist"));
+        return new JSONObject().put(responsive ? "musicResponsiveListItemRenderer" : "musicTwoRowItemRenderer",renderer);
+    }
+    static JSONObject songRenderer(String id) {
+        return new JSONObject().put("musicResponsiveListItemRenderer",new JSONObject().put("playlistItemData",new JSONObject().put("videoId",id))
+                .put("flexColumns",new JSONArray().put(new JSONObject().put("musicResponsiveListItemFlexColumnRenderer",new JSONObject().put("text",text("Artist song"))))));
+    }
+    static JSONObject releaseRenderer(String id) {
+        return new JSONObject().put("musicTwoRowItemRenderer",new JSONObject().put("title",text("Artist release"))
+                .put("navigationEndpoint",new JSONObject().put("browseEndpoint",new JSONObject().put("browseId",id))));
+    }
+    static JSONObject carousel(String title, JSONObject... items) {
+        JSONArray contents=new JSONArray();for(JSONObject item:items)contents.put(item);
+        return new JSONObject().put("musicCarouselShelfRenderer",new JSONObject()
+                .put("header",new JSONObject().put("musicCarouselShelfBasicHeaderRenderer",new JSONObject().put("title",text(title))))
+                .put("contents",contents));
+    }
+    static JSONObject artistPage(JSONArray rows) {
+        return new JSONObject().put("header",new JSONObject().put("musicShelfRenderer",new JSONObject().put("contents",new JSONArray().put(songRenderer("headerBad01")))))
+                .put("contents",new JSONObject().put("singleColumnBrowseResultsRenderer",new JSONObject().put("tabs",new JSONArray()
+                .put(new JSONObject().put("tabRenderer",new JSONObject().put("content",new JSONObject().put("sectionListRenderer",new JSONObject().put("contents",rows))))))));
+    }
+    static void artists(Context c) throws Exception {
+        String a="UCAAAAAAAAAAAAAAAAAAAAAA",b="UCBBBBBBBBBBBBBBBBBBBBBB";
+        JSONObject first=artistRenderer(a,false),second=artistRenderer(b,true),song=songRenderer("artistSong1");
+        JSONObject album=releaseRenderer("MPREb_artist_album");
+        response=new JSONObject().put("contents",new JSONArray().put(first).put(second).put(song).put(album).put(first)).toString();
+        int before=posts;List<MorpheEngine.MediaItem> found=MorpheEngine.searchYouTubeMusic(c,"TaylorSwift","artists");
+        check(posts==before+1&&new JSONObject(lastPost).getString("params").equals("EgWKAQIgAWoMEA4QChADEAQQCRAF"),"artist search has its own real filter request");
+        check(found.size()==2&&found.get(0).isArtist()&&found.get(1).isArtist(),"two-row and flex-column artist identities, dedup and artist-only filtering");
+        check(found.get(0).videoId.isEmpty()&&!found.get(0).isCollection()&&found.get(0).isBrowsable(),"artist is not a fake song, radio/shuffle menu video or playlist");
+        check(found.get(1).author.contains("subscribers"),"artist subtitle from responsive columns");
+        MorpheEngine.addOrToggleSavedItem(c,"artist-fixture",found.get(0),false);
+        MorpheEngine.addOrToggleSavedItem(c,"artist-fixture",found.get(0),false);
+        check(MorpheEngine.loadSavedList(c,"artist-fixture").size()==1&&MorpheEngine.loadSavedList(c,"artist-fixture").get(0).isArtist(),"artist kind and identity persist without a video id");
+        response=new JSONObject().put("contents",new JSONArray().put(song).put(album)).toString();
+        before=posts;check(MorpheEngine.searchYouTubeMusic(c,"No artists","artists").isEmpty()&&posts==before+1,"empty artist search never falls back to songs");
+        response="[]";before=posts;reject(()->MorpheEngine.searchYouTubeMusic(c,"Denied","artists"),"failed artist request replaced by unrelated song results");
+        check(posts==before+1,"failed artist search does not invoke video fallback");
+
+        JSONArray rows=new JSONArray().put(new JSONObject().put("musicShelfRenderer",new JSONObject().put("title",text("Songs")).put("contents",new JSONArray().put(song).put(first))))
+                .put(carousel("Albums",album,first)).put(carousel("Singles & EPs",releaseRenderer("MPREb_artist_single")))
+                .put(carousel("Fans might also like",second,releaseRenderer("MPREb_unrelated"),songRenderer("unrelated01")))
+                .put(carousel("Videos",songRenderer("videoFake01")));
+        response=artistPage(rows).toString();before=posts;
+        List<MorpheEngine.MediaItem> page=MorpheEngine.browseMusicArtist(c,found.get(0));
+        check(posts==before+1&&new JSONObject(lastPost).getString("browseId").equals(a),"tap artist browses that exact public artist identity");
+        check(page.size()==3&&page.get(0).videoId.equals("artistSong1")&&page.get(1).browseId.equals("MPREb_artist_album")&&page.get(2).isCollection(),"artist songs/albums/singles only, no related carousel/header/menu substitutions");
+        JSONObject scoped=artistPage(rows);
+        JSONObject primary=scoped.getJSONObject("contents").getJSONObject("singleColumnBrowseResultsRenderer");
+        scoped.put("contents",new JSONObject().put("twoColumnBrowseResultsRenderer",new JSONObject()
+                .put("secondaryContents",new JSONObject().put("sectionListRenderer",new JSONObject().put("contents",new JSONArray()
+                        .put(new JSONObject().put("musicShelfRenderer",new JSONObject().put("contents",new JSONArray().put(songRenderer("sidebarBad1"))))))))
+                .put("tabs",primary.getJSONArray("tabs"))));
+        check(MorpheEngine.parseMusicArtistPage(scoped).get(0).videoId.equals("artistSong1"),"artist primary tab wins over unrelated sidebar");
+        before=posts;reject(()->MorpheEngine.browseMusicArtist(c,new MorpheEngine.MediaItem()),"invalid artist browse");
+        check(posts==before,"invalid artist never fetched");
+        reject(()->MorpheEngine.parseMusicArtistPage(artistPage(new JSONArray().put(carousel("Fans might also like",song)))),"related carousel substituted for unavailable artist releases");
+        JSONArray many=new JSONArray();for(int i=0;i<75;i++)many.put(songRenderer(String.format(Locale.US,"song%07d",i)));
+        check(MorpheEngine.parseMusicArtistPage(artistPage(new JSONArray().put(new JSONObject().put("musicShelfRenderer",new JSONObject().put("contents",many))))).size()==60,"artist page is bounded to 60 public items");
+        System.out.println("PASS Music artists: real filtered requests, responsive/two-row identities, no song fallback or fake queue items, exact artist browse, songs/releases-only scope and 60-item bound");
+    }
     static void pins(Context c) throws Exception {
         String a="UCAAAAAAAAAAAAAAAAAAAAAA",b="UCBBBBBBBBBBBBBBBBBBBBBB";
         MorpheEngine.MediaItem one=MorpheEngine.resolvePinnedChannel(c,a,"One"),two=MorpheEngine.resolvePinnedChannel(c,"https://www.youtube.com/channel/"+b,"Two");
@@ -361,7 +434,7 @@ public final class SuiteFeatureHarness {
         crypto();totp();vaultImports();qrFileShare();keys();codecs();downloadUi();
         HttpServer server=HttpServer.create(new InetSocketAddress("127.0.0.1",0),0);server.createContext("/",SuiteFeatureHarness::serve);
         server.setExecutor(Executors.newCachedThreadPool(r->{Thread t=new Thread(r);t.setDaemon(true);return t;}));server.start();
-        try {MorpheEngine.setGatewayPortForTest(server.getAddress().getPort());collections(c);pins(c);ranges();downloads(c);}
+        try {MorpheEngine.setGatewayPortForTest(server.getAddress().getPort());collections(c);artists(c);pins(c);ranges();downloads(c);}
         finally {server.stop(0);}
     }
 }

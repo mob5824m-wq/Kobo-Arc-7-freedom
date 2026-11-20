@@ -19,6 +19,9 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
   upgrader do **not** force open an App Patches screen. Safe maintenance still runs.
 - Separate **Radio**, **Podcasts**, **News**, **Authenticator** and **Passwords** apps.
   Radio keeps `ca.arc7freedom.radiorss` and existing data; the new apps have independent UIDs.
+- **Podcasts favourites:** select a directory result and tap **Favorite**, then use **Quick search
+  favorites** to filter saved shows instantly by title/publisher. The list survives restarts and
+  filters offline; opening episodes still needs a feed connection. Up to 200 shows, with star removal.
 - Canonical regional CBC MP3 mounts, a Toronto-only HLS fallback and literal error
   reporting for **MediaPlayer 1/1004** and **1/-1010**. No regional station substitution.
 - **Apple-Liquid-Glass-inspired** translucent lenses, specular rims and capsule controls.
@@ -34,8 +37,13 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 - Music's **1/-1010** path now checks real AAC-LC decoder bytes, corrects sample-entry
   channel/rate fields, prefers audio-only M4A before HLS and can retry once as sample-exact
   AAC/ADTS. No transcoding or unsupported-codec promise; real Kobo playback still needs testing.
-- Music adds **Quick play**, album/playlist/community search, public collection tracks,
-  saved collections and local playlists, with request/lifecycle guards. No account sync.
+- Music adds **Quick play**, **Artists** alongside song/album/playlist/community search, public
+  artist songs/releases, saved collections and local playlists. Choose **Artists** beside the
+  search field, type a name and tap **Go**; open an artist, then a song or album. Artist results
+  are not fake playable videos and never silently fall back to unrelated songs. No account sync.
+- YouTube and Music now give search its **own row** below a compact logo/title/**More** row.
+  **More** holds app switching and Morphe settings; Music also keeps Equalizer and Sleep timer
+  there. Short search-type labels and 48dp actions keep controls usable on narrow screens.
 - Stream Deck has a touch key/modifier picker and strict keybind validation, ordered
   packets and per-client held-key ownership on the PC. Unsupported backends report errors.
 - Local encrypted **Passwords** and **Authenticator** vaults import unencrypted Proton Pass
@@ -280,6 +288,7 @@ notification while the share runs.
 make test-isolation
 make test-runtime
 make test-features
+make test-discovery
 make test-fdroid
 # Stronger host media validation with an available FFmpeg binary:
 FFMPEG=/path/to/ffmpeg make test-runtime
@@ -292,7 +301,10 @@ make verify
 
 **Automated validation:** offline feature tests cover vault encryption/TOTP vectors, Proton/Bitwarden
 CSV/JSON import, duplicate/size limits, and the real QR-share HTTP server (auth, CSRF, traversal,
-upload, download, ranges and stop). The full verifier also covers ARMv7/API17 builds,
+upload, download, ranges and stop). Discovery tests exercise persistent podcast favourites,
+local filtering and the production two-row header with recording layout/event fakes; Music
+fixtures exercise actual artist-filter requests and artist-scoped songs/releases. The full
+verifier also covers ARMv7/API17 builds,
 permanent-certificate signing, DEX/manifest/payload checks, host-native independent gateways,
 fixture media, FFmpeg decoding, catalog migrations and earlier reader regressions.
 See [2.6 results and limitations](releases/SUITE-FEATURES.md#validation) for this build's results.

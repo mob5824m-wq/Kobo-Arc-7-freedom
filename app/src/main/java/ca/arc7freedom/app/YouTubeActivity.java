@@ -235,74 +235,13 @@ public class YouTubeActivity extends Arc7Activity {
         mainChrome.setOrientation(LinearLayout.VERTICAL);
         mainChrome.setBackgroundColor(0xFF09090D);
 
-        // Top Bar: Logo + Search Input + Search Button + YT Music Switch + Morphe Patches Settings
-        LinearLayout topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setBackgroundDrawable(Arc7Skin.headerDrawable(Arc7Skin.current(this)));
-        topBar.setPadding(dp(10), dp(7), dp(10), dp(7));
-
-        ImageView iconIv = new ImageView(this);
-        iconIv.setImageResource(R.drawable.ic_youtube);
-        LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(dp(32), dp(32));
-        ilp.rightMargin = dp(8);
-        topBar.addView(iconIv, ilp);
-
-        TextView brandTv = new TextView(this);
-        brandTv.setText("YouTube");
-        brandTv.setTextColor(Color.WHITE);
-        brandTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f);
-        brandTv.setTypeface(Typeface.DEFAULT_BOLD);
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        blp.rightMargin = dp(10);
-        topBar.addView(brandTv, blp);
-
-        searchEt = new EditText(this);
-        searchEt.setHint("Search YouTube or paste video link...");
-        searchEt.setHintTextColor(0xFF71717A);
-        searchEt.setTextColor(Color.WHITE);
-        searchEt.setSingleLine(true);
-        searchEt.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f);
-        searchEt.setImeOptions(EditorInfo.IME_ACTION_SEARCH);
-        GradientDrawable sbg = new GradientDrawable();
-        sbg.setColor(0xFF1C1C26);
-        sbg.setCornerRadius(dp(18));
-        sbg.setStroke(dp(1), 0xFF2E2E3E);
-        searchEt.setBackgroundDrawable(sbg);
-        searchEt.setPadding(dp(14), dp(7), dp(14), dp(7));
-        searchEt.setOnEditorActionListener(new TextView.OnEditorActionListener() {
-            @Override
-            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
-                runUserSearchOrUrl(searchEt.getText().toString());
-                return true;
-            }
-        });
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        slp.rightMargin = dp(6);
-        topBar.addView(searchEt, slp);
-
-        Button goBtn = pillBtn("\uD83D\uDD0D Search", 0xFFE11D48);
-        goBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { runUserSearchOrUrl(searchEt.getText().toString()); }
-        });
-        topBar.addView(goBtn, marginRightLp(6));
-
-        Button ytmBtn = pillBtn("\uD83C\uDFB5 YT Music", 0xFF27272A);
-        ytmBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openYouTubeMusicApp();
-            }
-        });
-        topBar.addView(ytmBtn, marginRightLp(6));
-
-        Button morpheBtn = pillBtn("\u2728 Morphe", 0xFF059669);
-        morpheBtn.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { showMorphePatchesDialog(); }
-        });
-        topBar.addView(morpheBtn);
-        mainChrome.addView(topBar);
+        // Keep secondary actions out of the search field, including on narrow portrait screens.
+        Arc7MediaHeader header = new Arc7MediaHeader(this, Arc7Skin.current(this), R.drawable.ic_youtube,
+                "YouTube", "Search YouTube or paste video link…", null,
+                new Runnable() { @Override public void run() { runUserSearchOrUrl(searchEt.getText().toString()); } },
+                new Runnable() { @Override public void run() { showHeaderOptions(); } });
+        searchEt = header.getSearchInput();
+        mainChrome.addView(header);
 
         // Category & Library Shelf Bar
         HorizontalScrollView chipScroll = new HorizontalScrollView(this);
@@ -600,6 +539,15 @@ public class YouTubeActivity extends Arc7Activity {
                 && videoView.isPlaying()) {
             switchCurrentToBackgroundAudio(false);
         }
+    }
+
+    private void showHeaderOptions() {
+        new AlertDialog.Builder(this).setTitle("YouTube options")
+                .setItems(new String[]{"Open YouTube Music", "Morphe / playback settings"}, new DialogInterface.OnClickListener() {
+                    @Override public void onClick(DialogInterface dialog, int which) {
+                        if (which == 0) openYouTubeMusicApp(); else showMorphePatchesDialog();
+                    }
+                }).setNegativeButton("Close", null).show();
     }
 
     private void runUserSearchOrUrl(String raw) {
