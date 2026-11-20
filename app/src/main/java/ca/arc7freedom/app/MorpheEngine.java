@@ -779,6 +779,18 @@ public final class MorpheEngine {
         checkResolutionCancelled();
         if(startInclusive<0 || endInclusive<startInclusive || endInclusive-startInclusive>=32L*1024L*1024L)
             throw new IOException("Invalid or oversized media range");
+        final Context owner = ctx;
+        final String source = httpsUrl, agent = userAgent;
+        final long first = startInclusive, last = endInclusive;
+        return LegacyMediaIo.read(new LegacyMediaIo.Attempt<byte[]>() {
+            @Override public byte[] run() throws Exception {
+                return fetchRangeOnce(owner, source, agent, first, last);
+            }
+        });
+    }
+
+    private static byte[] fetchRangeOnce(Context ctx, String httpsUrl, String userAgent,
+                                         long startInclusive, long endInclusive) throws Exception {
         long want = endInclusive - startInclusive + 1L;
         ensureGatewayWarm(ctx);
         int gwPort = gatewayPort();
@@ -793,6 +805,10 @@ public final class MorpheEngine {
             conn = (HttpURLConnection) new URL(target).openConnection(Proxy.NO_PROXY);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(30000);
+            // Android 4 may recycle a socket closed by the native gateway. Each retry
+            // must really be a fresh GET, not the same stale pooled connection.
+            conn.setUseCaches(false);
+            conn.setRequestProperty("Connection", "close");
             conn.setRequestProperty("Range", "bytes=" + startInclusive + "-" + endInclusive);
             conn.setRequestProperty("User-Agent",
                     (userAgent != null && userAgent.length() > 0) ? userAgent : WEB_UA);
@@ -801,9 +817,7 @@ public final class MorpheEngine {
             int code = conn.getResponseCode();
             String range=conn.getHeaderField("Content-Range");
             if(code==416 && ("bytes */"+startInclusive).equals(range)) return new byte[0];
-            if (code != 200 && code != 206) {
-                throw new IOException("HTTP " + code + " for range " + startInclusive + "-" + endInclusive);
-            }
+            LegacyMediaIo.requireSuccess(code);
             long declared=-1;
             try { declared=Long.parseLong(conn.getHeaderField("Content-Length")); } catch(Exception ignored) {}
             boolean whole = (code == 200);
@@ -1649,6 +1663,8 @@ public final class MorpheEngine {
                 final HttpURLConnection conn = (HttpURLConnection) new URL(target).openConnection(Proxy.NO_PROXY);
                 try {
                     conn.setConnectTimeout(8000); conn.setReadTimeout(20000);
+                    conn.setUseCaches(false);
+                    conn.setRequestProperty("Connection", "close");
                     conn.setRequestProperty("User-Agent", userAgent);
                     conn.setRequestProperty("Accept", "*/*");
                     conn.setRequestProperty("Accept-Encoding", "identity");

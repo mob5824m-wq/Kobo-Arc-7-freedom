@@ -301,7 +301,7 @@ def check_apks(tmp, java, classes):
             release = ROOT / "releases/apps" / filename
         assert hashlib.sha256(release.read_bytes()).hexdigest() == sha, filename
         assert (output / filename).read_bytes() == release.read_bytes(), filename
-    with zipfile.ZipFile(ROOT / "releases/Upgrade-My-Kobo-To-v2.6.5.apk") as archive:
+    with zipfile.ZipFile(ROOT / "releases/Upgrade-My-Kobo-To-v2.6.8.apk") as archive:
         assert archive.read("assets/KoboArc7Freedom.apk") == main.read_bytes(), "upgrader's offline patch bundle is stale"
     print("PASS: every one of 38 embedded/recipe APKs equals its signed release byte-for-byte; upgrader embeds exactly the same complete suite")
 

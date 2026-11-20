@@ -689,7 +689,7 @@ public class WifiManager {
             path.write_text(content)
             sources.append(path)
         sources += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','RuntimePolicy.java','MediaCache.java')]
-        sources += [SRC / name for name in ("LegacyMediaPolicy.java", "LegacyAacConfig.java", "LegacyTsProbe.java", "LegacyPlaybackAudio.java", "MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
+        sources += [SRC / name for name in ("LegacyMediaPolicy.java", "LegacyMediaIo.java", "LegacyAacConfig.java", "LegacyTsProbe.java", "LegacyPlaybackAudio.java", "MorpheHls.java", "MorpheHlsRelay.java", "MorpheRemuxer.java", "MorpheStreamServer.java", "MediaNotificationPolicy.java", "LegacyWifiProxyCleanup.java")]
         sources.append(ROOT / "tests/java/PreparedAudioHarness.java")
         sources.append(ROOT / "tests/java/AudioCompatibilityHarness.java")
         sources.append(ROOT / "launcher-android4/src/main/java/ca/arc7freedom/launcher/BuiltinApps.java")

@@ -16,6 +16,7 @@ public final class SuiteFeatureHarness {
     interface Attempt { void run() throws Exception; }
     static File work, fixtures;
     static final Map<String,byte[]> media=new ConcurrentHashMap<String,byte[]>();
+    static final Map<String,Integer> mediaHits=new ConcurrentHashMap<String,Integer>();
     static String response="{}", lastPost="";
     static int posts;
     static void check(boolean value,String reason) { if(!value) throw new AssertionError(reason); }
@@ -343,9 +344,19 @@ public final class SuiteFeatureHarness {
         check(Arrays.equals(MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/range","test",16,63),Arrays.copyOfRange(full,16,64)),"valid inclusive range");
         check(Arrays.equals(MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/whole","test",16,63),Arrays.copyOfRange(full,16,64)),"200 fallback skips exact prefix");
         for(String name:new String[]{"wrong-offset","missing-range","short-range","short-whole"})reject(()->MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/"+name,"test",0,63),"invalid/truncated "+name);
+        for(String name:new String[]{"retry-range","retry-whole","retry-gateway"}) {
+            check(Arrays.equals(MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/"+name,"test",16,63),Arrays.copyOfRange(full,16,64)),"recovered range reused corrupt bytes: "+name);
+            check(mediaHits.get(name)==2,"transient EOF/gateway did not retry exactly once: "+name);
+        }
+        check(mediaHits.get("short-range")==3 && mediaHits.get("short-whole")==3,"persistent truncation exceeded retry cap: "+mediaHits);
+        check(mediaHits.get("wrong-offset")==1 && mediaHits.get("missing-range")==1,"malformed range retried");
+        for(String name:new String[]{"denied","limited","unavailable"}) {
+            reject(()->MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/"+name,"test",0,63),name);
+            check(mediaHits.get(name)==1,"provider denial/rate limit was retried");
+        }
         check(MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/range","test",256,300).length==0,"confirmed EOF 416");
         reject(()->MorpheEngine.fetchRangeThroughGateway(null,"https://fixture.test/range","test",1,0),"negative range length");
-        System.out.println("PASS real HTTP media ranges: exact offsets/declared lengths, 200 skip, genuine EOF and short/wrong/missing range rejection");
+        System.out.println("PASS real HTTP media ranges: exact offsets/lengths, fresh close/identity GETs, truncated 206/200 and 502 recover byte-exactly, 3-attempt cap, no malformed/denied/rate-limit retries, genuine EOF");
     }
     static void downloads(Context c) throws Exception {
         MorpheRemuxer.setCacheDir(new File(work,"spool"));new File(work,"spool").mkdirs();
@@ -411,20 +422,29 @@ public final class SuiteFeatureHarness {
                 exchange.sendResponseHeaders(200,body.length);exchange.getResponseBody().write(body);return;
             }
             String path=exchange.getRequestURI().getPath(),name=path.substring(path.lastIndexOf('/')+1);
+            int hit=mediaHits.containsKey(name)?mediaHits.get(name)+1:1;mediaHits.put(name,hit);
+            if(name.equals("denied") || name.equals("limited") || name.equals("unavailable") || (name.equals("retry-gateway") && hit==1)) {
+                exchange.sendResponseHeaders(name.equals("denied")?403:name.equals("limited")?429:name.equals("unavailable")?503:502,-1);return;
+            }
             byte[] body=media.get(name);
             if(path.startsWith("/__https/fixture.test/media/"))body=Files.readAllBytes(new File(fixtures,name).toPath());
             if(body==null)body=media.get("range");
             if(body==null){exchange.sendResponseHeaders(404,-1);return;}
             String range=exchange.getRequestHeaders().getFirst("Range");int status=200;long length=body.length;
-            if(range!=null&&!name.equals("whole")&&!name.equals("short-whole")) {
+            if(range!=null || path.startsWith("/__https/fixture.test/media/")) {
+                check("close".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Connection")),"media request reused keep-alive");
+                check("identity".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Accept-Encoding")),"media request permitted compression");
+            }
+            if(range!=null&&!name.equals("whole")&&!name.equals("short-whole")&&!name.equals("retry-whole")) {
                 String[] values=range.substring(6).split("-");int start=Integer.parseInt(values[0]),end=Math.min(body.length-1,Integer.parseInt(values[1]));
                 if(start>=body.length){exchange.getResponseHeaders().add("Content-Range","bytes */"+body.length);exchange.sendResponseHeaders(416,-1);return;}
                 if(!name.equals("missing-range"))exchange.getResponseHeaders().add("Content-Range","bytes "+(name.equals("wrong-offset")?start+1:start)+"-"+end+"/"+body.length);
                 body=Arrays.copyOfRange(body,start,end+1);length=body.length;status=206;
             }
             exchange.sendResponseHeaders(status,length);
-            if(name.startsWith("short-"))body=Arrays.copyOf(body,Math.min(7,body.length));
+            if(name.startsWith("short-") || (name.startsWith("retry-") && hit==1))body=new byte[Math.min(7,body.length)];
             exchange.getResponseBody().write(body);
+            exchange.getResponseBody().flush(); // Send the short body before forced close, not an empty header retry.
         } catch(Exception ignored) { /* intentional disconnect / truncated response fixtures */ }
         finally { exchange.close(); }
     }

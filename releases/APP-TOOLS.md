@@ -1,8 +1,35 @@
 # App tools: private logs, playback tests, low-RAM mode, storage and resumable LAN uploads
 
 Branch update for **Kobo Arc 7 / Arc 7HD · Android 4.0.3–4.2.2**. Package IDs, signing
-keys and versions stay unchanged (suite/defaults/upgrader **2.6.5 / 265**). This is not
+keys stay unchanged; suite/defaults/upgrader now use **2.6.8 / 268**. This is not
 an automatic public release, a physical-device certification or a modern-Android security update.
+
+## 2.6.8 corrections: stream I/O and Stream Deck edit lock
+
+- Finite DASH range reads and buffered HLS playlist/remux-resource reads get **at most
+  three whole-request attempts** on an early EOF, the Android-4 `unexpected end of stream`
+  error, socket timeout/reset, or gateway 502/504. Each attempt closes its connection and
+  discards its incomplete bytes; it never appends unverified data from a failed response.
+  Fresh connections also avoid Android-4 stale keep-alive reuse. Range, size and cache
+  bounds remain enforced; 403/429/503 and malformed/misaligned responses are not retried.
+  Cancellation interrupts the retry delay. Native TLS HTTP streaming now sends every byte
+  after a short socket write (and retries EINTR) instead of silently dropping the tail.
+- `MediaPlayer 1/-1004` remains an **I/O error**, not a codec/container diagnosis. Its UI
+  explanation no longer incorrectly refers to a radio station when used by YouTube.
+  These repairs cannot make an expired/denied/unavailable provider URL playable and do
+  not retry a MediaPlayer callback, restart the queue or bypass provider restrictions.
+  Native progressive/live-HLS bodies are still streamed, not buffered/replayed wholesale.
+- Stream Deck opens the key editor **only while Edit Keys is enabled**. Normal-mode
+  long presses do not open or consume an editor gesture. Hold-to-talk owns DOWN through
+  UP/CANCEL and releases once on cancel, profile/grid redraw or app stop. Normal tap and
+  toggle actions remain on release; entering edit mode never sends a macro/PTT press.
+
+`make test-features` executes synthetic short/truncated HTTP response recovery, strict
+range and retry-limit checks, production gesture-policy cases and deterministic short
+native socket writes/EINTR. `make test-runtime`, `test-audio-state` and `test-reliability`
+retain the media/focus/log/cache/QR/upload regressions. This is **not a live YouTube or
+physical Kobo confirmation**: test the previously failing video and a held PTT key on
+that device after updating the independent YouTube/Music/Stream Deck APKs.
 
 ## Install and find the tools
 

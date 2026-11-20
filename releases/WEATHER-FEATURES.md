@@ -3,7 +3,7 @@
 This updates the existing **Weather** app (`ca.arc7freedom.weather`), not a separate
 website or a copy running inside Arc7 Freedom. It keeps Android **4.0.3–4.2.2** support
 (minSdk 15 / targetSdk 17, ARMv7, Dalvik DEX 035) and the permanent signing certificate.
-This build is **2.6.5 / 265**; the matching GitHub release requires a successful main-branch workflow.
+This build is **2.6.8 / 268**; the matching GitHub release requires a successful main-branch workflow.
 
 ## Install this build
 
@@ -15,7 +15,7 @@ This build is **2.6.5 / 265**; the matching GitHub release requires a successful
   Arc7 Freedom once, then **PATCHES → Apply / Retry All Patches**.
   Its 38-APK verified offline catalog includes this exact signed Weather APK. Root can
   apply in-place updates; without root, explicitly confirm pending APKs in Android.
-  The [v2.6.5 upgrader](Upgrade-My-Kobo-To-v2.6.5.apk) embeds the same complete suite.
+  The [v2.6.8 upgrader](Upgrade-My-Kobo-To-v2.6.8.apk) embeds the same complete suite.
 - Keep app data. Do not uninstall or clear Android's Weather data just to update. The
   maintenance pipeline detects same-version patches by SHA-256 and verifies read-back;
   it preserves newer installed versions and never uninstalls on a failed normal update.

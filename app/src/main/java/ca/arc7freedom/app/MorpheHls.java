@@ -2,6 +2,7 @@ package ca.arc7freedom.app;
 
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -102,13 +103,33 @@ public final class MorpheHls {
         return url.toExternalForm();
     }
 
-    public static byte[] read(Transport transport, Part part, int limit) throws Exception {
+    public static byte[] read(final Transport transport, final Part part, final int limit) throws Exception {
+        return LegacyMediaIo.read(new LegacyMediaIo.Attempt<byte[]>() {
+            @Override public byte[] run() throws Exception { return readOnce(transport, part, limit); }
+        });
+    }
+
+    private static byte[] readOnce(Transport transport, Part part, int limit) throws Exception {
         checkCancelled();
         Response response = transport.open(part.url, part.range);
         try {
-            if (response.status != 200 && response.status != 206) throw new IOException("HLS HTTP " + response.status);
-            if (part.range != null && response.status != 206) throw new IOException("HLS byte range was ignored");
-            if (response.length > limit) throw new IOException("HLS resource exceeds size limit");
+            LegacyMediaIo.requireSuccess(response.status);
+            long expectedLength = response.length;
+            if (part.range != null) {
+                if (response.status != 206) throw new IOException("HLS byte range was ignored");
+                Matcher requested = Pattern.compile("bytes=(\\d+)-(\\d+)").matcher(part.range);
+                Matcher actual = Pattern.compile("bytes (\\d+)-(\\d+)/(\\d+|\\*)")
+                        .matcher(response.contentRange == null ? "" : response.contentRange);
+                if (!requested.matches() || !actual.matches()) throw new IOException("Missing or invalid HLS Content-Range");
+                long start = Long.parseLong(requested.group(1)), end = Long.parseLong(requested.group(2));
+                long total = "*".equals(actual.group(3)) ? -1L : Long.parseLong(actual.group(3));
+                if (start < 0 || end < start || start != Long.parseLong(actual.group(1))
+                        || end != Long.parseLong(actual.group(2)) || (total >= 0 && end >= total)
+                        || (response.length >= 0 && response.length != end - start + 1))
+                    throw new IOException("Incorrect HLS byte range response");
+                expectedLength = end - start + 1;
+            }
+            if (expectedLength > limit) throw new IOException("HLS resource exceeds size limit");
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] buffer = new byte[16384];
             int n;
@@ -118,10 +139,15 @@ public final class MorpheHls {
                 out.write(buffer, 0, n);
             }
             checkCancelled();
+            if (expectedLength >= 0 && out.size() < expectedLength) throw new EOFException("Truncated HLS resource");
+            if (expectedLength >= 0 && out.size() > expectedLength) throw new IOException("Oversized HLS resource");
             if (out.size() == 0) throw new IOException("Empty HLS resource");
-            if (response.length >= 0 && out.size() != response.length) throw new IOException("Truncated HLS resource");
             return out.toByteArray();
-        } finally { response.close(); }
+        } finally {
+            // Do not let a socket-close EOF hide a permanent range/size rejection,
+            // or replay a completely validated resource because closing it failed.
+            try { response.close(); } catch (IOException ignored) {}
+        }
     }
 
     private static void checkCancelled() throws IOException {

@@ -1,13 +1,13 @@
-# Install all maintenance patches — v2.6.5
+# Install all maintenance patches — v2.6.8
 
-Local signed build: suite/default apps/upgrader **2.6.5 / 265**; patched F-Droid **1306**; Home **5.6.0 / 56**. Use this build/local Wi-Fi portal or the matching **v2.6.5** release after the main-branch workflow succeeds, not an older “latest” asset. The version is carried in the APK metadata, not just the workflow label.
+Local signed build: suite/default apps/upgrader **2.6.8 / 268**; patched F-Droid **1306**; Home **5.6.0 / 56**. Use this build/local Wi-Fi portal or the matching **v2.6.8** release after the main-branch workflow succeeds, not an older “latest” asset. The version is carried in the APK metadata, not just the workflow label.
 
 ## One full bundle, every install method
 
 Install either:
 
 - [KoboArc7Freedom.apk](KoboArc7Freedom.apk), then **open Arc7 Freedom once**; or
-- [Upgrade My Kobo v2.6.5](Upgrade-My-Kobo-To-v2.6.5.apk), which installs the suite in place and opens its normal main screen.
+- [Upgrade My Kobo v2.6.8](Upgrade-My-Kobo-To-v2.6.8.apk), which installs the suite in place and opens its normal main screen.
 
 In Arc7 Freedom, open **PATCHES → Apply / Retry All Patches**.
 
