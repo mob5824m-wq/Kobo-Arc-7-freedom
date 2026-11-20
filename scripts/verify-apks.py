@@ -4224,6 +4224,7 @@ def main() -> None:
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-app-isolation.py"),
                     "--native", os.path.join(ROOT, "build/host-test/arc7tls")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-runtime-repairs.py")], check=True)
+    subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-audio-state.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-install-maintenance.py"), "--apks"], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-weather.py")], check=True)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts/test-suite-features.py")], check=True)

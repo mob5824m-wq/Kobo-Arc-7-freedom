@@ -67,6 +67,7 @@ F-Droid **1306** fixes `java.util.ArrayList cannot be cast to java.lang.String[]
 - VLC retains its own media notification. Arc7 observers update Clock/widgets silently, rather than creating duplicate controls. The full bundle now updates all old standalone observer APKs too.
 - Home's App Info/uninstall targets the actual owning package. Package Installer is `ca.arc7freedom.packageinstaller`; the updater is `ca.arc7freedom.upgrader`, with its own App Info button.
 - YouTube/Music announce Playing only after prepare/start. Finite compatible HLS/DASH media can be prepared as classic MP4/M4A through each owning app's TLS engine. Metadata resolution alone is not playback success.
+- YouTube Music's Android-4 **`MediaPlayer -38/0`** repair prevents duration/position/transport/DSP polling before preparation and serializes native access with release. Cleanup releases directly instead of issuing invalid `stop()` calls in Preparing/Error; genuine AAC/ADTS container recovery remains bounded to one retry. See [Music state-error diagnosis and validation](GLASS-MUSIC-QR.md#youtube-music-mediaplayer--380-during-preparation); `make test-audio-state` exercises the production service with asynchronous-error recording fakes, not a real decoder/tablet.
 
 ## Checks and validation boundaries
 

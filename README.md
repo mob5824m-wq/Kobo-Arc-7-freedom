@@ -37,6 +37,10 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 - Music's **1/-1010** path now checks real AAC-LC decoder bytes, corrects sample-entry
   channel/rate fields, prefers audio-only M4A before HLS and can retry once as sample-exact
   AAC/ADTS. No transcoding or unsupported-codec promise; real Kobo playback still needs testing.
+- Music's **`-38/0` player-state repair** keeps native time/transport/DSP calls out of async
+  preparation and serializes them with release. Preparing/failed players are released directly,
+  not stopped in an invalid state. `make test-audio-state` reproduces the old asynchronous-error
+  bug with the production service and recording fakes; it is not physical Kobo playback proof.
 - Music adds **Quick play**, **Artists** alongside song/album/playlist/community search, public
   artist songs/releases, saved collections and local playlists. Choose **Artists** beside the
   search field, type a name and tap **Go**; open an artist, then a song or album. Artist results

@@ -44,6 +44,38 @@ API15-compatible Canvas, gradients, alpha and a bounded wallpaper-only blur, wit
 screen capture, an always-running effect loop, API21 elevation or hardware clipPath calls.
 App pages use static ambient colour to make the transmitted background visible.
 
+## YouTube Music: `MediaPlayer -38/0` during preparation
+
+`-38` is an invalid player operation/state, **not evidence of an unsupported stream**.
+The Music screen polls duration/position every 600 ms, including while `prepareAsync()`
+is pending. Android 4.2's native `getDuration()` rejects that state and its JNI bridge
+posts `OnError(-38, 0)` asynchronously; catching a Java exception cannot prevent it.
+The service also used to call `stop()` when releasing an unprepared/failed player,
+which is another invalid operation on this Android version.
+
+This build keeps duration/position/playing queries, seeks, bookmarks, SponsorBlock,
+sleep-volume and EQ work behind prepared-state guards. Queries return zero/false
+while loading, and transport controls do not touch the preparing native player.
+Native access and readiness changes use the same service monitor as replacement/release.
+The guard is cleared on errors; cleanup detaches listeners and releases directly,
+without calling `stop()` in Preparing/Error. Already-queued callbacks still have to
+match the active player/request, and a late compatibility URL is cancelled after Next/Stop.
+
+A compiled-production-service regression reproduced the exact **“MediaPlayer -38/0 —
+The device could not play this stream”** failure before the fix, using a recording
+MediaPlayer that **posts an error instead of throwing**. It now checks quiet pending
+polling/controls, normal prepared/paused/completed transport, sleep/SponsorBlock/EQ,
+stale callbacks, timeout, concurrent polling/release and the bounded compatibility retry.
+Run `make test-audio-state`; the full `make verify`/CI runs it too. A remaining `-38/0`
+is described as a player-state error and is **not** blindly retried as a container failure.
+
+This establishes a reproducible service bug and its regression repair, **not proof of
+the exact path taken by the physical Kobo**. Update `YouTubeMusic.apk` in place and
+retest the failing track on the tablet; do not uninstall/clear data. The AAC-LC/container
+repairs below are preserved. Android-4 native references:
+[`getDuration_l`/`stop`](https://github.com/LineageOS/android_frameworks_av/blob/cm-10.1/media/libmedia/mediaplayer.cpp)
+and [`process_media_player_call`/`getDuration` JNI](https://github.com/aosp-mirror/platform_frameworks_base/blob/android-4.2.2_r1/media/jni/android_media_MediaPlayer.cpp).
+
 ## YouTube Music: the `MediaPlayer 1/-1010` path
 
 Previously the shared binder tried HLS first, even for Music, and an `mp4a` label or a tiny

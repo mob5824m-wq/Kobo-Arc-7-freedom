@@ -84,6 +84,9 @@ public class Arc7AudioService extends Service {
 
     private final IBinder binder = new LocalBinder();
     private final Handler handler = new Handler(Looper.getMainLooper());
+    // Native operations/readiness share this service's monitor with replacement/release.
+    // Android 4.2 getDuration() while Preparing posts asynchronous MEDIA_ERROR(-38, 0):
+    // catching Java exceptions does not protect the player from an early UI/checkpoint poll.
     private MediaPlayer player;
     private volatile boolean playerPrepared = false;
     private WifiManager.WifiLock wifiLock;
@@ -159,8 +162,8 @@ public class Arc7AudioService extends Service {
         }
     }
 
-    private void handleSponsorBlockAudioSkipTick() {
-        if (player == null || activeSkipSegments.isEmpty() || !MorpheEngine.isSponsorBlockEnabled(this)) {
+    private synchronized void handleSponsorBlockAudioSkipTick() {
+        if (player == null || !playerPrepared || activeSkipSegments.isEmpty() || !MorpheEngine.isSponsorBlockEnabled(this)) {
             return;
         }
         try {
@@ -177,7 +180,7 @@ public class Arc7AudioService extends Service {
     }
 
     private synchronized void setPlayerVolumeSafe(float v) {
-        if (player != null) {
+        if (player != null && playerPrepared) {
             try { player.setVolume(v, v); } catch (Throwable ignored) {}
         }
     }
@@ -602,7 +605,7 @@ public class Arc7AudioService extends Service {
 
     public synchronized void applyEqualizerPreset(int presetIdx) {
         currentEqPreset = Math.max(0, Math.min(EQ_PRESET_NAMES.length - 1, presetIdx));
-        if (player == null) return;
+        if (player == null || !playerPrepared) return;
         try {
             if (equalizer == null) {
                 equalizer = new Equalizer(0, player.getAudioSessionId());
@@ -715,7 +718,7 @@ public class Arc7AudioService extends Service {
                 @Override public void onPrepared(MediaPlayer mp) {
                     synchronized (Arc7AudioService.this) {
                         if (request != playbackGeneration || player != mp) return;
-                        if (prepareTimeout != null) handler.removeCallbacks(prepareTimeout);
+                        if (prepareTimeout != null) { handler.removeCallbacks(prepareTimeout); prepareTimeout = null; }
                         try {
                             LegacyPlaybackAudio.enable(mp);
                             playerPrepared = true;
@@ -734,6 +737,7 @@ public class Arc7AudioService extends Service {
                 @Override public boolean onError(MediaPlayer mp, int what, int extra) {
                     synchronized (Arc7AudioService.this) {
                         if (player == mp && request == playbackGeneration) {
+                            playerPrepared = false;
                             String fallback = request==radioFallbackGeneration ? radioFallbackUrl : ""; radioFallbackUrl = "";
                             if (fallback.length()>0) {
                                 playbackStatus = "Trying alternate CBC stream after " + what + "/" + extra;
@@ -953,7 +957,7 @@ public class Arc7AudioService extends Service {
     }
 
     public synchronized void seekRelativeMs(int deltaMs) {
-        if (player == null) return;
+        if (player == null || !playerPrepared) return;
         try {
             int dur = player.getDuration();
             if (dur <= 0) return;
@@ -965,7 +969,7 @@ public class Arc7AudioService extends Service {
     }
 
     public synchronized void seekAbsoluteMs(int posMs) {
-        if (player == null) return;
+        if (player == null || !playerPrepared) return;
         try {
             int dur = player.getDuration();
             if (dur <= 0) return;
@@ -1017,16 +1021,16 @@ public class Arc7AudioService extends Service {
 
     public int getCurrentIndex() { return currentIndex; }
 
-    public boolean isPlaying() {
+    public synchronized boolean isPlaying() {
         try {
-            return player != null && player.isPlaying();
+            return player != null && playerPrepared && player.isPlaying();
         } catch (Throwable ignored) {
             return false;
         }
     }
 
-    public int getPositionMs() {
-        if (player == null) return 0;
+    public synchronized int getPositionMs() {
+        if (player == null || !playerPrepared) return 0;
         try {
             return Math.max(0, player.getCurrentPosition());
         } catch (Throwable ignored) {
@@ -1034,8 +1038,8 @@ public class Arc7AudioService extends Service {
         }
     }
 
-    public int getDurationMs() {
-        if (player == null) return 0;
+    public synchronized int getDurationMs() {
+        if (player == null || !playerPrepared) return 0;
         try {
             int d = player.getDuration();
             return d > 0 ? d : 0;
@@ -1065,7 +1069,7 @@ public class Arc7AudioService extends Service {
     }
 
     private synchronized void saveCurrentPosition() {
-        if (player != null && currentIndex >= 0 && currentIndex < playlist.size()) {
+        if (player != null && playerPrepared && currentIndex >= 0 && currentIndex < playlist.size()) {
             try {
                 File f = playlist.get(currentIndex);
                 getSharedPreferences(PREFS, MODE_PRIVATE).edit()
@@ -1099,16 +1103,21 @@ public class Arc7AudioService extends Service {
             try { bassBoost.release(); } catch (Throwable ignored) {}
             bassBoost = null;
         }
-        if (player != null) {
-            try { player.stop(); } catch (Throwable ignored) {}
-            try { player.release(); } catch (Throwable ignored) {}
-            player = null;
+        final MediaPlayer releasing = player;
+        player = null;
+        if (releasing != null) {
+            // release() is legal while Preparing/in Error; stop() is not and may post -38/0.
+            // Detach listeners as well as guarding queued callbacks by player/request identity.
+            try { releasing.setOnPreparedListener(null); } catch (Throwable ignored) {}
+            try { releasing.setOnErrorListener(null); } catch (Throwable ignored) {}
+            try { releasing.setOnCompletionListener(null); } catch (Throwable ignored) {}
+            try { releasing.release(); } catch (Throwable ignored) {}
         }
         releaseWifiLockSafe();
     }
 
     @Override
-    public void onDestroy() {
+    public synchronized void onDestroy() {
         ++playbackGeneration;
         if (resolutionThread != null) resolutionThread.interrupt();
         resolvingMorpheTrack = false;
