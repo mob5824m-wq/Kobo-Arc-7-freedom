@@ -264,7 +264,7 @@ using System.Security.Cryptography;
 
 // Read-only and manifest-allowlisted. No directory listing, uploads, shell or URL ACL.
 public static class Arc7ReadOnlyServer {
-    static string root, origin;
+    static string root, origin, companions;
     static Dictionary<string,string> hashes;
     static readonly Semaphore slots = new Semaphore(4,4);
     static TcpListener listener;
@@ -272,8 +272,8 @@ public static class Arc7ReadOnlyServer {
     public static volatile bool Running;
     public static string LastError = "";
 
-    public static void Start(string directory,int port,string downloadBase,Dictionary<string,string> manifest) {
-        root = Path.GetFullPath(directory); origin = downloadBase; hashes = manifest;
+    public static void Start(string directory,int port,string downloadBase,string companionDirectory,Dictionary<string,string> manifest) {
+        root = Path.GetFullPath(directory); companions = Path.GetFullPath(companionDirectory); origin = downloadBase; hashes = manifest;
         listener = new TcpListener(IPAddress.Any,port);
         listener.Start(); // Synchronous: a busy port fails before the browser is opened.
         stopping = false; Running = true;
@@ -349,13 +349,20 @@ public static class Arc7ReadOnlyServer {
             try {
                 lock(hashes) {
                     if(!File.Exists(file) || Sha(file)!=expected) {
-                        if(Environment.GetEnvironmentVariable("ARC7_OFFLINE")=="1") { Header(stream,404,"text/plain",0,""); return; }
-                        string temp=Path.Combine(root,".arc7-"+Guid.NewGuid().ToString("N")+".part");
-                        try {
-                            using(var web=new DownloadClient()) web.DownloadFile(origin+"/"+Uri.EscapeDataString(name),temp);
-                            if(Sha(temp)!=expected) throw new IOException("Release checksum mismatch; use a matching build.");
-                            if(File.Exists(file)) File.Delete(file); File.Move(temp,file);
-                        } finally { if(File.Exists(temp)) File.Delete(temp); }
+                        // Actions artifacts keep tools/ beside releases/, not inside it.
+                        // The complete offline ZIP already supplies the QR page/companions;
+                        // prefer an exact manifest-verified local copy over any download.
+                        string companion=Path.Combine(companions,name);
+                        if(File.Exists(companion) && Sha(companion)==expected) file=companion;
+                        else {
+                            if(Environment.GetEnvironmentVariable("ARC7_OFFLINE")=="1") { Header(stream,404,"text/plain",0,""); return; }
+                            string temp=Path.Combine(root,".arc7-"+Guid.NewGuid().ToString("N")+".part");
+                            try {
+                                using(var web=new DownloadClient()) web.DownloadFile(origin+"/"+Uri.EscapeDataString(name),temp);
+                                if(Sha(temp)!=expected) throw new IOException("Release checksum mismatch; use a matching build.");
+                                if(File.Exists(file)) File.Delete(file); File.Move(temp,file);
+                            } finally { if(File.Exists(temp)) File.Delete(temp); }
+                        }
                     }
                 }
             } catch(Exception error) { Console.Error.WriteLine("Download refused: "+error.Message); Header(stream,503,"text/plain",0,""); return; }
@@ -400,7 +407,7 @@ public static class Arc7ReadOnlyServer {
     Write-Host "Read-only Wi-Fi installer: http://127.0.0.1:$Port/"
     foreach ($address in [Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName())) { if ($address.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork) { Write-Host "Kobo browser: http://${address}:$Port/" } }
     Write-Host 'Allow the Windows Firewall prompt on PRIVATE networks only. No administrator URL reservation is needed. Ctrl+C stops the server.'
-    [Arc7ReadOnlyServer]::Start($directory,$Port,$ReleaseBase,$manifest)
+    [Arc7ReadOnlyServer]::Start($directory,$Port,$ReleaseBase,$ToolRoot,$manifest)
     try {
         if (-not $NoBrowser) { Start-Process "http://127.0.0.1:$Port/" }
         while ([Arc7ReadOnlyServer]::Running) { Start-Sleep -Milliseconds 400 }

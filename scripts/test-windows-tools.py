@@ -138,8 +138,10 @@ def windows():
         # Real PowerShell HTTP server, both Wi-Fi .bat entrypoints. No downloads.
         portal=folder/'release files';portal.mkdir();payload=bytes(range(256))*500
         for name,data in [('KoboArc7Freedom.apk',payload),('QR-Transfer.apk',b'QR app'),('bad.apk',b'wrong local bytes')]: (portal/name).write_bytes(data)
-        sums=''.join(hashlib.sha256(data).hexdigest()+'  '+name+'\n' for name,data in [('KoboArc7Freedom.apk',payload),('QR-Transfer.apk',b'QR app'),('bad.apk',b'expected different bytes')])
+        companion_payload=(folder/'qr-transfer.html').read_bytes()
+        sums=''.join(hashlib.sha256(data).hexdigest()+'  '+name+'\n' for name,data in [('KoboArc7Freedom.apk',payload),('QR-Transfer.apk',b'QR app'),('bad.apk',b'expected different bytes'),('qr-transfer.html',companion_payload)])
         (portal/'SHA256SUMS.txt').write_text(sums);(portal/'private.txt').write_text('must never be served')
+        (folder/'private-tool.txt').write_text('unlisted sibling file must never be served')
         for name in NAMES[:2]:
             with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
             process=cmd(folder/name,['-Port',port,'-Root',portal,'-NoBrowser'],env,cwd,background=True)
@@ -157,11 +159,12 @@ def windows():
                         time.sleep(.15)
                 assert status==200 and b'QR-Transfer.apk' in body and b'Bluetooth-Internet.apk' not in body
                 assert request('/KoboArc7Freedom.apk')[2]==payload
+                assert request('/qr-transfer.html')[2]==companion_payload, 'Offline QR webpage beside launcher was not served from a separate -Root'
                 assert request('/KoboArc7Freedom.apk','HEAD')[2]==b''
                 assert request('/KoboArc7Freedom.apk',headers={'Range':'bytes=12-37'})[2]==payload[12:38]
                 assert request('/KoboArc7Freedom.apk',headers={'Range':'bytes=-8'})[2]==payload[-8:]
                 assert request('/KoboArc7Freedom.apk',headers={'Range':'bytes=99999999-'})[0]==416
-                for target in ('/private.txt','/../private.txt','/%2e%2e%5cprivate.txt','/bad.apk'):assert request(target)[0]==404,target
+                for target in ('/private.txt','/private-tool.txt','/../private.txt','/%2e%2e%5cprivate.txt','/bad.apk'):assert request(target)[0]==404,target
                 assert request('/KoboArc7Freedom.apk','POST')[0]==405
             finally:
                 subprocess.run(['taskkill','/F','/T','/PID',str(process.pid)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

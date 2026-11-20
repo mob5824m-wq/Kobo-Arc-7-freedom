@@ -35,7 +35,9 @@ Start-PC-Stream-Deck.bat --studio-port 18995
 ```
 
 - **Wi-Fi:** put the matching `SHA256SUMS.txt` and APKs in `-Root` (APKs may also be in
-  its `apps` subfolder). With a repository checkout the launcher finds `../releases`.
+  its `apps` subfolder). With a repository checkout the launcher finds `../releases`. Matching checksum-listed
+  companions, including the offline QR webpage, can stay beside the launcher in `tools`;
+  they do not need copying into the APK folder and unlisted files are never shared.
   Missing artifacts can be fetched from the current release and are hash-checked before
   serving. A local manifest is authoritative; mixed-build files are refused, not silently
   served. Use the same private LAN, use the displayed `http://PC_LAN_IP:PORT/` on the Kobo,
