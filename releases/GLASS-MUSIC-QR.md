@@ -10,7 +10,7 @@ new public release or change your installed app data automatically.
 - Install `YouTubeMusic.apk` for the Music playback repair. Stop any existing playback
   before updating. Do **not** uninstall or clear data.
 - Install the generated `apps/Files.apk` for optical sending/receiving and its new camera
-  permission. The full `KoboArc7Freedom.apk` / 2.6.0 upgrader also bundles the same signed
+  permission. The full `KoboArc7Freedom.apk` / 2.6.5 upgrader also bundles the same signed
   Home, Music and Files payloads; use **PATCHES → Apply / Retry All Patches** and confirm
   any pending Android install prompts when not rooted.
 - Default app APKs are generated/ignored by Git, available in the build artifact and

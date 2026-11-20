@@ -1,9 +1,9 @@
-# Arc7 Freedom — v2.6.0
+# Arc7 Freedom — v2.6.5
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
 Native, separately installable apps for **Kobo Arc 7 / Arc 7HD, Android 4.0.3–4.2.2**.
-Suite/default apps/upgrader: **2.6.0 / 260** · Home: **5.6.0 / 56** · F-Droid: **1306**.
+Suite/default apps/upgrader: **2.6.5 / 265** · Home: **5.6.0 / 56** · F-Droid: **1306**.
 API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificate remain.
 
 ## This build
@@ -65,8 +65,21 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 
 Provider sign-in/bot/age restrictions are reported, **not bypassed**. Host tests and media
 decoding are not proof of live YouTube/CBC availability or physical Kobo behaviour.
-No new GitHub release has been published by this branch work; use this build's files,
-not an older published “latest” asset. See the guide's outstanding device checks.
+Use this build's files or the matching **v2.6.5** GitHub release after its main-branch
+workflow succeeds, not an older “latest” asset. See the guide's outstanding device checks.
+
+### v2.6.5 release consistency repair
+
+The suite, upgrader, YouTube/Music and all 32 default apps now declare **2.6.5 / 265**
+in the actual Android manifests, not just in the workflow title. Home/store versions and
+all package names, private data and the permanent signer are retained. The builder, Wi-Fi
+portals, host tools, checksums and upload lists use **Upgrade-My-Kobo-To-v2.6.5.apk**.
+Older upgrader APKs are removed from the current build and their Git deletions are staged.
+
+`make test-release` checks version/path consistency before a long build and reproduces the
+label-only bump/missing-artifact failure with offline fixtures. Before Git staging/upload,
+`python3 scripts/check-release-version.py --artifacts` checks the exact files and all 53
+SHA-256 entries. Full `make verify` also inspects the actual signed APK version names/codes.
 
 ## Expanded Weather (retained)
 
@@ -95,9 +108,9 @@ Location is opt-in and never tracked in the background. Pollen and forecast vari
 have provider-dependent coverage; notifications are **polled, not emergency broadcasts**.
 The existing API15/17 / ARMv7 / DEX035 and independent-UID networking design is retained.
 
-The suite/upgrader now use **v2.6.0 / 260** and the same signing certificate;
-the maintenance pipeline also recognises same-version changes by verified APK hashes. No new
-GitHub release is published by this branch work. `make test-weather` runs the new offline
+The suite/upgrader now use **v2.6.5 / 265** and the same signing certificate;
+the maintenance pipeline also recognises same-version changes by verified APK hashes.
+GitHub release publication requires a successful main-branch workflow. `make test-weather` runs the offline
 executable regressions; `make verify` also includes them. See the guide for limitations
 and the remaining real-device checks.
 
@@ -108,9 +121,9 @@ Kobo Arc 7 Freedom is **withdrawn**. This does not require removing existing wor
 Independent per-app networking remains the current default; existing optional proxy,
 VPN and USB-networking tools are retained.
 
-The signed **v2.6.0 / 260** suite/default-app/upgrader builds and **F-Droid 1306** are on
-this working branch, **not published as a new GitHub release**. Install the local build or use
-its Wi-Fi portal; an older published “latest” asset does not contain these changes.
+The signed **v2.6.5 / 265** suite/default-app/upgrader builds and **F-Droid 1306** are on
+this working branch. Use the local build/Wi-Fi portal or the matching v2.6.5 release after
+the main-branch workflow publishes it; an older “latest” asset may not contain these changes.
 
 ### One complete offline patch bundle
 
@@ -145,12 +158,12 @@ maintenance steps. Back up important data before an update or signing-key migrat
 Individual APKs are still available in `releases/` and generated `releases/apps/` for
 one-app updates. **`releases/SHA256SUMS.txt`** covers the whole build. Use the full suite
 or upgrader when you want every relevant patch applied; a standalone app cannot silently
-patch another UID. The published GitHub release has not been changed by this work.
+patch another UID. The main-branch workflow publishes the matching verified release.
 
 ### Notification, playback, installer and obsolete-proxy repairs
 
 **Install checklist: [releases/INSTALL-RUNTIME-FIXES.md](releases/INSTALL-RUNTIME-FIXES.md).**
-This is the v2.6.0 maintenance build on the working branch, not a newly published release.
+This is the v2.6.5 maintenance build; publication is gated by the main-branch workflow.
 
 - **VLC and other players own their notifications.** Arc7's external-audio observers update
   Clock/widgets silently; only a prepared player in the actual owning APK can post Arc7
@@ -289,6 +302,7 @@ make test-isolation
 make test-runtime
 make test-features
 make test-discovery
+make test-release
 make test-fdroid
 # Stronger host media validation with an available FFmpeg binary:
 FFMPEG=/path/to/ffmpeg make test-runtime
@@ -325,7 +339,7 @@ sharing directions on supported devices.
 
 ---
 
-### Earlier repairs retained in 2.6.0
+### Earlier repairs retained in 2.6.5
 
 These existing repairs are not new device-validation claims:
 
@@ -455,7 +469,7 @@ Install in place; do not uninstall or clear app data to update.
 | File | Purpose |
 | --- | --- |
 | [KoboArc7Freedom.apk](releases/KoboArc7Freedom.apk) | Full **38-APK** offline maintenance bundle; open the app, then **PATCHES** |
-| [Upgrade My Kobo 2.6.0](releases/Upgrade-My-Kobo-To-v2.6.0.apk) | Same full suite bundled in a helper; does not force a patch screen |
+| [Upgrade My Kobo 2.6.5](releases/Upgrade-My-Kobo-To-v2.6.5.apk) | Same full suite bundled in a helper; does not force a patch screen |
 | [Home](releases/VanillaAndroid4Home.apk), [F-Droid](releases/FDroidClassicLegacy.apk), [Aurora](releases/AuroraStore.apk), [VLC](releases/VLC.apk) | Independent companion updates |
 | [YouTube](releases/YouTube.apk), [YouTube Music](releases/YouTubeMusic.apk) | Independent media updates |
 | `releases/apps/*.apk` | **32** generated default-app APKs; [identity/file index](split-apps/apps.tsv) |
