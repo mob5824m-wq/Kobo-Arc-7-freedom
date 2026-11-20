@@ -12,6 +12,8 @@ android {
         versionName "3.0-arc7"
     }
 
+    sourceSets.main.java.srcDirs += ["${rootProject.projectDir}/shared/java"]
+
     sourceSets {
         main {
             java.srcDirs += ["${rootProject.projectDir}/common/src/main/java"]

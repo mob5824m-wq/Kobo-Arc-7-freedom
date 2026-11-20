@@ -148,6 +148,7 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
     private int activeProfile = 0;
     private int gridPresetIdx = 1; // 3x5 Classic 15-key default
     private boolean editKeysMode = false;
+    private final List<Arc7DeckKeyInput> deckInputs = new ArrayList<Arc7DeckKeyInput>();
 
     @SuppressWarnings("unchecked")
     private final List<DeckKey>[] profiles = new ArrayList[PROFILE_NAMES.length];
@@ -471,7 +472,13 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
         }
     }
 
+    private void cancelHeldDeckKeys() {
+        for (Arc7DeckKeyInput input : deckInputs) input.cancel();
+    }
+
     private void renderDeckMatrix() {
+        cancelHeldDeckKeys();
+        deckInputs.clear();
         deckMatrixContainer.removeAllViews();
         int rows = GRID_PRESETS[gridPresetIdx][0];
         int cols = GRID_PRESETS[gridPresetIdx][1];
@@ -544,38 +551,11 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
         outer.addView(lcd, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        outer.setOnTouchListener(new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent ev) {
-                int act = ev.getActionMasked();
-                if (act == MotionEvent.ACTION_DOWN) {
-                    v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(60).start();
-                    pulseHaptic(18);
-                    if (!editKeysMode && key.mode == 2) {
-                        key.activeState = true;
-                        lcd.setBackgroundDrawable(makeKeyLcdDrawable(0xFF10B981, true));
-                        sendDeckPacket(buildActionJson(key.command, key.label, 2, true));
-                    }
-                } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
-                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start();
-                    if (!editKeysMode && key.mode == 2) {
-                        key.activeState = false;
-                        lcd.setBackgroundDrawable(makeKeyLcdDrawable(key.color, false));
-                        sendDeckPacket(buildActionJson(key.command, key.label, 2, false));
-                        return true;
-                    }
-                }
-                return false;
+        final Arc7DeckKeyInput input = new Arc7DeckKeyInput(key.mode, new Arc7DeckKeyInput.Actions() {
+            @Override public void edit() {
+                if (editKeysMode) showEditKeyDialog(key, keyIndex);
             }
-        });
-
-        outer.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (editKeysMode) {
-                    showEditKeyDialog(key, keyIndex);
-                    return;
-                }
+            @Override public void tap() {
                 if ("@SECOND_SCREEN".equals(key.command)) {
                     startActivity(new Intent(Arc7StreamDeckActivity.this, Arc7SecondScreenActivity.class));
                     return;
@@ -586,16 +566,40 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
                 }
                 sendDeckPacket(buildActionJson(key.command, key.label, key.mode, key.activeState));
             }
-        });
-
-        outer.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View v) {
-                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
-                showEditKeyDialog(key, keyIndex);
-                return true;
+            @Override public void hold(boolean down) {
+                key.activeState = down;
+                lcd.setBackgroundDrawable(makeKeyLcdDrawable(down ? 0xFF10B981 : key.color, down));
+                sendDeckPacket(buildActionJson(key.command, key.label, 2, down));
             }
         });
+        deckInputs.add(input);
+        outer.setOnTouchListener(new View.OnTouchListener() {
+            @Override public boolean onTouch(View v, MotionEvent ev) {
+                int act = ev.getActionMasked();
+                if (act == MotionEvent.ACTION_DOWN) {
+                    v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(60).start();
+                    pulseHaptic(18);
+                } else if (act == MotionEvent.ACTION_UP || act == MotionEvent.ACTION_CANCEL) {
+                    v.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start();
+                }
+                return input.touch(act, editKeysMode);
+            }
+        });
+        outer.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) { input.click(editKeysMode); }
+        });
+        // A disabled long-click must not consume the normal tap on release, nor
+        // open the editor while a momentary key is being held for push-to-talk.
+        if (editKeysMode) {
+            outer.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override public boolean onLongClick(View v) {
+                    if (!editKeysMode) return false;
+                    v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                    return input.longClick(editKeysMode);
+                }
+            });
+        }
+        outer.setLongClickable(editKeysMode);
         return outer;
     }
 
@@ -626,6 +630,7 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
     /* ==================== Key Editor & PC Connection Dialogs ==================== */
 
     private void showEditKeyDialog(final DeckKey key, final int index) {
+        if (!editKeysMode) return;
         ScrollView sv = new ScrollView(this);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -1086,6 +1091,7 @@ public class Arc7StreamDeckActivity extends Arc7Activity {
 
     @Override protected void onResume() { super.onResume(); foreground=true; }
     @Override protected void onStop() {
+        cancelHeldDeckKeys();
         foreground=false; closeActiveSocket(); packets.getQueue().clear();
         for(List<DeckKey> profile:profiles) if(profile!=null) for(DeckKey key:profile) if(key.mode==2) key.activeState=false;
         super.onStop();

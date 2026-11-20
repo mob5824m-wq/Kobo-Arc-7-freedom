@@ -1,4 +1,4 @@
-name: Build, Verify & Release Kobo Arc 7 Freedom v2.6.5
+name: Build, Verify & Release Kobo Arc 7 Freedom v2.6.8
 
 on:
   push:
@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   build-and-verify:
+    needs: windows-tools
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
     steps:
@@ -42,19 +43,19 @@ jobs:
           yes | "${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager" "platforms;android-17" "build-tools;34.0.0"
           python3 -m pip install --upgrade pip ziglang pillow certifi androguard loguru cryptography qrcode imageio-ffmpeg
 
-      - name: Generate 49 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.6.5 APKs
+      - name: Generate 49 multi-DPI squircle icons, fetch & verify official VLC ARMv7 APK, compile native VPN/TLS binaries & sign all v2.6.8 APKs
         run: |
           chmod +x scripts/build-all.sh tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
           python3 scripts/generate-icons.py
           rm -f app/src/main/assets/starter-apps/VLC.apk releases/VLC.apk
           ./scripts/build-all.sh
 
-      - name: Run full v2.6.5 end-to-end verification suite
+      - name: Run full v2.6.8 end-to-end verification suite
         run: |
           export FFMPEG="$(python3 -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
           python3 scripts/verify-apks.py
 
-      - name: Commit refreshed signed v2.6.5 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
+      - name: Commit refreshed signed v2.6.8 APKs, local Wi-Fi portal assets, bundled VLC.apk & host tools back to branch
         if: github.event_name == 'push'
         run: |
           git config user.name "github-actions[bot]"
@@ -67,7 +68,7 @@ jobs:
             releases/index.html \
             releases/logo-banner.png \
             releases/icons \
-            releases/Upgrade-My-Kobo-To-v2.6.5.apk \
+            releases/Upgrade-My-Kobo-To-v2.6.8.apk \
             releases/KoboArc7Freedom.apk \
             releases/YouTube.apk \
             releases/YouTubeMusic.apk \
@@ -76,6 +77,11 @@ jobs:
             releases/FDroidClassicLegacy.apk \
             releases/VanillaAndroid4Home.apk \
             tools/qr-transfer.html \
+            tools/Arc7-Windows.ps1 \
+            tools/Windows-Tools.zip \
+            tools/WINDOWS-TOOLS.md \
+            tools/usb-sideload-and-root.bat \
+            tools/serve-over-wifi.bat \
             tools/Start-PC-Stream-Deck.py \
             tools/Start-PC-Stream-Deck.bat \
             tools/Start-PC-Stream-Deck.sh \
@@ -94,26 +100,32 @@ jobs:
             app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py \
             app/src/main/assets/chromebook/Start-PC-Stream-Deck.py \
             app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat \
+            app/src/main/assets/chromebook/Arc7-Windows.ps1 \
             app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh \
             app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update pre-built signed v2.6.5 APKs (independent apps, media, catalog and widget repairs) [skip ci]"
+            git commit -m "chore: update pre-built signed v2.6.8 APKs (independent apps, media, catalog and widget repairs) [skip ci]"
             git push origin "$(git branch --show-current)"
           fi
 
-      - name: Upload built v2.6.5 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
+      - name: Upload built v2.6.8 APKs, Local Wi-Fi Installer Portal, VLC, Aurora Store, F-Droid, Upgrader & Host Tools artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kobo-arc-7-freedom-v2.6.5-apks
+          name: kobo-arc-7-freedom-v2.6.8-apks
           if-no-files-found: error
           path: |
             releases/apps/*.apk
             releases/SUITE-FEATURES.md
             releases/GLASS-MUSIC-QR.md
             tools/qr-transfer.html
+            tools/Arc7-Windows.ps1
+            tools/Windows-Tools.zip
+            tools/WINDOWS-TOOLS.md
+            tools/usb-sideload-and-root.bat
+            tools/serve-over-wifi.bat
             releases/WEATHER-FEATURES.md
             releases/INSTALL-RUNTIME-FIXES.md
-            releases/Upgrade-My-Kobo-To-v2.6.5.apk
+            releases/Upgrade-My-Kobo-To-v2.6.8.apk
             releases/YouTube.apk
             releases/YouTubeMusic.apk
             releases/KoboArc7Freedom.apk
@@ -136,37 +148,42 @@ jobs:
             tools/Start-Kobo-WiFi-Server.sh
             releases/SHA256SUMS.txt
 
-      - name: Publish signed v2.6.5 APKs (suite + 32 standalone default apps + YouTube / YouTube Music) to GitHub Releases
+      - name: Publish signed v2.6.8 APKs (suite + 32 standalone default apps + YouTube / YouTube Music) to GitHub Releases
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > /tmp/release-notes.md << 'EOF'
-          ## Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs
+          ## Kobo Arc 7 Freedom v2.6.8 — Stream I/O, Stream Deck & App Tools
 
-          - Actual suite/upgrader and all 34 standalone app versions are 2.6.5 / 265. Builder, updater filename, Wi-Fi portals and release uploads are aligned; source and exact-artifact/checksum gates catch version drift before staging. Home/stores keep their independent versions and all signing identities/data are retained.
+          - Fixes finite media EOF / Android-4 unexpected-end-of-stream recovery with bounded fresh-connection retries, strict byte/range validation and native TLS short-write completion; provider denials/rate limits are not bypassed. Live YouTube/device testing remains separate.
+          - Stream Deck key editing is restricted to explicit Edit Keys mode, including long presses. Hold-to-talk owns its touch sequence and releases on cancel/redraw/stop.
+          - Per-app private bounded/sanitized debug logs, offline sound tests, focus/headset/media-button policy, optional low-RAM mode, managed-cache controls and resumable SHA-256 LAN uploads are retained. Official upstream-signed VLC keeps its native (not Arc7-sanitized) recorder.
+          - Actual suite/upgrader and all 34 standalone app versions are 2.6.8 / 268. Builder, updater filename, Wi-Fi portals and release uploads are aligned; source and exact-artifact/checksum gates catch version drift before staging. Home/stores keep their independent versions and all signing identities/data are retained.
           - 38 signed APKs bundled offline: Home, stores, YouTube/Music and 32 independent default apps. New Podcasts, News, Authenticator and Passwords identities; Radio retains its installed data/package.
           - PATCHES is an Arc7 Freedom tab. PC/backup tools and the upgrader no longer force a patch screen. Rootless confirmations, byte verification, same-version maintenance and safe pending/error reports remain; no automatic uninstall/wipe.
           - F-Droid 1306 adds pinned F-Droid/Guardian legacy archives and default-All catalog/empty-state repairs, preserving existing pins, credentials and custom repos plus prior parser/TLS/signature fixes.
-          - Apple-Liquid-Glass-inspired translucent lenses, specular rims and static cached wallpaper frost in the Home dock/top capsule (Android-4-compatible, not Apple's renderer or live background blur). Weather high/low and independent/legacy widget bridge; in-app Quick Switcher removed without removing Home's pinned dock.
+          - Stronger Apple-Liquid-Glass-inspired transparent thick lenses, Fresnel/prismatic rims, opposing highlights, caustics, floating headers and moulded glass icon tiles. Legacy native controls, the suite/upgrader, Aurora and the installer portal share the style; Home adds separate centre/edge magnification of its static cached wallpaper frost in the Home dock/top capsule (Android-4-compatible, not Apple's renderer or live background blur). Weather high/low and independent/legacy widget bridge; in-app Quick Switcher removed without removing Home's pinned dock.
           - CBC regional MP3 repairs, conservative H.264/AAC-LC selection, actual-player notifications and cancellable verified MP4/M4A downloads. YouTube rejects the Android-4 separate-TS HLS audio trap, verifies embedded audio, falls back to combined DASH, and adds a prepared audio-track guard plus Sound/media-volume controls. Music adds quick play, public albums/community playlists and local libraries; YouTube adds local pinned channel feeds. No provider authentication/bot bypass or account sync.
           - Podcasts adds persistent favorite shows and instant local title/publisher filtering (up to 200 shows). YouTube Music adds real Artists search and public artist songs/albums/singles, without substituting unrelated song results. Both YouTube headers give search its own row and put secondary controls in More.
           - Stream Deck touch key/modifier picker, strict grammar and ordered/owned held-key input. Native Wayland and macOS holds remain unsupported.
           - Local encrypted Passwords/Authenticator vaults import unencrypted Proton Pass and Bitwarden CSV/JSON locally; login TOTP secrets are retained and valid TOTP accounts can be imported separately. Imports append/skip duplicates, never replace existing entries. No provider-encrypted exports, 2FA QR scanning, autofill, cloud sync or recovery. Android 4.x is unsupported and these apps are not independently security-audited.
           - YouTube Music now preflights real AAC-LC esds/ASC bytes, normalizes sample-entry channels/rate, prefers audio-only classic M4A before HLS and retries one ADTS compatibility container on supported decoder/container errors. No transcoding, DRM or sign-in bypass.
-          - Files adds offline camera multi-QR byte transport (1 MiB maximum), out-of-order/repeated/missing-frame handling, CRC32/SHA-256 checks and explicit collision-safe saving; a self-contained offline browser sender/receiver is included as qr-transfer.html. Optical codes are not encrypted.
+          - QR Transfer is now a separate offline Kobo app (built-in file browser / Share, send/receive, no Internet permission). V2 supports 64 MiB with 128/512/1024-byte density profiles, streaming native snapshots and disk checkpoints/resume/discard; legacy v1 remains 1 MiB. The same self-contained webpage and Files actions are retained, with out-of-order/repeated/missing-frame handling, CRC32/SHA-256 checks and explicit collision-safe saving; a self-contained offline browser sender/receiver is included as qr-transfer.html. Optical codes are not encrypted.
+          - All six Windows batch tools now use ASCII/CRLF wrappers and a SHA-256-pinned PowerShell helper. Windows-Tools.zip includes matching dependencies/instructions; Wi-Fi is read-only and checksum-manifest-driven, USB preserves app data, backups stream/verify/safely extract, and Stream Deck probes Python then runs once. Native cmd/PowerShell 5.1 CI uses fake devices/input plus local HTTP fixtures, not physical USB/firewall proof.
+          - Bluetooth Internet is removed from source/registration/catalog/bundles; QR Transfer replaces its catalog slot. Already installed copies are not silently uninstalled, and legacy pinned Bluetooth controls open OS settings.
           - Files retains a separate 30-minute, folder-scoped QR link share for browser uploads/downloads on a trusted local network. It uses a random bearer link and an intentionally unencrypted local HTTP connection; stop it in Files when done.
 
-          **Validation:** production podcast favorite persistence/filter/error tests, recorded two-row media-header allocations/events at 320/360/600/1024dp, real artist-filter/browse request fixtures with songs/releases-only scoping; synthetic camera QR encode/decode plus Java/browser byte-for-byte interoperability and integrity/bounds regressions; recording-Canvas glass/lifecycle tests; actual AAC-LC config validation and sample-exact ADTS remux; API17/ARMv7/DEX035/permanent signatures; exact 38-payload reconstruction; executable vault/TOTP and Proton/Bitwarden import fixtures; QR-share HTTP auth/CSRF/path/upload/download/range tests; catalog migrations, range/download/remux/FFmpeg decoding with explicit non-silent audio PCM checks and separate-TS-to-DASH recovery, Weather and existing installer/routing/proxy/media regressions. All PC key backends are mocked. No physical Kobo/emulator, live YouTube/CBC/weather/catalog session, real PC key input, ROM flash or Bluetooth PAN hardware validation. Host results are not a security audit or a playback guarantee.
+          **Validation:** production podcast favorite persistence/filter/error tests, recorded two-row media-header allocations/events at 320/360/600/1024dp, real artist-filter/browse request fixtures with songs/releases-only scoping; synthetic camera QR encode/decode plus Java/browser byte-for-byte interoperability and integrity/bounds regressions; recording-Canvas glass/lifecycle tests; actual AAC-LC config validation and sample-exact ADTS remux; API17/ARMv7/DEX035/permanent signatures; exact 38-payload reconstruction; executable vault/TOTP and Proton/Bitwarden import fixtures; QR-share HTTP auth/CSRF/path/upload/download/range tests; catalog migrations, range/download/remux/FFmpeg decoding with explicit non-silent audio PCM checks and separate-TS-to-DASH recovery, Weather and existing installer/routing/proxy/media regressions. All PC key backends are mocked. No physical Kobo/emulator, live YouTube/CBC/weather/catalog session, real PC key input, ROM flash, camera/GPU/firewall or physical USB hardware validation. Host results are not a security audit or a playback guarantee.
 
           See `releases/SUITE-FEATURES.md`, `releases/INSTALL-RUNTIME-FIXES.md`, `releases/WEATHER-FEATURES.md` and `SHA256SUMS.txt`. Stop playback and back up important data. Update in place; individual APKs update only that app.
           EOF
 
           HEAD_COMMIT="$(git rev-parse HEAD)"
-          if gh release view v2.6.5 >/dev/null 2>&1; then
-            gh release edit v2.6.5 --latest --title "Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs" --notes-file /tmp/release-notes.md
-            gh release upload v2.6.5 \
-              releases/Upgrade-My-Kobo-To-v2.6.5.apk \
+          if gh release view v2.6.8 >/dev/null 2>&1; then
+            gh release edit v2.6.8 --latest --title "Kobo Arc 7 Freedom v2.6.8 — Stream I/O, Stream Deck & App Tools" --notes-file /tmp/release-notes.md
+            gh release upload v2.6.8 \
+              releases/Upgrade-My-Kobo-To-v2.6.8.apk \
               releases/KoboArc7Freedom.apk \
               releases/YouTube.apk \
               releases/YouTubeMusic.apk \
@@ -176,6 +193,11 @@ jobs:
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
               releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
+              tools/Arc7-Windows.ps1 \
+              tools/Windows-Tools.zip \
+              tools/WINDOWS-TOOLS.md \
+              tools/usb-sideload-and-root.bat \
+              tools/serve-over-wifi.bat \
               releases/logo-banner.png \
               releases/index.html \
               tools/Start-PC-Stream-Deck.py \
@@ -189,18 +211,23 @@ jobs:
               tools/Start-Kobo-WiFi-Server.bat \
               tools/Start-Kobo-WiFi-Server.sh \
               releases/SHA256SUMS.txt \
-              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.6.5 \
-              releases/Upgrade-My-Kobo-To-v2.6.5.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
+              --clobber || { echo "retrying release upload once..."; sleep 15; gh release upload v2.6.8 \
+              releases/Upgrade-My-Kobo-To-v2.6.8.apk releases/KoboArc7Freedom.apk releases/YouTube.apk releases/YouTubeMusic.apk \
               releases/VLC.apk releases/AuroraStore.apk releases/FDroidClassicLegacy.apk releases/VanillaAndroid4Home.apk \
               releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
+              tools/Arc7-Windows.ps1 \
+              tools/Windows-Tools.zip \
+              tools/WINDOWS-TOOLS.md \
+              tools/usb-sideload-and-root.bat \
+              tools/serve-over-wifi.bat \
               releases/apps/*.apk releases/logo-banner.png releases/index.html releases/SHA256SUMS.txt \
               tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.bat tools/Start-PC-Stream-Deck.sh \
               tools/Start-PC-School-VPN-Relay.py tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py \
               tools/Backup-Kobo-To-Laptop-ADB.bat tools/Backup-Kobo-To-Laptop-ADB.sh \
-              tools/Start-Kobo-WiFi-Server.bat tools/Start-Kobo-WiFi-Server.sh --clobber; }
+              tools/Start-Kobo-WiFi-Server.bat tools/Start-Kobo-WiFi-Server.sh tools/Arc7-Windows.ps1 tools/Windows-Tools.zip tools/WINDOWS-TOOLS.md tools/usb-sideload-and-root.bat tools/serve-over-wifi.bat --clobber; }
           else
-            gh release create v2.6.5 \
-              releases/Upgrade-My-Kobo-To-v2.6.5.apk \
+            gh release create v2.6.8 \
+              releases/Upgrade-My-Kobo-To-v2.6.8.apk \
               releases/KoboArc7Freedom.apk \
               releases/YouTube.apk \
               releases/YouTubeMusic.apk \
@@ -210,6 +237,11 @@ jobs:
               releases/VanillaAndroid4Home.apk \
               releases/apps/*.apk \
               releases/SUITE-FEATURES.md releases/WEATHER-FEATURES.md releases/INSTALL-RUNTIME-FIXES.md releases/GLASS-MUSIC-QR.md tools/qr-transfer.html \
+              tools/Arc7-Windows.ps1 \
+              tools/Windows-Tools.zip \
+              tools/WINDOWS-TOOLS.md \
+              tools/usb-sideload-and-root.bat \
+              tools/serve-over-wifi.bat \
               releases/logo-banner.png \
               releases/index.html \
               tools/Start-PC-Stream-Deck.py \
@@ -225,6 +257,28 @@ jobs:
               releases/SHA256SUMS.txt \
               --target "${HEAD_COMMIT}" \
               --latest \
-              --title "Kobo Arc 7 Freedom v2.6.5 — Independent Apps, Media & Widget Repairs" \
+              --title "Kobo Arc 7 Freedom v2.6.8 — Stream I/O, Stream Deck & App Tools" \
               --notes-file /tmp/release-notes.md
           fi
+          # --clobber updates assets but never removes a retired app from an existing tag.
+          if gh release view v2.6.8 --json assets --jq '.assets[].name' | grep -Fxq 'Bluetooth-Internet.apk'; then
+            gh release delete-asset v2.6.8 Bluetooth-Internet.apk --yes
+          fi
+
+  windows-tools:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    name: Native Windows launchers (cmd + PowerShell 5.1 fixtures)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact source and byte-pinned Windows tool files
+        uses: actions/checkout@v4
+      - name: Set up Python for the test harness only
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run actual batch files with fake ADB/Python and local HTTP/backup fixtures
+        shell: cmd
+        run: python scripts/test-windows-tools.py --windows

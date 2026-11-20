@@ -134,7 +134,7 @@ public class MainActivity extends Arc7Activity {
         Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
         InstallMaintenanceService.request(this, "suite opened after install/update");
 
-        appendLog("Kobo Arc 7 Freedom v2.6.5 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v2.6.8 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Custom Arc7 OS Skin + Reskinned Icons + Chromebook Wired USB Internet + Bundled VLC + Calendar + Photos + Camera + Calculator + Notes + Files + Archive.org Chimes + Custom APK Installer).");
         refreshDeviceSnapshotAsync();
         if ("patches".equals(getIntent().getStringExtra("open_tab"))) selectTab(5);
@@ -167,11 +167,8 @@ public class MainActivity extends Arc7Activity {
     }
 
     private GradientDrawable box(int fill, int stroke, int strokeDp, int radiusDp) {
-        GradientDrawable gd = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{Color.rgb(Math.min(255,Color.red(fill)+16), Math.min(255,Color.green(fill)+16), Math.min(255,Color.blue(fill)+16)), fill});
-        gd.setCornerRadius(dp(Math.max(12,radiusDp)));
-        if (strokeDp > 0) gd.setStroke(dp(strokeDp), stroke);
-        return gd;
+        return new ca.arc7freedom.glass.LiquidGlassDrawable(fill, stroke, dp(Math.max(26, radiusDp)),
+                getResources().getDisplayMetrics().density, 132);
     }
 
     @SuppressWarnings("deprecation")
@@ -219,7 +216,7 @@ public class MainActivity extends Arc7Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Freedom  v2.6.5");
+        title.setText("Arc7 Freedom  v2.6.8");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -581,17 +578,6 @@ public class MainActivity extends Arc7Activity {
 
         certCard.addView(subRow);
         page.addView(certCard, cardMargin());
-
-        LinearLayout bluetoothCard = makeCard();
-        addCardHeader(bluetoothCard, "Bluetooth Internet — share Wi-Fi without the suite proxy",
-                "Share this Kobo's Wi-Fi over Bluetooth PAN, or receive internet from a paired phone/computer. "
-                + "Requires Bluetooth hardware and ROM PAN support; no root or VPN required.");
-        addToolActionRow(bluetoothCard, "Bluetooth tethering / receive internet",
-                "Opens the separate Bluetooth Internet app with pairing, PAN controls and live connection status.",
-                "Bluetooth Internet", new View.OnClickListener() {
-                    @Override public void onClick(View v) { launchBuiltInActivity(Arc7BluetoothInternetActivity.class); }
-                });
-        page.addView(bluetoothCard, cardMargin());
 
         // NEW v1.3.0 Upgrade #1: System-Wide TLS 1.3 Upgrade Proxy (`HTTP CONNECT 127.0.0.1:8118`)
         LinearLayout sysProxyCard = makeCard();
@@ -1092,9 +1078,9 @@ public class MainActivity extends Arc7Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.6.5 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
+        // Card 1: Complete v2.6.8 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Arc7 Freedom v2.6.5 — Daily-Driver App & Media Suite",
+        addCardHeader(packCard, "Arc7 Freedom v2.6.8 — Daily-Driver App & Media Suite",
                 "Independent Radio, Podcasts, News, Authenticator and Passwords apps; Weather high/low + widget; F-Droid v1306 legacy catalogs. "
                 + "Public YouTube/Music playback, local pins/playlists and verified offline downloads; provider restrictions can still prevent playback. "
                 + "Glass app styling, usable Stream Deck key assignment and Launcher v56. Manage safe in-place updates in the PATCHES tab.");

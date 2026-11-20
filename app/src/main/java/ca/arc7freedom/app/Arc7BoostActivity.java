@@ -54,7 +54,7 @@ public class Arc7BoostActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         Button refreshBtn = Arc7Skin.actionButton(this, "↻ Refresh Telemetry", 0xFF0284C7);
         refreshBtn.setOnClickListener(new View.OnClickListener() {

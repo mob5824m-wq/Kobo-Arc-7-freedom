@@ -1,14 +1,15 @@
-# Arc7 Freedom — v2.6.5
+# Arc7 Freedom — v2.6.8
 
 ![Kobo Arc 7 Freedom Logo Banner](releases/logo-banner.png)
 
 Native, separately installable apps for **Kobo Arc 7 / Arc 7HD, Android 4.0.3–4.2.2**.
-Suite/default apps/upgrader: **2.6.5 / 265** · Home: **5.6.0 / 56** · F-Droid: **1306**.
+Suite/default apps/upgrader: **2.6.8 / 268** · Home: **5.6.0 / 56** · F-Droid: **1306**.
 API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificate remain.
 
 ## This build
 
-**[2.6 feature, installation and device-test guide](releases/SUITE-FEATURES.md)** ·
+**[App tools: diagnostics, logs, low-RAM, storage and resumable uploads](releases/APP-TOOLS.md)** ·
+[2.6 feature, installation and device-test guide](releases/SUITE-FEATURES.md) ·
 [Glass, Music and optical QR guide](releases/GLASS-MUSIC-QR.md) ·
 [Maintenance safety](releases/INSTALL-RUNTIME-FIXES.md) · [Weather details](releases/WEATHER-FEATURES.md)
 
@@ -31,12 +32,41 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 - Weather explicitly shows **High / Low**. Its independent widget owns refresh/cache
   state; a signature-protected read-only bridge repairs legacy suite widgets without
   moving Weather networking into the suite.
+- YouTube/Music recover bounded transient **unexpected-end-of-stream / I/O** failures:
+  finite DASH ranges and buffered HLS playlist/remux resources use fresh connections and up to three whole-request
+  attempts, discarding partial bytes and validating ranges/lengths. Denials/rate limits and
+  malformed responses are not retried. The native TLS relay also finishes short socket
+  writes instead of dropping their tails. This does not bypass provider restrictions or
+  guarantee live YouTube availability; `-1004` is I/O, not proof of a codec problem.
 - YouTube/Music use conservative H.264/AAC-LC selection and actual-player notification
   ownership. Verified, cancellable offline MP4/M4A downloads never save raw unsupported
   streams as a successful download. YouTube adds **local Pinned Channels** and public feeds.
 - Music's **1/-1010** path now checks real AAC-LC decoder bytes, corrects sample-entry
   channel/rate fields, prefers audio-only M4A before HLS and can retry once as sample-exact
   AAC/ADTS. No transcoding or unsupported-codec promise; real Kobo playback still needs testing.
+- Music's **`-38/0` player-state repair** keeps native time/transport/DSP calls out of async
+  preparation and serializes them with release. Preparing/failed players are released directly,
+  not stopped in an invalid state. `make test-audio-state` reproduces the old asynchronous-error
+  bug with the production service and recording fakes; it is not physical Kobo playback proof.
+- **Playback diagnostics / sound test** shows prepared/focus/buffering/container state where
+  known and exact native error numbers. Three bundled, checksum-pinned quiet WAV/MP3/AAC-LC
+  tones work offline; tests stop current playback, cancel its sleep timer and bypass app EQ,
+  but never raise system volume. Actual audible output is explicitly confirmed by the user.
+- Shared audio owners now coordinate **audio focus, headphone disconnects and legacy headset
+  media buttons**. Duck, pause, guarded transient resume and explicit Play/Pause behavior are
+  consistent; unplugging or a manual pause vetoes automatic resume. Foreground YouTube also
+  pauses on disconnect; official VLC retains its native playback policy.
+- **App tools → Low-RAM profile** optionally reduces artwork, thumbnail caches, worker queues,
+  media-preparation admission and Home's wallpaper sampling without replacing transparent glass.
+  **Storage** separately counts saved-media folders and managed/other cache; configurable
+  **32–1024 MiB** limits and confirmed temporary-cache-only clearing preserve saved media,
+  vaults, app data and both optical/LAN receive checkpoints. Active cache users block clearing.
+- Each Arc7-owned app, Home, Aurora, upgrader and patched F-Droid gets its own private,
+  bounded **debug log** (three × 128 KiB, 64 KiB report), with enable/clear/view and confirmed
+  copy/save controls. Structured constants/counters/class frames omit URLs, tokens, exception
+  messages and content. **Menu → App tools** or **App Manager → Manage app → App tools** opens
+  the owner's screen. Official, upstream-signed VLC keeps its own debug recorder instead;
+  those native logs are not Arc7-sanitized and need review before sharing.
 - Music adds **Quick play**, **Artists** alongside song/album/playlist/community search, public
   artist songs/releases, saved collections and local playlists. Choose **Artists** beside the
   search field, type a name and tap **Go**; open an artist, then a song or album. Artist results
@@ -44,6 +74,9 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
 - YouTube and Music now give search its **own row** below a compact logo/title/**More** row.
   **More** holds app switching and Morphe settings; Music also keeps Equalizer and Sleep timer
   there. Short search-type labels and 48dp actions keep controls usable on narrow screens.
+- Stream Deck edits keys **only in Edit Keys mode**, including long presses; ordinary
+  taps/toggles and hold-to-talk never open the editor. Momentary keys own the complete
+  touch gesture and release on cancel, layout/profile changes or app stop.
 - Stream Deck has a touch key/modifier picker and strict keybind validation, ordered
   packets and per-client held-key ownership on the PC. Unsupported backends report errors.
 - Local encrypted **Passwords** and **Authenticator** vaults import unencrypted Proton Pass
@@ -53,27 +86,38 @@ API15 minimum / API17 target, ARMv7, DEX035 and the permanent signing certificat
   unencrypted CSV/JSON by the provider. Both apps keep encrypted backups and auto-lock, have no
   Internet permission, and remain **unsupported on security-obsolete Android 4.x and not
   independently security-audited**. No 2FA QR scanning, autofill, cloud sync or password recovery.
+- Stronger shared **Liquid-Glass-inspired** material: transparent thick lenses, opposing
+  specular/Fresnel/prismatic edges, floating headers, new glass icon tiles and multi-light
+  page backgrounds. Home samples its cached wallpaper at different centre/edge scales;
+  there is no live capture/blur of app content or Apple's proprietary renderer.
 - **Files → Receive QR bytes**, and long-press **Send file bytes via QR (offline)**, transfer
   actual file bytes through multiple camera-scanned QR codes, without shared Wi-Fi. Repeats,
-  out-of-order/missing frames, CRC32/SHA-256 and safe explicit saving are handled. **1 MiB max**;
-  small files work best. Includes a self-contained [offline browser sender/receiver](tools/qr-transfer.html).
+  out-of-order/missing frames, CRC32/SHA-256 and safe explicit saving are handled. **64 MiB max** (legacy mode: 1 MiB);
+  use the new standalone **QR-Transfer.apk** for a built-in Kobo file picker, density controls
+  and on-disk receive checkpoints/resume. Standard density takes about 27 minutes per MiB
+  before retries; optical transfer is deliberately offline, not fast. Includes a self-contained [offline browser sender/receiver](tools/qr-transfer.html).
   Codes are not encrypted or authenticated; both ends need the Arc7 protocol.
 - **Files → QR link · LAN share** separately displays a QR link for the currently selected folder inside shared
-  internal storage. A computer/phone browser on the same LAN can upload and download files;
-  the random link is temporary (30 minutes), folder-scoped and stopped from Files. The local
-  HTTP connection is **not encrypted**—use a trusted network and do not share sensitive files.
+  internal storage. A computer/phone browser on the same LAN can upload and download files.
+  The bundled offline uploader hashes incrementally and sends durable **1 MiB chunks**, up to
+  **4 GiB per file**, with per-chunk and final SHA-256 verification. Pause/reselect the same file
+  to resume from its acknowledged offset, including after restarting the share for the exact
+  same root folder. Recovery lasts seven days; explicit partial-only cleanup is separate from
+  media cache and optical QR data. Completed receipts are rehashed before reuse. The random
+  link is temporary (30 minutes), folder-scoped and stopped from Files. The local HTTP
+  connection is **not encrypted**—checksums do not authenticate peers; use a trusted network.
 
 Provider sign-in/bot/age restrictions are reported, **not bypassed**. Host tests and media
 decoding are not proof of live YouTube/CBC availability or physical Kobo behaviour.
-Use this build's files or the matching **v2.6.5** GitHub release after its main-branch
+Use this build's files or the matching **v2.6.8** GitHub release after its main-branch
 workflow succeeds, not an older “latest” asset. See the guide's outstanding device checks.
 
-### v2.6.5 release consistency repair
+### Release version consistency
 
-The suite, upgrader, YouTube/Music and all 32 default apps now declare **2.6.5 / 265**
+The suite, upgrader, YouTube/Music and all 32 default apps now declare **2.6.8 / 268**
 in the actual Android manifests, not just in the workflow title. Home/store versions and
 all package names, private data and the permanent signer are retained. The builder, Wi-Fi
-portals, host tools, checksums and upload lists use **Upgrade-My-Kobo-To-v2.6.5.apk**.
+portals, host tools, checksums and upload lists use **Upgrade-My-Kobo-To-v2.6.8.apk**.
 Older upgrader APKs are removed from the current build and their Git deletions are staged.
 
 `make test-release` checks version/path consistency before a long build and reproduces the
@@ -108,7 +152,7 @@ Location is opt-in and never tracked in the background. Pollen and forecast vari
 have provider-dependent coverage; notifications are **polled, not emergency broadcasts**.
 The existing API15/17 / ARMv7 / DEX035 and independent-UID networking design is retained.
 
-The suite/upgrader now use **v2.6.5 / 265** and the same signing certificate;
+The suite/upgrader now use **v2.6.8 / 268** and the same signing certificate;
 the maintenance pipeline also recognises same-version changes by verified APK hashes.
 GitHub release publication requires a successful main-branch workflow. `make test-weather` runs the offline
 executable regressions; `make verify` also includes them. See the guide for limitations
@@ -121,8 +165,8 @@ Kobo Arc 7 Freedom is **withdrawn**. This does not require removing existing wor
 Independent per-app networking remains the current default; existing optional proxy,
 VPN and USB-networking tools are retained.
 
-The signed **v2.6.5 / 265** suite/default-app/upgrader builds and **F-Droid 1306** are on
-this working branch. Use the local build/Wi-Fi portal or the matching v2.6.5 release after
+The signed **v2.6.8 / 268** suite/default-app/upgrader builds and **F-Droid 1306** are on
+this working branch. Use the local build/Wi-Fi portal or the matching v2.6.8 release after
 the main-branch workflow publishes it; an older “latest” asset may not contain these changes.
 
 ### One complete offline patch bundle
@@ -163,7 +207,7 @@ patch another UID. The main-branch workflow publishes the matching verified rele
 ### Notification, playback, installer and obsolete-proxy repairs
 
 **Install checklist: [releases/INSTALL-RUNTIME-FIXES.md](releases/INSTALL-RUNTIME-FIXES.md).**
-This is the v2.6.5 maintenance build; publication is gated by the main-branch workflow.
+This is the v2.6.8 maintenance build; publication is gated by the main-branch workflow.
 
 - **VLC and other players own their notifications.** Arc7's external-audio observers update
   Clock/widgets silently; only a prepared player in the actual owning APK can post Arc7
@@ -238,30 +282,32 @@ permissions can prevent playback. Finite fMP4 needs cache space and may take tim
   Weather/Music widgets now belong to their own apps; replace legacy suite widgets with the
   corresponding standalone widget to see that app's data.
 
-### Share Wi-Fi by Bluetooth
+### QR Transfer app & repaired Windows tools
 
-Install **`Bluetooth-Internet.apk`** (`ca.arc7freedom.bluetoothinternet`). Open it from the
-app drawer, Arc7 Freedom's network tab, or Wi-Fi & VPN's Bluetooth button.
+Install **`QR-Transfer.apk`** (`ca.arc7freedom.qrtransfer`) from the matching build's
+`apps` folder. Open **QR Transfer**, choose a file with its built-in storage browser (or
+another app's picker / Share action), then show its QR codes. The other device uses
+**Receive**, Files' existing **Receive QR bytes**, or the same
+[offline webpage](tools/qr-transfer.html). Nothing is uploaded, opened or installed
+without your action. New v2 supports **64 MiB**, Easy-focus/Standard/Dense profiles and
+native **Saved receives → Resume / Discard**. Reselect identical bytes, filename and
+profile at the sender to continue. The webpage's unsaved receive data lasts only while
+it stays open; older apps/pages need **Legacy v1** (1 MiB) sending. [Protocol and limits](releases/GLASS-MUSIC-QR.md).
 
-**Kobo Wi-Fi → another device:**
+**Bluetooth Internet has been removed** from source, manifests, default app bundles and
+the installer catalog. It is not replaced with another Bluetooth/Wi-Fi tethering app.
+Already-installed copies are not silently uninstalled; remove an old copy through Android
+Settings if wanted. Old pinned `@bluetooth` controls now open Android's Bluetooth settings.
+Wi-Fi & VPN, USB Internet and normal OS Bluetooth settings remain.
 
-1. Connect the Kobo to Wi-Fi and enable Bluetooth.
-2. Use **Pair devices / Bluetooth settings** to pair the phone/computer.
-3. Tap **Share Kobo Wi-Fi via Bluetooth**, or enable **Bluetooth tethering** in **Android
-   tethering settings** if the ROM restricts app control.
-4. On the receiving device, select the Kobo and enable **Internet access / Connect to network**.
-
-**Phone/computer → Kobo:** enable Bluetooth tethering on the other device, pair it, select
-it in Bluetooth Internet, and tap **Connect to selected device's internet**. Some phones
-share mobile data only, rather than their Wi-Fi; some Kobo ROMs support sharing but not
-receiving Bluetooth PAN. Follow the settings fallback when the ROM denies the hidden PAN API.
-
-**Hardware limit:** some Kobo Arc variants have **no Bluetooth adapter**. The app checks for
-this and says so; software cannot add the missing radio. Use Wi-Fi or USB Internet instead.
-A paired device or connected PAN link alone is **not proof of internet access**. The UI
-reports OS connection/tethering state, not a fabricated successful internet test. Routing
-and DHCP are handled by Android PAN, **not an Arc7 proxy or VPN**. No root is required for
-the settings-based flow, but the ROM must actually support PAN/tethering.
+On Windows, download **[Windows-Tools.zip](tools/Windows-Tools.zip)** from the matching PR
+artifact/release and **Extract All** before running a launcher. All six tracked `.bat`
+files (including the Kobo's Stream Deck mirror) now use small ASCII/CRLF wrappers and a
+matching SHA-256-pinned PowerShell helper. Paths do not depend on the current working
+directory; failures are visible and propagate a nonzero exit code. Wi-Fi/USB/backup need
+no Python/admin URL reservation; Stream Deck probes Python 3.9+ and starts the app only
+once. USB updates never uninstall/clear data to work around errors. See
+[Windows setup, arguments, offline use and troubleshooting](tools/WINDOWS-TOOLS.md).
 
 ### Import passwords and 2FA codes
 
@@ -283,11 +329,17 @@ remain unsupported on security-obsolete Android 4.x and have not had an independ
 
 1. Open **Files** and navigate to the folder you want to transfer (for example `Download`). QR
    sharing is limited to folders inside shared internal storage, not `/` or private app data.
-2. Tap **QR File Share** in the bookmark strip and confirm. Scan the displayed QR code with the
-   computer/phone camera, or type the shown address into its browser. Both devices normally need
-   to be on the same Wi-Fi/LAN.
-3. The browser page can **download from** the Kobo and **upload to** that folder. Existing files are
-   not overwritten; a duplicate upload gets a numbered filename. Stop sharing from Files when done.
+2. Tap **QR link · LAN share** in the bookmark strip and confirm. Scan the displayed QR code with
+   the computer/phone camera, or type the shown address into a current desktop/phone browser.
+   Both devices normally need to be on the same Wi-Fi/LAN.
+3. The offline browser page can **download from** the Kobo and **upload to** that folder. Uploads
+   use durable 1 MiB chunks, per-chunk and final SHA-256 checks, with a 4 GiB per-file limit subject
+   to filesystem/free space. Existing files are not overwritten; collisions get numbered names.
+   Identical name/bytes reuses its still-valid, rechecked completion receipt rather than duplicating.
+4. To resume after interruption, reselect the exact same file and click Upload. After share expiry,
+   start a new share for the exact same Kobo root folder and use its new link. Recovery lasts seven
+   days; stop sharing before the Kobo's confirmed **Pending uploads** cleanup. Stop the share when
+   finished. See [upload details and limitations](releases/APP-TOOLS.md#5-large-file-trusted-lan-uploads-resume-and-final-sha-256).
 
 The random bearer link expires automatically after 30 minutes and can be stopped earlier. Anyone
 who gets the link and can reach the Kobo can access that one folder while the share is active.
@@ -300,6 +352,8 @@ notification while the share runs.
 ```sh
 make test-isolation
 make test-runtime
+make test-audio-state
+make test-reliability
 make test-features
 make test-discovery
 make test-release
@@ -308,14 +362,18 @@ make test-fdroid
 FFMPEG=/path/to/ffmpeg make test-runtime
 # Optionally test two native gateways concurrently after building a host TLS binary:
 python3 scripts/test-app-isolation.py --native build/native/host/arc7tls
-# Normal release build (includes Bluetooth Internet and the independent store transports):
+# Normal release build (includes QR Transfer and the independent store transports):
 ./scripts/build-all.sh
 make verify
 ```
 
 **Automated validation:** offline feature tests cover vault encryption/TOTP vectors, Proton/Bitwarden
 CSV/JSON import, duplicate/size limits, and the real QR-share HTTP server (auth, CSRF, traversal,
-upload, download, ranges and stop). Discovery tests exercise persistent podcast favourites,
+upload, download, ranges and stop). Reliability regressions add log rotation/privacy/permissions,
+low-RAM worker admission, active-cache cleanup/combined-spool budgets, durable checkpoint restart,
+checksum rejection, rehashed completion receipts and production offline browser SHA/resume code.
+The full verifier checks initialized App tools/asset coverage in all 39 owned shipped APKs, while
+retaining official VLC's separate native recorder/signature. Discovery tests exercise persistent podcast favourites,
 local filtering and the production two-row header with recording layout/event fakes; Music
 fixtures exercise actual artist-filter requests and artist-scoped songs/releases. The full
 verifier also covers ARMv7/API17 builds,
@@ -339,7 +397,7 @@ sharing directions on supported devices.
 
 ---
 
-### Earlier repairs retained in 2.6.5
+### Earlier repairs retained in 2.6.8
 
 These existing repairs are not new device-validation claims:
 
@@ -399,9 +457,11 @@ These existing repairs are not new device-validation claims:
      **`Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()`**, which run
      the original private methods reflectively inside a `catch (Throwable)` — a broken refresh or
      notification step now only loses that step while F-Droid stays open;
-   * appends every caught `Throwable` **plus** every uncaught crash to
-     `files/arc7-last-crash.txt` (tag `Arc7CrashGuard`, mirrored to logcat) via the
-     `installCrashGuard()` uncaught-exception handler installed at the first sync;
+   * records guarded failures and uncaught Java crashes in the **bounded private App tools
+     log**, using class/frame identifiers without exception messages, causes or repository
+     URLs, and delegates crashes to Android's previous handler. A private startup provider
+     preserves `FDroidApp`; the older raw `files/arc7-last-crash.txt` collector is retired
+     and that obsolete file is removed, not mirrored to logcat;
    * retypes **every `UpdateService.onHandleIntent()` catch handler to `java.lang.Throwable`**, so
      anything thrown *inside* the sync itself becomes a clean *"error updating repository"*
      status instead of a force-close;
@@ -469,7 +529,7 @@ Install in place; do not uninstall or clear app data to update.
 | File | Purpose |
 | --- | --- |
 | [KoboArc7Freedom.apk](releases/KoboArc7Freedom.apk) | Full **38-APK** offline maintenance bundle; open the app, then **PATCHES** |
-| [Upgrade My Kobo 2.6.5](releases/Upgrade-My-Kobo-To-v2.6.5.apk) | Same full suite bundled in a helper; does not force a patch screen |
+| [Upgrade My Kobo 2.6.8](releases/Upgrade-My-Kobo-To-v2.6.8.apk) | Same full suite bundled in a helper; does not force a patch screen |
 | [Home](releases/VanillaAndroid4Home.apk), [F-Droid](releases/FDroidClassicLegacy.apk), [Aurora](releases/AuroraStore.apk), [VLC](releases/VLC.apk) | Independent companion updates |
 | [YouTube](releases/YouTube.apk), [YouTube Music](releases/YouTubeMusic.apk) | Independent media updates |
 | `releases/apps/*.apk` | **32** generated default-app APKs; [identity/file index](split-apps/apps.tsv) |
@@ -502,9 +562,11 @@ Permanent certificate SHA-256:
    `Arc7Bridge.safeNotifyContentProviders()` / `safePerformUpdateNotification()` reflective
    `Throwable` guards, so a failing refresh/notification no longer force-closes the app; all
    in-sync handlers are retyped `Exception → Throwable`, the binary manifest gains
-   `largeHeap="true"`, an `Arc7CrashGuard` uncaught-exception handler appends every stack trace to
-   `files/arc7-last-crash.txt`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types
-   instead of throwing. These earlier patches remain in the current 1306 build.
+   `largeHeap="true"`, and `Arc7Bridge`/`BaseImageDownloader` reject bad URLs/types instead
+   of throwing. The earlier raw `files/arc7-last-crash.txt` collector has now been replaced
+   by the bounded, sanitized private App tools logger (including caught-operation and
+   uncaught-crash frames); its bootstrap preserves the original `FDroidApp`. The stability
+   repairs remain in the current 1306 build.
 
 ## What's New in `v2.5.0` (still included)
 

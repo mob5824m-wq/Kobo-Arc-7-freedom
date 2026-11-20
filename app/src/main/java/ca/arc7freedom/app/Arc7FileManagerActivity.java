@@ -79,7 +79,7 @@ public class Arc7FileManagerActivity extends Arc7Activity {
         Arc7Skin.Palette pal = Arc7Skin.current(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         LinearLayout topActions = new LinearLayout(this);
         topActions.setOrientation(LinearLayout.HORIZONTAL);
@@ -247,12 +247,42 @@ public class Arc7FileManagerActivity extends Arc7Activity {
         String folder = selected.getName().length() == 0 ? "Internal storage" : selected.getName();
         new AlertDialog.Builder(this)
                 .setTitle("Share “" + folder + "” with a QR code?")
-                .setMessage("This starts a local web share for this folder only. A computer or phone on the same Wi-Fi/LAN can scan the QR link to download files or upload files here. Anyone with the link can use it until you stop sharing or 30 minutes pass. The connection uses unencrypted HTTP; use a trusted network and do not share sensitive files.")
+                .setMessage("This starts a local web share for this folder only. A computer or phone on the same Wi-Fi/LAN can scan the QR link to download files or upload files here. Anyone with the link can use it until you stop sharing or 30 minutes pass. Uploads use resumable 1 MiB chunks (up to 4 GiB) and final SHA-256 verification. Interrupted transfers can be resumed by reselecting the same file, even after starting a new QR share for this exact folder. Recovery is allowed for seven days; pending bytes remain separate from temporary media cache. The connection uses unencrypted HTTP; use a trusted network and do not share sensitive files.")
                 .setPositiveButton("Start 30-minute share", new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface d, int which) { startQrFileShare(selected); }
                 })
+                .setNeutralButton("Pending uploads…", new DialogInterface.OnClickListener() {
+                    public void onClick(DialogInterface d,int which) { showPendingLanUploads(selected); }
+                })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    private void showPendingLanUploads(final File selected) {
+        if(Arc7QrFileShareService.isRunning()){Toast.makeText(this,"Stop the LAN share before managing its pending uploads.",Toast.LENGTH_LONG).show();return;}
+        new Thread(new Runnable(){public void run(){
+            try{
+                final Arc7ResumableUploads store=new Arc7ResumableUploads(selected,new File(getFilesDir(),"lan-uploads"));
+                final long[] usage=store.inspect();
+                runOnUiThread(new Runnable(){public void run(){if(isFinishing())return;
+                    new AlertDialog.Builder(Arc7FileManagerActivity.this).setTitle("Pending LAN uploads · this shared folder")
+                        .setMessage(usage[0]+" pending upload(s), "+String.format(Locale.US,"%.1f MiB",usage[1]/1048576.0)+" received.\n\nReselect the original file in the browser to resume. After seven days, recovery expires but partial bytes are kept until you explicitly discard them here. This never deletes a published file, optical QR receive data, downloads or vaults. Open the original shared root folder to manage uploads started elsewhere.")
+                        .setPositiveButton("Keep for resume",null)
+                        .setNegativeButton("Discard pending…",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){
+                            new AlertDialog.Builder(Arc7FileManagerActivity.this).setMessage("Permanently discard only the incomplete LAN uploads for this shared root? Saved files are never removed.")
+                                .setPositiveButton("Discard partial uploads",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){
+                                    new Thread(new Runnable(){public void run(){try{
+                                        Arc7QrFileShareService.discardPendingIfStopped(store);runOnUiThread(new Runnable(){public void run(){if(!isFinishing())Toast.makeText(Arc7FileManagerActivity.this,"Incomplete LAN uploads discarded; saved files retained.",Toast.LENGTH_LONG).show();}});
+                                    }catch(Exception e){lanPendingFailure(e);}}},"Arc7-LAN-Discard").start();
+                                }}).setNegativeButton("Cancel",null).show();
+                        }}).show();
+                }});
+            }catch(Exception e){lanPendingFailure(e);}
+        }},"Arc7-LAN-Pending").start();
+    }
+    private void lanPendingFailure(Exception error){
+        ca.arc7freedom.support.DebugLog.error("lan.pending_operation_failed",error);
+        runOnUiThread(new Runnable(){public void run(){if(!isFinishing())Toast.makeText(Arc7FileManagerActivity.this,"Pending uploads could not be changed. Stop sharing and retry; existing files were not removed.",Toast.LENGTH_LONG).show();}});
     }
 
     private void startQrFileShare(final File directory) {

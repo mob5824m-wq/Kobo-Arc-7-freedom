@@ -1,5 +1,9 @@
 package ca.arc7freedom.app;
 
+import ca.arc7freedom.support.MediaCache;
+import ca.arc7freedom.support.RuntimePolicy;
+import ca.arc7freedom.support.DebugLog;
+
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -113,8 +117,10 @@ public final class MorpheStreamServer {
         }
         if (!dir.exists()) dir.mkdirs();
         final File file = new File(dir, "morphe_" + id + ".mp4");
+        try { MediaCache.reserve(knownTotal); } catch (IOException budget) { DebugLog.error("media.cache_limit", budget); return ""; }
         final Job job = new Job(file, knownTotal, mimeType);
         synchronized (LOCK) {
+            if (RuntimePolicy.lowRam() && JOBS.size() >= RuntimePolicy.mediaJobs()) { job.lease.close(); DebugLog.event("media.profile_busy"); return ""; }
             JOBS.put(id, job);
             trimLocked();
         }
@@ -146,7 +152,9 @@ public final class MorpheStreamServer {
                         try { raf.close(); } catch (Throwable ignored) {}
                     }
                     // Cancellation can race worker startup, before the file even exists.
-                    if (job.cancelled) try { file.delete(); } catch (Throwable ignored) {}
+                    if (job.cancelled || job.failed) try { file.delete(); } catch (Throwable ignored) {}
+                    job.workerFinished = true;
+                    if (job.cancelled || job.failed) job.lease.close();
                 }
             }
         }, "MorpheMediaJob");
@@ -161,6 +169,7 @@ public final class MorpheStreamServer {
         int index = url.lastIndexOf("/play/");
         synchronized (LOCK) { return index < 0 ? null : JOBS.get(url.substring(index + 6)); }
     }
+    public static String getMimeType(String url) { Job job = jobFor(url); return job == null ? "" : job.mimeType; }
     public static String getPreparationStatus(String url) {
         Job job = jobFor(url);
         return job == null || job.done ? "" : job.stage;
@@ -228,6 +237,8 @@ public final class MorpheStreamServer {
         volatile String stage = "queued";
         volatile String error;
         volatile Thread worker;
+        volatile boolean workerFinished;
+        final MediaCache.Lease lease = MediaCache.lease();
 
         Job(File file, long total, String mimeType) {
             this.file = file;
@@ -237,6 +248,7 @@ public final class MorpheStreamServer {
         }
 
         synchronized void publish(long newWritten, long reportedTotal) {
+            try { MediaCache.checkBudget(); } catch (IOException budget) { throw new IllegalStateException(budget.getMessage(), budget); }
             if (cancelled) throw new IllegalStateException("Media preparation cancelled");
             // Unknown-output-length jobs can report INPUT/spool progress here. Do not
             // promote that to a promise to Stagefright or count unwritten output bytes.
@@ -254,11 +266,13 @@ public final class MorpheStreamServer {
         synchronized void finish(Throwable e) {
             if (cancelled) { notifyAll(); return; }
             long length = file.length();
+            if (e == null) try { MediaCache.checkBudget(); } catch (IOException budget) { e = budget; }
             if (e == null && !needsCompletedFile && length != total)
                 e = new IOException("Incomplete media output: " + length + " of " + total + " bytes");
             if (e != null) {
                 failed = true;
                 error = e.getClass().getSimpleName() + ": " + e.getMessage();
+                DebugLog.error("media.preparation_failed", e);
             } else {
                 total = length;
             }
@@ -284,6 +298,7 @@ public final class MorpheStreamServer {
                 toClose = new ArrayList<Socket>(clients);
                 notifyAll();
             }
+            if (workerFinished) lease.close();
             if (toInterrupt != null) toInterrupt.interrupt();
             for (Socket client : toClose) try { client.close(); } catch (IOException ignored) {}
         }

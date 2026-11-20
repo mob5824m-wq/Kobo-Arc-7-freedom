@@ -3,14 +3,15 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; media-src blob: mediastream:; img-src blob: data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>Arc7 · Offline QR bytes</title>
 <style>
-:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#f1f6fc;background:#101521}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:radial-gradient(at 10% 0%,#23445566,transparent 60%),radial-gradient(at 100% 70%,#50376844,transparent 60%);min-height:100vh;padding:32px 20px}main{max-width:1100px;margin:auto}small,.eyebrow{color:#9ecfd4}.eyebrow{font-size:12px;letter-spacing:.16em}h1{font-size:clamp(28px,4vw,44px);letter-spacing:-.04em;margin:10px 0}h2{font-size:20px;margin:0 0 10px}p{color:#b8c5d6;line-height:1.55}.intro{max-width:800px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:24px 0}.panel{border:1px solid #ffffff38;border-top-color:#ffffff80;border-radius:28px;padding:24px;background:linear-gradient(135deg,#ffffff15,#ffffff04 50%,#a1bfd411);box-shadow:0 14px 40px #0002;min-width:0}button,a.button,input,select{font:inherit;font-size:14px;border:1px solid #ffffff40;border-radius:20px;padding:10px 16px;background:#ffffff10;color:inherit;margin:4px 2px}button,a.button{cursor:pointer;display:inline-block;text-decoration:none}button:hover,a.button:hover{background:#ffffff24}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #87e6d6;outline-offset:3px}select option{background:#182333}input[type=file]{width:100%;border-style:dashed}input[type=number]{width:100px}canvas#qr{display:block;max-width:100%;width:390px;height:auto;margin:18px auto;background:white;image-rendering:pixelated}video{width:100%;max-height:400px;object-fit:contain;border-radius:18px;background:#05090f;margin:12px 0}#status{padding:16px 20px;border-radius:20px;border:1px solid #ffffff35;background:#ffffff08;color:#9df0da;overflow-wrap:anywhere}#consent{border:1px solid #8cdacb77;padding:16px;border-radius:18px}.info{font-size:12px;overflow-wrap:anywhere;min-height:18px}.warning{font-size:13px;border-left:2px solid #f1c58b;padding-left:14px}details{font-size:12px;color:#b8c5d6;margin:14px 0}pre{white-space:pre-wrap;max-height:220px;overflow:auto}summary{cursor:pointer}label{display:inline-block;color:#c3d1e2;font-size:13px}@media(max-width:760px){body{padding:24px 14px}.columns{grid-template-columns:1fr}.panel{padding:20px}}
+:root{color-scheme:dark;font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#f1f6fc;background:#101521}*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0;background:radial-gradient(at 10% 0%,#23445566,transparent 60%),radial-gradient(at 100% 70%,#50376844,transparent 60%);min-height:100vh;padding:32px 20px}main{max-width:1100px;margin:auto}small,.eyebrow{color:#9ecfd4}.eyebrow{font-size:12px;letter-spacing:.16em}h1{font-size:clamp(28px,4vw,44px);letter-spacing:-.04em;margin:10px 0}h2{font-size:20px;margin:0 0 10px}p{color:#b8c5d6;line-height:1.55}.intro{max-width:800px}.columns{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:24px 0}.panel{border:1px solid #ffffff38;border-top-color:#ffffff80;border-radius:28px;padding:24px;background:linear-gradient(135deg,#ffffff15,#ffffff04 50%,#a1bfd411);box-shadow:inset 0 1px 0 #ffffff70,inset 0 -1px 0 #bce8ff44,0 14px 40px #0002;min-width:0;backdrop-filter:blur(22px) saturate(145%);-webkit-backdrop-filter:blur(22px) saturate(145%)}button,a.button,input,select{font:inherit;font-size:14px;border:1px solid #ffffff40;border-radius:20px;padding:10px 16px;background:#ffffff10;color:inherit;margin:4px 2px}button,a.button{cursor:pointer;display:inline-block;text-decoration:none}button:hover,a.button:hover{background:#ffffff24}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #87e6d6;outline-offset:3px}select option{background:#182333}input[type=file]{width:100%;border-style:dashed}input[type=number]{width:100px}canvas#qr{display:block;max-width:100%;width:390px;height:auto;margin:18px auto;background:white;image-rendering:pixelated}video{width:100%;max-height:400px;object-fit:contain;border-radius:18px;background:#05090f;margin:12px 0}#status{padding:16px 20px;border-radius:20px;border:1px solid #ffffff35;background:#ffffff08;color:#9df0da;overflow-wrap:anywhere}#consent{border:1px solid #8cdacb77;padding:16px;border-radius:18px}.info{font-size:12px;overflow-wrap:anywhere;min-height:18px}.warning{font-size:13px;border-left:2px solid #f1c58b;padding-left:14px}details{font-size:12px;color:#b8c5d6;margin:14px 0}pre{white-space:pre-wrap;max-height:220px;overflow:auto}summary{cursor:pointer}label{display:inline-block;color:#c3d1e2;font-size:13px}@media(max-width:760px){body{padding:24px 14px}.columns{grid-template-columns:1fr}.panel{padding:20px}}
 </style></head><body><main>
 <div class="eyebrow">KOBO ARC 7 FREEDOM · OPTICAL TRANSFER</div><h1>Your file. Through the camera.</h1>
-<p class="intro">Actual file bytes travel across a repeating sequence of QR codes. No account, Wi-Fi connection, upload server or QR-reader service. Open this saved HTML file on the other computer or phone, or use <strong>Files → Receive QR bytes</strong> on the Kobo.</p>
-<p class="warning">Codes are not encrypted: anyone who can see them can copy the file. Keep devices awake. Designed for small documents, keys or photos; 1 MiB maximum. At the normal speed, 10 KiB takes roughly a minute, and missed frames need another loop. Use LAN sharing for large files.</p>
+<p class="intro">Actual file bytes travel across a repeating sequence of QR codes. No account, Wi-Fi connection, upload server or QR-reader service. Open this saved HTML file on the other computer or phone, or use <strong>QR Transfer → Receive</strong> (or Files → Receive QR bytes) on the Kobo.</p>
+<p class="warning">Codes are not encrypted: anyone who can see them can copy the file. Keep devices awake. Up to 64 MiB per file (legacy mode: 1 MiB). At Standard density and normal speed, 1 MiB takes about 27 minutes for one clean pass; 64 MiB can take over a day. Missed frames add time. The Kobo app keeps receive progress on disk; this webpage keeps unsaved progress only while open. Use LAN sharing when speed matters.</p>
 <div id="status" role="status" aria-live="polite">Ready · choose a file to send, or start the receiving camera</div>
 <div class="columns"><section class="panel"><h2>01 / Send bytes</h2><p>Select one file, then point the receiving device’s camera here. The header repeats every eight frames.</p>
 <label for="file">File to send (up to 1 MiB)</label><input id="file" type="file">
+<label for="density">QR density</label><select id="density"><option value="128">Easy focus · 128 bytes</option><option value="512" selected>Standard · 512 bytes</option><option value="1024">Dense · 1024 bytes (sharp camera)</option><option value="legacy">Legacy v1 · 1 MiB max</option></select><small>Changing profile restarts sending. Resume needs identical bytes, filename and profile.</small>
 <canvas id="qr" width="390" height="390" aria-label="Animated file-byte QR code"></canvas>
 <div><button id="prev">Previous</button><button id="play">Play loop</button><button id="next">Next</button></div>
 <div><label for="speed">Time per QR</label><select id="speed"><option value="1200">1.2 sec · easy focus</option><option value="700" selected>0.7 sec · normal</option><option value="350">0.35 sec · fast</option></select></div>
@@ -23,7 +24,7 @@
 <p class="info">The full SHA-256 hash must match before Save appears. Nothing is opened or installed automatically. Browser downloads may rename duplicate filenames.</p>
 <details><summary>Camera does not open?</summary><p>Allow this page to use the camera and close other camera apps. Browsers require HTTPS or localhost for camera access; opening a saved file directly works in some browsers but not all. Sending from a saved file works without camera access. For a completely offline setup, display codes here and receive them with the Kobo’s built-in Files camera. No BarcodeDetector API or external scanner app is required.</p></details>
 </section></div>
-<details><summary>Offline use & compatibility</summary><p>This file contains its QR encoder and decoder. It makes no network requests. Both devices must use Arc7 byte-transfer protocol v1, not a generic QR-link reader. Files on Android 4.0+ supports both directions, including front-only cameras. Browser receiving needs a current browser with camera access, TextEncoder and Web Crypto. Leaving this page pauses the loop and camera; unsaved data remains only while the page is open.</p></details>
+<details><summary>Offline use & compatibility</summary><p>This file contains its QR encoder and decoder. It makes no network requests. New Arc7 byte-transfer protocol v2 supports 64 MiB and 128/512/1024-byte density profiles. This page and the Kobo app receive v1 and v2; select Legacy to send to an older 1 MiB companion. Generic QR-link readers cannot reassemble these bytes. The separately installable QR-Transfer.apk and Files on Android 4.0+ support both directions, including front-only cameras. Native receivers can resume after closing: reopen Saved receives or rescan the same header, and reselect the identical file/name/profile at the sender. Browser receiving requires enough memory for the whole file. Browser receiving needs a current browser with camera access, TextEncoder and Web Crypto. Leaving this page pauses the loop and camera; unsaved data remains only while the page is open.</p></details>
 <details><summary>Open-source notices</summary><p>QR encoding: qrcode-generator 1.4.4, Copyright © 2009 Kazuhiko Arase, MIT. QR camera decoding: jsQR 1.4.0, Copyright © 2017 Cosmo Wolfe, Apache-2.0. This companion is part of Kobo Arc 7 Freedom.</p><pre>MIT License
 
 Copyright (c) 2009 Kazuhiko Arase
@@ -12648,16 +12649,17 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 
 /***/ })
 /******/ ])["default"];
-});</script><script>/* Arc7 optical byte protocol v1. Same framing/bounds as Arc7QrTransfer.java. No network APIs. */
+});</script><script>/* Arc7 optical bytes v2 (64 MiB); receives v1 and can send legacy 1 MiB frames. No network APIs. */
 (function (root) {
   'use strict';
-  const CHUNK = 128, MAX = 1048576, encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal:true});
+  const CHUNK = 512, MAX = 64 * 1048576, LEGACY_MAX = 1048576, MAX_TEXT = 1472;
+  const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', {fatal:true});
   const crypt = root.crypto || (typeof require === 'function' ? require('node:crypto').webcrypto : null);
   const assert = (ok, text) => { if (!ok) throw new Error(text); };
   const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   const b64 = bytes => btoa(Array.from(bytes, b => String.fromCharCode(b)).join(''));
   const unb64 = text => {
-    assert(text.length <= 172 && text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text), 'Invalid base64');
+    assert(text.length <= 1368 && text.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(text), 'Invalid base64');
     const bytes = Uint8Array.from(atob(text), c => c.charCodeAt(0));
     assert(b64(bytes) === text, 'Noncanonical base64'); return bytes;
   };
@@ -12669,9 +12671,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     }
     return ((value ^ -1) >>> 0).toString(16).padStart(8, '0');
   };
-  const seal = body => { const text = body + '|' + crc(body); assert(text.length <= 271, 'QR exceeds capacity'); return text; };
-  const count = size => Math.max(1, Math.ceil(size / CHUNK));
-  const number = (text, low, high) => { assert(/^(0|[1-9][0-9]{0,6})$/.test(text), 'Invalid frame number'); const n = Number(text); assert(n >= low && n <= high, 'Frame value out of bounds'); return n; };
+  const seal = body => { const text = body + '|' + crc(body); assert(text.length <= (body.startsWith('A7Q1|') ? 271 : MAX_TEXT), 'QR exceeds capacity'); return text; };
+  const count = (size, chunk) => Math.max(1, Math.ceil(size / chunk));
+  const number = (text, low, high) => { assert(/^(0|[1-9][0-9]{0,8})$/.test(text), 'Invalid frame number'); const n = Number(text); assert(n >= low && n <= high, 'Frame value out of bounds'); return n; };
+  const density = (chunk, version) => { assert(version === 1 ? chunk === 128 : [128,512,1024].includes(chunk), 'Unsupported QR density'); return chunk; };
   const safeName = name => {
     let n = String(name).replace(/[\x00-\x1f\x7f/\\:|]/g, '_').replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '').replace(/^\.+/, '') || 'received-file';
     let points = Array.from(n);
@@ -12682,54 +12685,70 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     assert(crypt && crypt.subtle, 'SHA-256 requires a secure browser context. Open this local HTML file directly, or use HTTPS/localhost.');
     return hex(new Uint8Array(await crypt.subtle.digest('SHA-256', bytes)));
   };
+  const headerText = m => seal(['A7Q'+m.version,'M',m.id,m.size,m.chunk,m.total,m.sha256,b64(encoder.encode(m.name))].join('|'));
   function parse(text) {
-    assert(typeof text === 'string' && text.length <= 271 && text.startsWith('A7Q1|'), 'Not an Arc7 byte-transfer QR');
+    assert(typeof text === 'string' && text.length <= MAX_TEXT && /^A7Q[12]\|/.test(text), 'Not an Arc7 byte-transfer QR');
+    const version = Number(text.charAt(3)), maximum = version === 1 ? LEGACY_MAX : MAX;
+    assert(version !== 1 || text.length <= 271, 'Legacy QR frame is too large');
     const last = text.lastIndexOf('|'), body = text.slice(0,last), parts = body.split('|');
     assert(crc(body) === text.slice(last+1), 'Frame CRC mismatch; rescan');
-    const [version, kind, id] = parts;
+    const kind = parts[1], id = parts[2];
     assert(/^[0-9a-f]{16}$/.test(id), 'Invalid transfer ID');
     if (kind === 'M' && parts.length === 8) {
-      const size = number(parts[3],0,MAX), chunk = number(parts[4],CHUNK,CHUNK), total = number(parts[5],1,MAX/CHUNK);
+      const size = number(parts[3],0,maximum), chunk = density(number(parts[4],128,1024),version), total = number(parts[5],1,maximum/chunk);
       const nameBytes = unb64(parts[7]), name = decoder.decode(nameBytes), sha256 = parts[6];
-      assert(total === count(size) && /^[0-9a-f]{64}$/.test(sha256) && nameBytes.length > 0 && nameBytes.length <= 96
+      assert(total === count(size,chunk) && /^[0-9a-f]{64}$/.test(sha256) && nameBytes.length > 0 && nameBytes.length <= 96
         && safeName(name) === name && b64(encoder.encode(name)) === parts[7], 'Unsafe file metadata');
-      return {manifest:true,id,size,total,name,sha256};
+      return {manifest:true,version,chunk,id,size,total,name,sha256};
     }
-    assert(kind === 'D' && parts.length === 6, 'Unknown QR protocol frame');
-    const total = number(parts[4],1,MAX/CHUNK), index = number(parts[3],0,total-1), bytes = unb64(parts[5]);
-    assert(bytes.length <= CHUNK, 'Payload too large'); return {manifest:false,id,total,index,bytes};
+    assert(kind === 'D' && parts.length === (version===1 ? 6 : 7), 'Unknown QR protocol frame');
+    const chunk = version===1 ? 128 : density(number(parts[5],128,1024),version);
+    const total = number(parts[4],1,maximum/chunk), index = number(parts[3],0,total-1), bytes = unb64(parts[version===1?5:6]);
+    assert(bytes.length <= chunk, 'Payload too large'); return {manifest:false,version,chunk,id,total,index,bytes};
   }
-  async function sender(bytes, name, requestedId) {
-    bytes = Uint8Array.from(bytes); assert(bytes.length <= MAX, 'Optical transfer limit is 1 MiB. Use LAN sharing for large files.');
-    const sha256 = await digest(bytes), id = requestedId || hex(crypt.getRandomValues(new Uint8Array(8)));
+  async function sender(bytes, name, requestedId, options) {
+    options = options || {}; const version=options.legacy ? 1 : 2, chunk=density(options.chunk || (version===1?128:CHUNK),version);
+    assert(bytes && Number.isInteger(bytes.length) && bytes.length >= 0, 'Expected file bytes');
+    assert(bytes.length <= (version===1?LEGACY_MAX:MAX), version===1 ? 'Compatibility mode supports 1 MiB. Choose Standard or Dense for larger files.' : 'Optical transfer limit is 64 MiB.');
+    bytes = Uint8Array.from(bytes);
+    const sha256 = await digest(bytes), safe = safeName(name);
+    // Content/name/profile identity matches Android, enabling receiver resume after reopening the sender.
+    const id = requestedId || (await digest(encoder.encode(sha256+'\n'+safe+'\n'+version+'\n'+chunk))).slice(0,16);
     assert(/^[0-9a-f]{16}$/.test(id), 'Invalid transfer ID');
-    const size = bytes.length, total = count(size), safe = safeName(name);
-    return {size,total,name:safe,sha256,id,
-      manifest:() => seal(['A7Q1','M',id,size,CHUNK,total,sha256,b64(encoder.encode(safe))].join('|')),
-      data:index => { assert(Number.isInteger(index) && index >= 0 && index < total, 'Frame out of range'); return seal(['A7Q1','D',id,index,total,b64(bytes.slice(index*CHUNK,(index+1)*CHUNK))].join('|')); }
-    };
+    const size = bytes.length, total = count(size,chunk);
+    const m = {size,total,name:safe,sha256,id,version,chunk};
+    return Object.assign(m, {
+      manifest:() => headerText(m),
+      data:index => {
+        assert(Number.isInteger(index) && index >= 0 && index < total, 'Frame out of range');
+        const fields=['A7Q'+version,'D',id,index,total]; if(version===2)fields.push(chunk);
+        fields.push(b64(bytes.subarray(index*chunk,Math.min(size,(index+1)*chunk)))); return seal(fields.join('|'));
+      }
+    });
   }
   class Receiver {
     constructor(header) {
       assert(header && header.manifest, 'Scan a header first');
-      // Re-parse through the public wire format before allocating from untrusted metadata.
-      const meta = parse(seal(['A7Q1','M',header.id,header.size,CHUNK,header.total,header.sha256,b64(encoder.encode(header.name))].join('|')));
-      this.metadata = meta; this.bytes = new Uint8Array(meta.size); this.seen = new Set(); this.verified = false;
+      const meta = parse(headerText(header));
+      this.metadata = meta; this.bytes = new Uint8Array(meta.size); this.verified = false;
+      // Bounded bitmap, not a Set of hundreds of thousands of JS heap objects.
+      const bits=new Uint8Array(Math.ceil(meta.total/8));
+      this.seen={size:0,has:index => !!(bits[index>>>3] & (1<<(index&7))),add:index=>{bits[index>>>3]|=1<<(index&7);this.seen.size++;}};
     }
     accept(frame) {
       const m = this.metadata;
-      assert(frame.id === m.id && frame.total === m.total, 'Different transfer; reset before receiving another file');
+      assert(frame.id === m.id && frame.total === m.total && frame.version===m.version && frame.chunk===m.chunk, 'Different transfer/profile; reset before receiving another file');
       if (frame.manifest) { assert(frame.sha256 === m.sha256 && frame.size === m.size && frame.name === m.name, 'Conflicting header'); return false; }
-      const expected = Math.max(0,Math.min(CHUNK,m.size-frame.index*CHUNK));
-      assert(frame.index >= 0 && frame.index < m.total && frame.bytes.length === expected, 'Incorrect frame length');
-      if (this.seen.has(frame.index)) { assert(frame.bytes.every((b,i) => this.bytes[frame.index*CHUNK+i] === b), 'Conflicting duplicate frame; reset and resend'); return false; }
-      this.bytes.set(frame.bytes,frame.index*CHUNK); this.seen.add(frame.index); this.verified = false; return true;
+      const expected = Math.max(0,Math.min(m.chunk,m.size-frame.index*m.chunk));
+      assert(Number.isInteger(frame.index) && frame.index >= 0 && frame.index < m.total && frame.bytes.length === expected, 'Incorrect frame length');
+      if (this.seen.has(frame.index)) { assert(frame.bytes.every((b,i) => this.bytes[frame.index*m.chunk+i] === b), 'Conflicting duplicate frame; reset and resend'); return false; }
+      this.bytes.set(frame.bytes,frame.index*m.chunk); this.seen.add(frame.index); this.verified = false; return true;
     }
     complete() { return this.seen.size === this.metadata.total; }
     missing() { const n = []; for (let i=0;i<this.metadata.total && n.length<12;i++) if (!this.seen.has(i)) n.push(i+1); return n.join(', ') + (this.metadata.total-this.seen.size>12?' …':''); }
     async verify() { assert(this.complete(),'Frames are still missing'); assert(await digest(this.bytes) === this.metadata.sha256,'File SHA-256 mismatch. Nothing was saved. Reset and resend.'); this.verified = true; return this.bytes; }
   }
-  const api = {CHUNK,MAX,parse,sender,Receiver,safeName,crc,seal,digest};
+  const api = {CHUNK,MAX,LEGACY_MAX,MAX_TEXT,parse,sender,Receiver,safeName,crc,seal,digest};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Arc7Optical = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);
@@ -12753,7 +12772,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     for (let y=0;y<size;y++) for (let x=0;x<size;x++) if (code.isDark(y,x)) c.fillRect((x+4)*cell,(y+4)*cell,cell,cell);
     displayed = next;
     message(tx.name + ' · ' + (displayed < 0 ? 'file header' : 'frame '+(displayed+1)+' / '+tx.total));
-    $('sendInfo').textContent = tx.size+' bytes · SHA-256 '+tx.sha256;
+    $('sendInfo').textContent = tx.size+' bytes · '+tx.chunk+' bytes/QR · one clean pass ≈ '+Math.max(1,Math.ceil(tx.total*Number($('speed').value)*1.125/60000))+' min at this speed (missed frames add time). SHA-256 '+tx.sha256;
     if (next < 0) next = pending;
     else if (next+1 >= tx.total) { pending=0; next=-1; }
     else if ((next+1)%8===0) { pending=next+1; next=-1; }
@@ -12782,7 +12801,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         canvas.width=Math.round(video.videoWidth*scale); canvas.height=Math.round(video.videoHeight*scale);
         const c=canvas.getContext('2d',{willReadFrequently:true}); c.drawImage(video,0,0,canvas.width,canvas.height);
         const image=c.getImageData(0,0,canvas.width,canvas.height), result=jsQR(image.data,image.width,image.height,{inversionAttempts:'dontInvert'});
-        if (result && result.data.startsWith('A7Q1|')) acceptText(result.data);
+        if (result && /^A7Q[12]\|/.test(result.data)) acceptText(result.data);
       }
     } catch (error) { failure(error); }
     if (scanning && request===cameraGeneration) setTimeout(()=>scanLoop(request),170);
@@ -12811,15 +12830,20 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
       }).catch(error=>{if(request===receiveGeneration)failure(error);}).finally(()=>{if(request===receiveGeneration)verifying=false;});
     }
   }
-  $('file').addEventListener('change',async event=>{
+  async function prepareFile() {
+    stopSend(); tx=null; const request=++fileGeneration, file=$('file').files[0];
+    if(!file) return;
     try {
-      stopSend(); const request=++fileGeneration; const file=event.target.files[0]; if(!file) return;
-      if(file.size>protocol.MAX) throw new Error('Choose a file up to 1 MiB; optical QR is slow. Use LAN sharing for larger files.');
-      const ready=await protocol.sender(new Uint8Array(await file.arrayBuffer()),file.name);
+      const legacy=$('density').value==='legacy', chunk=legacy?128:Number($('density').value);
+      if(file.size>(legacy?protocol.LEGACY_MAX:protocol.MAX)) throw new Error(legacy ? 'Compatibility mode supports 1 MiB; choose Standard or Dense for larger files.' : 'Choose a file up to 64 MiB. Large optical transfers can take hours; use LAN sharing when speed matters.');
+      message('Preparing '+file.name+' · calculating SHA-256 locally…');
+      const ready=await protocol.sender(new Uint8Array(await file.arrayBuffer()),file.name,undefined,{legacy,chunk});
       if(request!==fileGeneration) return;
       tx=ready; next=-1; pending=0; playing=true; $('play').textContent='Pause'; showFrame();
-    } catch(error) { failure(error); }
-  });
+    } catch(error) { if(request===fileGeneration)failure(error); }
+  }
+  $('file').addEventListener('change',prepareFile);
+  $('density').addEventListener('change',prepareFile);
   $('play').onclick=()=>{ if(!tx) return; if(playing) stopSend(); else { playing=true; $('play').textContent='Pause'; showFrame(); } };
   $('prev').onclick=()=>{if(!tx)return;stopSend();next=Math.max(-1,displayed-1);showFrame();};
   $('next').onclick=()=>{if(!tx)return;stopSend();next=Math.min(tx.total-1,displayed+1);showFrame();};

@@ -263,10 +263,7 @@ public class Arc7WallpaperPickerActivity extends Arc7Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         b.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(bgColor);
-        gd.setCornerRadius(dp(7));
-        gd.setStroke(dp(1), 0x44FFFFFF);
+        GradientDrawable gd = Arc7Skin.buttonDrawable(this, bgColor, 26);
         b.setBackgroundDrawable(gd);
         return b;
     }

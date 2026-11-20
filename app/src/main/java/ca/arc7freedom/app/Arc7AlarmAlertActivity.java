@@ -186,10 +186,7 @@ public class Arc7AlarmAlertActivity extends Arc7Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         b.setTypeface(Typeface.DEFAULT_BOLD);
-        GradientDrawable gd = new GradientDrawable();
-        gd.setColor(bgColor);
-        gd.setCornerRadius(dp(14));
-        gd.setStroke(dp(2), 0x66FFFFFF);
+        GradientDrawable gd = Arc7Skin.buttonDrawable(this, bgColor, 28);
         b.setBackgroundDrawable(gd);
         b.setOnTouchListener(new View.OnTouchListener() {
             @Override

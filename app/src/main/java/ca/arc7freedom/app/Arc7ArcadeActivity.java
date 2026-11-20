@@ -87,7 +87,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         Button newBtn = Arc7Skin.actionButton(this, "↻ New Game", 0xFF059669);
         newBtn.setOnClickListener(new View.OnClickListener() {

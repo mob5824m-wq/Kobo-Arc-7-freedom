@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Zero-Cable, Zero-Driver, Zero-SSL Local Home Wi-Fi & Live Web Installer Server
-for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.6.5`).
+for Kobo Arc 7 & Kobo Arc 7HD (`tools/serve-over-wifi.py` — `v2.6.8`).
 
 Fixes all common home-network, OS firewall, WSL2/container, and 2013 Android 4.2
 Stock Browser (`DownloadManager`) failure modes:
@@ -41,7 +41,7 @@ RELEASES_DIR = os.environ.get("ARC7_SERVE_DIR") or os.path.join(ROOT_DIR, "relea
 TOOLS_DIR = os.path.join(ROOT_DIR, "tools")
 APP_ICON_DIR = os.path.join(ROOT_DIR, "app", "src", "main", "res", "drawable-xhdpi")
 DEFAULT_PORT = 8000
-UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.6.5.apk"
+UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.6.8.apk"
 GITHUB_REPO = "mob5824m-wq/Kobo-Arc-7-freedom"
 GITHUB_LATEST_BASE = f"https://github.com/{GITHUB_REPO}/releases/latest/download"
 GITHUB_RAW_ROOT = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
@@ -56,6 +56,18 @@ IMAGE_MIMES = {
     ".ico": "image/x-icon",
     ".bmp": "image/bmp",
 }
+
+# Legacy WebKit keeps readable RGBA fallbacks; modern browsers add actual CSS backdrop blur.
+GLASS_CSS = """
+body{background:#111c2f;background-image:radial-gradient(ellipse at 5% 5%,rgba(73,147,195,.34),transparent 62%),radial-gradient(ellipse at 100% 50%,rgba(166,132,205,.18),transparent 65%);background-attachment:fixed;padding:28px 18px}
+.wrap{max-width:860px}.card{background:rgba(31,47,70,.50);border:1px solid rgba(233,246,255,.32);border-top-color:rgba(255,255,255,.8);border-radius:30px;padding:26px;margin-bottom:22px;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 -1px 0 rgba(184,226,255,.22),0 18px 45px rgba(4,12,24,.22);-webkit-backdrop-filter:blur(22px) saturate(145%);backdrop-filter:blur(22px) saturate(145%)}
+h1{color:#ecf6ff;letter-spacing:-.025em;font-size:26px}h2{color:#c1e6ff;font-weight:500;font-size:19px}p,li{line-height:1.65;color:#d9e5f2}
+.btn,.app-row{border-radius:24px;border:1px solid rgba(255,255,255,.34);border-top-color:rgba(255,255,255,.7);box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 4px 12px rgba(4,12,24,.1);font-weight:500;transition:background .15s}
+.btn.secondary,.btn.subtle,.app-row{background:rgba(170,201,232,.10)}.btn.primary{background:rgba(22,112,181,.75)}.btn.win{background:rgba(18,111,92,.66)}.btn.mac{background:rgba(57,83,155,.55)}.btn:hover,.app-row:hover{background:rgba(160,207,255,.22)}.btn:focus,.app-row:focus{outline:2px solid #a6ddff;outline-offset:3px}
+.url-pill,.banner,.xfer{border-radius:24px}.url-pill{background:rgba(120,184,230,.12);border:1px solid #b7dcff}.app-desc{margin:4px 12px 16px;color:#adc2dc}.app-row .app-size{color:#b7c9de}.btn-inline{border-radius:22px}code{border-radius:8px}
+@media(max-width:500px){body{padding:16px 10px}.card{padding:20px;border-radius:26px}}
+@media(prefers-reduced-motion:reduce){.btn,.app-row{transition:none}}
+"""
 
 _STATE_LOCK = threading.Lock()
 _TRANSFERS = {
@@ -301,7 +313,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             upgrader_html = (
                 f"<div class='dl-group' style='border:1px solid #10b981;padding:12px;border-radius:12px;background:#071915;margin-bottom:12px;'>"
                 f"<div style='color:#6ee7b7;font-size:13px;font-weight:bold;margin-bottom:8px;'>"
-                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.6.5 — IN-PLACE UPDATES + notification ownership / legacy proxy repairs + separate YouTube / YouTube Music HLS/DASH pipeline (live playback needs tablet testing)):</div>"
+                f"&#9889; 1-TAP OVER-THE-AIR UPGRADE &amp; ROOT INSTALLER (v2.6.8 — IN-PLACE UPDATES + notification ownership / legacy proxy repairs + separate YouTube / YouTube Music HLS/DASH pipeline (live playback needs tablet testing)):</div>"
                 f"<a class='btn primary' href='{link}'>"
                 f"{ico}<span>&#11015; 1-Tap OTA Root &amp; Upgrade — {UPGRADER_APK_NAME} ({size_txt})</span></a>"
                 + (
@@ -317,7 +329,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             main_html = (
                 f"<div class='dl-group'>"
                 f"<a class='btn primary' href='{link}'>"
-                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.6.5 ({size_txt}) — complete offline patch bundle: Home + stores + YouTube + all 32 default apps</span></a>"
+                f"{ico}<span>&#11015; Install / Direct Update: KoboArc7Freedom.apk v2.6.8 ({size_txt}) — complete offline patch bundle: Home + stores + YouTube + all 32 default apps</span></a>"
                 + (
                     f"<a class='btn subtle' href='./raw/{urllib.parse.quote(fname)}'>"
                     f"&#128295; Alternate Direct Binary Stream (tap this if Kobo Browser says &ldquo;Cannot download&rdquo;)</a>"
@@ -330,13 +342,13 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             ico = _icon_img("ic_youtube.png", "YouTube", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}'>"
-                f"{ico}<span>&#11015; Download the SEPARATE YouTube app (`ca.arc7freedom.youtube`, v2.6.5 — 2026 DASH remux playback) — YouTube.apk ({size_txt})</span></a>"
+                f"{ico}<span>&#11015; Download the SEPARATE YouTube app (`ca.arc7freedom.youtube`, v2.6.8 — 2026 DASH remux playback) — YouTube.apk ({size_txt})</span></a>"
             )
         elif fname == "YouTubeMusic.apk":
             ico = _icon_img("ic_ytmusic.png", "YouTube Music", 32)
             apk_buttons.append(
                 f"<a class='btn secondary' href='{link}'>"
-                f"{ico}<span>&#11015; Download the SEPARATE YouTube Music app (`ca.arc7freedom.ytmusic`, v2.6.5 — screen-off AAC) — YouTubeMusic.apk ({size_txt})</span></a>"
+                f"{ico}<span>&#11015; Download the SEPARATE YouTube Music app (`ca.arc7freedom.ytmusic`, v2.6.8 — screen-off AAC) — YouTubeMusic.apk ({size_txt})</span></a>"
             )
         elif fname == "VLC.apk":
             ico = _icon_img("ic_vlc.png", "VLC", 32)
@@ -412,7 +424,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "shield": "ic_shield", "boost": "ic_boost", "secondscreen": "ic_split",
             "splitview": "ic_splitview", "streamdeck": "ic_streamdeck",
             "dictionarywiki": "ic_wiki", "vpn": "ic_vpn", "wiredinternet": "ic_wired_net",
-            "packageinstaller": "ic_apk_installer", "bluetoothinternet": "ic_bluetooth",
+            "packageinstaller": "ic_apk_installer", "qrtransfer": "ic_qrtransfer",
         }.get(key, "ic_apk_installer")
         icon_html = _icon_img(f"{icon_file}.png", label, 32) if resolve_icon_path(f"{icon_file}.png") else ""
         status = "" if present else " <i style='color:#94a3b8;'>(from GitHub release)</i>"
@@ -468,7 +480,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "<b>&#9888; Running Inside Windows WSL2 (NAT Subnet Detected):</b><br>"
             "WSL2 uses a private virtual IP unreachable from Wi-Fi tablets by default. "
             "Click <b>1-Click Windows Home Wi-Fi Server (.bat)</b> below and double-click it directly in Windows — "
-            "it opens Windows Firewall automatically and needs <b>zero Python</b>!"
+            "allow Windows Firewall on Private networks if prompted; it needs <b>zero Python</b>!"
             "</div>"
         )
     else:
@@ -619,10 +631,11 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         ".app-row .app-dl{float:right;color:#38bdf8;font-size:13px;font-weight:bold;}"
         ".app-desc{color:#94a3b8;font-size:12.5px;margin:0 0 10px 4px;line-height:1.45;}"
         ".lite a{display:block;padding:9px 0;color:#7dd3fc;font-size:15px;}"
-        "</style></head><body><div class='wrap'>"
+        + GLASS_CSS
+        + "</style></head><body><div class='wrap'>"
         + logo_html
         + "<div class='card'>"
-        "<h1>Kobo Arc 7 Freedom v2.6.5 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
+        "<h1>Kobo Arc 7 Freedom v2.6.8 — Over-The-Air Rooting &amp; Local Web Installer Portal</h1>"
         "<p>Live Direct OTA APK Downloads (Zero Redirects!) &bull; YouTube &amp; YouTube Music (Morphe Edition) &bull; "
         "Official Tailscale Google Sign-In &bull; Universal Standby Audio &bull; Fixed F-Droid v1306 &bull; VLC &amp; Aurora Store v4.8.5</p>"
         + featured_apps_strip
@@ -641,7 +654,8 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "<p>Files can transfer actual file bytes through repeated QR frames, with no shared network. "
         "Long-press a file in Files and choose <b>Send file bytes via QR</b>, then open <b>Receive QR bytes</b> "
         "on the other Kobo, or use this self-contained browser companion on a computer/phone. "
-        "1 MiB maximum; use LAN sharing for large files. Codes are not encrypted.</p>"
+        "The native <b>QR Transfer</b> app has a file picker, three densities and resumable on-disk receiving. "
+        "Up to 64 MiB (legacy: 1 MiB); optical transfers are slow, so use LAN sharing for speed. Codes are not encrypted.</p>"
         "<a class='btn mac' href='./qr-transfer.html' download='qr-transfer.html'>Download offline QR byte-transfer companion</a>"
         "<p>Save the HTML file and open it locally. Browser camera reception requires a secure context "
         "(HTTPS/localhost; local files work in some browsers). Displaying codes for the Kobo camera works offline.</p></div>"
@@ -658,8 +672,13 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         + "<div class='card'>"
         "<h2>&#128246; Method A — 1-Click Home Wi-Fi Installer (No USB Cable, No MicroSD, No Python Needed!)</h2>"
         "<p>Download &amp; run the 1-click launcher on any computer connected to the <b>same Wi-Fi</b> as your Kobo Arc 7. "
-        "It automatically opens your firewall, displays your exact <code>http://192.168.x.x:8000</code> address, "
+        "It displays your <code>http://192.168.x.x:8000</code> address. Allow Windows Firewall on Private networks if prompted; "
         "and serves all images, icons &amp; APKs cleanly over zero-SSL HTTP straight to Kobo's Browser:</p>"
+        "<a class='btn primary' href='./Windows-Tools.zip' download='Windows-Tools.zip'>Windows tools ZIP · Extract All first</a>"
+        "<p>Includes all launchers, the pinned PowerShell helper, the offline QR webpage and instructions. "
+        "No administrator access or Python needed for Wi-Fi / USB / backup. PC Stream Deck needs Python 3.9+. "
+        "Use the ZIP from the same build; individual launchers stop if the helper version does not match.</p>"
+        "<a class='btn subtle' href='./WINDOWS-TOOLS.md'>Windows setup &amp; troubleshooting</a>"
         f"<a class='btn win' href='{bat_href}'>&#129695; Download 1-Click Windows Home Wi-Fi Server (Start-Kobo-WiFi-Server.bat — Zero Python Needed!)</a>"
         f"<a class='btn mac' href='{sh_href}'>&#128039; Download 1-Click macOS / Linux Home Wi-Fi Server (Start-Kobo-WiFi-Server.sh)</a>"
         "<ol>"
@@ -1023,7 +1042,6 @@ def write_static_pages() -> None:
     os.makedirs(RELEASES_DIR, exist_ok=True)
     icons_dir = os.path.join(RELEASES_DIR, "icons")
     os.makedirs(icons_dir, exist_ok=True)
-    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.bat"), os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.bat"))
     shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh"))
     os.chmod(os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
 
@@ -1064,7 +1082,7 @@ def main() -> None:
 
     lan_ips, env_kind = detect_environment_and_lan_ips()
     print("=" * 70)
-    print("  Kobo Arc 7 Freedom v2.6.5 — Zero-SSL Local Web Installer READY!")
+    print("  Kobo Arc 7 Freedom v2.6.8 — Zero-SSL Local Web Installer READY!")
     if env_kind == "lan" and lan_ips:
         print("  Open Browser on your Kobo Arc 7 and type (plain http://):")
         for ip in lan_ips:

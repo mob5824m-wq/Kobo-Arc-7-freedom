@@ -72,7 +72,7 @@ public class Arc7DictionaryWikiActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         Button saveOfflineBtn = Arc7Skin.actionButton(this, "★ Save Article Offline", 0xFFD97706);
         saveOfflineBtn.setOnClickListener(new View.OnClickListener() {

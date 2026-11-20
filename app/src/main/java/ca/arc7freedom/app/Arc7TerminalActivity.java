@@ -193,9 +193,7 @@ public class Arc7TerminalActivity extends Arc7Activity {
 
     @SuppressWarnings("deprecation")
     private void refreshPromptUi() {
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(5));
-        bg.setColor(Color.parseColor(rootMode ? "#DC2626" : "#0284C7"));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(rootMode ? "#DC2626" : "#0284C7"), 24);
         btnPrivilegeMode.setBackgroundDrawable(bg);
         btnPrivilegeMode.setText(rootMode ? "ROOT (#)" : "USER ($)");
         lblPrompt.setTextColor(Color.parseColor(rootMode ? "#FCA5A5" : "#38BDF8"));
@@ -210,9 +208,7 @@ public class Arc7TerminalActivity extends Arc7Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
         b.setPadding(dp(9), dp(5), dp(9), dp(5));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(5));
-        bg.setColor(Color.parseColor(hex));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(hex), 24);
         b.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

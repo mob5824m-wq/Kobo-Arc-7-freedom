@@ -83,7 +83,7 @@ public class Arc7WeatherActivity extends Arc7Activity {
         pal=Arc7Skin.current(this); units=Arc7WeatherStore.units(this);
         if (saved!=null) { tab=Math.max(0,Math.min(5,saved.getInt("tab",0))); chartMode=saved.getInt("chart",0); }
         if (getIntent().hasExtra("weather_tab")) tab=Math.max(0,Math.min(5,getIntent().getIntExtra("weather_tab",0)));
-        LinearLayout root=column(); root.setBackgroundColor(pal.bgPage);
+        LinearLayout root=column(); root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
         root.addView(Arc7Skin.buildAppTopBar(this,pal,R.drawable.ic_weather,"Weather","Your places \u00b7 Hourly & 14-day forecasts",null));
         LinearLayout actions=new LinearLayout(this);
         action(actions,"Cities",new Runnable() { public void run() { showCities(); } });

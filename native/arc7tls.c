@@ -49,6 +49,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "arc7socket.h"
+
 #include <bearssl.h>
 
 #include <mbedtls/ctr_drbg.h>
@@ -2301,7 +2303,11 @@ static void stream_https_bridge(int client_fd,
             line = eol + 2;
         }
         opos += (size_t)snprintf(out_hdr + opos, sizeof(out_hdr) - opos, "Connection: close\r\n\r\n");
-        send(client_fd, out_hdr, opos, MSG_NOSIGNAL);
+        if (arc7_send_all(client_fd, out_hdr, opos) != 0) {
+            free(post_body); free(req); free(hdr); free(buf);
+            tls_conn_free(&conn);
+            return;
+        }
 
         if (is_head || status_code == 304 || status_code == 204) {
             free(post_body);
@@ -2312,7 +2318,7 @@ static void stream_https_bridge(int client_fd,
 
         size_t leftover_len = hdr_used - (size_t)body_pos;
         if (!is_chunked) {
-            if (leftover_len > 0 && send(client_fd, hdr + body_pos, leftover_len, MSG_NOSIGNAL) <= 0) {
+            if (leftover_len > 0 && arc7_send_all(client_fd, hdr + body_pos, leftover_len) != 0) {
                 free(post_body);
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
@@ -2321,7 +2327,7 @@ static void stream_https_bridge(int client_fd,
             for (;;) {
                 int n = tls_read_some(&conn, buf, 32768);
                 if (n <= 0) break;
-                if (send(client_fd, buf, (size_t)n, MSG_NOSIGNAL) <= 0) break;
+                if (arc7_send_all(client_fd, buf, (size_t)n) != 0) break;
             }
         } else {
             size_t cap_dyn = leftover_len + 65536;
@@ -2362,7 +2368,7 @@ static void stream_https_bridge(int client_fd,
                     }
                     size_t avail = cused > line_len ? cused - line_len : 0;
                     size_t to_write = avail < chunk_sz ? avail : chunk_sz;
-                    if (to_write > 0 && send(client_fd, cbuf + line_len, to_write, MSG_NOSIGNAL) <= 0) break;
+                    if (to_write > 0 && arc7_send_all(client_fd, cbuf + line_len, to_write) != 0) break;
                     size_t consume = line_len + chunk_sz + 2;
                     if (cused >= consume) {
                         memmove(cbuf, cbuf + consume, cused - consume);
@@ -2637,7 +2643,7 @@ static void stream_raw_for_arc7_browser(int client_fd,
 
         size_t leftover_len = hdr_used - (size_t)body_pos;
         if (!is_chunked) {
-            if (leftover_len > 0 && send(client_fd, hdr + body_pos, leftover_len, MSG_NOSIGNAL) <= 0) {
+            if (leftover_len > 0 && arc7_send_all(client_fd, hdr + body_pos, leftover_len) != 0) {
                 free(req); free(hdr); free(buf);
                 tls_conn_free(&conn);
                 return;
@@ -2645,7 +2651,7 @@ static void stream_raw_for_arc7_browser(int client_fd,
             for (;;) {
                 int n = tls_read_some(&conn, buf, 32768);
                 if (n <= 0) break;
-                if (send(client_fd, buf, (size_t)n, MSG_NOSIGNAL) <= 0) break;
+                if (arc7_send_all(client_fd, buf, (size_t)n) != 0) break;
             }
         } else {
             size_t cap_dyn = leftover_len + 65536;
@@ -2686,7 +2692,7 @@ static void stream_raw_for_arc7_browser(int client_fd,
                     }
                     size_t avail = cused > line_len ? cused - line_len : 0;
                     size_t to_write = avail < chunk_sz ? avail : chunk_sz;
-                    if (to_write > 0 && send(client_fd, cbuf + line_len, to_write, MSG_NOSIGNAL) <= 0) break;
+                    if (to_write > 0 && arc7_send_all(client_fd, cbuf + line_len, to_write) != 0) break;
                     size_t consume = line_len + chunk_sz + 2;
                     if (cused >= consume) {
                         memmove(cbuf, cbuf + consume, cused - consume);
@@ -2957,7 +2963,7 @@ static void *handle_proxy_client(void *arg) {
         for (;;) {
             ssize_t r = read(tmp_fd, buf, 32768);
             if (r <= 0) break;
-            if (send(fd, buf, (size_t)r, MSG_NOSIGNAL) <= 0) break;
+            if (arc7_send_all(fd, buf, (size_t)r) != 0) break;
         }
         free(buf);
     }

@@ -130,7 +130,7 @@ public class Arc7EbookReaderActivity extends Arc7Activity {
         Arc7Skin.Palette pal = Arc7Skin.current(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgPage);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         // Customizable Arc7 Top Bar + Scrollable E-Reader Toolbar
         LinearLayout headerRight = new LinearLayout(this);
@@ -294,9 +294,7 @@ public class Arc7EbookReaderActivity extends Arc7Activity {
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f);
         b.setAllCaps(false);
         b.setPadding(dp(8), dp(5), dp(8), dp(5));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(5));
-        bg.setColor(Color.parseColor(colorHex));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(colorHex), 24);
         b.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

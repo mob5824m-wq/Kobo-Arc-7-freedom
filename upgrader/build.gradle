@@ -8,12 +8,20 @@ android {
         applicationId "ca.arc7freedom.upgrader"
         minSdkVersion 15
         targetSdkVersion 17
-        versionCode 265
-        versionName "2.6.5"
+        versionCode 268
+        versionName "2.6.8"
     }
 
+    sourceSets.main.java.srcDirs += ["${rootProject.projectDir}/shared/java"]
+
     sourceSets {
-        main.assets.srcDir "$buildDir/generated/release-assets"
+        main {
+            // Share only the pure-Java in-place payload reader, not the suite's Activities/services.
+            java.srcDir "${rootProject.projectDir}/app/src/main/java"
+            java.include "ca/arc7freedom/upgrader/**", "ca/arc7freedom/app/BundledApk.java",
+                    "ca/arc7freedom/support/**", "ca/arc7freedom/glass/**"
+            assets.srcDir "$buildDir/generated/release-assets"
+        }
     }
 
     compileOptions {

@@ -272,7 +272,13 @@ esac
         text = (ROOT / "tools" / name).read_text()
         assert "show_install_patches" not in text and "pm uninstall" not in text and "adb uninstall" not in text
         assert "rm -f /system/app" not in text
-    print("PASS: APK/boot/update/root/conversion entrypoints share one pipeline; real USB/backup shell flows invoke it and stop safely on failed updates (Windows checked statically)")
+    helper = (ROOT / "tools/Arc7-Windows.ps1").read_text()
+    assert "@('install','-r',$suite)" in helper and "In-place update was not confirmed" in helper
+    assert "show_install_patches" not in helper and "pm uninstall" not in helper and "pm clear" not in helper
+    for name in ("usb-sideload-and-root.bat", "Backup-Kobo-To-Laptop-ADB.bat"):
+        text = (ROOT / "tools" / name).read_text()
+        assert '-File "%ARC7_HELPER%"' in text and "DisableDelayedExpansion" in text
+    print("PASS: APK/boot/update/root/conversion entrypoints share one pipeline; real USB/backup shell flows invoke it and stop safely on failed updates (Windows helper source gate here; separate native Windows CI)")
 
 
 def check_apks(tmp, java, classes):
@@ -295,7 +301,7 @@ def check_apks(tmp, java, classes):
             release = ROOT / "releases/apps" / filename
         assert hashlib.sha256(release.read_bytes()).hexdigest() == sha, filename
         assert (output / filename).read_bytes() == release.read_bytes(), filename
-    with zipfile.ZipFile(ROOT / "releases/Upgrade-My-Kobo-To-v2.6.5.apk") as archive:
+    with zipfile.ZipFile(ROOT / "releases/Upgrade-My-Kobo-To-v2.6.8.apk") as archive:
         assert archive.read("assets/KoboArc7Freedom.apk") == main.read_bytes(), "upgrader's offline patch bundle is stale"
     print("PASS: every one of 38 embedded/recipe APKs equals its signed release byte-for-byte; upgrader embeds exactly the same complete suite")
 

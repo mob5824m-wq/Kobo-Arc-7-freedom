@@ -6,6 +6,17 @@ import android.content.Intent;
 
 /** Apply the same independent-app routing to toolbar, file-open and in-app shortcuts. */
 public abstract class Arc7Activity extends Activity {
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu);
+        return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
     @Override public void startActivityForResult(Intent intent, int requestCode) {
         Intent routed = SplitAppRouter.route(this, intent, requestCode);
         try {

@@ -198,10 +198,8 @@ public class Arc7AppManagerActivity extends Arc7Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(12), dp(9), dp(12), dp(9));
-            GradientDrawable bg = new GradientDrawable();
-            bg.setCornerRadius(dp(7));
-            bg.setColor(Color.parseColor("#1E293B"));
-            bg.setStroke(dp(1), Color.parseColor(app.enabled ? "#334155" : "#9333EA"));
+            GradientDrawable bg = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF1E293B,0xFF9DCFFF,dp(26),getResources().getDisplayMetrics().density,124);
+            if (!app.enabled) bg.setStroke(dp(1),0xFFB987FF);
             row.setBackgroundDrawable(bg);
 
             LinearLayout col = new LinearLayout(this);
@@ -250,7 +248,8 @@ public class Arc7AppManagerActivity extends Arc7Activity {
             "Export .APK Backup to Storage (`APK-Backups/`)",
             freezeLabel,
             "Clear App Data & Cache (`pm clear`)",
-            uninstallLabel
+            uninstallLabel,
+            "App tools · private debug log / RAM / media cache"
         };
         new AlertDialog.Builder(this, AlertDialog.THEME_HOLO_DARK)
                 .setTitle(app.label + " (" + app.pkg + ")")
@@ -267,6 +266,18 @@ public class Arc7AppManagerActivity extends Arc7Activity {
                             toggleFreezeApp(app);
                         } else if (which == 3) {
                             runRootPkgCmd("pm clear " + app.pkg, "Cleared app data for " + app.label);
+                        } else if (which == 5) {
+                            if ("org.videolan.vlc".equals(app.pkg)) {
+                                new AlertDialog.Builder(Arc7AppManagerActivity.this).setTitle("VLC's own debug log")
+                                    .setMessage("Official VLC is kept unchanged to preserve its VideoLAN signature and data. Open VLC → Settings → Advanced → Debug logs. Start recording, reproduce the problem, stop, then save/share or clear. VLC's native log can include media paths/URLs and is not Arc7's sanitized bounded event log; review it before sharing. Arc7 never collects it automatically.")
+                                    .setPositiveButton("Open VLC",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int w){Intent open=getPackageManager().getLaunchIntentForPackage(app.pkg);if(open!=null)startActivity(open);}})
+                                    .setNegativeButton("Cancel",null).show();return;
+                            }
+                            try { Intent support = new Intent().setClassName(app.pkg, "ca.arc7freedom.support.SupportActivity");
+                                getPackageManager().getActivityInfo(support.getComponent(), 0); startActivity(support); }
+                            catch (Exception unavailable) { new AlertDialog.Builder(Arc7AppManagerActivity.this)
+                                .setMessage("This installed version has no Arc7 App tools screen. Update that app first. Official third-party VLC keeps its own debug-log controls; Arc7 never reads another app's private files or re-signs it to inject logging.")
+                                .setPositiveButton("OK", null).show(); }
                         } else if (which == 4) {
                             if (canUninstall) {
                                 confirmUninstall(app);
@@ -478,9 +489,7 @@ public class Arc7AppManagerActivity extends Arc7Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
         b.setPadding(dp(10), dp(6), dp(10), dp(6));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(5));
-        bg.setColor(Color.parseColor(hex));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(hex), 24);
         b.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

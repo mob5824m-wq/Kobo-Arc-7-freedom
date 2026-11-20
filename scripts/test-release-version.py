@@ -53,7 +53,8 @@ class ReleaseTests(unittest.TestCase):
         names.update(app_names)
         tool_names = {"Start-PC-Stream-Deck.py", "Start-PC-Stream-Deck.bat", "Start-PC-Stream-Deck.sh", "Start-PC-School-VPN-Relay.py",
                       "Start-Chromebook-Wired-Internet.sh", "Start-Kobo-Second-Screen.py", "Backup-Kobo-To-Laptop-ADB.bat",
-                      "Backup-Kobo-To-Laptop-ADB.sh", "Start-Kobo-WiFi-Server.bat", "Start-Kobo-WiFi-Server.sh", "qr-transfer.html"}
+                      "Backup-Kobo-To-Laptop-ADB.sh", "Start-Kobo-WiFi-Server.bat", "Start-Kobo-WiFi-Server.sh", "qr-transfer.html", "Arc7-Windows.ps1", "Windows-Tools.zip",
+                      "WINDOWS-TOOLS.md", "usb-sideload-and-root.bat", "serve-over-wifi.bat"}
         names.update(tool_names)
         lines = []
         for name in sorted(names):
@@ -79,24 +80,24 @@ class ReleaseTests(unittest.TestCase):
         calls = (self.root / "git-calls").read_text()
         return result, calls
 
-    def test_repository_targets_265(self):
-        self.assertEqual(CHECK.check_sources(ROOT), ("2.6.5", "265"))
-        self.assertEqual(CHECK.check_sources(self.root), ("2.6.5", "265"))
+    def test_repository_targets_268(self):
+        self.assertEqual(CHECK.check_sources(ROOT), ("2.6.8", "268"))
+        self.assertEqual(CHECK.check_sources(self.root), ("2.6.8", "268"))
 
     def test_label_only_version_bump_is_rejected(self):
-        # Reproduce the failed run: workflow calls it 2.6.5, build emits 2.6.0.
-        self.replace("scripts/build-all.sh", "2.6.5", "2.6.0")
+        # Reproduce the failed run: workflow calls it 2.6.8, build emits 2.6.0.
+        self.replace("scripts/build-all.sh", "2.6.8", "2.6.0")
         with self.assertRaisesRegex(ValueError, "scripts/build-all.sh"):
             CHECK.check_sources(self.root)
 
     def test_gradle_and_each_manifest_must_match(self):
         for name, old, new in (
-            ("app/build.gradle", "versionCode 265", "versionCode 260"),
-            ("upgrader/build.gradle", 'versionName "2.6.5"', 'versionName "2.6.0"'),
-            ("upgrader/src/main/AndroidManifest.xml", 'versionCode="265"', 'versionCode="260"'),
-            ("split-apps/youtube/AndroidManifest.xml", 'versionName="2.6.5"', 'versionName="2.6.0"'),
-            ("split-apps/ytmusic/AndroidManifest.xml", 'versionCode="265"', 'versionCode="260"'),
-            ("split-apps/podcasts/AndroidManifest.xml", 'versionCode="265"', 'versionCode="260"'),
+            ("app/build.gradle", "versionCode 268", "versionCode 260"),
+            ("upgrader/build.gradle", 'versionName "2.6.8"', 'versionName "2.6.0"'),
+            ("upgrader/src/main/AndroidManifest.xml", 'versionCode="268"', 'versionCode="260"'),
+            ("split-apps/youtube/AndroidManifest.xml", 'versionName="2.6.8"', 'versionName="2.6.0"'),
+            ("split-apps/ytmusic/AndroidManifest.xml", 'versionCode="268"', 'versionCode="260"'),
+            ("split-apps/podcasts/AndroidManifest.xml", 'versionCode="268"', 'versionCode="260"'),
         ):
             with self.subTest(name=name):
                 path = self.root / name
@@ -117,7 +118,7 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(name=name):
                 path = self.root / name
                 original = path.read_text()
-                self.replace(name, "2.6.5", "2.6.0")
+                self.replace(name, "2.6.8", "2.6.0")
                 with self.assertRaises(ValueError):
                     CHECK.check_sources(self.root)
                 path.write_text(original)
@@ -128,15 +129,15 @@ class ReleaseTests(unittest.TestCase):
         result, calls = self.workflow_stage()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("add -u -- releases", calls)  # Record obsolete tracked upgrader removals.
-        self.assertIn("releases/Upgrade-My-Kobo-To-v2.6.5.apk", calls)
+        self.assertIn("releases/Upgrade-My-Kobo-To-v2.6.8.apk", calls)
         self.assertNotIn("push", calls)
 
     def test_missing_upgrader_fails_before_git_add(self):
         self.build_artifacts()
-        (self.root / "releases/Upgrade-My-Kobo-To-v2.6.5.apk").unlink()
+        (self.root / "releases/Upgrade-My-Kobo-To-v2.6.8.apk").unlink()
         result, calls = self.workflow_stage()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Expected only Upgrade-My-Kobo-To-v2.6.5.apk", result.stderr)
+        self.assertIn("Expected only Upgrade-My-Kobo-To-v2.6.8.apk", result.stderr)
         self.assertNotRegex(calls, r"(?m)^add ")
 
     def test_obsolete_upgrader_is_rejected(self):

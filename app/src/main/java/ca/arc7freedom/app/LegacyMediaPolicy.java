@@ -34,8 +34,9 @@ public final class LegacyMediaPolicy {
         return what == 1 && (extra == -1010 || extra == -1007 || extra == Integer.MIN_VALUE);
     }
     public static String error(int what,int extra) {
-        String detail=extra==-1010 ? "Unsupported media format. Use AAC-LC audio / H.264 video (720p, 30fps maximum)."
-                : extra==-1004 || extra==1004 ? "Stream I/O failed. Check the station address, connection or provider availability."
+        String detail=(what == -38 || extra == -38) ? "Invalid player state for this operation. Try the track again."
+                : extra==-1010 ? "Unsupported media format. Use AAC-LC audio / H.264 video (720p, 30fps maximum)."
+                : extra==-1004 || extra==1004 ? "Stream I/O failed. The media connection ended early or could not be read. Try playback again; check the connection or provider if it persists."
                 : extra==-1007 ? "Malformed or incomplete stream." : "The device could not play this stream.";
         return "MediaPlayer "+what+"/"+extra+" — "+detail;
     }

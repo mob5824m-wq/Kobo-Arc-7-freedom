@@ -80,7 +80,7 @@ public class Arc7VpnActivity extends Arc7Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(pal.bgColor);
+        root.setBackgroundDrawable(Arc7Skin.pageDrawable(pal));
 
         Button quickDisconnect = Arc7Skin.secondaryButton(this, pal, "\u23F9 Disconnect VPN");
         quickDisconnect.setOnClickListener(new View.OnClickListener() {
@@ -164,17 +164,6 @@ public class Arc7VpnActivity extends Arc7Activity {
     /* ==================== TAB 1: SCHOOL STRICT WI-FI FIXER ==================== */
 
     private void buildSchoolWifiTab() {
-        LinearLayout bluetoothCard = makeCard();
-        bluetoothCard.addView(sectionTitle("Bluetooth Internet — share or receive Wi-Fi"));
-        Button bluetoothButton = Arc7Skin.actionButton(this, "Open Bluetooth Internet", 0xFF2563EB);
-        bluetoothButton.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) {
-                startActivity(new Intent(Arc7VpnActivity.this, Arc7BluetoothInternetActivity.class));
-            }
-        });
-        bluetoothCard.addView(bluetoothButton);
-        contentPane.addView(bluetoothCard);
-
         LinearLayout card1 = makeCard();
         card1.addView(sectionTitle("1. Why Your School Wi-Fi Isn't Showing Up — Live Radio Scan & Instant Fix"));
         final TextView reportTv = monoBox(Arc7SchoolWifiHelper.buildLiveSchoolWifiDiagnosticReport(this));

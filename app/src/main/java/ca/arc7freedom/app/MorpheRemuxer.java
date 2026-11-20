@@ -1,5 +1,7 @@
 package ca.arc7freedom.app;
 
+import ca.arc7freedom.support.MediaCache;
+
 import java.io.ByteArrayOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
@@ -175,6 +177,7 @@ public final class MorpheRemuxer {
                     aDone = segment == null;
                     if (!aDone) consumeHlsSegment(segment, null, ab, spool);
                 }
+                MediaCache.checkBudget();
                 if (spool.length() > 512L * 1024L * 1024L) throw new IOException("HLS preparation exceeds 512 MB cache limit");
                 if (progress != null) progress.onStage("Preparing HLS for Android 4.2 (" + spool.length() / 1048576L + " MB)");
             }
@@ -238,10 +241,12 @@ public final class MorpheRemuxer {
         out.seek(0L); out.setLength(0L); out.write(ftyp); out.write(moov);
         byte[] header = new byte[8]; put32(header, 0, spool.length() + 8L);
         header[4] = 'm'; header[5] = 'd'; header[6] = 'a'; header[7] = 't'; out.write(header);
+        MediaCache.checkBudget();
         spool.seek(0L); byte[] buffer = new byte[65536]; int n;
         while ((n = spool.read(buffer)) >= 0) {
             if (Thread.currentThread().isInterrupted()) throw new IOException("HLS remux cancelled");
             out.write(buffer, 0, n);
+            MediaCache.checkBudget();
         }
         out.getFD().sync();
         if (progress != null) { progress.onBytes(out.length(), out.length()); progress.onStage("complete"); }
@@ -297,6 +302,7 @@ public final class MorpheRemuxer {
         out.setLength(0L);
         out.write(plan.ftyp);
         out.write(plan.moov);
+        MediaCache.checkBudget();
         if (progress != null) {
             progress.onBytes(out.length(), plan.totalBytes);
             progress.onStage("moov merged (" + plan.moov.length + " bytes, "
@@ -322,6 +328,7 @@ public final class MorpheRemuxer {
             seq++;
             out.write(patched);
             out.write(pick.mdat);
+            MediaCache.checkBudget();
             if (progress != null) progress.onBytes(out.length(), plan.totalBytes);
         }
 
@@ -340,6 +347,7 @@ public final class MorpheRemuxer {
             while (pad > 0L) {
                 int n = (int) Math.min((long) zeros.length, pad);
                 out.write(zeros, 0, n);
+                MediaCache.checkBudget();
                 pad -= n;
             }
         }
@@ -371,6 +379,7 @@ public final class MorpheRemuxer {
             if (chunk == null || chunk.length == 0) break;
             if(chunk.length>end-pos+1 || (total>0 && chunk.length!=end-pos+1)) throw new EOFException("Incorrect media range length");
             out.write(chunk);
+            MediaCache.checkBudget();
             pos += chunk.length;
             if (progress != null) progress.onBytes(out.length(), total);
             if (total <= 0L && chunk.length < step) break;
@@ -441,6 +450,7 @@ public final class MorpheRemuxer {
                 if (vf != null && (af == null || vf.decodeTimeSec <= af.decodeTimeSec)) {
                     vBuilder.consumeFragment(vf, spool); vf = vs.next();
                 } else { aBuilder.consumeFragment(af, spool); af = as.next(); }
+                MediaCache.checkBudget();
                 if (spool.length() > 512L * 1024L * 1024L) throw new IOException("DASH preparation exceeds cache limit");
                 if (progress != null) progress.onStage("Preparing classic MP4 (" + spool.length() / 1048576L + " MB)");
             }
@@ -467,6 +477,7 @@ public final class MorpheRemuxer {
             put32(mdatHdr, 0, 8L + mdatPayloadLen);
             mdatHdr[4] = 'm'; mdatHdr[5] = 'd'; mdatHdr[6] = 'a'; mdatHdr[7] = 't';
             out.write(mdatHdr);
+            MediaCache.checkBudget();
 
             spool.seek(0L);
             byte[] copyBuf = new byte[65536];
@@ -475,6 +486,7 @@ public final class MorpheRemuxer {
             while ((n = spool.read(copyBuf)) > 0) {
                 if (Thread.currentThread().isInterrupted()) throw new IOException("Media preparation cancelled");
                 out.write(copyBuf, 0, n);
+                MediaCache.checkBudget();
             }
             out.getFD().sync();
             if (progress != null) {
@@ -504,6 +516,7 @@ public final class MorpheRemuxer {
             while ((f = fs.next()) != null) {
                 if (Thread.currentThread().isInterrupted()) throw new IOException("DASH audio preparation cancelled");
                 builder.consumeFragment(f, spool);
+                MediaCache.checkBudget();
                 if (spool.length() > 512L * 1024L * 1024L) throw new IOException("DASH preparation exceeds cache limit");
                 // These bytes are in the INPUT spool, not in the final playable output.
                 if (progress != null) progress.onStage("Preparing classic M4A/MP4 (" + spool.length() / 1048576L + " MB)");
@@ -530,6 +543,7 @@ public final class MorpheRemuxer {
             put32(mdatHdr, 0, 8L + mdatPayloadLen);
             mdatHdr[4] = 'm'; mdatHdr[5] = 'd'; mdatHdr[6] = 'a'; mdatHdr[7] = 't';
             out.write(mdatHdr);
+            MediaCache.checkBudget();
 
             spool.seek(0L);
             byte[] copyBuf = new byte[65536];
@@ -538,6 +552,7 @@ public final class MorpheRemuxer {
             while ((n = spool.read(copyBuf)) > 0) {
                 if (Thread.currentThread().isInterrupted()) throw new IOException("Media preparation cancelled");
                 out.write(copyBuf, 0, n);
+                MediaCache.checkBudget();
             }
             out.getFD().sync();
             if (progress != null) {
@@ -568,6 +583,7 @@ public final class MorpheRemuxer {
             while ((fragment = stream.next()) != null) {
                 if (Thread.currentThread().isInterrupted()) throw new IOException("Audio recovery cancelled");
                 builder.consumeFragment(fragment, spool);
+                MediaCache.checkBudget();
                 if (spool.length() > 512L * 1024L * 1024L) throw new IOException("AAC recovery exceeds cache limit");
                 if (progress != null) progress.onStage("Preparing AAC-LC compatibility audio (" + spool.length() / 1048576L + " MB)");
             }
@@ -578,8 +594,10 @@ public final class MorpheRemuxer {
                 if (Thread.currentThread().isInterrupted()) throw new IOException("Audio recovery cancelled");
                 int length = builder.sampleSizes[i]; byte[] header = builder.aac.adtsHeader(length);
                 spool.readFully(sample, 0, length); out.write(header); out.write(sample, 0, length);
+                if ((i & 15) == 0) MediaCache.checkBudget();
             }
             if (spool.getFilePointer() != spool.length()) throw new IOException("Unmapped AAC sample bytes");
+            MediaCache.checkBudget();
             out.getFD().sync();
             if (progress != null) { progress.onBytes(out.length(), out.length()); progress.onStage("complete"); }
         } finally { try { spool.close(); } finally { temp.delete(); } }
@@ -1281,7 +1299,7 @@ public final class MorpheRemuxer {
                         throw new IOException("MP4 sample data lies outside mdat (truncated stream)");
                     if (count > 0) {
                         long offset = spool.getFilePointer();
-                        spool.write(f.mdat, (int) dataStart, (int) bytes); addChunk(offset, count);
+                        spool.write(f.mdat, (int) dataStart, (int) bytes); MediaCache.checkBudget(); addChunk(offset, count);
                     }
                     nextData = dataStart + bytes;
                 }

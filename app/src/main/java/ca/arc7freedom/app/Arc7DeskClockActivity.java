@@ -562,9 +562,7 @@ public class Arc7DeskClockActivity extends Arc7Activity {
         b.setTextColor(Color.WHITE);
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
         b.setPadding(dp(10), dp(6), dp(10), dp(6));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(6));
-        bg.setColor(Color.parseColor(hex));
+        GradientDrawable bg = Arc7Skin.buttonDrawable(this, Color.parseColor(hex), 24);
         b.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);

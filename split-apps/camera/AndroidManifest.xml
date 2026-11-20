@@ -13,14 +13,16 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.camera"
-    android:versionCode="265"
-    android:versionName="2.6.5"
+    android:versionCode="268"
+    android:versionName="2.6.8"
     android:installLocation="internalOnly">
 
     <uses-sdk android:minSdkVersion="15" android:targetSdkVersion="17" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
@@ -37,6 +39,8 @@
         android:largeHeap="true"
         android:allowBackup="true"
         android:theme="@android:style/Theme.Holo">
+
+        <activity android:name="ca.arc7freedom.support.SupportActivity" android:label="App tools" android:taskAffinity="ca.arc7freedom.camera.task.support" android:exported="true" />
 
         <activity
             android:name="ca.arc7freedom.app.Arc7CameraActivity"

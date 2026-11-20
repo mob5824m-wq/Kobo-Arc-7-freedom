@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Offline regression tests for independent APKs, navigation, proxy migration and Bluetooth PAN.
+"""Offline regression tests for independent APKs, navigation, proxy migration and offline QR app ownership.
 
 Requires a host JDK (or scripts/bootstrap-toolchain.sh). No emulator, device, external network
 or third-party Python packages are required. Android behavior is exercised with small fakes;
-this does NOT claim to test physical Bluetooth/ROM support or Android UID traffic counters.
+this does NOT claim to test a physical camera, ROM or Android UID traffic counters.
 
     python3 scripts/test-app-isolation.py
     python3 scripts/test-app-isolation.py --native build/native/host/arc7tls
@@ -93,13 +93,11 @@ def check_manifests_and_generation():
             assert "ca.arc7freedom.app.Arc7ScheduleBootReceiver" in {
                 attr(receiver, "name") for receiver in application.findall("receiver")}, path
             assert "ca.arc7freedom.app.Arc7AlarmAlertActivity" in own_activities
-        if key == "bluetoothinternet":
-            for permission in ("BLUETOOTH", "BLUETOOTH_ADMIN", "ACCESS_NETWORK_STATE"):
-                assert "android.permission." + permission in permissions
-            feature = next(item for item in manifest.findall("uses-feature")
-                           if attr(item, "name") == "android.hardware.bluetooth")
-            assert attr(feature, "required") == "false"
-            assert not services, "Bluetooth must be an OS connection, not an app proxy"
+        if key == "qrtransfer":
+            assert "android.permission.CAMERA" in permissions and "android.permission.INTERNET" not in permissions
+            assert not services, "Optical transfer needs no proxy or background network service"
+            assert attr(application, "allowBackup") == "false"
+            assert "ca.arc7freedom.app.Arc7QrTransferActivity" in own_activities
 
     suite = ET.parse(ROOT / "app/src/main/AndroidManifest.xml").getroot()
     suite_app = suite.find("application")
@@ -153,7 +151,12 @@ def check_manifests_and_generation():
     assert "setSystemWideTls13ProxyEnabled(true" not in install
     assert "migrateLegacySuiteProxy()" in install
     assert '"http://127.0.0.1:8118/__arc7_raw' not in (JAVA_SRC / "Arc7ClockStore.java").read_text()
-    print("PASS: 34 independent manifests, scoped permissions/services, forwarding-only aliases, reproducible generation")
+    shell = (ROOT/'tools/serve-over-wifi.sh').read_text()
+    fallback = shell.split('else\n    APP_LIST="',1)[1].split('"',1)[0].split()
+    apps = [line.split('\t')[1] for line in (ROOT/'split-apps/apps.tsv').read_text().splitlines() if line]
+    assert sorted(fallback) == sorted(apps), 'Standalone shell portal fallback catalog drifted'
+    assert (ROOT/'tools/Start-Kobo-WiFi-Server.sh').read_bytes() == (ROOT/'tools/serve-over-wifi.sh').read_bytes()
+    print("PASS: 34 independent manifests, scoped permissions/services, forwarding-only aliases, reproducible generation and standalone shell portal catalog")
 
 
 def check_companion_transports():
@@ -313,66 +316,16 @@ public class Toast {
     public static Toast makeText(android.content.Context c, String s, int t) { return new Toast(); }
     public void show() {}
 }''',
-    "android/bluetooth/BluetoothProfile.java": '''package android.bluetooth;
-import java.util.*;
-public interface BluetoothProfile {
-    List<BluetoothDevice> getConnectedDevices();
-    interface ServiceListener {
-        void onServiceConnected(int profile, BluetoothProfile proxy);
-        void onServiceDisconnected(int profile);
-    }
-}''',
-    "android/bluetooth/BluetoothDevice.java": '''package android.bluetooth;
-public class BluetoothDevice {
-    private String name, address;
-    public BluetoothDevice(String n, String a) { name=n; address=a; }
-    public String getName() { return name; }
-    public String getAddress() { return address; }
-}''',
-    "android/bluetooth/BluetoothAdapter.java": '''package android.bluetooth;
-import java.util.*;
-public class BluetoothAdapter {
-    public static BluetoothAdapter current;
-    public boolean enabled = true, supported = true, immediate = true;
-    public int closes, requests;
-    public BluetoothProfile proxy;
-    public BluetoothProfile.ServiceListener listener;
-    public Set<BluetoothDevice> bonded = new HashSet<BluetoothDevice>();
-    public static BluetoothAdapter getDefaultAdapter() { return current; }
-    public boolean isEnabled() { return enabled; }
-    public Set<BluetoothDevice> getBondedDevices() { return bonded; }
-    public boolean getProfileProxy(android.content.Context c, BluetoothProfile.ServiceListener l, int p) {
-        requests++; listener=l;
-        if (supported && immediate) l.onServiceConnected(p, proxy);
-        return supported;
-    }
-    public void closeProfileProxy(int p, BluetoothProfile b) { closes++; }
-}''',
+
 }
 
 HARNESS = '''package ca.arc7freedom.app;
-import android.bluetooth.*;
 import android.content.*;
 import java.io.*;
 import java.net.*;
 import java.util.*;
 
 public class IsolationTest {
-    public static class Pan implements BluetoothProfile {
-        boolean sharing, deny, accept = true;
-        List<BluetoothDevice> connected = new ArrayList<BluetoothDevice>();
-        public List<BluetoothDevice> getConnectedDevices() { return connected; }
-        public boolean isTetheringOn() { return sharing; }
-        public void setBluetoothTethering(boolean enabled) {
-            if (deny) throw new SecurityException("system permission required");
-            sharing=enabled;
-        }
-        public boolean connect(BluetoothDevice d) { if (accept) connected.add(d); return accept; }
-        public boolean disconnect(BluetoothDevice d) { connected.remove(d); return true; }
-    }
-    public static class NoControls implements BluetoothProfile {
-        public List<BluetoothDevice> getConnectedDevices() { return Collections.emptyList(); }
-    }
     static Intent intent(String pkg, String cls) {
         Intent i = new Intent("VIEW").setComponent(new ComponentName(pkg, cls));
         i.data="file:///sdcard/Books/example.epub"; i.type="application/epub+zip";
@@ -447,49 +400,9 @@ public class IsolationTest {
             assert ProxySelector.getDefault().select(new URI("http://[::1]/")).get(0) == Proxy.NO_PROXY;
         } finally { ProxySelector.setDefault(previous); }
     }
-    static void bluetooth() {
-        Context context = new Context("ca.arc7freedom.bluetoothinternet");
-        BluetoothAdapter.current = null;
-        BluetoothInternetManager absent = new BluetoothInternetManager(context, null);
-        assert !absent.hasAdapter() && !absent.isEnabled() && absent.pairedDevices().isEmpty();
-        absent.requestPan(); assert absent.setSharing(true).contains("unavailable"); absent.close();
-        BluetoothAdapter adapter = new BluetoothAdapter(); BluetoothAdapter.current = adapter;
-        adapter.enabled = false;
-        BluetoothInternetManager off = new BluetoothInternetManager(context, null);
-        off.requestPan(); assert adapter.requests == 0 && !off.hasPan(); off.close();
-        adapter.enabled = true; adapter.supported = false;
-        BluetoothInternetManager unsupported = new BluetoothInternetManager(context, null);
-        unsupported.requestPan(); assert !unsupported.hasPan() && unsupported.profileStatus().contains("does not expose");
-        unsupported.close();
-        adapter.supported = true; Pan pan = new Pan(); adapter.proxy = pan;
-        BluetoothDevice phone = new BluetoothDevice("Phone", "00:11:22:33:44:55");
-        adapter.bonded.add(phone); adapter.bonded.add(new BluetoothDevice("Computer", "00:11:22:33:44:66"));
-        BluetoothInternetManager manager = new BluetoothInternetManager(context, null);
-        manager.requestPan(); assert manager.hasPan();
-        assert manager.profileStatus().contains("available");
-        assert manager.pairedDevices().get(0).getName().equals("Computer");
-        assert manager.setSharing(true).contains("enabled") && manager.isSharing();
-        assert manager.setSharing(false).contains("disabled") && !manager.isSharing();
-        assert manager.connect(phone).contains("requested") && manager.connectedDeviceCount() == 1;
-        assert manager.disconnect(phone).contains("requested") && manager.connectedDeviceCount() == 0;
-        pan.accept=false; assert manager.connect(phone).contains("could not");
-        pan.deny=true; assert manager.setSharing(true).contains("SecurityException");
-        assert !manager.isSharing();
-        manager.close(); assert adapter.closes == 1;
-        adapter.proxy = new NoControls();
-        BluetoothInternetManager noApi = new BluetoothInternetManager(context, null);
-        noApi.requestPan(); assert noApi.isSharing() == null;
-        assert noApi.setSharing(true).contains("NoSuchMethodException"); noApi.close();
-        adapter.immediate = false; adapter.closes=0; adapter.proxy=pan;
-        BluetoothInternetManager late = new BluetoothInternetManager(context, null);
-        int requests = adapter.requests;
-        late.requestPan(); late.requestPan(); assert adapter.requests == requests+1;
-        late.close(); adapter.listener.onServiceConnected(5, pan);
-        assert adapter.closes == 1 && !late.hasPan();
-    }
     public static void main(String[] args) throws Exception {
-        scopes(); navigation(); bluetooth();
-        System.out.println("JAVA_ISOLATION_AND_BLUETOOTH_PASSED");
+        scopes(); navigation();
+        System.out.println("JAVA_ISOLATION_PASSED");
     }
 }
 '''
@@ -519,7 +432,7 @@ def check_java_behavior():
         runner.write_text(HARNESS)
         sources = [str(path) for path in temporary.rglob("*.java")]
         sources += [str(JAVA_SRC / name) for name in
-                    ("AppNetworkScope.java", "SplitApps.java", "SplitAppRouter.java", "BluetoothInternetManager.java")]
+                    ("AppNetworkScope.java", "SplitApps.java", "SplitAppRouter.java")]
         sources += [str(ROOT / "launcher-android4/src/main/java/ca/arc7freedom/launcher/BuiltinApps.java")]
         if ecj:
             compiler = [java, "-jar", ecj, "-1.8", "-nowarn"]
@@ -529,9 +442,14 @@ def check_java_behavior():
         subprocess.run(compiler + ["-d", str(temporary)] + sources, check=True)
         result = subprocess.run([java, "-ea", "-cp", str(temporary), "ca.arc7freedom.app.IsolationTest"],
                                 check=True, text=True, capture_output=True)
-        assert "JAVA_ISOLATION_AND_BLUETOOTH_PASSED" in result.stdout
+        assert "JAVA_ISOLATION_PASSED" in result.stdout
     print("PASS: real Java code — unique ports, proxy selection, 34-app/legacy-alias routing with URI/extras/grants preserved")
-    print("PASS: Bluetooth fakes — no adapter, disabled, no PAN, sharing, receiving, rejected/permission-denied APIs, late callback cleanup")
+    assert not (JAVA_SRC / "Arc7BluetoothInternetActivity.java").exists()
+    assert not (ROOT / "split-apps/bluetoothinternet/AndroidManifest.xml").exists()
+    for name in ("SplitApps.java", "MainActivity.java", "Arc7VpnActivity.java"):
+        assert "Arc7BluetoothInternetActivity" not in (JAVA_SRC / name).read_text()
+    assert "Bluetooth-Internet.apk" not in (ROOT/"split-apps/apps.tsv").read_text()
+    print("PASS: Bluetooth Internet retired from code/manifest/catalog; QR Transfer owns a separate offline package")
 
 
 def check_native(binary):
@@ -601,7 +519,7 @@ def main():
     check_java_behavior()
     if options.native:
         check_native(options.native)
-    print("ALL APP ISOLATION AND BLUETOOTH CHECKS PASSED")
+    print("ALL APP ISOLATION AND OFFLINE QR OWNERSHIP CHECKS PASSED")
 
 
 if __name__ == "__main__":

@@ -39,6 +39,7 @@ import android.view.ViewGroup;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.CompoundButton;
 import android.widget.EditText;
@@ -626,10 +627,7 @@ public class VanillaHomeActivity extends Activity {
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
         tv.setTypeface(Typeface.DEFAULT_BOLD);
         tv.setPadding(dp(11), dp(6), dp(11), dp(6));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(bgArgb);
-        bg.setCornerRadius(dp(14));
-        bg.setStroke(dp(1), 0x55FFFFFF);
+        GradientDrawable bg = liquidGlass(bgArgb, 0xFFDDEEFF, 26, 108);
         tv.setBackgroundDrawable(bg);
         return tv;
     }
@@ -671,10 +669,7 @@ public class VanillaHomeActivity extends Activity {
         dropActionBar.setOrientation(LinearLayout.HORIZONTAL);
         dropActionBar.setGravity(Gravity.CENTER);
         dropActionBar.setPadding(dp(12), dp(8), dp(12), dp(8));
-        GradientDrawable barBg = new GradientDrawable();
-        barBg.setColor(0xEE0B1324);
-        barBg.setCornerRadius(dp(16));
-        barBg.setStroke(dp(1), 0xFF38BDF8);
+        GradientDrawable barBg = liquidGlass(0xFF13243B, 0xFF9AD5FF, 30, 132);
         dropActionBar.setBackgroundDrawable(barBg);
 
         dropRemoveBtn = makeDropTargetPill("\u2715  Remove", 0xCC991B1B);
@@ -1890,7 +1885,7 @@ public class VanillaHomeActivity extends Activity {
                     topCapsule.setPadding(dp(4), dp(2), dp(4), dp(4));
                 } else {
                     GradientDrawable cap = liquidGlass(t.topCapsuleColor, accent,
-                            cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 22 : 30, 130);
+                            cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 26 : 34, 96);
                     topCapsule.setBackgroundDrawable(cap);
                     int vPad = dp(cfg.topBarMode == AppBarConfigStore.TOP_COMPACT ? 3 : 6);
                     topCapsule.setPadding(dp(12), vPad, dp(12), vPad);
@@ -2177,10 +2172,17 @@ public class VanillaHomeActivity extends Activity {
                 }
             });
         }
-        if ("@bluetooth".equals(token)) {
-            return makeBuiltinSlot(token, "Bluetooth Internet", R.drawable.ic_bluetooth, new View.OnClickListener() {
+        if ("@qrtransfer".equals(token)) {
+            return makeBuiltinSlot(token, "QR Transfer", R.drawable.ic_qrtransfer, new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    launchExplicitOrPackage("ca.arc7freedom.bluetoothinternet", "ca.arc7freedom.app.Arc7BluetoothInternetActivity");
+                    launchExplicitOrPackage("ca.arc7freedom.qrtransfer", "ca.arc7freedom.app.Arc7QrTransferHomeActivity");
+                }
+            });
+        }
+        if ("@bluetooth".equals(token)) {
+            return makeBuiltinSlot(token, "Bluetooth settings", R.drawable.ic_bluetooth, new View.OnClickListener() {
+                @Override public void onClick(View v) {
+                    startActivity(new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS));
                 }
             });
         }
@@ -2394,7 +2396,7 @@ public class VanillaHomeActivity extends Activity {
         }
         return liquidGlass(t.dockBottomColor, accent,
                 cfg.style == AppBarConfigStore.STYLE_FULL_BLEED ? 0 : 34,
-                cfg.opacityPct < 0 ? 112 : Math.round(255f * cfg.opacityPct / 100f));
+                cfg.opacityPct < 0 ? 88 : Math.round(255f * cfg.opacityPct / 100f));
     }
 
     private LiquidGlassDrawable liquidGlass(int tint, int accent, int radiusDp, int opacity) {
@@ -2753,7 +2755,8 @@ public class VanillaHomeActivity extends Activity {
                 { "@boost", "System Boost & Swap" },
                 { "@audio", "Music Player" },
                 { "@wired", "Wired USB Internet" },
-                { "@bluetooth", "Bluetooth Internet" },
+                { "@qrtransfer", "QR Transfer (offline camera files)" },
+                { "@bluetooth", "Bluetooth settings" },
                 { "@terminal", "Terminal (Python 3 + apt)" },
                 { "@freedom", "Arc7 Freedom" },
                 { "@settings", "Settings" }
@@ -2836,6 +2839,12 @@ public class VanillaHomeActivity extends Activity {
                 rootBox.removeAllViews();
                 final AppBarConfigStore.Config cfg = AppBarConfigStore.load(VanillaHomeActivity.this);
                 final int accent = cfg.accentOverride != 0 ? cfg.accentOverride : skin.accentColor;
+
+                Button supportTools = new Button(VanillaHomeActivity.this);
+                supportTools.setText("Home app tools · debug log, low-RAM & storage");
+                ca.arc7freedom.support.SupportUi.panel(VanillaHomeActivity.this,supportTools,true);
+                supportTools.setOnClickListener(new View.OnClickListener(){public void onClick(View v){ca.arc7freedom.support.AppSupport.open(VanillaHomeActivity.this);}});
+                rootBox.addView(supportTools);
 
                 // Section 1: Pinned App Bar Slots (live reorder / replace / remove / add)
                 addStudioHeader(rootBox, "1. PINNED APP BAR SLOTS (" + cfg.items.size() + " / " + AppBarConfigStore.MAX_SLOTS + ")", accent);
@@ -3253,9 +3262,7 @@ public class VanillaHomeActivity extends Activity {
         b.setTypeface(Typeface.DEFAULT_BOLD);
         b.setGravity(Gravity.CENTER);
         b.setPadding(dp(9), dp(5), dp(9), dp(5));
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(color);
-        g.setCornerRadius(dp(7));
+        GradientDrawable g = liquidGlass(color, 0xFFDDEEFF, 24, 170);
         b.setBackgroundDrawable(g);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -3271,10 +3278,7 @@ public class VanillaHomeActivity extends Activity {
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(dp(10), dp(9), dp(10), dp(9));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF162030);
-        bg.setCornerRadius(dp(8));
-        bg.setStroke(dp(1), 0xFF25354B);
+        GradientDrawable bg = liquidGlass(0xFF162030, 0xFFADD6FF, 26, 102);
         row.setBackgroundDrawable(bg);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -3899,4 +3903,14 @@ public class VanillaHomeActivity extends Activity {
         }
         if (drawerAdapter != null) drawerAdapter.notifyDataSetChanged();
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
 }

@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import shutil
+import shlex
 import socket
 import subprocess
 import tempfile
@@ -200,6 +201,13 @@ def static_checks():
     deck = (SRC/'Arc7StreamDeckActivity.java').read_text()
     assert 'ThreadPoolExecutor(1,1' in deck and 'ArrayBlockingQueue<Runnable>(128)' in deck
     assert 'activeSocket!=socket' in deck and 'closeSocketIf' in deck and 'packets.shutdownNow()' in deck
+    key_ui = deck.split('private FrameLayout buildLcdStreamDeckKey(', 1)[1].split('private GradientDrawable makeKeyLcdDrawable', 1)[0]
+    assert 'new Arc7DeckKeyInput(key.mode' in key_ui and 'return input.touch(act, editKeysMode)' in key_ui
+    assert 'outer.setLongClickable(editKeysMode)' in key_ui and 'if (!editKeysMode) return false;' in key_ui
+    assert key_ui.index('if (editKeysMode) {\n            outer.setOnLongClickListener') < key_ui.index('return input.longClick(editKeysMode)')
+    assert 'if (!editKeysMode) return;' in deck.split('private void showEditKeyDialog(', 1)[1].split('ScrollView sv', 1)[0]
+    assert 'cancelHeldDeckKeys();' in deck.split('private void renderDeckMatrix()', 1)[1].split('int rows', 1)[0]
+    assert 'cancelHeldDeckKeys();' in deck.split('@Override protected void onStop()', 1)[1]
     for name in ('usb-sideload-and-root', 'Backup-Kobo-To-Laptop-ADB'):
         for ext in ('sh', 'bat'):
             assert 'show_install_patches' not in (ROOT/f'tools/{name}.{ext}').read_text()
@@ -233,13 +241,24 @@ def main():
             file.write_text(content)
             files.append(file)
         files += list((ROOT/'tests/support/org/json').glob('*.java'))
-        files += [SRC/name for name in ('Arc7VaultCrypto.java', 'Arc7Totp.java', 'Arc7VaultImporter.java', 'Arc7QrFileShareServer.java', 'Arc7KeyBinding.java', 'LegacyMediaPolicy.java', 'LegacyAacConfig.java', 'LegacyTsProbe.java', 'Arc7DownloadUi.java',
+        files += [SRC/name for name in ('Arc7VaultCrypto.java', 'Arc7Totp.java', 'Arc7VaultImporter.java', 'Arc7QrFileShareServer.java', 'Arc7ResumableUploads.java', 'Arc7KeyBinding.java', 'Arc7DeckKeyInput.java', 'LegacyMediaPolicy.java', 'LegacyMediaIo.java', 'LegacyAacConfig.java', 'LegacyTsProbe.java', 'Arc7DownloadUi.java',
                                        'MorpheEngine.java', 'MorpheRemuxer.java', 'MorpheHls.java', 'MorpheHlsRelay.java', 'MorpheStreamServer.java')]
-        files.append(ROOT/'tests/java/SuiteFeatureHarness.java')
+        files += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','RuntimePolicy.java','MediaCache.java')]
+        files += [ROOT/'tests/java'/name for name in ('SuiteFeatureHarness.java', 'DeckKeyInputHarness.java', 'MediaIoHarness.java')]
         classes = tmp/'classes'
         classes.mkdir()
         subprocess.run([javac, '-encoding', 'UTF-8', '-d', str(classes), *map(str, files)], check=True)
         output = tmp/'output'
+        for harness in ('DeckKeyInputHarness', 'MediaIoHarness'):
+            subprocess.run([java, '-ea', '-cp', str(classes), 'ca.arc7freedom.app.'+harness], check=True, timeout=20)
+        cc = shlex.split(os.environ['CC']) if os.environ.get('CC') else [shutil.which('cc') or shutil.which('clang') or 'cc']
+        native = tmp/'media-send'
+        subprocess.run([*cc, '-std=c99', '-Wall', '-Wextra', '-Werror', '-I'+str(ROOT/'native'), str(ROOT/'tests/native/media-send.c'), '-o', str(native)], check=True, timeout=30)
+        subprocess.run([str(native)], check=True, timeout=5)
+        tls = (ROOT/'native/arc7tls.c').read_text()
+        bridge = tls.split('static void stream_https_bridge(', 1)[1].split('Local 127.0.0.1 TLS 1.3 Web', 1)[0]
+        assert '#include "arc7socket.h"' in tls
+        assert 'send(client_fd,' not in bridge and bridge.count('arc7_send_all(') == 4
         subprocess.run([java, '-ea', '-cp', str(classes), 'ca.arc7freedom.app.SuiteFeatureHarness', str(output), str(ROOT/'tests/fixtures/morphe-hls')], check=True, timeout=90)
         ffmpeg = os.environ.get('FFMPEG') or shutil.which('ffmpeg')
         if not ffmpeg:

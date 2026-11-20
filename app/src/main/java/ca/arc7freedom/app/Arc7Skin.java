@@ -164,7 +164,7 @@ public final class Arc7Skin {
             "Tall Comfortable App Bar (66 dp)"
     };
     public static final String[] IN_APP_STYLE_NAMES = new String[]{
-            "OS Skin Gradient Header",
+            "Floating Liquid Glass Header",
             "Flat Solid Surface Header",
             "Tinted Accent Header",
             "Minimal Dark + Accent Underline"
@@ -583,22 +583,24 @@ public final class Arc7Skin {
     }
 
     public static GradientDrawable cardDrawable(Context ctx, Palette p, int radiusDp) {
-        return new LiquidGlassDrawable(p.surface, p.accent, dp(ctx, Math.max(20, radiusDp)),
-                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 154 : 108);
+        return new LiquidGlassDrawable(p.surface, p.accent, dp(ctx, Math.max(26, radiusDp)),
+                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 126 : 92);
     }
 
     public static GradientDrawable elevatedDrawable(Context ctx, Palette p, int radiusDp) {
-        return new LiquidGlassDrawable(p.surfaceElevated, p.accent, dp(ctx, Math.max(22, radiusDp)),
-                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 174 : 136);
+        return new LiquidGlassDrawable(p.surfaceElevated, p.accent, dp(ctx, Math.max(26, radiusDp)),
+                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 154 : 116);
     }
 
     public static Button secondaryButton(Context ctx, Palette p, String label) {
-        return actionButton(ctx, label, p != null ? p.surfaceElevated : 0xFF334155);
+        Button button = actionButton(ctx, label, p != null ? p.surfaceElevated : 0xFF334155);
+        if (p != null) button.setTextColor(p.textPrimary);
+        return button;
     }
 
     public static GradientDrawable headerDrawable(Palette p) {
         // Headers retain a dark tint for white title/search text in every palette.
-        return new LiquidGlassDrawable(p.headerBottom, p.accent, 0, 1f, p.lightMode ? 226 : 172);
+        return new LiquidGlassDrawable(p.headerBottom, p.accent, 26, 1f, p.lightMode ? 204 : 132);
     }
 
     public static Drawable customAppBarDrawable(Context ctx, Palette p, AppBarPrefs prefs) {
@@ -625,12 +627,13 @@ public final class Arc7Skin {
             ld.setLayerInset(1, 0, 0, 0, dp(ctx, 2));
             return ld;
         }
-        return headerDrawable(p);
+        return new LiquidGlassDrawable(p.headerBottom, accent, dp(ctx, 28),
+                ctx.getResources().getDisplayMetrics().density, p.lightMode ? 204 : 132);
     }
 
     public static GradientDrawable buttonDrawable(Context ctx, int fillColor, int radiusDp) {
-        return new LiquidGlassDrawable(fillColor, 0xFFDCEBFF, dp(ctx, Math.max(22, radiusDp)),
-                ctx.getResources().getDisplayMetrics().density, current(ctx).lightMode ? 218 : 168);
+        return new LiquidGlassDrawable(fillColor, 0xFFDCEBFF, dp(ctx, Math.max(26, radiusDp)),
+                ctx.getResources().getDisplayMetrics().density, current(ctx).lightMode ? 224 : 182);
     }
 
     @SuppressWarnings("deprecation")
@@ -660,6 +663,9 @@ public final class Arc7Skin {
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundDrawable(customAppBarDrawable(activity, p, prefs));
+        LinearLayout.LayoutParams floating = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        floating.setMargins(dp(activity, 8), dp(activity, 8), dp(activity, 8), dp(activity, 8));
+        bar.setLayoutParams(floating);
         bar.setPadding(dp(activity, 14), dp(activity, vPadDp), dp(activity, 14), dp(activity, vPadDp));
         bar.setOnLongClickListener(new View.OnLongClickListener() {
             @Override
@@ -737,7 +743,8 @@ public final class Arc7Skin {
         if ("@boost".equals(tok)) return "Arc7 Boost & Swap";
         if ("@streamdeck".equals(tok)) return "Arc7 Stream Deck";
         if ("@vpn".equals(tok)) return "Arc7 Wi-Fi & VPN";
-        if ("@bluetooth".equals(tok)) return "Bluetooth Internet";
+        if ("@bluetooth".equals(tok)) return "Bluetooth settings";
+        if ("@qrtransfer".equals(tok)) return "QR Transfer";
         if ("@secondscreen".equals(tok)) return "Arc7 Second Screen";
         if ("@splitview".equals(tok)) return "Arc7 Split View";
         if ("@wiki".equals(tok)) return "Arc7 Dictionary & Wiki";
@@ -812,7 +819,8 @@ public final class Arc7Skin {
             else if ("@audio".equals(tok)) target = new Intent(ctx, Arc7AudioPlayerActivity.class);
             else if ("@terminal".equals(tok)) target = new Intent(ctx, Arc7TerminalActivity.class);
             else if ("@wired".equals(tok)) target = new Intent(ctx, Arc7WiredInternetActivity.class);
-            else if ("@bluetooth".equals(tok)) target = new Intent(ctx, Arc7BluetoothInternetActivity.class);
+            else if ("@qrtransfer".equals(tok)) target = new Intent(ctx, Arc7QrTransferHomeActivity.class);
+            else if ("@bluetooth".equals(tok)) target = new Intent(Settings.ACTION_BLUETOOTH_SETTINGS);
             else if ("@freedom".equals(tok)) target = new Intent(ctx, MainActivity.class);
             else if (tok != null && tok.indexOf('/') > 0) {
                 int s = tok.indexOf('/');

@@ -59,11 +59,8 @@ public class UpgraderActivity extends Activity {
     }
 
     private GradientDrawable box(int fill, int stroke, int radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(fill);
-        g.setCornerRadius(dp(radiusDp));
-        if (stroke != 0) g.setStroke(dp(1), stroke);
-        return g;
+        return new ca.arc7freedom.glass.LiquidGlassDrawable(fill, 0xFF9BCBFF, dp(Math.max(26,radiusDp)),
+                getResources().getDisplayMetrics().density, stroke == 0 ? 196 : 112);
     }
 
     @Override
@@ -76,7 +73,7 @@ public class UpgraderActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#080C12"));
+        root.setBackgroundDrawable(ca.arc7freedom.glass.LiquidGlassDrawable.ambient(0xFF080C12,0xFF80B7FF));
         root.setPadding(dp(18), dp(18), dp(18), dp(18));
 
         LinearLayout card = new LinearLayout(this);
@@ -85,7 +82,7 @@ public class UpgraderActivity extends Activity {
         card.setBackgroundDrawable(box(Color.parseColor("#111927"), Color.parseColor("#1E3A5F"), 14));
 
         statusTitle = new TextView(this);
-        statusTitle.setText("Kobo Arc 7 Freedom -> v2.6.5 Upgrader");
+        statusTitle.setText("Kobo Arc 7 Freedom -> v2.6.8 Upgrader");
         statusTitle.setTextColor(Color.parseColor("#F8FAFC"));
         statusTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
         statusTitle.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -120,7 +117,7 @@ public class UpgraderActivity extends Activity {
         btnRow.setPadding(0, dp(14), 0, 0);
 
         actionBtn = new Button(this);
-        actionBtn.setText("Run v2.6.5 Upgrade Again");
+        actionBtn.setText("Run v2.6.8 Upgrade Again");
         actionBtn.setTextColor(Color.WHITE);
         actionBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         actionBtn.setBackgroundDrawable(box(Color.parseColor("#0284C7"), 0, 10));
@@ -137,7 +134,7 @@ public class UpgraderActivity extends Activity {
         btnRow.addView(actionBtn, b1);
 
         launchBtn = new Button(this);
-        launchBtn.setText("Open Freedom v2.6.5 ->");
+        launchBtn.setText("Open Freedom v2.6.8 ->");
         launchBtn.setTextColor(Color.WHITE);
         launchBtn.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
         launchBtn.setBackgroundDrawable(box(Color.parseColor("#059669"), 0, 10));
@@ -192,6 +189,7 @@ public class UpgraderActivity extends Activity {
     }
 
     private void uiProgress(final int pct, final String sub) {
+        ca.arc7freedom.support.DebugLog.number("upgrade.progress_percent",pct);
         ui.post(new Runnable() {
             @Override
             public void run() {
@@ -284,6 +282,7 @@ public class UpgraderActivity extends Activity {
 
     private void startUpgradeAsync() {
         if (running) return;
+        ca.arc7freedom.support.DebugLog.event("upgrade.started");
         running = true; actionBtn.setEnabled(false);
         new Thread(new Runnable() {
             @Override public void run() {
@@ -323,6 +322,7 @@ public class UpgraderActivity extends Activity {
                     }
                     if (combined.contains("ARC7_APK_INSTALL_OK")) {
                         if (!installedMainMatches()) throw new IOException("Installed suite checksum not verified; not claiming success. Existing data retained.");
+                        ca.arc7freedom.support.DebugLog.event("upgrade.suite_verified");
                         uiProgress(100, "Suite update verified. Opening shared patch pipeline for ALL companion/default apps and system repairs...");
                         uiLog("Suite APK verified. Remaining patch results and any root/signature/storage restrictions appear in Install / Repair All Patches.");
                         ui.post(new Runnable() { @Override public void run() { launchMainApp(); } });
@@ -346,6 +346,7 @@ public class UpgraderActivity extends Activity {
                         });
                     }
                 } catch (final Exception error) {
+                    ca.arc7freedom.support.DebugLog.error("upgrade.failed",error);
                     uiLog("ERROR: " + error.getMessage()); uiProgress(100, "Not complete: " + error.getMessage());
                     ui.post(new Runnable() { @Override public void run() { actionBtn.setEnabled(true); } });
                 } finally { running = false; }
@@ -392,4 +393,14 @@ public class UpgraderActivity extends Activity {
             uiLog("Launch error: " + t.getMessage());
         }
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
 }

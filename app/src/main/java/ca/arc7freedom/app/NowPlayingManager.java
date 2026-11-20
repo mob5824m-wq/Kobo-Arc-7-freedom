@@ -131,11 +131,12 @@ public final class NowPlayingManager {
             current.updatedRealtimeMs = SystemClock.elapsedRealtime();
 
             if (explicitArt != null) {
-                current.artwork = explicitArt;
+                current.artwork = boundedArtwork(explicitArt);
                 current.artworkUrl = artworkUrl != null ? artworkUrl : "";
             } else if (artworkUrl != null && artworkUrl.length() > 0) {
                 current.artworkUrl = artworkUrl;
                 if (artworkUrl.equals(cachedArtUrl) && cachedArtBitmap != null) {
+                    cachedArtBitmap = boundedArtwork(cachedArtBitmap);
                     current.artwork = cachedArtBitmap;
                 } else {
                     current.artwork = null;
@@ -376,8 +377,17 @@ public final class NowPlayingManager {
         } catch (Throwable ignored) {}
     }
 
+    private static Bitmap boundedArtwork(Bitmap bitmap) {
+        if(bitmap==null||bitmap.isRecycled())return null;
+        int edge=ca.arc7freedom.support.RuntimePolicy.artworkEdge(),width=bitmap.getWidth(),height=bitmap.getHeight();
+        if(width<=edge&&height<=edge)return bitmap;
+        float scale=edge/(float)Math.max(width,height);
+        try{return Bitmap.createScaledBitmap(bitmap,Math.max(1,Math.round(width*scale)),Math.max(1,Math.round(height*scale)),true);}
+        catch(Throwable unavailable){ca.arc7freedom.support.DebugLog.error("artwork.resize_failed",unavailable);return null;}
+    }
+
     private static void fetchArtworkAsync(final Context appCtx, final String artUrl) {
-        new Thread(new Runnable() {
+        ca.arc7freedom.support.RuntimePolicy.artwork("now-playing:"+artUrl,new Runnable() {
             @Override
             public void run() {
                 HttpURLConnection conn = null;
@@ -402,7 +412,8 @@ public final class NowPlayingManager {
                         opts.inJustDecodeBounds = true;
                         BitmapFactory.decodeByteArray(data, 0, data.length, opts);
                         int sample = 1;
-                        while (opts.outWidth / sample > 256 || opts.outHeight / sample > 256) {
+                        int edge = ca.arc7freedom.support.RuntimePolicy.artworkEdge();
+                        while (opts.outWidth / sample > edge || opts.outHeight / sample > edge) {
                             sample *= 2;
                         }
                         BitmapFactory.Options dec = new BitmapFactory.Options();
@@ -426,7 +437,7 @@ public final class NowPlayingManager {
                     if (conn != null) conn.disconnect();
                 }
             }
-        }).start();
+        });
     }
 
     private static String detectExternalAudioPackage(Context ctx) {

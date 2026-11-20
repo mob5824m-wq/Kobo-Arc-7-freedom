@@ -149,16 +149,14 @@ public class AuroraStoreActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(0xFF0B1120);
+        root.setBackgroundDrawable(ca.arc7freedom.glass.LiquidGlassDrawable.ambient(0xFF0B1120,0xFF60A5FA));
 
         // Top Aurora Gradient Header
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
         header.setPadding(dp(16), dp(12), dp(16), dp(12));
-        GradientDrawable hbg = new GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                new int[]{0xFF0F766E, 0xFF1D4ED8, 0xFF6D28D9});
+        GradientDrawable hbg = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF183551,0xFF99CFFF,dp(28),getResources().getDisplayMetrics().density,144);
         header.setBackgroundDrawable(hbg);
 
         LinearLayout titleCol = new LinearLayout(this);
@@ -194,7 +192,7 @@ public class AuroraStoreActivity extends Activity {
         // Animated Navigation Tabs
         LinearLayout tabRow = new LinearLayout(this);
         tabRow.setOrientation(LinearLayout.HORIZONTAL);
-        tabRow.setBackgroundColor(0xFF111827);
+        tabRow.setBackgroundDrawable(new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF172538,0xFF93C5FD,dp(28),getResources().getDisplayMetrics().density,106));
         tabRow.setPadding(dp(8), dp(6), dp(8), dp(6));
 
         tabDiscoverBtn = makeTabButton("DISCOVER & SEARCH", 0);
@@ -386,6 +384,10 @@ public class AuroraStoreActivity extends Activity {
         accountSummaryTv.setPadding(0, dp(8), 0, dp(12));
         card.addView(accountSummaryTv);
 
+        Button supportTools=makeButton("APP TOOLS · PRIVATE DEBUG LOG & STORAGE",0xFF2563EB);
+        supportTools.setOnClickListener(new View.OnClickListener(){public void onClick(View v){ca.arc7freedom.support.AppSupport.open(AuroraStoreActivity.this);}});
+        card.addView(supportTools);
+
         Button anonBtn = makeButton("REQUEST FRESH ANONYMOUS AURORA SESSION TOKEN (TLS 1.3)", 0xFF0D9488);
         anonBtn.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -468,6 +470,7 @@ public class AuroraStoreActivity extends Activity {
     /* ==================== LIVE MULTI-SOURCE TLS 1.3 SEARCH ==================== */
 
     private void performLiveSearch(final String rawQuery) {
+        ca.arc7freedom.support.DebugLog.event("store.search_requested");
         final String q = rawQuery == null ? "" : rawQuery.trim();
         if (q.isEmpty()) {
             renderAppsList(getCuratedCatalog(), "Showing Featured Verified Apps for Kobo Arc 7");
@@ -926,6 +929,7 @@ public class AuroraStoreActivity extends Activity {
     /* ==================== 1-TAP VALIDATED + V1-SIGNED + ROOT STAGE INSTALLER ==================== */
 
     private void downloadAndInstallApp(final StoreAppItem item, final Button actionBtn) {
+        ca.arc7freedom.support.DebugLog.event("store.install_requested");
         actionBtn.setEnabled(false);
         actionBtn.setText("RESOLVING...");
         busyBar.setVisibility(View.VISIBLE);
@@ -983,6 +987,7 @@ public class AuroraStoreActivity extends Activity {
                             }
                             lastFailure = check.errorReason != null ? check.errorReason : "Incompatible APK binary";
                         } catch (Throwable dlErr) {
+                            ca.arc7freedom.support.DebugLog.error("store.download_candidate_failed",dlErr);
                             lastFailure = dlErr.getMessage() != null ? dlErr.getMessage() : dlErr.toString();
                         }
                     }
@@ -1007,6 +1012,7 @@ public class AuroraStoreActivity extends Activity {
                     final Arc7ApkKit.RootInstallOutcome outcome =
                             Arc7ApkKit.stageAndInstallApk(AuroraStoreActivity.this, verifiedApk, true);
 
+                    ca.arc7freedom.support.DebugLog.number("store.install_succeeded",outcome.succeeded?1:0);
                     final File publicApk = new File(dlDir, targetPkg + ".apk");
                     try {
                         copyLocalFile(outcome.worldReadableFallbackApk, publicApk);
@@ -1057,6 +1063,7 @@ public class AuroraStoreActivity extends Activity {
                         }
                     });
                 } catch (final Throwable t) {
+                    ca.arc7freedom.support.DebugLog.error("store.install_failed",t);
                     ui.post(new Runnable() {
                         @Override
                         public void run() {
@@ -1701,10 +1708,7 @@ public class AuroraStoreActivity extends Activity {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(0xFF162033);
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), 0xFF283854);
+        GradientDrawable bg = new ca.arc7freedom.glass.LiquidGlassDrawable(0xFF162033,0xFF93C5FD,dp(28),getResources().getDisplayMetrics().density,100);
         card.setBackgroundDrawable(bg);
         return card;
     }
@@ -1746,14 +1750,21 @@ public class AuroraStoreActivity extends Activity {
     }
 
     private void styleButton(Button b, int colorArgb) {
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(colorArgb);
-        bg.setCornerRadius(dp(9));
-        bg.setStroke(dp(1), 0x44FFFFFF);
+        GradientDrawable bg = new ca.arc7freedom.glass.LiquidGlassDrawable(colorArgb,0xFFDDEBFF,dp(26),getResources().getDisplayMetrics().density,182);
         b.setBackgroundDrawable(bg);
     }
 
     private int dp(int v) {
         return Math.round(v * getResources().getDisplayMetrics().density);
     }
+    @Override public boolean onCreateOptionsMenu(android.view.Menu menu) {
+        super.onCreateOptionsMenu(menu); return ca.arc7freedom.support.AppSupport.addMenu(menu);
+    }
+    @Override public boolean onOptionsItemSelected(android.view.MenuItem item) {
+        if (item.getItemId() == ca.arc7freedom.support.AppSupport.MENU_TOOLS) {
+            ca.arc7freedom.support.AppSupport.open(this); return true;
+        }
+        return super.onOptionsItemSelected(item);
+    }
+
 }

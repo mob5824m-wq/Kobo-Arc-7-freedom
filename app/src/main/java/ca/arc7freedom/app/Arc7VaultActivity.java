@@ -95,7 +95,7 @@ public abstract class Arc7VaultActivity extends Arc7Activity {
     }
     @SuppressWarnings("deprecation") private void render() {
         codeViews.clear(); codeAccounts.clear();
-        root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundColor(palette.bgPage);
+        root=new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setBackgroundDrawable(Arc7Skin.pageDrawable(palette));
         root.addView(Arc7Skin.buildAppTopBar(this,palette,authenticator() ? R.drawable.ic_authenticator : R.drawable.ic_passwords,title(),"Offline · encrypted · auto-lock",null));
         ScrollView scroll=new ScrollView(this); list=new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); list.setPadding(16,8,16,24); scroll.addView(list); root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         setContentView(root);

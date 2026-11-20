@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v2.6.5 — Reproducible Android 4.2.2 (API 17 / DEX 035) release build
+# Kobo Arc 7 Freedom v2.6.8 — Reproducible Android 4.2.2 (API 17 / DEX 035) release build
 #
 # `scripts/build-all.sh` builds and signs the complete release set:
 #   1. Generates the offline CA bundle, app icons, split-app manifests, and patched F-Droid APK.
@@ -133,7 +133,7 @@ compile_java_and_dex() {
     local out_dex_dir="$2"
     shift 2
     # Shared, API-15-compatible glass material used by both launcher and applications.
-    set -- "$@" shared/java/ca/arc7freedom/glass/*.java
+    set -- "$@" shared/java/ca/arc7freedom/glass/*.java shared/java/ca/arc7freedom/support/*.java
 
     if [ -f "$ECJ" ]; then
         "$JAVA_BIN" -jar "$ECJ" -1.8 -source 1.8 -target 1.8 \
@@ -395,7 +395,7 @@ PYFDROIDCHECK
 ls -lh "$FDROID_APK"
 
 # ------------------------------------------------------------------------------
-# Standalone "truly separate app" builder (v2.6.5)
+# Standalone "truly separate app" builder (v2.6.8)
 #
 # Every custom app that used to be just an extra <activity> inside the suite package is now
 # built as its OWN signed APK with its own package id, launcher label/icon and task stack:
@@ -415,6 +415,8 @@ build_standalone_app() {
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
     cp -R app/src/main/assets/licenses "$work/assets/"
+    cp -R app/src/main/assets/audio-self-test "$work/assets/"
+    cp -R app/src/main/assets/lan-share "$work/assets/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -464,7 +466,7 @@ build_standalone_app() {
 }
 
 build_default_split_apps() {
-    # 28 separately installable default apps (Browser, Clock, Calculator, …).
+    # 32 separately installable default apps (Browser, Clock, Calculator, …).
     #
     # The shared Java sources are compiled to ONE `classes.dex`; every app then only pays for
     # one `aapt2 link` + zip + signature, so publishing all 32 stays fast.
@@ -475,9 +477,21 @@ build_default_split_apps() {
              "$work/assets/cacerts" "$work/stage/lib/armeabi-v7a" "$work/stage/lib/armeabi" \
              releases/apps
 
+    # A cached build must not retain retired APKs in globbed checksums/releases.
+    "$PY_BIN" - <<'PRUNE_APPS'
+from pathlib import Path
+expected = {line.split("\t")[1] for line in Path("split-apps/apps.tsv").read_text().splitlines() if line}
+for path in Path("releases/apps").glob("*.apk"):
+    if path.name not in expected:
+        path.unlink()
+        print("Removed retired generated APK:", path.name)
+PRUNE_APPS
+
     cp -f app/src/main/assets/cacerts/ca-bundle-2026.crt "$work/assets/cacerts/"
     cp -f app/src/main/assets/cacerts/manifest.tsv "$work/assets/cacerts/"
     cp -R app/src/main/assets/licenses "$work/assets/"
+    cp -R app/src/main/assets/audio-self-test "$work/assets/"
+    cp -R app/src/main/assets/lan-share "$work/assets/"
     if [ -d app/src/main/assets/cacerts/android-hashed ]; then
         mkdir -p "$work/assets/cacerts/android-hashed"
         cp -f app/src/main/assets/cacerts/android-hashed/*.0 "$work/assets/cacerts/android-hashed/" 2>/dev/null || true
@@ -516,6 +530,9 @@ build_default_split_apps() {
     local empty_assets="$work/empty_assets"
     mkdir -p "$empty_assets"
     cp -R app/src/main/assets/licenses "$empty_assets/"
+    # Non-network audio owners (notably Voice Recorder) still expose local sound tests.
+    # Keep the clips offline without adding TLS binaries, CAs or Internet permission.
+    cp -R app/src/main/assets/audio-self-test "$empty_assets/"
 
     local built=0
     while IFS=$'\t' read -r key fname label desc; do
@@ -648,6 +665,7 @@ cp -f releases/YouTubeMusic.apk app/src/main/assets/starter-apps/YouTubeMusic.ap
 
 echo "==> [3c/9] Building 32 separately installable default apps (releases/apps/*.apk)..."
 "$PY_BIN" scripts/build-qr-companion.py
+"$PY_BIN" scripts/build-windows-tools.py
 build_default_split_apps
 
 mkdir -p app/src/main/assets/starter-apps
@@ -709,6 +727,7 @@ cp -f tools/Start-Chromebook-Wired-Internet.sh app/src/main/assets/chromebook/St
 cp -f tools/Start-Kobo-Second-Screen.py app/src/main/assets/chromebook/Start-Kobo-Second-Screen.py
 cp -f tools/Start-PC-Stream-Deck.py app/src/main/assets/chromebook/Start-PC-Stream-Deck.py
 cp -f tools/Start-PC-Stream-Deck.bat app/src/main/assets/chromebook/Start-PC-Stream-Deck.bat
+cp -f tools/Arc7-Windows.ps1 app/src/main/assets/chromebook/Arc7-Windows.ps1
 cp -f tools/Start-PC-Stream-Deck.sh app/src/main/assets/chromebook/Start-PC-Stream-Deck.sh
 cp -f tools/Start-PC-School-VPN-Relay.py app/src/main/assets/chromebook/Start-PC-School-VPN-Relay.py
 cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.apk
@@ -717,7 +736,7 @@ cp -f releases/VanillaAndroid4Home.apk app/src/main/assets/VanillaAndroid4Home.a
 # Shared ZIP-entry bytes are stored once; installed APKs remain fully independent.
 "$PY_BIN" scripts/bundle-maintenance.py
 
-echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.6.5 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1306 (largeHeap + Throwable sync catch) + Launcher v56 + VLC)..."
+echo "==> [4/8] Compiling & packaging KoboArc7Freedom.apk v2.6.8 (2026 DASH Remux Playback + Separate YouTube & YouTube Music Apps + Widget Removal Fix + Standby Now-Playing + Tailscale Google Auth + Fixed F-Droid v1306 (largeHeap + Throwable sync catch) + Launcher v56 + VLC)..."
 rm -rf build/app && mkdir -p build/app/{res_compiled,gen,classes,dex,stage/lib/armeabi-v7a,stage/lib/armeabi}
 "$AAPT2" compile --dir app/src/main/res -o build/app/res_compiled/res.zip
 "$AAPT2" link \
@@ -758,7 +777,7 @@ echo "==> [5/8] Aligning & signing KoboArc7Freedom.apk with permanent certificat
     --out releases/KoboArc7Freedom.apk \
     build/app/aligned.apk
 
-echo "==> [6/8] Building data-preserving in-place Root Upgrader (releases/Upgrade-My-Kobo-To-v2.6.5.apk)..."
+echo "==> [6/8] Building data-preserving in-place Root Upgrader (releases/Upgrade-My-Kobo-To-v2.6.8.apk)..."
 rm -rf build/upgrader && mkdir -p build/upgrader/{res_compiled,gen,classes,dex,assets}
 cp -f releases/KoboArc7Freedom.apk build/upgrader/assets/KoboArc7Freedom.apk
 "$AAPT2" compile --dir upgrader/src/main/res -o build/upgrader/res_compiled/res.zip
@@ -785,7 +804,7 @@ compile_java_and_dex \
 "$ZIPALIGN" -f -p 4 build/upgrader/unsigned.apk build/upgrader/aligned.apk
 # Keep exactly this release's upgrader, including when updating from another 2.6.x build.
 for stale_upgrader in releases/Upgrade-My-Kobo-To-v*.apk; do
-    if [ "$stale_upgrader" != "releases/Upgrade-My-Kobo-To-v2.6.5.apk" ]; then
+    if [ "$stale_upgrader" != "releases/Upgrade-My-Kobo-To-v2.6.8.apk" ]; then
         rm -f -- "$stale_upgrader"
     fi
 done
@@ -798,7 +817,7 @@ done
     --v1-signing-enabled true \
     --v2-signing-enabled true \
     --v3-signing-enabled true \
-    --out releases/Upgrade-My-Kobo-To-v2.6.5.apk \
+    --out releases/Upgrade-My-Kobo-To-v2.6.8.apk \
     build/upgrader/aligned.apk
 cp -f app/src/main/assets/starter-apps/FDroidClassicLegacy.apk releases/FDroidClassicLegacy.apk
 
@@ -808,7 +827,7 @@ rm -f releases/*.idsig app/src/main/assets/starter-apps/*.idsig
 chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Internet.sh tools/Start-Kobo-Second-Screen.py tools/Start-PC-Stream-Deck.py tools/Start-PC-Stream-Deck.sh tools/Start-PC-School-VPN-Relay.py tools/serve-over-wifi.sh
 "$PY_BIN" tools/serve-over-wifi.py --write-static
 (cd releases && sha256sum \
-    Upgrade-My-Kobo-To-v2.6.5.apk \
+    Upgrade-My-Kobo-To-v2.6.8.apk \
     KoboArc7Freedom.apk \
     YouTube.apk \
     YouTubeMusic.apk \
@@ -829,7 +848,12 @@ chmod +x tools/Backup-Kobo-To-Laptop-ADB.sh tools/Start-Chromebook-Wired-Interne
     Backup-Kobo-To-Laptop-ADB.sh \
     Start-Kobo-WiFi-Server.bat \
     Start-Kobo-WiFi-Server.sh \
-    qr-transfer.html) >> releases/SHA256SUMS.txt
+    qr-transfer.html \
+    Arc7-Windows.ps1 \
+    Windows-Tools.zip \
+    WINDOWS-TOOLS.md \
+    usb-sideload-and-root.bat \
+    serve-over-wifi.bat) >> releases/SHA256SUMS.txt
 (cd releases/apps && sha256sum *.apk > SHA256SUMS.txt)
 # Fold the 32 standalone-app hashes into the top-level checksum file so a single
 # releases/latest/download/SHA256SUMS.txt verifies the whole release.
@@ -855,7 +879,7 @@ PYCHECK
 
 cat releases/SHA256SUMS.txt
 ls -lh \
-    releases/Upgrade-My-Kobo-To-v2.6.5.apk \
+    releases/Upgrade-My-Kobo-To-v2.6.8.apk \
     releases/KoboArc7Freedom.apk \
     releases/YouTube.apk \
     releases/YouTubeMusic.apk \

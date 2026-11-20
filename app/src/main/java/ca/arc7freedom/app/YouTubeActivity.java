@@ -105,31 +105,20 @@ public class YouTubeActivity extends Arc7Activity {
     private AudioManager audioManager;
     private boolean hasVideoAudioFocus;
     private String videoAudioStatus = "No foreground player is ready.";
-
-    private final AudioManager.OnAudioFocusChangeListener videoAudioFocus = new AudioManager.OnAudioFocusChangeListener() {
-        @Override public void onAudioFocusChange(final int change) {
-            final MediaPlayer focusedPlayer = foregroundPlayer;
-            final int request = videoRequestGeneration;
-            ui.post(new Runnable() {
-                @Override public void run() {
-                    if (!alive || request != videoRequestGeneration || focusedPlayer != foregroundPlayer
-                            || !videoPrepared || handedOffToBackgroundAudio || foregroundPlayer == null) return;
-                    try {
-                        if (change == AudioManager.AUDIOFOCUS_GAIN) {
-                            hasVideoAudioFocus = true;
-                            foregroundPlayer.setVolume(1.0f, 1.0f);
-                        } else if (change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
-                            foregroundPlayer.setVolume(0.2f, 0.2f);
-                        } else if (change == AudioManager.AUDIOFOCUS_LOSS || change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                            if (videoView.isPlaying()) videoView.pause();
-                            playPauseBtn.setText("\u25B6 Play");
-                            hasVideoAudioFocus = false;
-                        }
-                    } catch (RuntimeException ignored) {}
-                }
-            });
+    private String videoContainer = "not independently reported";
+    private int videoErrorWhat, videoErrorExtra;
+    private boolean videoPlayWhenPrepared = true;
+    private final BroadcastReceiver videoNoisy = new BroadcastReceiver() {
+        public void onReceive(Context context,Intent intent) {
+            if(intent==null||!AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())||handedOffToBackgroundAudio)return;
+            videoPlayWhenPrepared=false;
+            if(videoPrepared&&videoView!=null)try{videoView.pause();}catch(RuntimeException ignored){}
+            releaseVideoAudioFocus();
+            ca.arc7freedom.support.DebugLog.event("video.headphones_disconnected");
         }
     };
+
+    private AudioManager.OnAudioFocusChangeListener videoAudioFocus;
 
     private static final Map<String, Bitmap> THUMB_CACHE =
             Collections.synchronizedMap(new LinkedHashMap<String, Bitmap>() {
@@ -488,6 +477,7 @@ public class YouTubeActivity extends Arc7Activity {
         Arc7UiAnimator.attachActivityAnimations(this);
 
         registerReceiver(fgControlReceiver, new IntentFilter(NowPlayingManager.ACTION_YOUTUBE_FG_CONTROL));
+        registerReceiver(videoNoisy,new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
         ui.postDelayed(progressTicker, 500L);
 
         handleIncomingIntent(getIntent(), true);
@@ -543,9 +533,11 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void showHeaderOptions() {
         new AlertDialog.Builder(this).setTitle("YouTube options")
-                .setItems(new String[]{"Open YouTube Music", "Morphe / playback settings"}, new DialogInterface.OnClickListener() {
+                .setItems(new String[]{"Open YouTube Music", "Morphe / playback settings", "Background audio diagnostics / sound test", "App tools · logs, RAM & storage"}, new DialogInterface.OnClickListener() {
                     @Override public void onClick(DialogInterface dialog, int which) {
-                        if (which == 0) openYouTubeMusicApp(); else showMorphePatchesDialog();
+                        if (which == 0) openYouTubeMusicApp(); else if (which == 1) showMorphePatchesDialog();
+                        else if (which == 2) startActivity(new Intent(YouTubeActivity.this, Arc7PlaybackDiagnosticsActivity.class));
+                        else ca.arc7freedom.support.AppSupport.open(YouTubeActivity.this);
                     }
                 }).setNegativeButton("Close", null).show();
     }
@@ -746,6 +738,7 @@ public class YouTubeActivity extends Arc7Activity {
         stopAudio.setAction(Arc7AudioService.ACTION_STOP_DISMISS);
         startService(stopAudio);
         handedOffToBackgroundAudio = false;
+        videoPlayWhenPrepared=true;videoErrorWhat=videoErrorExtra=0;
         playerOverlayStatusTv.setVisibility(View.GONE);
         videoTitleTv.setText(it.title);
         videoChannelTv.setText("Offline Downloaded Media  \u2022  " + it.localFilePath);
@@ -771,6 +764,7 @@ public class YouTubeActivity extends Arc7Activity {
         currentPlayback = null;
         NowPlayingManager.clearSession(this);
         handedOffToBackgroundAudio = false;
+        videoPlayWhenPrepared=true;videoErrorWhat=videoErrorExtra=0;
         activeResolutionVideoId = videoId;
         // Pause background music service so streams never overlap!
         Intent pauseBg = new Intent(this, Arc7AudioService.class);
@@ -872,6 +866,9 @@ public class YouTubeActivity extends Arc7Activity {
         videoPrepared = false;
         foregroundPlayer = null;
         videoAudioStatus = "Checking the prepared stream for an audio track...";
+        String localMime=MorpheStreamServer.getMimeType(uri.toString());
+        videoContainer="video/mp4".equals(localMime)?"MP4":"audio/mp4".equals(localMime)?"M4A / MP4":"audio/aac".equals(localMime)?"AAC / ADTS":"not independently reported";
+        ca.arc7freedom.support.DebugLog.event("video.prepare_started");
         releaseVideoAudioFocus();
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         videoView.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
@@ -884,7 +881,8 @@ public class YouTubeActivity extends Arc7Activity {
                     videoAudioStatus = LegacyPlaybackAudio.trackState(mp) == LegacyPlaybackAudio.PRESENT
                             ? "The device reports an audio track. Media volume and the selected output still apply."
                             : "This ROM cannot report prepared audio tracks; audio could not be confirmed by the device.";
-                    boolean canStart = takeVideoAudioFocus();
+                    ca.arc7freedom.support.DebugLog.event("video.prepared_with_audio_check");
+                    boolean canStart = videoPlayWhenPrepared && takeVideoAudioFocus();
                     if (canStart) videoView.start();
                     videoPrepared = true;
                     cancelVideoPrepareTimeout();
@@ -892,7 +890,7 @@ public class YouTubeActivity extends Arc7Activity {
                     NowPlayingManager.setYouTubeForegroundVideoActive(true);
                     playerOverlayStatusTv.setVisibility(canStart ? View.GONE : View.VISIBLE);
                     if (!canStart) {
-                        playerOverlayStatusTv.setText("Another app has audio focus. Pause it, then tap Play.");
+                        playerOverlayStatusTv.setText(videoPlayWhenPrepared ? "Another app has audio focus. Pause it, then tap Play." : "Paused after headphone disconnect. Tap Play when ready.");
                         playPauseBtn.setText("\u25B6 Play");
                     }
                     try {
@@ -919,6 +917,9 @@ public class YouTubeActivity extends Arc7Activity {
         });
         videoView.setOnErrorListener(new MediaPlayer.OnErrorListener() {
             @Override public boolean onError(MediaPlayer mp, int what, int extra) {
+                if (!alive || request != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) return true;
+                videoErrorWhat=what;videoErrorExtra=extra;
+                ca.arc7freedom.support.DebugLog.number("video.error_what",what);ca.arc7freedom.support.DebugLog.number("video.error_extra",extra);
                 failForegroundVideo(playback, request, LegacyMediaPolicy.error(what,extra));
                 return true;
             }
@@ -935,17 +936,37 @@ public class YouTubeActivity extends Arc7Activity {
     }
 
     private boolean takeVideoAudioFocus() {
-        if (audioManager == null || hasVideoAudioFocus) return true;
-        try {
-            hasVideoAudioFocus = audioManager.requestAudioFocus(videoAudioFocus, AudioManager.STREAM_MUSIC,
-                    AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
-            return hasVideoAudioFocus;
-        } catch (RuntimeException denied) { return false; }
+        if(hasVideoAudioFocus)return true;
+        if(audioManager==null)return false;
+        releaseVideoAudioFocus();
+        final MediaPlayer owner=foregroundPlayer;
+        final int request=videoRequestGeneration;
+        videoAudioFocus=new AudioManager.OnAudioFocusChangeListener(){
+            public void onAudioFocusChange(final int change){
+                final AudioManager.OnAudioFocusChangeListener callback=this;
+                ui.post(new Runnable(){public void run(){
+                    if(!alive||videoAudioFocus!=callback||request!=videoRequestGeneration||foregroundPlayer!=owner||!videoPrepared||owner==null||handedOffToBackgroundAudio)return;
+                    ca.arc7freedom.support.DebugLog.number("video.focus_change",change);
+                    try{
+                        if(change==AudioManager.AUDIOFOCUS_GAIN){hasVideoAudioFocus=true;owner.setVolume(1f,1f);}
+                        else if(change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)owner.setVolume(.2f,.2f);
+                        else if(change==AudioManager.AUDIOFOCUS_LOSS||change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT){
+                            if(videoView.isPlaying())videoView.pause();playPauseBtn.setText("\u25B6 Play");hasVideoAudioFocus=false;
+                            if(change==AudioManager.AUDIOFOCUS_LOSS)releaseVideoAudioFocus();
+                        }
+                    }catch(RuntimeException error){ca.arc7freedom.support.DebugLog.error("video.focus_operation_failed",error);}
+                }});
+            }
+        };
+        try {hasVideoAudioFocus=audioManager.requestAudioFocus(videoAudioFocus,AudioManager.STREAM_MUSIC,AudioManager.AUDIOFOCUS_GAIN)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;}
+        catch(RuntimeException denied){ca.arc7freedom.support.DebugLog.error("video.focus_request_failed",denied);}
+        return hasVideoAudioFocus;
     }
 
     private void releaseVideoAudioFocus() {
-        if (audioManager != null) {
-            try { audioManager.abandonAudioFocus(videoAudioFocus); } catch (RuntimeException ignored) {}
+        AudioManager.OnAudioFocusChangeListener old=videoAudioFocus;videoAudioFocus=null;
+        if (audioManager != null && old!=null) {
+            try { audioManager.abandonAudioFocus(old); } catch (RuntimeException ignored) {}
         }
         hasVideoAudioFocus = false;
     }
@@ -979,11 +1000,23 @@ public class YouTubeActivity extends Arc7Activity {
             box.addView(volume);
             TextView details = new TextView(this);
             details.setPadding(0, dp(12), 0, 0);
-            details.setText("Audio compatibility check\n" + videoAudioStatus
+            details.setText("Foreground player: " + (videoPrepared ? "prepared" : "not ready / failed / idle")
+                    + "\nAudio focus: " + hasVideoAudioFocus + "\nBuffering: " + (videoView==null?"not reported":videoView.getBufferPercentage()+"%")
+                    + "\nLast MediaPlayer error: " + videoErrorWhat + "/" + videoErrorExtra
+                    + "\nContainer: " + videoContainer + "\nCodec: not independently reported by this player"
+                    + "\n\nAudio compatibility check\n" + videoAudioStatus
                     + "\n\nVolume buttons control media, not the ringer. Headphones/Bluetooth keep their selected output; this app does not force speaker routing or raise volume automatically."
                     + (handedOffToBackgroundAudio ? "\nBackground Audio is active; foreground track details do not describe that player." : ""));
             box.addView(details);
             new AlertDialog.Builder(this).setTitle("YouTube sound").setView(box)
+                    .setNeutralButton("Record counters in log",new DialogInterface.OnClickListener(){public void onClick(DialogInterface d,int which){
+                        ca.arc7freedom.support.DebugLog.number("video.snapshot_prepared",videoPrepared?1:0);
+                        ca.arc7freedom.support.DebugLog.number("video.snapshot_focus",hasVideoAudioFocus?1:0);
+                        ca.arc7freedom.support.DebugLog.number("video.snapshot_buffer_percent",videoView==null?-1:videoView.getBufferPercentage());
+                        ca.arc7freedom.support.DebugLog.number("video.snapshot_error_what",videoErrorWhat);
+                        ca.arc7freedom.support.DebugLog.number("video.snapshot_error_extra",videoErrorExtra);
+                        ca.arc7freedom.support.AppSupport.open(YouTubeActivity.this);
+                    }})
                     .setPositiveButton("Done", null).show();
         } catch (RuntimeException unavailable) {
             Toast.makeText(this, "Use the tablet's media-volume controls.", Toast.LENGTH_LONG).show();
@@ -1039,6 +1072,7 @@ public class YouTubeActivity extends Arc7Activity {
         releaseVideoAudioFocus();
         foregroundPlayer = null;
         videoAudioStatus = "Playback failed: " + error;
+        ca.arc7freedom.support.DebugLog.event("video.playback_failed");
         NowPlayingManager.clearSession(this);
         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
         if (!audioRepairAttempted && playback.localAudioProxyUrl.length() > 0
@@ -1130,10 +1164,12 @@ public class YouTubeActivity extends Arc7Activity {
     private void toggleForegroundVideo() {
         if (videoView == null || currentPlayback == null || !videoPrepared || handedOffToBackgroundAudio) return;
         if (videoView.isPlaying()) {
+            videoPlayWhenPrepared=false;
             videoView.pause();
             releaseVideoAudioFocus();
             playPauseBtn.setText("\u25B6 Play");
         } else {
+            videoPlayWhenPrepared=true;
             if (!takeVideoAudioFocus()) {
                 Toast.makeText(this, "Audio is in use by another app. Pause it and try again.", Toast.LENGTH_LONG).show();
                 return;
@@ -1252,12 +1288,23 @@ public class YouTubeActivity extends Arc7Activity {
                     public void onClick(DialogInterface d, int which) {
                         if (currentPlayback == null) return;
                         final MorpheEngine.ResolvedPlayback selectedPlayback = currentPlayback;
+                        final int curPos = videoPrepared && videoView != null ? videoView.getCurrentPosition() : 0;
                         final int request = ++videoRequestGeneration;
                         if (resolutionThread != null) resolutionThread.interrupt();
+                        // The old focus callback belongs to the old request. Do not leave that
+                        // player running unprotected while a new quality resolves, or hold a
+                        // completed cache job that prevents admission in the low-RAM profile.
+                        cancelVideoPrepareTimeout();releaseVideoAudioFocus();
+                        foregroundPlayer=null;videoPrepared=false;
+                        try { videoView.stopPlayback(); } catch (Throwable ignored) {}
+                        MorpheEngine.cancelPlayback(selectedPlayback);
+                        selectedPlayback.localVideoProxyUrl="";selectedPlayback.localAudioProxyUrl="";
+                        NowPlayingManager.clearSession(YouTubeActivity.this);
                         final MorpheEngine.StreamVariant picked = variants.get(which);
                         final boolean soundOnly = audioOnly.get(which).booleanValue();
-                        final int curPos = videoView != null ? videoView.getCurrentPosition() : 0;
                         qualityBtn.setText("\uD83C\uDF9E Building " + picked.label + " ...");
+                        playerOverlayStatusTv.setVisibility(View.VISIBLE);
+                        playerOverlayStatusTv.setText("Preparing the selected quality. Playback is paused until it is ready.");
                         resolutionThread = new Thread(new Runnable() {
                             @Override
                             public void run() {
@@ -1488,13 +1535,21 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void loadThumbnailAsync(final String url, final ImageView iv) {
         if (url == null || !url.startsWith("http")) return;
-        Bitmap cached = THUMB_CACHE.get(url);
+        iv.setTag(url);
+        Bitmap cached;
+        synchronized(THUMB_CACHE){
+            java.util.Iterator<String> keys=THUMB_CACHE.keySet().iterator();
+            while(THUMB_CACHE.size()>ca.arc7freedom.support.RuntimePolicy.thumbnailEntries()&&keys.hasNext()){keys.next();keys.remove();}
+            cached=THUMB_CACHE.get(url);
+            int edge=ca.arc7freedom.support.RuntimePolicy.artworkEdge();
+            if(cached!=null&&(cached.getWidth()>edge||cached.getHeight()>edge)){THUMB_CACHE.remove(url);cached=null;}
+        }
         if (cached != null) {
             iv.setImageBitmap(cached);
             return;
         }
         iv.setTag(url);
-        new Thread(new Runnable() {
+        ca.arc7freedom.support.RuntimePolicy.artwork(new Runnable() {
             @Override
             public void run() {
                 HttpURLConnection conn = null;
@@ -1512,15 +1567,26 @@ public class YouTubeActivity extends Arc7Activity {
                         int n;
                         while ((n = in.read(buf)) > 0 && bos.size() < 1024 * 1024) bos.write(buf, 0, n);
                         BitmapFactory.Options o = new BitmapFactory.Options();
-                        o.inSampleSize = 2;
+                        byte[] bytes = bos.toByteArray();
+                        o.inJustDecodeBounds = true;
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+                        int edge = ca.arc7freedom.support.RuntimePolicy.artworkEdge();
+                        int sample = 1;
+                        while (o.outWidth / sample > edge || o.outHeight / sample > edge) sample *= 2;
+                        o.inJustDecodeBounds = false; o.inSampleSize = sample;
                         o.inPreferredConfig = Bitmap.Config.RGB_565;
-                        final Bitmap bmp = BitmapFactory.decodeByteArray(bos.toByteArray(), 0, bos.size(), o);
+                        final Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
                         if (bmp != null) {
-                            THUMB_CACHE.put(url, bmp);
+                            synchronized (THUMB_CACHE) {
+                                THUMB_CACHE.put(url, bmp);
+                                while (THUMB_CACHE.size() > ca.arc7freedom.support.RuntimePolicy.thumbnailEntries()) {
+                                    java.util.Iterator<String> keys = THUMB_CACHE.keySet().iterator(); if (!keys.hasNext()) break; keys.next(); keys.remove();
+                                }
+                            }
                             ui.post(new Runnable() {
                                 @Override
                                 public void run() {
-                                    if (url.equals(iv.getTag())) iv.setImageBitmap(bmp);
+                                    if (alive && url.equals(iv.getTag())) iv.setImageBitmap(bmp);
                                 }
                             });
                         }
@@ -1531,7 +1597,7 @@ public class YouTubeActivity extends Arc7Activity {
                     if (conn != null) conn.disconnect();
                 }
             }
-        }).start();
+        });
     }
 
     private Button pillBtn(String label,int color) {
@@ -1557,6 +1623,7 @@ public class YouTubeActivity extends Arc7Activity {
         cancelVideoPrepareTimeout();
         ui.removeCallbacks(progressTicker);
         try { unregisterReceiver(fgControlReceiver); } catch (Throwable ignored) {}
+        try { unregisterReceiver(videoNoisy); } catch (Throwable ignored) {}
         if (!handedOffToBackgroundAudio) {
             stopForegroundVideo();
         }
