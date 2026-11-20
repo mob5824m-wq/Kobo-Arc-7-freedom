@@ -86,8 +86,8 @@ def cmd(script,args,env,cwd,background=False):
     # pair required by /s /c when an executable path itself contains spaces/parentheses.
     command='"'+subprocess.list2cmdline([str(script),*map(str,args)])+'"'
     argv='"'+os.environ.get('COMSPEC','cmd.exe')+'" /d /s /c '+command
-    if background:return subprocess.Popen(argv,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
-    return subprocess.run(argv,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=45)
+    if background:return subprocess.Popen(argv,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace')
+    return subprocess.run(argv,cwd=cwd,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,errors='replace',timeout=45)
 
 
 def windows():
@@ -189,7 +189,7 @@ def windows():
     print('ALL NATIVE WINDOWS TOOL REGRESSIONS PASSED (Windows PowerShell 5.1, cmd, fake devices/input and local HTTP fixtures; not hardware validation)')
 
 
-if __name__=='__main__':
+def main():
     sources()
     if '--apks' in sys.argv:
         with zipfile.ZipFile(ROOT/'releases/KoboArc7Freedom.apk') as archive:
@@ -198,3 +198,16 @@ if __name__=='__main__':
         print('PASS: signed suite embeds the exact tested/pinned Windows Stream Deck launcher, helper and Python companion')
     if '--windows' in sys.argv:windows()
     else:print('Native Windows execution is a separate Windows CI job; this host gate does not claim it.')
+
+
+if __name__=='__main__':
+    import traceback
+    try:
+        main()
+    except Exception:
+        text=traceback.format_exc()
+        print(text,file=sys.stderr,flush=True)
+        if os.environ.get('GITHUB_ACTIONS')=='true':
+            encoded=text.replace('%','%25').replace('\r','%0D').replace('\n','%0A')
+            print('::error title=Native Windows tool regression::'+encoded,flush=True)
+        sys.exit(1)
