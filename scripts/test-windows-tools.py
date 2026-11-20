@@ -113,7 +113,13 @@ def windows():
             adb_log.write_text('');result=cmd(launch,['-Apk',apk],dict(env,ARC7_TEST_INSTALL=fail),cwd)
             assert result.returncode!=0 and 'MainActivity' not in adb_log.read_text(),(fail,result.stdout)
         adb_log.write_text('');result=cmd(launch,['-Serial','KOBO','-Apk',apk],dict(env,ARC7_TEST_STATE='multiple'),cwd)
-        calls=adb_log.read_text();assert result.returncode==0 and '\tinstall\t-r\t'+str(apk) in calls and 'MainActivity' in calls,result.stdout
+        calls=adb_log.read_text();install_calls=[line.split('\t') for line in calls.splitlines() if 'install' in line.split('\t')]
+        diagnostic=(result.returncode,result.stdout,calls)
+        assert result.returncode==0 and len(install_calls)==1 and 'MainActivity' in calls,diagnostic
+        assert install_calls[0][:4]==['-s','KOBO','install','-r'] and len(install_calls[0])==5,diagnostic
+        # Get-Item resolves Windows' 8.3 TEMP aliases and path case. Require the same
+        # actual file, not the incidental spelling returned by tempfile.gettempdir().
+        assert os.path.samefile(install_calls[0][4],apk),diagnostic
         assert 'uninstall' not in calls and 'pm\tclear' not in calls
         print('PASS: native Windows batch + PowerShell USB path quoting, device/serial selection and safe failure/no-uninstall behavior (fake ADB)')
         # Real batch argument forwarding and no retry on application failure, including the Kobo mirror.
