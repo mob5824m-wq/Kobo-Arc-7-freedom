@@ -134,7 +134,7 @@ public class MainActivity extends Arc7Activity {
         Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
         InstallMaintenanceService.request(this, "suite opened after install/update");
 
-        appendLog("Kobo Arc 7 Freedom v2.6.8 ready (Android API " + android.os.Build.VERSION.SDK_INT
+        appendLog("Kobo Arc 7 Freedom v2.6.9 ready (Android API " + android.os.Build.VERSION.SDK_INT
                 + ", Custom Arc7 OS Skin + Reskinned Icons + Chromebook Wired USB Internet + Bundled VLC + Calendar + Photos + Camera + Calculator + Notes + Files + Archive.org Chimes + Custom APK Installer).");
         refreshDeviceSnapshotAsync();
         if ("patches".equals(getIntent().getStringExtra("open_tab"))) selectTab(5);
@@ -216,7 +216,7 @@ public class MainActivity extends Arc7Activity {
         }
 
         TextView title = new TextView(this);
-        title.setText("Arc7 Freedom  v2.6.8");
+        title.setText("Arc7 Freedom  v2.6.9");
         title.setTextColor(TEXT_PRIMARY);
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, hdrPrefs.inAppDensity == 0 ? 17 : 19);
         title.setTypeface(Typeface.SANS_SERIF, Typeface.BOLD);
@@ -1078,9 +1078,9 @@ public class MainActivity extends Arc7Activity {
 
         page.addView(wirelessCard, cardMargin());
 
-        // Card 1: Complete v2.6.8 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
+        // Card 1: Complete v2.6.9 OS App Suite + separate YouTube & YouTube Music apps + Official Tailscale Google Auth
         LinearLayout packCard = makeCard();
-        addCardHeader(packCard, "Arc7 Freedom v2.6.8 — Daily-Driver App & Media Suite",
+        addCardHeader(packCard, "Arc7 Freedom v2.6.9 — Daily-Driver App & Media Suite",
                 "Independent Radio, Podcasts, News, Authenticator and Passwords apps; Weather high/low + widget; F-Droid v1306 legacy catalogs. "
                 + "Public YouTube/Music playback, local pins/playlists and verified offline downloads; provider restrictions can still prevent playback. "
                 + "Glass app styling, usable Stream Deck key assignment and Launcher v56. Manage safe in-place updates in the PATCHES tab.");

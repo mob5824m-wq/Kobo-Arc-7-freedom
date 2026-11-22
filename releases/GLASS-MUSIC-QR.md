@@ -1,7 +1,7 @@
 # Liquid-glass-inspired UI, Music format recovery & offline optical file transfer
 
 Branch build for Kobo Arc 7 / Arc 7HD, Android 4.0.3–4.2.2 (API15 minimum / API17 target).
-Suite/default apps/upgrader use **2.6.8 / 268**; independent Home/store versions and the
+Suite/default apps/upgrader use **2.6.9 / 269**; independent Home/store versions and the
 permanent signing identity are retained. This work does **not** publish a new public
 release or change your installed app data automatically.
 
@@ -12,7 +12,7 @@ release or change your installed app data automatically.
   before updating. Do **not** uninstall or clear data.
 - Install the generated `apps/QR-Transfer.apk` for the independent Kobo companion (built-in
   storage browser, optional system picker/Share, send/receive hub, densities, saved receive
-  management); `apps/Files.apk` retains its existing optical send/receive actions. The full `KoboArc7Freedom.apk` / 2.6.8 upgrader also bundles the same signed
+  management); `apps/Files.apk` retains its existing optical send/receive actions. The full `KoboArc7Freedom.apk` / 2.6.9 upgrader also bundles the same signed
   Home, Music and Files payloads; use **PATCHES → Apply / Retry All Patches** and confirm
   any pending Android install prompts when not rooted.
 - Default app APKs are generated/ignored by Git, available in the build artifact and

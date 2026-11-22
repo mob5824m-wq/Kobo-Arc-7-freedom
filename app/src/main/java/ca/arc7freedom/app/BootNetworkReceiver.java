@@ -14,7 +14,7 @@ import android.net.ConnectivityManager;
  *   3. Keeps the local `127.0.0.1:8118` modern TLS 1.3 gateway warm in the background.
  */
 public class BootNetworkReceiver extends BroadcastReceiver {
-
+    public static final String ACTION_SET_CLOCK_AUTO_DOCK = "ca.arc7freedom.action.SET_CLOCK_AUTO_DOCK";
     private static volatile long lastCheckMs = 0L;
 
     @Override
@@ -27,6 +27,11 @@ public class BootNetworkReceiver extends BroadcastReceiver {
         if (action.startsWith("com.android.music.") || action.startsWith("org.videolan.vlc.")) {
             Arc7AudioService.ensureWatcherRunning(context);
             NowPlayingManager.onExternalMediaBroadcast(context, intent);
+            return;
+        }
+        if (ACTION_SET_CLOCK_AUTO_DOCK.equals(action)) {
+            context.getSharedPreferences("arc7_desk_clock", Context.MODE_PRIVATE).edit()
+                    .putBoolean("auto_dock_on_charge", intent.getBooleanExtra("enabled", false)).commit();
             return;
         }
         if (Intent.ACTION_POWER_CONNECTED.equals(action)) {

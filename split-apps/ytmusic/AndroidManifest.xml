@@ -9,8 +9,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="ca.arc7freedom.ytmusic"
-    android:versionCode="268"
-    android:versionName="2.6.8"
+    android:versionCode="269"
+    android:versionName="2.6.9"
     android:installLocation="internalOnly">
 
     <uses-sdk android:minSdkVersion="15" android:targetSdkVersion="17" />
@@ -67,6 +67,11 @@
             android:taskAffinity="ca.arc7freedom.ytmusic.task.diagnostics" android:exported="false" />
         <receiver android:name="ca.arc7freedom.app.Arc7MediaButtonReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON" /></intent-filter>
+        </receiver>
+        <receiver android:name="ca.arc7freedom.app.Arc7AudioWidgetProvider"
+            android:label="YouTube Music controls" android:icon="@drawable/ic_ytmusic" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_arc7_audio_info" />
         </receiver>
 
         <service android:name="ca.arc7freedom.app.Arc7TlsGatewayService" android:exported="false" />

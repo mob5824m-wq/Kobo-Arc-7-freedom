@@ -242,11 +242,6 @@ public class YouTubeActivity extends Arc7Activity {
 
         final String[][] shelves = new String[][]{
                 {"\uD83D\uDD25 Trending", ""},
-                {"\uD83C\uDFB6 Music Videos", "official music videos 2026"},
-                {"\uD83C\uDFAE Gaming", "gaming highlights walkthrough"},
-                {"\uD83D\uDCBB Tech & Coding", "technology hardware review"},
-                {"\uD83D\uDD2C Science", "science documentary space"},
-                {"\uD83D\uDCF0 News Live", "world news live"},
                 {"Subscriptions · pinned channels", "@pins"},
                 {"\u2B50 Saved", "@saved"},
                 {"\uD83D\uDD53 History", "@history"},
