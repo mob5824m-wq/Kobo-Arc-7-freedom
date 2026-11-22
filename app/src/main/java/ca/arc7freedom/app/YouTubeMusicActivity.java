@@ -77,6 +77,17 @@ public class YouTubeMusicActivity extends Arc7Activity {
     private EditText searchEt;
     private TextView rightPaneHeaderTv;
     private LinearLayout rightPaneList;
+    private Button browseBackBtn;
+    private final List<BrowsePage> browseHistory = new ArrayList<BrowsePage>();
+
+    private static final class BrowsePage {
+        final String title;
+        final List<MorpheEngine.MediaItem> items;
+        BrowsePage(String title, List<MorpheEngine.MediaItem> items) {
+            this.title = title;
+            this.items = new ArrayList<MorpheEngine.MediaItem>(items);
+        }
+    }
 
     private final List<MorpheEngine.MediaItem> browseResults = new ArrayList<MorpheEngine.MediaItem>();
     private final List<MorpheEngine.LyricLine> currentLyrics = new ArrayList<MorpheEngine.LyricLine>();
@@ -166,13 +177,8 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 {"My playlists & albums", "@playlists"},
                 {"+ New playlist", "@newplaylist"},
                 {"Play results", "@playall"},
-                {"\uD83D\uDD25 Quick Picks", "top hits music 2026"},
-                {"\uD83C\uDFA7 Chill & Lofi", "chill lofi beats study"},
-                {"\u26A1 Energy & Workout", "workout hype hits"},
-                {"\uD83C\uDFB8 Rock Classics", "classic rock anthems"},
-                {"\uD83C\uDFA4 Hip-Hop & R&B", "hip hop rnb hits"},
-                {"\uD83C\uDFB9 Focus & Jazz", "instrumental jazz piano"},
                 {"\u2764 Liked Songs", "@liked"},
+                {"Saved artists", "@artists"},
                 {"\u2B07 Offline Library", "@offline"},
                 {"\uD83D\uDCCB Up Next Queue", "@queue"},
                 {"\uD83C\uDFA4 Synced Lyrics", "@lyrics"}
@@ -189,6 +195,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
                     else if ("@newplaylist".equals(q)) createMusicPlaylist(null);
                     else if ("@playall".equals(q)) playItems(browseResults,0);
                     else if ("@liked".equals(q)) showLikedSongs();
+                    else if ("@artists".equals(q)) showSavedArtists();
                     else if ("@offline".equals(q)) showOfflineMusicLibrary();
                     else if ("@queue".equals(q)) renderQueuePane();
                     else if ("@lyrics".equals(q)) renderLyricsPane();
@@ -205,7 +212,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         splitBody.setOrientation(landscape ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
 
         // Left / Top Now-Playing Studio Deck
-        LinearLayout playerDeck = new LinearLayout(this);
+        final LinearLayout playerDeck = new LinearLayout(this);
         playerDeck.setOrientation(LinearLayout.VERTICAL);
         playerDeck.setGravity(Gravity.CENTER_HORIZONTAL);
         playerDeck.setBackgroundDrawable(Arc7Skin.elevatedDrawable(this, musicPalette(), 28));
@@ -283,7 +290,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
         transportRow.setGravity(Gravity.CENTER);
         transportRow.setPadding(0, dp(8), 0, dp(6));
 
-        shuffleBtn = pillBtn("\uD83D\uDD00", 0xFF1F2937);
+        shuffleBtn = pillBtn("Shuffle", 0xFF1F2937);
         shuffleBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -297,25 +304,25 @@ public class YouTubeMusicActivity extends Arc7Activity {
         });
         transportRow.addView(shuffleBtn, marginRightLp(6));
 
-        Button prevBtn = pillBtn("\u23EE", 0xFF27272A);
+        Button prevBtn = pillBtn("Prev", 0xFF27272A);
         prevBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { if (audioService != null) audioService.stepQueue(-1); }
         });
         transportRow.addView(prevBtn, marginRightLp(6));
 
-        playPauseBtn = pillBtn("\u25B6 Play", 0xFFFF0033);
+        playPauseBtn = pillBtn("Play", 0xFFFF0033);
         playPauseBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { if (audioService != null) audioService.togglePlayPause(); }
         });
         transportRow.addView(playPauseBtn, marginRightLp(6));
 
-        Button nextBtn = pillBtn("\u23ED", 0xFF27272A);
+        Button nextBtn = pillBtn("Next", 0xFF27272A);
         nextBtn.setOnClickListener(new View.OnClickListener() {
             @Override public void onClick(View v) { if (audioService != null) audioService.stepQueue(1); }
         });
         transportRow.addView(nextBtn, marginRightLp(6));
 
-        repeatBtn = pillBtn("\uD83D\uDD01 Off", 0xFF1F2937);
+        repeatBtn = pillBtn("Repeat Off", 0xFF1F2937);
         repeatBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -380,9 +387,14 @@ public class YouTubeMusicActivity extends Arc7Activity {
         }
 
         // Right / Bottom Scrollable Songs, Queue & Lyrics Pane
-        LinearLayout rightWrap = new LinearLayout(this);
+        final LinearLayout rightWrap = new LinearLayout(this);
         rightWrap.setOrientation(LinearLayout.VERTICAL);
         rightWrap.setPadding(dp(12), dp(8), dp(12), dp(8));
+
+        browseBackBtn = pillBtn("← Back", 0xFF334155);
+        browseBackBtn.setVisibility(View.GONE);
+        browseBackBtn.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { browseBack(); } });
+        rightWrap.addView(browseBackBtn);
 
         rightPaneHeaderTv = new TextView(this);
         rightPaneHeaderTv.setText("\uD83D\uDD25 Quick Picks");
@@ -403,6 +415,20 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 landscape ? 0 : ViewGroup.LayoutParams.MATCH_PARENT,
                 landscape ? ViewGroup.LayoutParams.MATCH_PARENT : 0, 1f));
 
+        LinearLayout paneSwitch = new LinearLayout(this);
+        paneSwitch.setOrientation(LinearLayout.HORIZONTAL);
+        paneSwitch.setGravity(Gravity.CENTER);
+        Button showBrowse = pillBtn("Browse songs", 0xFF334155);
+        showBrowse.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            rightWrap.setVisibility(View.VISIBLE); playerDeck.setVisibility(View.GONE);
+        } });
+        Button showPlayer = pillBtn("Player", 0xFF7F1D3D);
+        showPlayer.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            playerDeck.setVisibility(View.VISIBLE); rightWrap.setVisibility(View.GONE);
+        } });
+        paneSwitch.addView(showBrowse, marginRightLp(8));
+        paneSwitch.addView(showPlayer);
+        root.addView(paneSwitch);
         root.addView(splitBody, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         setContentView(root);
@@ -464,6 +490,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
             return;
         }
         activeRightMode = "browse";
+        browseHistory.clear(); updateBrowseBackButton();
         browseResults.clear(); rightPaneList.removeAllViews();
         rightPaneHeaderTv.setText("Searching YouTube Music for \"" + clean + "\"...");
         new Thread(new Runnable() {
@@ -600,41 +627,77 @@ public class YouTubeMusicActivity extends Arc7Activity {
         performMusicSearch("popular music official audio","songs"); quickPlayRequest=musicRequest;
     }
     private void showMusicPlaylists() {
-        ++musicRequest; activeRightMode="browse";
+        ++musicRequest; browseHistory.clear(); updateBrowseBackButton(); activeRightMode="browse";
         List<MorpheEngine.MediaItem> saved=MorpheEngine.loadSavedList(this,"ytm_playlists");
         rightPaneHeaderTv.setText("My playlists & albums · "+saved.size()+" · long-press a song to add it; long-press a collection to remove it");
         renderTrackRows(saved,false);
     }
+    private void pushBrowsePage() {
+        browseHistory.add(new BrowsePage(rightPaneHeaderTv.getText().toString(), browseResults));
+        updateBrowseBackButton();
+    }
+
+    private void updateBrowseBackButton() {
+        if (browseBackBtn != null) browseBackBtn.setVisibility(browseHistory.isEmpty() ? View.GONE : View.VISIBLE);
+    }
+
+    private void browseBack() {
+        if (browseHistory.isEmpty()) return;
+        ++musicRequest; quickPlayRequest = -1; activeRightMode = "browse";
+        BrowsePage page = browseHistory.remove(browseHistory.size() - 1);
+        rightPaneHeaderTv.setText(page.title);
+        renderTrackRows(page.items, false);
+        updateBrowseBackButton();
+    }
+
     private void openMusicArtist(final MorpheEngine.MediaItem artist) {
+        pushBrowsePage();
         final int request = ++musicRequest; quickPlayRequest = -1; activeRightMode = "browse";
-        final List<MorpheEngine.MediaItem> previous = new ArrayList<MorpheEngine.MediaItem>(browseResults);
         browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Loading artist · " + artist.title + "…");
         new Thread(new Runnable() { @Override public void run() {
             try {
                 final List<MorpheEngine.MediaItem> items = MorpheEngine.browseMusicArtist(YouTubeMusicActivity.this, artist);
                 ui.post(new Runnable() { @Override public void run() {
                     if (!alive || request != musicRequest) return;
-                    rightPaneHeaderTv.setText(artist.title + " · songs & releases (up to 60 public items) · tap an album to open");
-                    renderTrackRows(items, false);
-                    Button back = pillBtn("← Back to artist results", 0xFF334155);
-                    back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
-                        ++musicRequest; quickPlayRequest = -1;
-                        rightPaneHeaderTv.setText("Artists · " + previous.size() + " results"); renderTrackRows(previous, false);
-                    } });
-                    rightPaneList.addView(back, 0);
+                    showArtistItems(artist, items, false);
                 } });
             } catch (final Exception error) { ui.post(new Runnable() { @Override public void run() {
                 if (!alive || request != musicRequest) return;
                 browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Artist unavailable: " + error.getMessage());
                 Button back = pillBtn("← Back to artist results", 0xFF334155);
-                back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
-                    ++musicRequest; rightPaneHeaderTv.setText("Artists · " + previous.size() + " results"); renderTrackRows(previous, false);
-                } }); rightPaneList.addView(back);
+                back.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { browseBack(); } }); rightPaneList.addView(back);
             } }); }
         } }, "Arc7-Music-Artist").start();
     }
 
+    private void showArtistItems(final MorpheEngine.MediaItem artist, final List<MorpheEngine.MediaItem> all,
+                                 final boolean albumsSelected) {
+        final List<MorpheEngine.MediaItem> albums = new ArrayList<MorpheEngine.MediaItem>();
+        final List<MorpheEngine.MediaItem> songs = new ArrayList<MorpheEngine.MediaItem>();
+        for (MorpheEngine.MediaItem item : all) {
+            if (item.isCollection() && "album".equals(item.collectionType)) albums.add(item);
+            else if (!item.isBrowsable()) songs.add(item);
+        }
+        rightPaneHeaderTv.setText(artist.title + " · albums and songs");
+        renderTrackRows(albumsSelected ? albums : songs, false);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        Button albumTab = pillBtn("Albums (" + albums.size() + ")", albumsSelected ? 0xFF7F1D3D : 0xFF334155);
+        Button songTab = pillBtn("Songs (" + songs.size() + ")", albumsSelected ? 0xFF334155 : 0xFF7F1D3D);
+        albumTab.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showArtistItems(artist, all, true); } });
+        songTab.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) { showArtistItems(artist, all, false); } });
+        tabs.addView(albumTab, marginRightLp(6)); tabs.addView(songTab);
+        rightPaneList.addView(tabs, 0);
+        Button saveArtist = pillBtn("☆ Save artist", 0xFF334155);
+        saveArtist.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+            MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this, "ytm_artists", artist, true);
+            Toast.makeText(YouTubeMusicActivity.this, "Saved artist", Toast.LENGTH_SHORT).show();
+        } });
+        rightPaneList.addView(saveArtist, 0);
+    }
+
     private void openMusicCollection(final MorpheEngine.MediaItem item) {
+        pushBrowsePage();
         final int request=++musicRequest; activeRightMode="browse";
         browseResults.clear(); rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Loading "+item.title+"…");
         new Thread(new Runnable(){ public void run(){
@@ -643,6 +706,13 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 ui.post(new Runnable(){ public void run(){ if(!alive || request!=musicRequest) return;
                     rightPaneHeaderTv.setText(item.title+" · "+tracks.size()+" loaded (first 60 public tracks) · Play results starts the queue");
                     renderTrackRows(tracks,false);
+                    if ("album".equals(item.collectionType)) {
+                        Button downloadAlbum = pillBtn("↓ Download album · " + tracks.size() + " tracks", 0xFF0284C7);
+                        downloadAlbum.setOnClickListener(new View.OnClickListener() { @Override public void onClick(View v) {
+                            downloadMusicAlbum(item, tracks);
+                        } });
+                        rightPaneList.addView(downloadAlbum, 0);
+                    }
                     Button save=pillBtn("Save album / playlist to library",0xFF334155); save.setOnClickListener(new View.OnClickListener(){ public void onClick(View v){
                         MorpheEngine.addOrToggleSavedItem(YouTubeMusicActivity.this,"ytm_playlists",item,false);
                         Toast.makeText(YouTubeMusicActivity.this,"Saved collection",Toast.LENGTH_SHORT).show();
@@ -651,6 +721,32 @@ public class YouTubeMusicActivity extends Arc7Activity {
             } catch(final Exception e){ ui.post(new Runnable(){ public void run(){ if(alive && request==musicRequest) { rightPaneList.removeAllViews(); rightPaneHeaderTv.setText("Collection unavailable: "+e.getMessage()); } }}); }
         }},"Arc7-Music-Collection").start();
     }
+    private void downloadMusicAlbum(final MorpheEngine.MediaItem album, final List<MorpheEngine.MediaItem> albumTracks) {
+        final List<MorpheEngine.MediaItem> tracks = new ArrayList<MorpheEngine.MediaItem>();
+        for (MorpheEngine.MediaItem track : albumTracks) if (!track.isBrowsable() && track.videoId.length() > 0) tracks.add(track);
+        if (tracks.isEmpty()) { Toast.makeText(this, "No downloadable tracks were returned for this album", Toast.LENGTH_LONG).show(); return; }
+        if (downloads == null) downloads = new Arc7DownloadUi(this);
+        downloads.start(album.title + " · " + tracks.size() + " tracks", new Arc7DownloadUi.Task() {
+            @Override public File run(final MorpheEngine.DownloadProgressListener progress) throws Exception {
+                File last = null;
+                for (int i = 0; i < tracks.size(); i++) {
+                    final int index = i;
+                    MorpheEngine.MediaItem track = tracks.get(i);
+                    final MorpheEngine.ResolvedPlayback resolved = MorpheEngine.resolveStreams(YouTubeMusicActivity.this, track.videoId, true);
+                    try {
+                        last = MorpheEngine.downloadResolvedOffline(YouTubeMusicActivity.this, resolved,
+                                album.title + " - " + track.title, true, new MorpheEngine.DownloadProgressListener() {
+                                    @Override public void onProgress(int percent, long done, long total) {
+                                        progress.onProgress((index * 100 + Math.max(0, percent)) / tracks.size(), done, total);
+                                    }
+                                });
+                    } finally { MorpheEngine.cancelPlayback(resolved); }
+                }
+                return last;
+            }
+        });
+    }
+
     private void createMusicPlaylist(final MorpheEngine.MediaItem first) {
         final EditText title=new EditText(this); title.setHint("Playlist name"); title.setSingleLine(true);
         new AlertDialog.Builder(this).setTitle("New local playlist").setView(title).setPositiveButton("Create",new DialogInterface.OnClickListener(){ public void onClick(DialogInterface d,int which){
@@ -672,7 +768,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void renderQueuePane() {
-        ++musicRequest; quickPlayRequest=-1;
+        ++musicRequest; quickPlayRequest=-1; browseHistory.clear(); updateBrowseBackButton();
         activeRightMode = "queue";
         List<MorpheEngine.MediaItem> q = audioService != null
                 ? audioService.getMorpheQueueSnapshot() : new ArrayList<MorpheEngine.MediaItem>();
@@ -681,7 +777,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void renderLyricsPane() {
-        ++musicRequest; quickPlayRequest=-1;
+        ++musicRequest; quickPlayRequest=-1; browseHistory.clear(); updateBrowseBackButton();
         activeRightMode = "lyrics";
         rightPaneHeaderTv.setText("\uD83C\uDFA4 Synced Karaoke Lyrics (tap any line to jump!)");
         rightPaneList.removeAllViews();
@@ -732,11 +828,11 @@ public class YouTubeMusicActivity extends Arc7Activity {
         if (audioService != null) {
             boolean resolving = audioService.isResolvingMorpheTrack();
             boolean playing = audioService.isPlaying();
-            playPauseBtn.setText(resolving ? "\u23F3 Loading..." : (playing ? "\u23F8 Pause" : "\u25B6 Play"));
-            shuffleBtn.setText(audioService.isShuffleEnabled() ? "\uD83D\uDD00 On" : "\uD83D\uDD00");
+            playPauseBtn.setText(resolving ? "Loading..." : (playing ? "Pause" : "Play"));
+            shuffleBtn.setText(audioService.isShuffleEnabled() ? "Shuffle On" : "Shuffle");
             int rep = audioService.getRepeatMode();
-            repeatBtn.setText(rep == Arc7AudioService.REPEAT_ONE ? "\uD83D\uDD02 One"
-                    : (rep == Arc7AudioService.REPEAT_ALL ? "\uD83D\uDD01 All" : "\uD83D\uDD01 Off"));
+            repeatBtn.setText(rep == Arc7AudioService.REPEAT_ONE ? "Repeat One"
+                    : (rep == Arc7AudioService.REPEAT_ALL ? "Repeat All" : "Repeat Off"));
 
             int dur = audioService.getDurationMs();
             int pos = audioService.getPositionMs();
@@ -793,8 +889,16 @@ public class YouTubeMusicActivity extends Arc7Activity {
         if (liveLyricBannerTv!=null) liveLyricBannerTv.setText("");
     }
 
+    private void showSavedArtists() {
+        ++musicRequest; quickPlayRequest = -1; browseHistory.clear(); updateBrowseBackButton();
+        activeRightMode = "browse";
+        List<MorpheEngine.MediaItem> artists = MorpheEngine.loadSavedList(this, "ytm_artists");
+        rightPaneHeaderTv.setText("Saved artists (" + artists.size() + ") · tap an artist to browse");
+        renderTrackRows(artists, false);
+    }
+
     private void showLikedSongs() {
-        ++musicRequest; quickPlayRequest=-1;
+        ++musicRequest; quickPlayRequest=-1; browseHistory.clear(); updateBrowseBackButton();
         activeRightMode = "browse";
         List<MorpheEngine.MediaItem> liked = MorpheEngine.loadSavedList(this, "ytm_liked");
         rightPaneHeaderTv.setText("\u2764 Liked Songs (" + liked.size() + ")");
@@ -802,7 +906,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void showOfflineMusicLibrary() {
-        ++musicRequest; quickPlayRequest=-1;
+        ++musicRequest; quickPlayRequest=-1; browseHistory.clear(); updateBrowseBackButton();
         activeRightMode = "browse";
         List<MorpheEngine.MediaItem> list = new ArrayList<MorpheEngine.MediaItem>();
         File dir = new File(Environment.getExternalStorageDirectory(), "Music/YouTubeMusic");

@@ -118,14 +118,10 @@ public class Arc7DeskClockActivity extends Arc7Activity {
         }
     };
 
+    // Dock mode intentionally displays one dedicated image rather than cycling the device gallery.
     private final Runnable slideshowTicker = new Runnable() {
-        @Override
-        public void run() {
-            if (!nightRedMode && !photos.isEmpty()) {
-                photoIdx = (photoIdx + 1) % photos.size();
-                showPhotoSafe(photos.get(photoIdx));
-            }
-            ui.postDelayed(this, 20000L);
+        @Override public void run() {
+            if (!nightRedMode && !photos.isEmpty()) showPhotoSafe(photos.get(0));
         }
     };
 
@@ -151,6 +147,9 @@ public class Arc7DeskClockActivity extends Arc7Activity {
         certMgr = new NetworkCertManager(this, shell);
         SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         nightRedMode = sp.getBoolean(KEY_NIGHT_RED, false);
+        // The standalone Clock APK owns its preference file; copy its saved opt-in state
+        // to the suite's boot receiver so an older stale ON value cannot relaunch the clock.
+        syncAutoDockSetting(sp.getBoolean("auto_dock_on_charge", false));
 
         FrameLayout frame = new FrameLayout(this);
         frame.setBackgroundColor(Color.BLACK);
@@ -307,6 +306,7 @@ public class Arc7DeskClockActivity extends Arc7Activity {
                 SharedPreferences sp2 = getSharedPreferences(PREFS, MODE_PRIVATE);
                 boolean next = !sp2.getBoolean("auto_dock_on_charge", false);
                 sp2.edit().putBoolean("auto_dock_on_charge", next).commit();
+                syncAutoDockSetting(next);
                 android.widget.Toast.makeText(Arc7DeskClockActivity.this,
                         "Auto-Launch Clock Standby on USB Power: " + (next ? "ON" : "OFF"),
                         android.widget.Toast.LENGTH_SHORT).show();
@@ -321,8 +321,12 @@ public class Arc7DeskClockActivity extends Arc7Activity {
                         android.widget.Toast.LENGTH_SHORT).show();
             }
         }));
-        topControls.addView(miniBtn("Reload Photos", "#334155", new View.OnClickListener() {
-            @Override public void onClick(View v) { scanPhotosAsync(); }
+        topControls.addView(miniBtn("Reload Dock Image", "#334155", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                android.widget.Toast.makeText(Arc7DeskClockActivity.this,
+                        "Dock image folder: Pictures/ClockDock · showing one image", android.widget.Toast.LENGTH_LONG).show();
+                scanPhotosAsync();
+            }
         }));
         topControls.addView(miniBtn("Exit Standby", "#475569", new View.OnClickListener() {
             @Override public void onClick(View v) { finish(); }
@@ -346,6 +350,13 @@ public class Arc7DeskClockActivity extends Arc7Activity {
         ui.post(clockTicker);
         ui.postDelayed(slideshowTicker, 5000L);
         ui.post(weatherTicker);
+    }
+
+    private void syncAutoDockSetting(boolean enabled) {
+        Intent syncDock = new Intent(BootNetworkReceiver.ACTION_SET_CLOCK_AUTO_DOCK);
+        syncDock.setPackage(AppNetworkScope.SUITE_PACKAGE);
+        syncDock.putExtra("enabled", enabled);
+        sendBroadcast(syncDock);
     }
 
     private void adjustMusicVolume(int direction) {
@@ -500,24 +511,30 @@ public class Arc7DeskClockActivity extends Arc7Activity {
             public void run() {
                 final List<File> found = new ArrayList<File>();
                 String sd = TabletOptimizerManager.findMicroSdRoot();
+                // Add photos only to Pictures/ClockDock (internal or microSD). This keeps the
+                // dock's background set separate from other albums and avoids a slideshow.
                 String[] dirs = {
-                    sd != null ? sd + "/Pictures" : null,
-                    sd != null ? sd + "/DCIM" : null,
-                    sd,
-                    Environment.getExternalStorageDirectory() + "/Pictures",
-                    Environment.getExternalStorageDirectory() + "/DCIM"
+                    sd != null ? sd + "/Pictures/ClockDock" : null,
+                    Environment.getExternalStorageDirectory() + "/Pictures/ClockDock"
                 };
                 for (String d : dirs) {
                     if (d == null) continue;
                     collectImages(new File(d), found, 0);
-                    if (found.size() >= 150) break;
+                    if (!found.isEmpty()) break;
                 }
+                java.util.Collections.sort(found, new java.util.Comparator<File>() {
+                    @Override public int compare(File a, File b) {
+                        return a.getName().compareToIgnoreCase(b.getName());
+                    }
+                });
+                if (found.size() > 1) found.subList(1, found.size()).clear();
                 ui.post(new Runnable() {
                     @Override
                     public void run() {
                         photos.clear();
                         photos.addAll(found);
                         if (!nightRedMode && !photos.isEmpty()) showPhotoSafe(photos.get(0));
+                        else if (photos.isEmpty()) bgPhotoView.setImageDrawable(null);
                     }
                 });
             }

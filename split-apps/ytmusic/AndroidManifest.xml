@@ -68,6 +68,11 @@
         <receiver android:name="ca.arc7freedom.app.Arc7MediaButtonReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.MEDIA_BUTTON" /></intent-filter>
         </receiver>
+        <receiver android:name="ca.arc7freedom.app.Arc7AudioWidgetProvider"
+            android:label="YouTube Music controls" android:icon="@drawable/ic_ytmusic" android:exported="true">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_arc7_audio_info" />
+        </receiver>
 
         <service android:name="ca.arc7freedom.app.Arc7TlsGatewayService" android:exported="false" />
         <service android:name="ca.arc7freedom.app.Arc7AudioService" android:exported="false" />

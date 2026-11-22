@@ -505,12 +505,12 @@ public class Arc7AudioService extends Service {
 
             RemoteViews expanded = new RemoteViews(getPackageName(), R.layout.notif_media_expanded);
             expanded.setTextViewText(R.id.notif_media_source,
-                    (snap.playing ? "\u266B NOW PLAYING  \u2022  " : "\u23F8 PAUSED  \u2022  ")
-                            + snap.sourceApp.toUpperCase(Locale.US) + "  \u2022  " + timeBadge);
+                    (snap.playing ? "NOW PLAYING  ·  " : "PAUSED  ·  ")
+                            + snap.sourceApp.toUpperCase(Locale.US) + "  ·  " + timeBadge);
             expanded.setTextViewText(R.id.notif_media_title, snap.title);
             expanded.setTextViewText(R.id.notif_media_subtitle,
                     snap.artist != null && snap.artist.length() > 0 ? snap.artist : snap.sourceApp);
-            expanded.setTextViewText(R.id.notif_btn_toggle, snap.playing ? "\u23F8 Pause" : "\u25B6 Play");
+            expanded.setTextViewText(R.id.notif_btn_toggle, snap.playing ? "Pause" : "Play");
             int progPermille = (snap.durationMs > 0L)
                     ? (int) Math.min(1000L, (livePos * 1000L) / snap.durationMs)
                     : (snap.playing ? 1000 : 0);
@@ -709,6 +709,7 @@ public class Arc7AudioService extends Service {
                     synchronized (Arc7AudioService.this) {
                         if (request != playbackGeneration) { MorpheEngine.cancelPlayback(res); return; }
                         activeMorphePlayback = res;
+                        if (res.durationSec > 0L && item.durationSec <= 0L) item.durationSec = res.durationSec;
                     }
                     if (res.author != null && res.author.length() > 0 && (item.author == null || item.author.length() == 0)) item.author = res.author;
                     if (res.title != null && res.title.length() > 0) item.title = res.title;
@@ -1155,7 +1156,7 @@ public class Arc7AudioService extends Service {
     public synchronized void seekRelativeMs(int deltaMs) {
         if (player == null || !playerPrepared) return;
         try {
-            int dur = player.getDuration();
+            int dur = getDurationMs();
             if (dur <= 0) return;
             int next = Math.max(0, Math.min(dur, player.getCurrentPosition() + deltaMs));
             player.seekTo(next);
@@ -1167,7 +1168,7 @@ public class Arc7AudioService extends Service {
     public synchronized void seekAbsoluteMs(int posMs) {
         if (player == null || !playerPrepared) return;
         try {
-            int dur = player.getDuration();
+            int dur = getDurationMs();
             if (dur <= 0) return;
             player.seekTo(Math.max(0, Math.min(dur, posMs)));
             publishOwnPlaybackState(player.isPlaying());
@@ -1235,13 +1236,23 @@ public class Arc7AudioService extends Service {
     }
 
     public synchronized int getDurationMs() {
-        if (player == null || !playerPrepared) return 0;
-        try {
-            int d = player.getDuration();
-            return d > 0 ? d : 0;
-        } catch (Throwable ignored) {
-            return 0;
+        int mediaDuration = 0;
+        if (player != null && playerPrepared) {
+            try { mediaDuration = Math.max(0, player.getDuration()); } catch (Throwable ignored) {}
         }
+        // The legacy Android Stagefright backend can report a bogus 1-second duration for
+        // proxied/adaptive YouTube streams even though seek and playback work. Trust the
+        // duration from the music browse metadata when it is materially more plausible.
+        long metadataDuration = 0L;
+        boolean morpheTrack = "YouTube Music".equals(activeSourceApp) || "YouTube".equals(activeSourceApp);
+        if (morpheTrack && morpheIndex >= 0 && morpheIndex < morpheQueue.size()) {
+            metadataDuration = Math.max(0L, morpheQueue.get(morpheIndex).durationSec) * 1000L;
+        }
+        if (metadataDuration > 1000L && (mediaDuration <= 1000
+                || Math.abs((long) mediaDuration - metadataDuration) > Math.max(5000L, metadataDuration / 10L))) {
+            return (int) Math.min(Integer.MAX_VALUE, metadataDuration);
+        }
+        return mediaDuration;
     }
 
     public String getCleanTitle() {

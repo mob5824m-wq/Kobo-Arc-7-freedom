@@ -77,16 +77,24 @@ public final class Arc7QrTransfer {
         return new FileInputStream(source);
     }
     public static final class Sender implements Closeable {
+        public interface ProgressListener { void onProgress(long copiedBytes, long totalBytes); }
         public final String name, sha256, id;
         public final int size, total, chunk, version;
         private final File snapshot;
         private final RandomAccessFile in;
         public Sender(File source, File cache) throws Exception { this(source, cache, CHUNK_BYTES, false); }
         public Sender(File source, File cache, int density, boolean legacy) throws Exception {
-            this(open(source), source.getName(), cache, density, legacy);
+            this(open(source), source.getName(), cache, density, legacy, null, source.length());
+        }
+        public Sender(File source, File cache, int density, boolean legacy, ProgressListener progress) throws Exception {
+            this(open(source), source.getName(), cache, density, legacy, progress, source.length());
         }
         /** Takes ownership of the source stream. Never loads a whole file into the tablet heap. */
         public Sender(InputStream source, String fileName, File cache, int density, boolean legacy) throws Exception {
+            this(source, fileName, cache, density, legacy, null, -1L);
+        }
+        public Sender(InputStream source, String fileName, File cache, int density, boolean legacy,
+                      ProgressListener progress, long expectedBytes) throws Exception {
             File temporary = null; RandomAccessFile reader = null;
             String safe = "", hash = ""; int length = 0, chosen = 0;
             try {
@@ -100,6 +108,7 @@ public final class Arc7QrTransfer {
                         cancelled(); if (n == 0) continue;
                         if (length > (legacy ? LEGACY_MAX_BYTES : MAX_BYTES) - n) throw bad(legacy ? "Compatibility mode supports 1 MiB; choose Standard or Dense for larger files" : "The file exceeds the 64 MiB optical-transfer limit");
                         to.write(buffer, 0, n); md.update(buffer, 0, n); length += n;
+                        if (progress != null) progress.onProgress(length, expectedBytes);
                     }
                     to.getFD().sync();
                 } finally { to.close(); }

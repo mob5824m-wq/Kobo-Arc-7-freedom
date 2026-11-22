@@ -20,6 +20,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import java.io.File;
@@ -41,6 +42,7 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
     private int nextFrame = -1, displayed = -1, interval = 700, cameraId = -1;
     private long lastDecode;
     private TextView status, detail;
+    private ProgressBar generationProgress;
     private ImageView qr;
     private Button pause, save;
     private SurfaceView preview;
@@ -91,6 +93,10 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
     }
 
     private void buildSender(LinearLayout root) {
+        generationProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        generationProgress.setMax(1000);
+        generationProgress.setIndeterminate(true);
+        root.addView(generationProgress, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)));
         qr = new ImageView(this); qr.setBackgroundColor(0xFFFFFFFF); qr.setScaleType(ImageView.ScaleType.FIT_CENTER);
         root.addView(qr, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         LinearLayout controls = row();
@@ -149,17 +155,41 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
         final boolean legacy = getIntent().getBooleanExtra("qr_legacy", false);
         worker.execute(new Runnable() { @Override public void run() {
             try {
+                final Arc7QrTransfer.Sender.ProgressListener progress = new Arc7QrTransfer.Sender.ProgressListener() {
+                    @Override public void onProgress(final long copied, final long total) {
+                        ui.post(new Runnable() { @Override public void run() {
+                            if (destroyed || generationProgress == null) return;
+                            if (total > 0L) {
+                                generationProgress.setIndeterminate(false);
+                                generationProgress.setProgress((int) Math.min(1000L, copied * 1000L / total));
+                                status.setText("Preparing QR transfer · " + (copied / 1024L) + " / " + (total / 1024L) + " KiB");
+                            } else {
+                                generationProgress.setIndeterminate(true);
+                                status.setText("Preparing QR transfer · " + (copied / 1024L) + " KiB copied and checked");
+                            }
+                        } });
+                    }
+                };
                 final Arc7QrTransfer.Sender ready;
                 if (uri != null) {
                     android.net.Uri source = android.net.Uri.parse(uri);
                     if (!("content".equals(source.getScheme()) || "file".equals(source.getScheme()))) throw new java.io.IOException("Only local files can be sent");
                     java.io.InputStream stream = getContentResolver().openInputStream(source);
                     if (stream == null) throw new java.io.IOException("Could not read the selected file");
-                    ready = new Arc7QrTransfer.Sender(stream, name, getCacheDir(), density, legacy);
-                } else ready = new Arc7QrTransfer.Sender(new File(path == null ? "" : path), getCacheDir(), density, legacy);
+                    long expected = -1L;
+                    try {
+                        android.content.res.AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(source, "r");
+                        if (afd != null) { expected = afd.getLength(); afd.close(); }
+                    } catch (Exception ignored) {}
+                    ready = new Arc7QrTransfer.Sender(stream, name, getCacheDir(), density, legacy, progress, expected);
+                } else ready = new Arc7QrTransfer.Sender(new File(path == null ? "" : path), getCacheDir(), density, legacy, progress);
                 sender = ready;
                 if (destroyed) { ready.close(); return; }
-                ui.post(new Runnable() { @Override public void run() { if (!destroyed) { nextFrame = -1; renderFrame(); } } });
+                ui.post(new Runnable() { @Override public void run() { if (!destroyed) {
+                    if (generationProgress != null) { generationProgress.setIndeterminate(false); generationProgress.setProgress(generationProgress.getMax()); }
+                    status.setText("QR data ready · generating first code…");
+                    nextFrame = -1; renderFrame();
+                } } });
             } catch (final Exception e) { error(e); }
         } });
     }
@@ -208,6 +238,7 @@ public final class Arc7QrTransferActivity extends Activity implements SurfaceHol
                     rendering = false;
                     if (destroyed) { image.recycle(); return; }
                     qr.setImageBitmap(image); displayed = index;
+                    if (generationProgress != null) generationProgress.setVisibility(View.GONE);
                     status.setText(source.name + " · " + (index < 0 ? "file header" : "frame " + (index + 1) + " / " + source.total));
                     detail.setText(source.size + " bytes · SHA-256 " + source.sha256.substring(0, 16) + "…\n"
                             + source.chunk + " bytes/QR · one clean pass ≈ " + Math.max(1, Math.round(source.total * interval * 1.125 / 60000.0)) + " min at this speed. Missed frames add time.\n"
