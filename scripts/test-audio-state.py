@@ -88,9 +88,9 @@ public class Service extends Context {public static final int START_STICKY=1;pub
     'ca/arc7freedom/app/MorpheEngine.java': '''package ca.arc7freedom.app;import java.util.*;import java.util.concurrent.*;import android.content.*;
 public class MorpheEngine {
  public static volatile int resolves,compatibilityCalls;public static volatile boolean sponsorEnabled;public static volatile CountDownLatch fallbackEntered,fallbackRelease;
- public static class MediaItem {public String title="Fixture song",author="Fixture artist",videoId="fixture0001",localFilePath="";public String bestThumb(){return "";}}
+ public static class MediaItem {public String title="Fixture song",author="Fixture artist",videoId="fixture0001",localFilePath="";public long durationSec;public String bestThumb(){return "";}}
  public static class SkipSegment {public float startSec,endSec;}
- public static class ResolvedPlayback {public boolean verifiedAudio;public String title="Fixture song",author="Fixture artist",thumbnailUrl="",localAudioProxyUrl="",localVideoProxyUrl="";public List<SkipSegment> skipSegments=new ArrayList<SkipSegment>();public List<MediaItem> relatedItems=new ArrayList<MediaItem>();}
+ public static class ResolvedPlayback {public boolean verifiedAudio;public long durationSec;public String title="Fixture song",author="Fixture artist",thumbnailUrl="",localAudioProxyUrl="",localVideoProxyUrl="";public List<SkipSegment> skipSegments=new ArrayList<SkipSegment>();public List<MediaItem> relatedItems=new ArrayList<MediaItem>();}
  public interface ResolutionProgressListener {void onProgress(String message);}
  public static ResolvedPlayback resolveStreams(Context c,String id,boolean audio,ResolutionProgressListener progress){ResolvedPlayback r=new ResolvedPlayback();r.localAudioProxyUrl="http://fixture/audio-"+(++resolves)+".m4a";return r;}
  public static String startAudioCompatibilityFallback(Context c,ResolvedPlayback r){int call=++compatibilityCalls;if(fallbackEntered!=null){fallbackEntered.countDown();boolean interrupted=false;while(true){try{fallbackRelease.await();break;}catch(InterruptedException e){interrupted=true;}}if(interrupted)Thread.currentThread().interrupt();}return "http://fixture/compat-"+call+".aac";}
