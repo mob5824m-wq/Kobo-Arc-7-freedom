@@ -37,6 +37,15 @@ public class Arc7ArcadeActivity extends Arc7Activity {
     private LinearLayout stageBox;
     private TextView hudTv;
     private final Random rng = new Random();
+    // Keep the game controls alive between turns. Updating their content in place avoids
+    // tearing down/recreating the board (and losing focus/scroll position) after every move.
+    private final Button[][] chessCells = new Button[8][8];
+    private final TextView[][] tiles2048 = new TextView[4][4];
+    private final Button[][] sudokuCells = new Button[9][9];
+    private final Button[][] mineCells = new Button[9][9];
+    private Button minesFlagButton;
+    private Button solitaireStockButton, solitaireWasteButton;
+    private LinearLayout solitaireColumns;
 
     // --- 1. Chess State ---
     private final char[][] chess = new char[8][8];
@@ -152,12 +161,22 @@ public class Arc7ArcadeActivity extends Arc7Activity {
     }
 
     private void renderActiveGame() {
+        // A full hierarchy rebuild is only used when entering a game or starting over.
         stageBox.removeAllViews();
         if (activeGame == 0) renderChess();
         else if (activeGame == 1) render2048();
         else if (activeGame == 2) renderSudoku();
         else if (activeGame == 3) renderMines();
         else renderSolitaire();
+    }
+
+    private void refreshActiveGame() {
+        // Most turns only mutate the existing controls; no board/screen reconstruction.
+        if (activeGame == 0) refreshChess();
+        else if (activeGame == 1) refresh2048();
+        else if (activeGame == 2) refreshSudoku();
+        else if (activeGame == 3) refreshMines();
+        else refreshSolitaire(); // Rebuild only the variable-height tableau, not the screen.
     }
 
     /* ==================== 1. CHESS VS MINIMAX AI ==================== */
@@ -250,6 +269,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                 int dark = ((r + c) % 2 == 1) ? 0xFF334155 : 0xFF64748B;
                 sq.setBackgroundColor(sel ? 0xFF0284C7 : dark);
                 sq.setTextColor(Character.isUpperCase(p) ? Color.WHITE : 0xFF0F172A);
+                chessCells[r][c] = sq;
                 sq.setOnClickListener(new View.OnClickListener() {
                     @Override public void onClick(View v) { onChessTap(fr, fc); }
                 });
@@ -259,12 +279,27 @@ public class Arc7ArcadeActivity extends Arc7Activity {
         }
     }
 
+    private void refreshChess() {
+        if (hudTv == null) return;
+        hudTv.setText(chessOver ? "Game Over — tap 'New Game' to play again!"
+                : "You play White (♔♕♖♗♘♙) — tap a piece, then tap destination square!");
+        for (int r = 0; r < 8; r++) for (int c = 0; c < 8; c++) {
+            Button sq = chessCells[r][c];
+            if (sq == null) continue;
+            char p = chess[r][c];
+            sq.setText(chessGlyph(p));
+            sq.setTextColor(Character.isUpperCase(p) ? Color.WHITE : 0xFF0F172A);
+            sq.setBackgroundColor((r == chessSelR && c == chessSelC) ? 0xFF0284C7
+                    : (((r + c) % 2 == 1) ? 0xFF334155 : 0xFF64748B));
+        }
+    }
+
     private void onChessTap(int r, int c) {
         if (chessOver) return;
         if (chessSelR < 0) {
             if (chess[r][c] != '.' && Character.isUpperCase(chess[r][c])) {
                 chessSelR = r; chessSelC = c;
-                renderActiveGame();
+                refreshChess();
             }
             return;
         }
@@ -282,7 +317,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
         } else {
             chessSelR = -1; chessSelC = -1;
         }
-        renderActiveGame();
+        refreshChess();
     }
 
     private void aiChessReply() {
@@ -392,6 +427,20 @@ public class Arc7ArcadeActivity extends Arc7Activity {
         return gained;
     }
 
+    private void refresh2048() {
+        if (hudTv == null) return;
+        int best = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("best_2048", 0);
+        hudTv.setText("2048 Score: " + score2048 + "   •   All-Time Best: " + best);
+        for (int r = 0; r < 4; r++) for (int c = 0; c < 4; c++) {
+            TextView tile = tiles2048[r][c];
+            if (tile == null) continue;
+            int val = g2048[r][c];
+            tile.setText(val == 0 ? "" : String.valueOf(val));
+            tile.setBackgroundColor(val == 0 ? 0xFF1E293B
+                    : (val >= 512 ? 0xFFD97706 : (val >= 64 ? 0xFF0284C7 : 0xFF334155)));
+        }
+    }
+
     private void render2048() {
         int best = getSharedPreferences(PREFS, MODE_PRIVATE).getInt("best_2048", 0);
         hudTv.setText("2048 Score: " + score2048 + "   •   All-Time Best: " + best);
@@ -408,6 +457,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                 tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
                 tv.setTextColor(Color.WHITE);
                 tv.setBackgroundColor(val == 0 ? 0xFF1E293B : (val >= 512 ? 0xFFD97706 : (val >= 64 ? 0xFF0284C7 : 0xFF334155)));
+                tiles2048[r][c] = tv;
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(74), dp(74));
                 lp.setMargins(dp(4), dp(4), dp(4), dp(4));
                 row.addView(tv, lp);
@@ -427,7 +477,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lp.setMargins(dp(5), 0, dp(5), 0);
             b.setOnClickListener(new View.OnClickListener() {
-                @Override public void onClick(View v) { slide2048(dc); renderActiveGame(); }
+                @Override public void onClick(View v) { slide2048(dc); refresh2048(); }
             });
             dpad.addView(b, lp);
         }
@@ -451,6 +501,19 @@ public class Arc7ArcadeActivity extends Arc7Activity {
         }
     }
 
+    private void refreshSudoku() {
+        if (hudTv == null) return;
+        for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) {
+            Button cell = sudokuCells[r][c];
+            if (cell == null) continue;
+            int value = sudokuGrid[r][c];
+            cell.setText(value == 0 ? "" : String.valueOf(value));
+            int boxShade = (((r / 3) + (c / 3)) % 2 == 0) ? 0xFF1E293B : 0xFF0F172A;
+            cell.setBackgroundColor((r == sudSelR && c == sudSelC) ? 0xFF0284C7 : boxShade);
+            cell.setTextColor(sudokuFixed[r][c] ? 0xFF94A3B8 : 0xFF38BDF8);
+        }
+    }
+
     private void renderSudoku() {
         hudTv.setText("Sudoku — tap an empty cell, then tap 1..9 below to fill!");
         for (int r = 0; r < 9; r++) {
@@ -468,8 +531,9 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                 int boxShade = (((r / 3) + (c / 3)) % 2 == 0) ? 0xFF1E293B : 0xFF0F172A;
                 cell.setBackgroundColor(sel ? 0xFF0284C7 : boxShade);
                 cell.setTextColor(sudokuFixed[r][c] ? 0xFF94A3B8 : 0xFF38BDF8);
+                sudokuCells[r][c] = cell;
                 cell.setOnClickListener(new View.OnClickListener() {
-                    @Override public void onClick(View view) { sudSelR = fr; sudSelC = fc; renderActiveGame(); }
+                    @Override public void onClick(View view) { sudSelR = fr; sudSelC = fc; refreshSudoku(); }
                 });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(40));
                 lp.setMargins(dp(1), dp(1), dp(1), dp(1));
@@ -489,7 +553,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                     if (!sudokuFixed[sudSelR][sudSelC]) {
                         sudokuGrid[sudSelR][sudSelC] = num;
                         checkSudokuWin();
-                        renderActiveGame();
+                        refreshSudoku();
                     }
                 }
             });
@@ -549,13 +613,39 @@ public class Arc7ArcadeActivity extends Arc7Activity {
         }
     }
 
+    private void refreshMines() {
+        if (hudTv == null) return;
+        hudTv.setText(minesGameOver ? "💥 Boom! Tap 'New Game' above!" : "Minesweeper (9x9 • 12 Mines) — Safe First Tap!");
+        if (minesFlagButton != null) {
+            minesFlagButton.setText(flagMode ? "🚩 Mode: FLAG MINE" : "⛏ Mode: DIG SQUARE");
+            minesFlagButton.setBackgroundColor(flagMode ? 0xFFD97706 : 0xFF0284C7);
+        }
+        for (int r = 0; r < 9; r++) for (int c = 0; c < 9; c++) {
+            Button cell = mineCells[r][c];
+            if (cell == null) continue;
+            if (revealed[r][c]) {
+                if (mines[r][c]) {
+                    cell.setText("💣"); cell.setBackgroundColor(0xFFDC2626);
+                } else {
+                    int n = adjMines(r, c);
+                    cell.setText(n == 0 ? "" : String.valueOf(n));
+                    cell.setBackgroundColor(0xFF0F172A); cell.setTextColor(0xFF38BDF8);
+                }
+            } else {
+                cell.setText(flagged[r][c] ? "🚩" : "");
+                cell.setBackgroundColor(0xFF334155);
+            }
+        }
+    }
+
     private void renderMines() {
         hudTv.setText(minesGameOver ? "💥 Boom! Tap 'New Game' above!" : "Minesweeper (9x9 • 12 Mines) — Safe First Tap!");
         Button flagToggle = Arc7Skin.actionButton(
                 this, flagMode ? "🚩 Mode: FLAG MINE" : "⛏ Mode: DIG SQUARE",
                 flagMode ? 0xFFD97706 : 0xFF0284C7);
+        minesFlagButton = flagToggle;
         flagToggle.setOnClickListener(new View.OnClickListener() {
-            @Override public void onClick(View v) { flagMode = !flagMode; renderActiveGame(); }
+            @Override public void onClick(View v) { flagMode = !flagMode; refreshMines(); }
         });
         stageBox.addView(flagToggle);
 
@@ -578,6 +668,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                     cell.setText(flagged[r][c] ? "🚩" : "");
                     cell.setBackgroundColor(0xFF334155);
                 }
+                mineCells[r][c] = cell;
                 cell.setOnClickListener(new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -593,7 +684,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
                                 floodReveal(fr, fc);
                             }
                         }
-                        renderActiveGame();
+                        refreshMines();
                     }
                 });
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(42), dp(42));
@@ -635,52 +726,56 @@ public class Arc7ArcadeActivity extends Arc7Activity {
     }
 
     private void renderSolitaire() {
-        int foundTotal = (foundationTop[0] + 1) + (foundationTop[1] + 1) + (foundationTop[2] + 1) + (foundationTop[3] + 1);
-        hudTv.setText("Klondike Solitaire — Foundations: " + foundTotal + " / 52");
-
         LinearLayout topRow = new LinearLayout(this);
         topRow.setOrientation(LinearLayout.HORIZONTAL);
         topRow.setPadding(0, 0, 0, dp(10));
 
-        Button drawBtn = Arc7Skin.actionButton(this, "🂠 Stock (" + stock.size() + ")", 0xFF0284C7);
-        drawBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        solitaireStockButton = Arc7Skin.actionButton(this, "", 0xFF0284C7);
+        solitaireStockButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 if (!stock.isEmpty()) waste.add(stock.remove(stock.size() - 1));
-                else {
-                    while (!waste.isEmpty()) stock.add(waste.remove(waste.size() - 1));
-                }
+                else while (!waste.isEmpty()) stock.add(waste.remove(waste.size() - 1));
                 solSelPile = -2;
-                renderActiveGame();
+                refreshSolitaire();
             }
         });
-        topRow.addView(drawBtn);
+        topRow.addView(solitaireStockButton);
 
-        String wTxt = waste.isEmpty() ? "[Waste]" : cardLabel(waste.get(waste.size() - 1));
-        Button wasteBtn = Arc7Skin.actionButton(this, wTxt, solSelPile == -1 ? 0xFFD97706 : 0xFF334155);
-        wasteBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        solitaireWasteButton = Arc7Skin.actionButton(this, "", 0xFF334155);
+        solitaireWasteButton.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
                 if (waste.isEmpty()) return;
                 int top = waste.get(waste.size() - 1);
                 if (foundationTop[top / 13] + 1 == (top % 13)) {
                     foundationTop[top / 13]++;
                     waste.remove(waste.size() - 1);
                     solSelPile = -2;
-                } else {
-                    solSelPile = -1;
-                }
-                renderActiveGame();
+                } else solSelPile = -1;
+                refreshSolitaire();
             }
         });
         LinearLayout.LayoutParams wlp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         wlp.leftMargin = dp(8);
-        topRow.addView(wasteBtn, wlp);
+        topRow.addView(solitaireWasteButton, wlp);
         stageBox.addView(topRow);
 
-        LinearLayout cols = new LinearLayout(this);
-        cols.setOrientation(LinearLayout.HORIZONTAL);
+        solitaireColumns = new LinearLayout(this);
+        solitaireColumns.setOrientation(LinearLayout.HORIZONTAL);
+        stageBox.addView(solitaireColumns);
+        refreshSolitaire();
+    }
+
+    private void refreshSolitaire() {
+        int foundTotal = (foundationTop[0] + 1) + (foundationTop[1] + 1) + (foundationTop[2] + 1) + (foundationTop[3] + 1);
+        hudTv.setText("Klondike Solitaire — Foundations: " + foundTotal + " / 52");
+        if (solitaireStockButton != null) solitaireStockButton.setText("🂠 Stock (" + stock.size() + ")");
+        if (solitaireWasteButton != null) {
+            solitaireWasteButton.setText(waste.isEmpty() ? "[Waste]" : cardLabel(waste.get(waste.size() - 1)));
+            solitaireWasteButton.setBackgroundColor(solSelPile == -1 ? 0xFFD97706 : 0xFF334155);
+        }
+        if (solitaireColumns == null) return;
+        solitaireColumns.removeAllViews();
         for (int col = 0; col < 7; col++) {
             final int fc = col;
             LinearLayout pile = new LinearLayout(this);
@@ -714,9 +809,8 @@ public class Arc7ArcadeActivity extends Arc7Activity {
             LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             plp.rightMargin = dp(4);
-            cols.addView(pile, plp);
+            solitaireColumns.addView(pile, plp);
         }
-        stageBox.addView(cols);
     }
 
     private void onTableauTopTap(int col) {
@@ -733,7 +827,7 @@ public class Arc7ArcadeActivity extends Arc7Activity {
         } else {
             moveSelectedToColumn(col);
         }
-        renderActiveGame();
+        refreshSolitaire();
     }
 
     private void moveSelectedToColumn(int dstCol) {
@@ -760,6 +854,6 @@ public class Arc7ArcadeActivity extends Arc7Activity {
             }
         }
         solSelPile = -2;
-        renderActiveGame();
+        refreshSolitaire();
     }
 }

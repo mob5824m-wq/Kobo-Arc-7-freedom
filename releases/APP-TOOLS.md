@@ -1,10 +1,10 @@
 # App tools: private logs, playback tests, low-RAM mode, storage and resumable LAN uploads
 
 Branch update for **Kobo Arc 7 / Arc 7HD · Android 4.0.3–4.2.2**. Package IDs, signing
-keys stay unchanged; suite/defaults/upgrader now use **2.6.9 / 269**. This is not
+keys stay unchanged; suite/defaults/upgrader now use **2.7.0 / 270**. This is not
 an automatic public release, a physical-device certification or a modern-Android security update.
 
-## 2.6.9 corrections: stream I/O and Stream Deck edit lock
+## 2.7.0 corrections: stream I/O and Stream Deck edit lock
 
 - Finite DASH range reads and buffered HLS playlist/remux-resource reads get **at most
   three whole-request attempts** on an early EOF, the Android-4 `unexpected end of stream`
