@@ -92,6 +92,11 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
             rv.setTextViewText(R.id.widget_audio_title, title);
             rv.setTextViewText(R.id.widget_audio_sub, sub);
             rv.setTextViewText(R.id.widget_audio_toggle, isPlaying ? "Pause" : "Play");
+            if (st != null && st.active && st.artwork != null && !st.artwork.isRecycled()) {
+                rv.setImageViewBitmap(R.id.widget_audio_icon, st.artwork);
+            } else {
+                rv.setImageViewResource(R.id.widget_audio_icon, R.drawable.ic_ytmusic);
+            }
             rv.setOnClickPendingIntent(R.id.widget_audio_root, piOpen);
             rv.setOnClickPendingIntent(R.id.widget_audio_icon, piOpen);
             rv.setOnClickPendingIntent(R.id.widget_audio_title, piOpen);
