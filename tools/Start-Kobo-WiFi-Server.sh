@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Kobo Arc 7 Freedom v2.6.8 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
+# Kobo Arc 7 Freedom v2.6.9 — 1-Click macOS / Linux Wi-Fi OTA Rooting Server (:8000)
 #
 # Concurrent HTTP/1.1 + inline PNG/JPEG/SVG image serving + `Range: bytes=...`
 # (`206 Partial Content`) + instant TLS ClientHello reject so Kobo's Browser &
@@ -24,7 +24,7 @@ RELEASE_BASE="https://github.com/mob5824m-wq/Kobo-Arc-7-freedom/releases/latest/
 # Everything downloads in the BACKGROUND: the portal is already answering on :8000 while
 # these copies finish, and a blocked/slow GitHub connection can never stall it.
 (
-for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.6.8.apk KoboArc7Freedom.apk YouTube.apk YouTubeMusic.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt qr-transfer.html Windows-Tools.zip Arc7-Windows.ps1 WINDOWS-TOOLS.md; do
+for ASSET in logo-banner.png Upgrade-My-Kobo-To-v2.6.9.apk KoboArc7Freedom.apk YouTube.apk YouTubeMusic.apk VLC.apk AuroraStore.apk FDroidClassicLegacy.apk VanillaAndroid4Home.apk SHA256SUMS.txt qr-transfer.html Windows-Tools.zip Arc7-Windows.ps1 WINDOWS-TOOLS.md; do
     if [ -f "${SCRIPT_DIR}/${ASSET}" ] && [ ! -s "${SERVE_DIR}/${ASSET}" ]; then
         cp -f "${SCRIPT_DIR}/${ASSET}" "${SERVE_DIR}/${ASSET}"
     fi
@@ -142,7 +142,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 items.append(f"<a class='sub' href='./raw/{urllib.parse.quote(f)}'>Alternate Direct Stream ({html.escape(f)})</a>")
         return (
             "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
-            "<title>Kobo Arc 7 Freedom v2.6.8 — Local Wi-Fi Installer</title>"
+            "<title>Kobo Arc 7 Freedom v2.6.9 — Local Wi-Fi Installer</title>"
             "<style>body{font-family:sans-serif;background:#101c30;background-image:radial-gradient(ellipse at top left,#23435f,transparent 70%);color:#f8fafc;padding:20px;}"
             ".card{background:rgba(65,90,124,.35);border:1px solid #92abc3;border-top-color:#e0efff;border-radius:30px;padding:24px;max-width:660px;margin:auto;box-shadow:inset 0 1px 0 #c1d5ee,0 18px 42px #0003;-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);}"
             "h1{color:#d3eaff;font-size:24px;margin-top:0;}.btn{display:block;background:rgba(170,200,232,.12);color:#fff;"
@@ -152,9 +152,9 @@ class H(http.server.BaseHTTPRequestHandler):
             "<div style='text-align:center;max-width:660px;margin:0 auto 14px auto;'>"
             "<img src='./logo-banner.png' alt='Kobo Arc 7 Freedom' style='max-width:100%;max-height:112px;border-radius:10px;'>"
             "</div><div class='card'>"
-            "<h1>Kobo Arc 7 Freedom v2.6.8 — Wi-Fi OTA Rooting &amp; Installer</h1>"
+            "<h1>Kobo Arc 7 Freedom v2.6.9 — Wi-Fi OTA Rooting &amp; Installer</h1>"
             "<p>1. Enable <b>Settings &rarr; Security &rarr; Unknown sources</b> on your tablet.<br>"
-            "2. Tap <b>Upgrade-My-Kobo-To-v2.6.8.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
+            "2. Tap <b>Upgrade-My-Kobo-To-v2.6.9.apk</b> (1-tap upgrade) or <b>KoboArc7Freedom.apk</b>.<br>"
             "3. Swipe down the <b>top-left notification shade</b> on your Kobo and tap to install!</p>"
             + "".join(items) + "</div></body></html>"
         ).encode("utf-8")
@@ -283,7 +283,7 @@ class Srv(http.server.ThreadingHTTPServer):
 
 srv = Srv(("0.0.0.0", PORT), H)
 print("=" * 70)
-print("  Kobo Arc 7 Freedom v2.6.8 — Wi-Fi OTA Rooting & Installer LIVE!")
+print("  Kobo Arc 7 Freedom v2.6.9 — Wi-Fi OTA Rooting & Installer LIVE!")
 print("  Open Browser on your Kobo Arc 7 and type:")
 for ip in get_ips():
     print(f"\n      http://{ip}:{PORT}")

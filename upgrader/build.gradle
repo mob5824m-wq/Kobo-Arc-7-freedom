@@ -8,8 +8,8 @@ android {
         applicationId "ca.arc7freedom.upgrader"
         minSdkVersion 15
         targetSdkVersion 17
-        versionCode 268
-        versionName "2.6.8"
+        versionCode 269
+        versionName "2.6.9"
     }
 
     sourceSets.main.java.srcDirs += ["${rootProject.projectDir}/shared/java"]
