@@ -80,24 +80,24 @@ class ReleaseTests(unittest.TestCase):
         calls = (self.root / "git-calls").read_text()
         return result, calls
 
-    def test_repository_targets_269(self):
-        self.assertEqual(CHECK.check_sources(ROOT), ("2.6.9", "269"))
-        self.assertEqual(CHECK.check_sources(self.root), ("2.6.9", "269"))
+    def test_repository_targets_270(self):
+        self.assertEqual(CHECK.check_sources(ROOT), ("2.7.0", "270"))
+        self.assertEqual(CHECK.check_sources(self.root), ("2.7.0", "270"))
 
     def test_label_only_version_bump_is_rejected(self):
-        # Reproduce the failed run: workflow calls it 2.6.9, build emits 2.6.0.
-        self.replace("scripts/build-all.sh", "2.6.9", "2.6.0")
+        # Reproduce the failed run: workflow calls it 2.7.0, build emits 2.6.0.
+        self.replace("scripts/build-all.sh", "2.7.0", "2.6.0")
         with self.assertRaisesRegex(ValueError, "scripts/build-all.sh"):
             CHECK.check_sources(self.root)
 
     def test_gradle_and_each_manifest_must_match(self):
         for name, old, new in (
-            ("app/build.gradle", "versionCode 269", "versionCode 260"),
-            ("upgrader/build.gradle", 'versionName "2.6.9"', 'versionName "2.6.0"'),
-            ("upgrader/src/main/AndroidManifest.xml", 'versionCode="269"', 'versionCode="260"'),
-            ("split-apps/youtube/AndroidManifest.xml", 'versionName="2.6.9"', 'versionName="2.6.0"'),
-            ("split-apps/ytmusic/AndroidManifest.xml", 'versionCode="269"', 'versionCode="260"'),
-            ("split-apps/podcasts/AndroidManifest.xml", 'versionCode="269"', 'versionCode="260"'),
+            ("app/build.gradle", "versionCode 270", "versionCode 260"),
+            ("upgrader/build.gradle", 'versionName "2.7.0"', 'versionName "2.6.0"'),
+            ("upgrader/src/main/AndroidManifest.xml", 'versionCode="270"', 'versionCode="260"'),
+            ("split-apps/youtube/AndroidManifest.xml", 'versionName="2.7.0"', 'versionName="2.6.0"'),
+            ("split-apps/ytmusic/AndroidManifest.xml", 'versionCode="270"', 'versionCode="260"'),
+            ("split-apps/podcasts/AndroidManifest.xml", 'versionCode="270"', 'versionCode="260"'),
         ):
             with self.subTest(name=name):
                 path = self.root / name
@@ -118,7 +118,7 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(name=name):
                 path = self.root / name
                 original = path.read_text()
-                self.replace(name, "2.6.9", "2.6.0")
+                self.replace(name, "2.7.0", "2.6.0")
                 with self.assertRaises(ValueError):
                     CHECK.check_sources(self.root)
                 path.write_text(original)
@@ -129,15 +129,15 @@ class ReleaseTests(unittest.TestCase):
         result, calls = self.workflow_stage()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("add -u -- releases", calls)  # Record obsolete tracked upgrader removals.
-        self.assertIn("releases/Upgrade-My-Kobo-To-v2.6.9.apk", calls)
+        self.assertIn("releases/Upgrade-My-Kobo-To-v2.7.0.apk", calls)
         self.assertNotIn("push", calls)
 
     def test_missing_upgrader_fails_before_git_add(self):
         self.build_artifacts()
-        (self.root / "releases/Upgrade-My-Kobo-To-v2.6.9.apk").unlink()
+        (self.root / "releases/Upgrade-My-Kobo-To-v2.7.0.apk").unlink()
         result, calls = self.workflow_stage()
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Expected only Upgrade-My-Kobo-To-v2.6.9.apk", result.stderr)
+        self.assertIn("Expected only Upgrade-My-Kobo-To-v2.7.0.apk", result.stderr)
         self.assertNotRegex(calls, r"(?m)^add ")
 
     def test_obsolete_upgrader_is_rejected(self):

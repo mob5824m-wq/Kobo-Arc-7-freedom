@@ -53,7 +53,7 @@ public final class MorpheEngine {
     private static final int QUICK_VISITOR_TIMEOUT_MS = 4000;
     private static final int QUICK_PLAYER_TIMEOUT_MS = 8000;
     private static final int QUICK_CLOUD_TIMEOUT_MS = 3000;
-    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 5;
+    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 2;
     private static final long QUICK_DIRECT_BUDGET_MS = 38000L;
     private static final Object YOUTUBE_PACE_LOCK = new Object();
     private static long nextYouTubeRequestAtMs = 0L;

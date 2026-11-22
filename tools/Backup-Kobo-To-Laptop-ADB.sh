@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Kobo Arc 7 Freedom v2.6.9 — 1-Click Direct USB ADB Auto-Upgrade + Backup
-# Automatically upgrades any older conflicting-signature install to v2.6.9
+# Kobo Arc 7 Freedom v2.7.0 — 1-Click Direct USB ADB Auto-Upgrade + Backup
+# Automatically upgrades any older conflicting-signature install to v2.7.0
 # over USB AND streams raw partitions & files using ZERO MB tablet storage!
 # ============================================================================
 set -euo pipefail
@@ -9,7 +9,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "====================================================================="
-echo "  KOBO ARC 7 FREEDOM v2.6.9 — DIRECT USB ADB AUTO-UPGRADE & BACKUP"
+echo "  KOBO ARC 7 FREEDOM v2.7.0 — DIRECT USB ADB AUTO-UPGRADE & BACKUP"
 echo "  Auto-upgrades older APKs + streams backups using 0 MB tablet space!"
 echo "====================================================================="
 echo
