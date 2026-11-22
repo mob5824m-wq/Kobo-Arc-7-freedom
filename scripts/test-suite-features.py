@@ -233,7 +233,7 @@ def static_checks():
     assert 'METADATA_KEY_DURATION' in offline and 'writeSidecar' in offline
     morphe = (SRC/'MorpheEngine.java').read_text()
     assert 'appendCloudSearchResults(items, out, musicOnly)' in morphe and 'new JSONArray(raw)' in morphe
-    assert 'QUICK_CLOUD_ENDPOINT_ATTEMPTS = 5' in morphe and 'INVIDIOUS_INSTANCES[i]' in morphe
+    assert 'QUICK_CLOUD_ENDPOINT_ATTEMPTS = 2' in morphe and 'INVIDIOUS_INSTANCES[i]' in morphe
     audio = (SRC/'Arc7AudioService.java').read_text()
     assert 'restartCompletedPlayer(mp)' in audio and 'Repeat One' not in audio.split('restartCompletedPlayer',1)[0]
     print('PASS integration guards: separate offline vault identities/backup policy, secret lifecycle/commit gates, no Quick Switcher, retained Home controls, ordered deck writer, Music offline metadata/repeat/pane routing and embedded PATCHES/no forced PC screen')
