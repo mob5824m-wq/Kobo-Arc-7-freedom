@@ -121,6 +121,23 @@ public final class AudioServiceStateHarness {
         check(player.starts == 1 && NowPlayingManager.playingPublications > 0, "Playing must follow successful prepare/start");
     }
 
+    private static void repeatOneReusesPreparedDecoder() throws Exception {
+        Arc7AudioService service = create();
+        MediaPlayer player = startMusic(service);
+        prepare(service, player);
+        service.setRepeatMode(Arc7AudioService.REPEAT_ONE);
+        int resolves = MorpheEngine.resolves;
+        player.emitCompletion();
+        Handler.drain();
+        check(get(service, "player") == player && player.state == MediaPlayer.STARTED,
+                "Repeat One replaced the current player instead of restarting its decoder");
+        check(player.starts == 2 && player.position == 0 && player.stops == 0,
+                "Repeat One did not seek/restart the prepared decoder in place");
+        check(MorpheEngine.resolves == resolves, "Repeat One re-resolved the same online track");
+        close(service);
+        System.out.println("PASS: Repeat One seeks/restarts the prepared player without resolving the same track again");
+    }
+
     private static void asynchronousErrorModel() {
         final int[] received = new int[3];
         MediaPlayer player = new MediaPlayer();
@@ -392,6 +409,7 @@ public final class AudioServiceStateHarness {
     public static void main(String[] args) throws Exception {
         asynchronousErrorModel();
         preparingAndNormalTransport();
+        repeatOneReusesPreparedDecoder();
         localBookmarks();
         replacementAndStaleCallbacks();
         compatibilityRetryAndFailure();

@@ -13,7 +13,8 @@ public final class Arc7WeatherRadarMath {
     public static final class Frame {
         public final long time;
         public final String path;
-        Frame(long time, String path) { this.time=time; this.path=path; }
+        public final boolean nowcast;
+        Frame(long time, String path, boolean nowcast) { this.time=time; this.path=path; this.nowcast=nowcast; }
         public String tile(int z, int x, int y) {
             if (z<1 || z>7 || y<0 || y>=(1<<z)) throw new IllegalArgumentException("Radar tile out of range");
             return "https://tilecache.rainviewer.com" + path + "/256/"+z+"/"+wrap(x,z)+"/"+y+"/2/1_1.png";
@@ -25,18 +26,34 @@ public final class Arc7WeatherRadarMath {
         if (!"https://tilecache.rainviewer.com".equals(host)) throw new IllegalArgumentException("Unknown radar tile provider");
         JSONObject radar=root.optJSONObject("radar");
         JSONArray past=radar==null ? null : radar.optJSONArray("past");
-        List<Frame> result=new ArrayList<Frame>();
+        JSONArray nowcast=radar==null ? null : radar.optJSONArray("nowcast");
+        List<Frame> historical=new ArrayList<Frame>(), forecast=new ArrayList<Frame>();
         if (past!=null) for (int i=0; i<past.length() && i<100; i++) {
             JSONObject f=past.optJSONObject(i);
             long at=Arc7WeatherData.time(f==null ? null : f.opt("time"),java.util.TimeZone.getTimeZone("UTC"));
             String path=Arc7WeatherData.text(f,"path");
-            if (at>0 && at<=now+300000L && path.matches("/v2/radar/[0-9]+")) result.add(new Frame(at,path));
+            if (at>0 && at<=now+300000L && path.matches("/v2/radar/[0-9]+")) historical.add(new Frame(at,path,false));
         }
-        Collections.sort(result,new Comparator<Frame>() {
+        if (nowcast!=null) for (int i=0; i<nowcast.length() && i<100; i++) {
+            JSONObject f=nowcast.optJSONObject(i);
+            long at=Arc7WeatherData.time(f==null ? null : f.opt("time"),java.util.TimeZone.getTimeZone("UTC"));
+            String path=Arc7WeatherData.text(f,"path");
+            if (at>0 && at>=now-300000L && at<=now+21600000L && path.matches("/v2/radar/[0-9]+")) forecast.add(new Frame(at,path,true));
+        }
+        Comparator<Frame> byTime=new Comparator<Frame>() {
             @Override public int compare(Frame a, Frame b) { return a.time<b.time ? -1 : a.time==b.time ? 0 : 1; }
-        });
-        if (result.isEmpty()) throw new IllegalArgumentException("No past radar frames available");
-        if (result.size()>6) return new ArrayList<Frame>(result.subList(result.size()-6,result.size()));
+        };
+        Collections.sort(historical,byTime); Collections.sort(forecast,byTime);
+        List<Frame> result=new ArrayList<Frame>();
+        if (historical.size()>6) historical=new ArrayList<Frame>(historical.subList(historical.size()-6,historical.size()));
+        if (forecast.size()>6) forecast=new ArrayList<Frame>(forecast.subList(0,6));
+        result.addAll(historical);
+        for (Frame next : forecast) {
+            boolean duplicate=false;
+            for (Frame prior : result) if (prior.time==next.time) { duplicate=true; break; }
+            if (!duplicate) result.add(next);
+        }
+        if (result.isEmpty()) throw new IllegalArgumentException("No past or future radar frames available");
         return result;
     }
     public static double x(double longitude, int z) { return (longitude+180)/360*(1<<z); }

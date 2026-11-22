@@ -53,7 +53,7 @@ public final class MorpheEngine {
     private static final int QUICK_VISITOR_TIMEOUT_MS = 4000;
     private static final int QUICK_PLAYER_TIMEOUT_MS = 8000;
     private static final int QUICK_CLOUD_TIMEOUT_MS = 3000;
-    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 2;
+    private static final int QUICK_CLOUD_ENDPOINT_ATTEMPTS = 5;
     private static final long QUICK_DIRECT_BUDGET_MS = 38000L;
     private static final Object YOUTUBE_PACE_LOCK = new Object();
     private static long nextYouTubeRequestAtMs = 0L;
@@ -2133,8 +2133,10 @@ public final class MorpheEngine {
         hdrs.put("User-Agent", WEB_UA);
         int attempts = 0;
 
-        // Tier A: Public Piped API instances
-        for (int i = 0; i < Math.min(1, PIPED_INSTANCES.length) && attempts < maxAttempts; i++) {
+        // Tier A: Public Piped API instances. The interactive video player has a larger
+        // bounded attempt budget than background YouTube Music; then try Invidious below.
+        int pipedLimit = maxAttempts > 2 ? PIPED_INSTANCES.length : Math.min(1, PIPED_INSTANCES.length);
+        for (int i = 0; i < pipedLimit && attempts < maxAttempts; i++) {
             attempts++;
             reportResolutionProgress(listener, "Trying video mirror " + attempts + "/" + maxAttempts + " (Piped)...");
             try {
@@ -2255,35 +2257,63 @@ public final class MorpheEngine {
         Map<String, String> hdrs = new LinkedHashMap<String, String>();
         hdrs.put("User-Agent", WEB_UA);
         String filter = musicOnly ? "music_songs" : "videos";
-        // One fallback endpoint per user action; do not fan out a search across public mirrors.
-        for (int i = 0; i < Math.min(1, PIPED_INSTANCES.length); i++) {
+        // Try public mirrors sequentially only after the official web endpoint failed.
+        // Keep YouTube Music on the already-tested first mirror; video search can use the
+        // configured alternatives because the old single endpoint is not reliably available.
+        int pipedCount = musicOnly ? 1 : PIPED_INSTANCES.length;
+        for (int i = 0; i < pipedCount; i++) {
             try {
                 String raw = requestHttpsString(ctx, "GET",
                         PIPED_INSTANCES[i] + "/search?q=" + Uri.encode(query) + "&filter=" + filter,
-                        null, hdrs, 10000);
-                JSONArray items = new JSONObject(raw).optJSONArray("items");
-                if (items != null) {
-                    for (int k = 0; k < items.length(); k++) {
-                        JSONObject it = items.optJSONObject(k);
-                        if (it == null) continue;
-                        String u = it.optString("url", "");
-                        String vid = extractVideoIdFromUrlOrQuery("https://www.youtube.com" + u);
-                        if (vid == null) continue;
-                        MediaItem m = new MediaItem();
-                        m.videoId = vid;
-                        m.title = it.optString("title", "Video");
-                        m.author = it.optString("uploaderName", "");
-                        m.durationSec = it.optLong("duration", 0L);
-                        m.durationText = NowPlayingManager.formatDurationMs(m.durationSec * 1000L);
-                        m.thumbnailUrl = it.optString("thumbnail", "https://i.ytimg.com/vi/" + vid + "/hqdefault.jpg");
-                        m.isMusicTrack = musicOnly;
-                        out.add(m);
-                    }
-                }
+                        null, hdrs, 6000);
+                JSONArray items = null;
+                try { items = new JSONObject(raw).optJSONArray("items"); }
+                catch (Exception arrayResponse) { items = new JSONArray(raw); }
+                appendCloudSearchResults(items, out, musicOnly);
                 if (!out.isEmpty()) return out;
             } catch (Throwable ignored) {}
         }
+        if (!musicOnly) {
+            for (int i = 0; i < INVIDIOUS_INSTANCES.length; i++) {
+                try {
+                    String raw = requestHttpsString(ctx, "GET", INVIDIOUS_INSTANCES[i]
+                            + "/api/v1/search?q=" + Uri.encode(query) + "&type=video", null, hdrs, 6000);
+                    appendCloudSearchResults(new JSONArray(raw), out, false);
+                    if (!out.isEmpty()) return out;
+                } catch (Throwable ignored) {}
+            }
+        }
         return out;
+    }
+
+    private static void appendCloudSearchResults(JSONArray items, List<MediaItem> output, boolean musicOnly) {
+        if (items == null) return;
+        for (int k = 0; k < items.length() && output.size() < 80; k++) {
+            JSONObject it = items.optJSONObject(k);
+            if (it == null) continue;
+            String u = it.optString("url", "");
+            String id = it.optString("videoId", "");
+            String vid = id.matches("[A-Za-z0-9_-]{11}") ? id
+                    : extractVideoIdFromUrlOrQuery(u.startsWith("http") ? u : "https://www.youtube.com" + u);
+            if (vid == null) continue;
+            MediaItem m = new MediaItem();
+            m.videoId = vid;
+            m.title = it.optString("title", "Video");
+            m.author = it.optString("uploaderName", it.optString("uploader", it.optString("author", "")));
+            m.durationSec = it.optLong("duration", it.optLong("lengthSeconds", 0L));
+            m.durationText = NowPlayingManager.formatDurationMs(m.durationSec * 1000L);
+            m.thumbnailUrl = it.optString("thumbnail", "");
+            if (m.thumbnailUrl.length() == 0) {
+                JSONArray thumbs = it.optJSONArray("videoThumbnails");
+                if (thumbs != null && thumbs.length() > 0) {
+                    JSONObject thumb = thumbs.optJSONObject(thumbs.length() - 1);
+                    if (thumb != null) m.thumbnailUrl = thumb.optString("url", "");
+                }
+            }
+            if (m.thumbnailUrl.length() == 0) m.thumbnailUrl = "https://i.ytimg.com/vi/" + vid + "/hqdefault.jpg";
+            m.isMusicTrack = musicOnly;
+            output.add(m);
+        }
     }
 
     /* ==================== 7. SponsorBlock, ReturnYouTubeDislike, Comments & Synced Lyrics ==================== */

@@ -191,6 +191,11 @@ def static_checks():
     file_ui = (SRC/'Arc7FileManagerActivity.java').read_text()
     assert 'QR File Share' in file_ui and 'QrCodeEncoder.renderQrBitmap(address' in file_ui
     assert 'unencrypted HTTP' in file_ui and 'Arc7QrFileShareService.startShare' in file_ui
+    qr_home = (SRC/'Arc7QrTransferHomeActivity.java').read_text()
+    assert 'Intent.ACTION_SEND_MULTIPLE' in qr_home and 'getClipData()' in qr_home and 'acceptSharedFile' in qr_home
+    qr_manifest = ET.parse(ROOT/'split-apps/qrtransfer/AndroidManifest.xml').getroot()
+    assert any(action.get(NS+'name') == 'android.intent.action.SEND_MULTIPLE'
+               for action in qr_manifest.findall('.//activity/intent-filter/action'))
     share_manifest = ET.parse(ROOT/'split-apps/filemanager/AndroidManifest.xml').getroot()
     assert any(c.get(NS+'name') == 'ca.arc7freedom.app.Arc7QrFileShareService' for c in share_manifest.findall('application/service'))
     shared = (SRC/'Arc7Skin.java').read_text()
@@ -222,7 +227,16 @@ def static_checks():
     assert 'request!=lyricsRequest' in music and 'snap.title+"\\n"+snap.artist' in music
     assert 'pendingMusicQueue=null' in music and 'resetLyrics();' in music and 'ui.removeCallbacksAndMessages(null)' in music
     assert 'finally { MorpheEngine.cancelPlayback(resolved); }' in music
-    print('PASS integration guards: separate offline vault identities/backup policy, secret lifecycle/commit gates, no Quick Switcher, retained Home controls, ordered deck writer, Music binding/lyrics/download ownership and embedded PATCHES/no forced PC screen')
+    assert 'showBrowsePane();' in music and 'showPlayerPane();' in music
+    offline = (SRC/'OfflineMusicLibrary.java').read_text()
+    assert 'compareText(a.author, b.author)' in offline and 'compareText(a.album, b.album)' in offline
+    assert 'METADATA_KEY_DURATION' in offline and 'writeSidecar' in offline
+    morphe = (SRC/'MorpheEngine.java').read_text()
+    assert 'appendCloudSearchResults(items, out, musicOnly)' in morphe and 'new JSONArray(raw)' in morphe
+    assert 'QUICK_CLOUD_ENDPOINT_ATTEMPTS = 5' in morphe and 'INVIDIOUS_INSTANCES[i]' in morphe
+    audio = (SRC/'Arc7AudioService.java').read_text()
+    assert 'restartCompletedPlayer(mp)' in audio and 'Repeat One' not in audio.split('restartCompletedPlayer',1)[0]
+    print('PASS integration guards: separate offline vault identities/backup policy, secret lifecycle/commit gates, no Quick Switcher, retained Home controls, ordered deck writer, Music offline metadata/repeat/pane routing and embedded PATCHES/no forced PC screen')
 
 
 def main():

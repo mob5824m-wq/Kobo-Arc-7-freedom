@@ -29,7 +29,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
-/** Native past-radar map, max zoom 7, loaded only on demand. No modern web map or API key. */
+/** Native past-radar and short-range nowcast map, max zoom 7, loaded only on demand. */
 public final class Arc7WeatherRadar extends LinearLayout {
     private static final Object CACHE_LOCK=new Object();
     private static long cacheEpoch;
@@ -48,13 +48,22 @@ public final class Arc7WeatherRadar extends LinearLayout {
     private double centreLat, centreLon;
     private float downX, downY;
     private final Runnable advance=new Runnable() {
-        @Override public void run() { if (playing && !closed && frames!=null) { position=(position+1)%frames.size(); load(false); } }
+        @Override public void run() {
+            if (!playing || closed || frames==null) return;
+            if (position >= frames.size()-1) {
+                boolean hasNowcast=false;
+                for (Arc7WeatherRadarMath.Frame frame : frames) if (frame.nowcast) { hasNowcast=true; break; }
+                if (hasNowcast) { stop(); return; }
+                position=0;
+            } else position++;
+            load(false);
+        }
     };
     public Arc7WeatherRadar(Context c, Arc7WeatherData.Place place, Arc7WeatherData.Units u, Arc7Skin.Palette pal) {
         super(c); this.place=place; centreLat=place.lat; centreLon=place.lon;
         synchronized (CACHE_LOCK) { diskEpoch=cacheEpoch; }
         setOrientation(VERTICAL);
-        TextView help=label("PAST PRECIPITATION RADAR\nRainViewer \u00b7 Universal Blue precipitation palette (provider colours). Past frames only, not a rain forecast.\nBlank/transparent areas can mean no echo OR no radar coverage. Never use this map as an all-clear.",pal.textPrimary,13);
+        TextView help=label("PRECIPITATION RADAR + SHORT-RANGE NOWCAST\nRainViewer \u00b7 past observations followed by provider nowcast frames when available. A nowcast is an estimate, not a guaranteed rain forecast.\nBlank/transparent areas can mean no echo OR no radar coverage. Never use this map as an all-clear.",pal.textPrimary,13);
         addView(help);
         LinearLayout buttons=new LinearLayout(c); buttons.setGravity(Gravity.CENTER_VERTICAL);
         button(buttons,"Previous",new Runnable() { public void run() { step(-1); } });
@@ -92,7 +101,7 @@ public final class Arc7WeatherRadar extends LinearLayout {
                 return true;
             }
         });
-        addView(label("Drag map to pan. Red dot: saved city. Zoom limited to 7 by the public radar API.\nRadar \u00a9 RainViewer \u00b7 Map data \u00a9 OpenStreetMap contributors (ODbL).\nInteractive requests send the viewed map area to these providers. Cached tiles are private and capped at 12 MB.",pal.textMuted,11));
+        addView(label("Drag map to pan. Red dot: saved city. Previous/Next includes future nowcast frames when supplied. Zoom limited to 7.\nRadar \u00a9 RainViewer \u00b7 Map data \u00a9 OpenStreetMap contributors (ODbL).\nInteractive requests send the viewed map area to these providers. Cached tiles are private and capped at 12 MB.",pal.textMuted,11));
         load(false);
     }
     private TextView label(String text, int color, float size) {
@@ -143,7 +152,10 @@ public final class Arc7WeatherRadar extends LinearLayout {
                     }
                     final List<Arc7WeatherRadarMath.Frame> selectedFrames=available;
                     final int at=Math.max(0,Math.min(requestedPosition,available.size()-1));
-                    final Arc7WeatherRadarMath.Frame frame=available.get(firstFrame ? available.size()-1 : at);
+                    int currentPosition=available.size()-1;
+                    for (int i=0;i<available.size();i++) if (available.get(i).nowcast) { currentPosition=i-1; break; }
+                    if (currentPosition<0) currentPosition=0;
+                    final Arc7WeatherRadarMath.Frame frame=available.get(firstFrame ? currentPosition : at);
                     final int selectedPosition=available.indexOf(frame);
                     Bitmap map=Bitmap.createBitmap(512,512,Bitmap.Config.ARGB_8888);
                     Canvas canvas=new Canvas(map); canvas.drawColor(0xFFE2E8F0);
@@ -173,7 +185,7 @@ public final class Arc7WeatherRadar extends LinearLayout {
                     final Bitmap result=map;
                     final boolean complete=baseCount==count && radarCount==count;
                     final String message=(oldMetadata ? "CACHED metadata \u00b7 " : "")
-                            + (System.currentTimeMillis()-frame.time>1800000L ? "STALE radar \u00b7 " : "Past radar \u00b7 ")
+                            + (frame.nowcast ? "NOWCAST estimate \u00b7 " : (System.currentTimeMillis()-frame.time>1800000L ? "STALE radar \u00b7 " : "Past radar \u00b7 "))
                             + Arc7WeatherData.formatTime(frame.time,java.util.TimeZone.getTimeZone("UTC"),"MMM d HH:mm")+" UTC"
                             + " \u00b7 frame "+(selectedPosition+1)+"/"+available.size()+" \u00b7 zoom "+z
                             + (complete ? "" : "\nPARTIAL / UNAVAILABLE tiles: base "+baseCount+"/"+count+", radar "+radarCount+"/"+count)

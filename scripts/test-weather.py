@@ -304,7 +304,8 @@ public class WeatherHarness {
    for(double lat:new double[]{-85,-43,0,43.589,85})equal(Arc7WeatherRadarMath.latitude(Arc7WeatherRadarMath.y(lat,5),5),lat,"Mercator round trip");
    equal(Arc7WeatherRadarMath.longitude(Arc7WeatherRadarMath.x(-79.644,5),5),-79.644,"longitude round trip");check(Arc7WeatherRadarMath.wrap(-1,5)==31,"dateline wrap");
    check(Double.isFinite(Arc7WeatherRadarMath.y(90,7)),"polar clamp");
-   List<Arc7WeatherRadarMath.Frame> frames=Arc7WeatherRadarMath.frames(read("radar.json"),now);check(frames.size()==6,"last six PAST frames only");
+   List<Arc7WeatherRadarMath.Frame> frames=Arc7WeatherRadarMath.frames(read("radar.json"),now);check(frames.size()==7,"last six past frames plus future nowcast");
+   check(!frames.get(5).nowcast && frames.get(6).nowcast && frames.get(6).time>now,"future nowcast is sorted after observed radar");
    check(frames.get(5).tile(7,-1,50).contains("/256/7/127/50/2/1_1.png"),"public PNG/universal-blue/max7 tile contract");
    try{frames.get(0).tile(8,1,1);throw new AssertionError();}catch(IllegalArgumentException expected){}
    try{Arc7WeatherRadarMath.frames("{\"host\":\"https://evil.invalid\"}",now);throw new AssertionError();}catch(IllegalArgumentException expected){}
@@ -422,7 +423,10 @@ def static_checks():
     assert 'worker.shutdownNow()' in radar and 'token!=sequence' in radar and '12 MB' in radar
     assert 'outWidth!=256' in radar and 'outHeight!=256' in radar
     assert 'diskEpoch!=cacheEpoch' in radar and 'cacheEpoch++' in radar
-    print('PASS Weather integration: isolated manifest/optional location, lifecycle/search generation guards, private caches, widget scheduling and bounded/cancellable radar')
+    assert 'PRECIPITATION RADAR + SHORT-RANGE NOWCAST' in radar and 'frame.nowcast' in radar
+    math = (SRC/'Arc7WeatherRadarMath.java').read_text()
+    assert 'optJSONArray("nowcast")' in math and '21600000L' in math
+    print('PASS Weather integration: isolated manifest/optional location, lifecycle/search generation guards, private caches, widget scheduling and bounded/cancellable radar/nowcast')
 
 
 def main():

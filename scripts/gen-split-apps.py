@@ -520,6 +520,18 @@ def main() -> None:
         filt_src = alias_by_target.get(attr(act, "name"), act)
         for flt in filt_src.findall("intent-filter"):
             src.append(copy.deepcopy(flt))
+        # The standalone QR sender also accepts Android's multi-item share action;
+        # this non-launcher filter is intentionally synthesized because suite generation
+        # strips routed filters from the original activity after moving them to its alias.
+        if attr(act, "name").lstrip(".") == "Arc7QrTransferHomeActivity":
+            has_multiple = any(any(attr(child, "name") == "android.intent.action.SEND_MULTIPLE"
+                                   for child in flt.findall("action")) for flt in src.findall("intent-filter"))
+            if not has_multiple:
+                shared = ET.Element("intent-filter")
+                ET.SubElement(shared, "action", {NS+"name": "android.intent.action.SEND_MULTIPLE"})
+                ET.SubElement(shared, "category", {NS+"name": "android.intent.category.DEFAULT"})
+                ET.SubElement(shared, "data", {NS+"mimeType": "*/*"})
+                src.append(shared)
         for meta in act.findall("meta-data"):
             src.append(copy.deepcopy(meta))
         return src

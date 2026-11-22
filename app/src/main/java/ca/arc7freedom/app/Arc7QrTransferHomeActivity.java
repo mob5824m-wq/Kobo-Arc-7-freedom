@@ -1,6 +1,7 @@
 package ca.arc7freedom.app;
 
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.database.Cursor;
@@ -38,13 +39,32 @@ public final class Arc7QrTransferHomeActivity extends Arc7Activity {
         if (state != null) {
             String uri = state.getString("selected"); if (uri != null) selected = Uri.parse(uri);
             selectedName = state.getString("name");
-        } else if (Intent.ACTION_SEND.equals(getIntent().getAction())) {
-            Object extra = getIntent().getParcelableExtra(Intent.EXTRA_STREAM);
-            if (extra instanceof Uri) select((Uri) extra);
+        } else {
+            acceptSharedFile(getIntent());
         }
         render();
     }
     @Override protected void onResume() { super.onResume(); if (content != null) render(); }
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent); setIntent(intent); acceptSharedFile(intent); render();
+    }
+    private void acceptSharedFile(Intent intent) {
+        if (intent == null || !(Intent.ACTION_SEND.equals(intent.getAction())
+                || Intent.ACTION_SEND_MULTIPLE.equals(intent.getAction()))) return;
+        Uri uri = null;
+        try {
+            Object extra = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (extra instanceof Uri) uri = (Uri) extra;
+            else if (extra instanceof java.util.ArrayList) {
+                java.util.ArrayList<?> streams = (java.util.ArrayList<?>) extra;
+                if (!streams.isEmpty() && streams.get(0) instanceof Uri) uri = (Uri) streams.get(0);
+            }
+        } catch (RuntimeException ignored) {}
+        if (uri == null && intent.getData() != null) uri = intent.getData();
+        ClipData clip = intent.getClipData();
+        if (uri == null && clip != null && clip.getItemCount() > 0) uri = clip.getItemAt(0).getUri();
+        if (uri != null) select(uri);
+    }
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
         if (selected != null) state.putString("selected", selected.toString());

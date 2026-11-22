@@ -929,6 +929,8 @@ public class Arc7AudioService extends Service {
                     synchronized (Arc7AudioService.this) {
                         if (request != playbackGeneration || player != mp) return;
                         diagnosticState = "Completed"; DebugLog.event("audio.completed");
+                        if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty() && repeatMode == REPEAT_ONE
+                                && restartCompletedPlayer(mp)) return;
                         abandonFocus(false);
                         if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty()) {
                             if (repeatMode == REPEAT_ONE) startMorpheQueueAt(morpheIndex);
@@ -1039,6 +1041,23 @@ public class Arc7AudioService extends Service {
                l.endsWith(".ogg") || l.endsWith(".flac") || l.endsWith(".wav") || l.endsWith(".opus");
     }
 
+    /** Restart the prepared decoder in place for Repeat One; do not resolve/download the same track again. */
+    private synchronized boolean restartCompletedPlayer(MediaPlayer completed) {
+        if (completed == null || player != completed || !playerPrepared) return false;
+        try {
+            completed.seekTo(0);
+            completed.start();
+            playWhenPrepared = true;
+            diagnosticState = "Playing"; playbackStatus = "";
+            acquireWifiLockSafe(); applyPlayerVolume();
+            publishOwnPlaybackState(true);
+            return true;
+        } catch (Throwable failure) {
+            DebugLog.error("audio.repeat_restart_failed", failure);
+            return false;
+        }
+    }
+
     public synchronized void startTrackAtIndex(int idx, boolean restoreBookmark) {
         if (idx < 0 || idx >= playlist.size()) return;
         ++playbackGeneration;
@@ -1084,9 +1103,11 @@ public class Arc7AudioService extends Service {
                 public void onCompletion(MediaPlayer mp) {
                     synchronized (Arc7AudioService.this) {
                     if (player != mp || playbackGeneration != localRequest) return;
-                    abandonFocus(false); diagnosticState = "Completed"; DebugLog.event("audio.completed");
+                    diagnosticState = "Completed"; DebugLog.event("audio.completed");
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                             .putInt("pos_" + track.getAbsolutePath().hashCode(), 0).commit();
+                    if (repeatMode == REPEAT_ONE && restartCompletedPlayer(mp)) return;
+                    abandonFocus(false);
                     if (repeatMode == REPEAT_ONE) {
                         startTrackAtIndex(currentIndex, false);
                     } else if (currentIndex + 1 < playlist.size()) {
