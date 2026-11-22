@@ -39,6 +39,9 @@ public final class NowPlayingManager {
     public static final String ACTION_NOW_PLAYING_CHANGED = "ca.arc7freedom.app.NOW_PLAYING_CHANGED";
     public static final String ACTION_YOUTUBE_FG_CONTROL  = "ca.arc7freedom.app.YOUTUBE_FG_CONTROL";
     private static final String PREFS = "arc7_now_playing_v240";
+    // Metadata broadcasts may omit a final pause/stop when a player is closed or force-stopped.
+    // Keep a broadcast-only playing state briefly, but let AudioManager's live audio state win.
+    private static final long EXTERNAL_BROADCAST_GRACE_MS = 6000L;
 
     public static final class Snapshot {
         public boolean active;
@@ -223,14 +226,17 @@ public final class NowPlayingManager {
             }
         }
 
-        if (systemMusicActive || extBroadcastPlaying) {
+        long nowRealtime = SystemClock.elapsedRealtime();
+        boolean freshPlayingBroadcast = extBroadcastPlaying && extUpdatedRealtimeMs > 0L
+                && nowRealtime - extUpdatedRealtimeMs <= EXTERNAL_BROADCAST_GRACE_MS;
+        if (systemMusicActive || freshPlayingBroadcast) {
             String detectedPkg = detectExternalAudioPackage(appCtx);
             String appLabel = resolvePackageLabel(appCtx, detectedPkg);
             String title = extTitle.length() > 0 ? extTitle : (appLabel + " Audio Playing");
             String artist = extArtist.length() > 0 ? extArtist : "Playing on " + appLabel;
             long pos = extPositionMs;
-            if (extBroadcastPlaying && extUpdatedRealtimeMs > 0L) {
-                pos += Math.max(0L, SystemClock.elapsedRealtime() - extUpdatedRealtimeMs);
+            if (freshPlayingBroadcast && extUpdatedRealtimeMs > 0L) {
+                pos += Math.max(0L, nowRealtime - extUpdatedRealtimeMs);
             }
             synchronized (LOCK) {
                 current.active = true;
@@ -252,6 +258,12 @@ public final class NowPlayingManager {
             }
             return true;
         } else {
+            // Drop cached external metadata as well as the snapshot. Without this, a player
+            // that omits its final STOP broadcast can leave the clock/widget stuck on its track
+            // (or resurrect that title for the next app that starts audio).
+            extBroadcastPlaying = false;
+            extTitle = ""; extArtist = ""; extAlbum = ""; extPkg = "";
+            extDurationMs = 0L; extPositionMs = 0L; extUpdatedRealtimeMs = 0L;
             boolean clearedExternal = false;
             synchronized (LOCK) {
                 if (current.active && !appCtx.getPackageName().equals(current.sourcePkg)) {
@@ -501,18 +513,14 @@ public final class NowPlayingManager {
 
     private static void loadPersistedIntoCurrentLocked(Context ctx) {
         SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        current.active = sp.getBoolean("active", false);
-        current.playing = false;
-        current.title = sp.getString("title", "");
-        current.artist = sp.getString("artist", "");
-        current.album = sp.getString("album", "");
-        current.sourceApp = sp.getString("sourceApp", "Music");
-        current.sourcePkg = sp.getString("sourcePkg", ctx.getPackageName());
-        current.launchClass = sp.getString("launchClass", "ca.arc7freedom.app.Arc7AudioPlayerActivity");
-        current.artworkUrl = sp.getString("artworkUrl", "");
-        current.positionMs = sp.getLong("positionMs", 0L);
-        current.durationMs = sp.getLong("durationMs", 0L);
+        // A persisted playing flag cannot prove that a media process survived an app close or
+        // reboot. syncExternalAudioIfNeeded() has already checked live audio before this point;
+        // discard stale metadata rather than restoring a phantom Now Playing card.
+        current = new Snapshot();
         current.updatedRealtimeMs = SystemClock.elapsedRealtime();
+        if (sp.getBoolean("active", false) || sp.getBoolean("playing", false)) {
+            persistSnapshotLocked(ctx);
+        }
     }
 
     private static String nonEmpty(String s, String def) {
