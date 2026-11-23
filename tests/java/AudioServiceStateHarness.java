@@ -406,6 +406,85 @@ public final class AudioServiceStateHarness {
         close(service);System.out.println("PASS: real headset receiver ownership, play/pause/next/previous/seek/stop mapping, single key-down handling and idempotent explicit play/pause commands");
     }
 
+    private static boolean payloadContains(String needle) {
+        synchronized (MorpheEngine.listensSent) {
+            for (String s : MorpheEngine.listensSent) if (s.contains(needle)) return true;
+        }
+        return false;
+    }
+
+    private static int countPayloads(String needle) {
+        int count = 0;
+        synchronized (MorpheEngine.listensSent) {
+            for (String s : MorpheEngine.listensSent) if (s.contains(needle)) count++;
+        }
+        return count;
+    }
+
+    private static void waitForSubmissions(int needleCount, String needle) throws Exception {
+        long deadline = System.currentTimeMillis() + 5000L;
+        while (System.currentTimeMillis() < deadline) {
+            if (countPayloads(needle) >= needleCount) return;
+            Thread.sleep(10L);
+        }
+        throw new AssertionError("Timed out waiting for ListenBrainz submission '" + needle + "': " + MorpheEngine.listensSent);
+    }
+
+    private static MorpheEngine.MediaItem fixtureItem(String title, long durationSec) {
+        MorpheEngine.MediaItem item = new MorpheEngine.MediaItem();
+        item.title = title;
+        item.author = "Fixture artist";
+        item.durationSec = durationSec;
+        return item;
+    }
+
+    private static void listenBrainzScrobbleFlow() throws Exception {
+        Arc7AudioService service = create();
+        try {
+            ListenBrainzEngine.setEnabled(service, true);
+            ListenBrainzEngine.setToken(service, "fixture-token");
+            MorpheEngine.listensSent.clear();
+
+            service.playMorpheQueue(Collections.singletonList(fixtureItem("Fixture song", 200L)), 0,
+                    "YouTube Music", "ca.arc7freedom.app.YouTubeMusicActivity");
+            MediaPlayer player = resolvedPlayer(service);
+            player.emitPrepared();
+            Handler.drain();
+            check(player.state == MediaPlayer.STARTED, "Fixture track did not start under ListenBrainz");
+
+            waitForSubmissions(1, "playing_now");
+            check(payloadContains("playing_now"), "playing_now was not submitted: " + MorpheEngine.listensSent);
+            check(payloadContains("fixture-token"), "Authorization token was not sent with the submission");
+
+            // 110 s of a 200 s track clears the half-track threshold (first tick only arms the position baseline).
+            for (int i = 0; i < 110; i++) {
+                player.position += 1000;
+                Handler.fireTimer((Runnable) get(service, "checkpointTask"));
+            }
+            waitForSubmissions(1, "\"single\"");
+            check(countPayloads("\"single\"") == 1, "Half-track scrobble missing or duplicated: " + MorpheEngine.listensSent);
+
+            // A second track: a bare forward jump is a seek, never listened time — no scrobble.
+            service.playMorpheQueue(Collections.singletonList(fixtureItem("Second fixture", 200L)), 0,
+                    "YouTube Music", "ca.arc7freedom.app.YouTubeMusicActivity");
+            MediaPlayer jumped = resolvedPlayer(service);
+            jumped.emitPrepared();
+            Handler.drain();
+            jumped.position = 198000;
+            Handler.fireTimer((Runnable) get(service, "checkpointTask"));
+            check(countPayloads("\"single\"") == 1, "Forward seek counted as listening: " + MorpheEngine.listensSent);
+
+            // Playing to the end counts as a fully heard track even below the threshold.
+            jumped.emitCompletion();
+            Handler.drain();
+            waitForSubmissions(2, "\"single\"");
+            check(countPayloads("\"single\"") == 2, "Natural completion did not submit the listen: " + MorpheEngine.listensSent);
+            System.out.println("PASS: ListenBrainz playing-now, half-track threshold, seek suppression and natural-end scrobbling (recording HTTP fakes)");
+        } finally {
+            close(service);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         asynchronousErrorModel();
         preparingAndNormalTransport();
@@ -417,5 +496,6 @@ public final class AudioServiceStateHarness {
         timeoutAndConcurrentRelease();
         focusAndHeadphones();
         headsetButtons();
+        listenBrainzScrobbleFlow();
     }
 }

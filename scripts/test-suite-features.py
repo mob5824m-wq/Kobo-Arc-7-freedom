@@ -237,7 +237,8 @@ def static_checks():
     audio = (SRC/'Arc7AudioService.java').read_text()
     assert 'restartCompletedPlayer(mp)' in audio and 'Repeat One' not in audio.split('restartCompletedPlayer',1)[0]
     arcade = (SRC/'Arc7ArcadeActivity.java').read_text()
-    assert arcade.count('stageBox.removeAllViews();') == 1  # only entering/resetting a game clears its view tree
+    assert arcade.count('root.removeAllViews();') == 1  # only entering/resetting a game clears its view tree
+    assert 'stageBox.removeAllViews();' not in arcade  # in-place refresh; view trees are never torn down mid-game
     assert 'private void refreshActiveGame()' in arcade and 'private void refreshChess()' in arcade
     for game_refresh in ('refresh2048()', 'refreshSudoku()', 'refreshMines()', 'refreshSolitaire()'):
         assert game_refresh in arcade
@@ -245,7 +246,7 @@ def static_checks():
         body = arcade.split('private void '+handler+'(', 1)[1].split('\n    }', 1)[0]
         assert 'renderActiveGame();' not in body, handler
     assert 'slide2048(dc); refresh2048();' in arcade
-    assert 'sudSelR = fr; sudSelC = fc; refreshSudoku();' in arcade
+    assert 'sudSelR = fr; sudSelC = fc; sfx(SFX_CLICK); refreshSudoku();' in arcade
     print('PASS Games interaction: chess/2048/Sudoku/mines update existing controls, Solitaire retains the screen and refreshes only its tableau; no whole-stage rebuild per move')
     print('PASS integration guards: separate offline vault identities/backup policy, secret lifecycle/commit gates, no Quick Switcher, retained Home controls, ordered deck writer, Music offline metadata/repeat/pane routing and embedded PATCHES/no forced PC screen')
 

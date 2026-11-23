@@ -49,7 +49,8 @@ public class Intent {private String action;private Map<String,Object> extras=new
     'android/content/BroadcastReceiver.java': 'package android.content;public abstract class BroadcastReceiver {public boolean isOrderedBroadcast(){return true;}public void abortBroadcast(){}public abstract void onReceive(Context c,Intent i);}',
     'android/content/SharedPreferences.java': '''package android.content;import java.util.*;
 public class SharedPreferences {private Map<String,Object> values=new HashMap<String,Object>();public int getInt(String k,int d){Object v=values.get(k);return v instanceof Integer?(Integer)v:d;}public String getString(String k,String d){Object v=values.get(k);return v instanceof String?(String)v:d;}
- public Editor edit(){return new Editor();}public class Editor {public Editor putInt(String k,int v){values.put(k,v);return this;}public Editor putString(String k,String v){values.put(k,v);return this;}public boolean commit(){return true;}}}''',
+ public boolean getBoolean(String k,boolean d){Object v=values.get(k);return v instanceof Boolean?(Boolean)v:d;}public long getLong(String k,long d){Object v=values.get(k);return v instanceof Long?(Long)v:d;}
+ public Editor edit(){return new Editor();}public class Editor {public Editor putInt(String k,int v){values.put(k,v);return this;}public Editor putString(String k,String v){values.put(k,v);return this;}public Editor putBoolean(String k,boolean v){values.put(k,v);return this;}public Editor putLong(String k,long v){values.put(k,v);return this;}public Editor remove(String k){values.remove(k);return this;}public boolean commit(){return true;}}}''',
     'android/content/Context.java': '''package android.content;import java.util.*;
 public class Context {public static final String WIFI_SERVICE="wifi",NOTIFICATION_SERVICE="notification",AUDIO_SERVICE="audio";public static final int MODE_PRIVATE=0;
  private Map<String,SharedPreferences> prefs=new HashMap<String,SharedPreferences>();private android.net.wifi.WifiManager wifi=new android.net.wifi.WifiManager();private android.app.NotificationManager notices=new android.app.NotificationManager();public android.media.AudioManager audio=new android.media.AudioManager();
@@ -88,13 +89,20 @@ public class Service extends Context {public static final int START_STICKY=1;pub
     'ca/arc7freedom/app/MorpheEngine.java': '''package ca.arc7freedom.app;import java.util.*;import java.util.concurrent.*;import android.content.*;
 public class MorpheEngine {
  public static volatile int resolves,compatibilityCalls;public static volatile boolean sponsorEnabled;public static volatile CountDownLatch fallbackEntered,fallbackRelease;
- public static class MediaItem {public String title="Fixture song",author="Fixture artist",videoId="fixture0001",localFilePath="";public long durationSec;public String bestThumb(){return "";}}
+ public static class MediaItem {public String title="Fixture song",author="Fixture artist",videoId="fixture0001",localFilePath="",album="";public long durationSec;public String bestThumb(){return "";}}
  public static class SkipSegment {public float startSec,endSec;}
  public static class ResolvedPlayback {public boolean verifiedAudio;public long durationSec;public String title="Fixture song",author="Fixture artist",thumbnailUrl="",localAudioProxyUrl="",localVideoProxyUrl="";public List<SkipSegment> skipSegments=new ArrayList<SkipSegment>();public List<MediaItem> relatedItems=new ArrayList<MediaItem>();}
  public interface ResolutionProgressListener {void onProgress(String message);}
  public static ResolvedPlayback resolveStreams(Context c,String id,boolean audio,ResolutionProgressListener progress){ResolvedPlayback r=new ResolvedPlayback();r.localAudioProxyUrl="http://fixture/audio-"+(++resolves)+".m4a";return r;}
  public static String startAudioCompatibilityFallback(Context c,ResolvedPlayback r){int call=++compatibilityCalls;if(fallbackEntered!=null){fallbackEntered.countDown();boolean interrupted=false;while(true){try{fallbackRelease.await();break;}catch(InterruptedException e){interrupted=true;}}if(interrupted)Thread.currentThread().interrupt();}return "http://fixture/compat-"+call+".aac";}
  public static void enrichPlaybackMetadata(Context c,ResolvedPlayback r){}public static void cancelPlayback(ResolvedPlayback r){}public static boolean isSponsorBlockEnabled(Context c){return sponsorEnabled;}public static String prepareRadioStream(Context c,String s){return s;}
+ public static final List<String> listensSent = Collections.synchronizedList(new ArrayList<String>());
+ public static String requestHttpsString(Context c,String method,String url,String body,Map<String,String> headers,int timeoutMs) throws Exception {
+     StringBuilder sb = new StringBuilder();
+     sb.append(method).append(' ').append(url).append('\\n').append(headers == null ? "" : headers.toString()).append('\\n').append(body == null ? "" : body);
+     listensSent.add(sb.toString());
+     return "{\\"status\\":\\"ok\\"}";
+ }
 }''',
     'ca/arc7freedom/app/NowPlayingManager.java': '''package ca.arc7freedom.app;import android.content.*;
 public class NowPlayingManager {
@@ -177,7 +185,9 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
             sources.append(path)
-        sources += [SRC/name for name in ('Arc7AudioService.java', 'Arc7MediaButtonReceiver.java', 'AudioFocusPolicy.java', 'LegacyMediaPolicy.java', 'LegacyPlaybackAudio.java', 'MediaNotificationPolicy.java')]
+        sources += [SRC/name for name in ('Arc7AudioService.java', 'Arc7MediaButtonReceiver.java', 'AudioFocusPolicy.java', 'LegacyMediaPolicy.java', 'LegacyPlaybackAudio.java', 'MediaNotificationPolicy.java', 'ListenBrainzEngine.java')]
+        orgjson = ROOT/'tests/support/org/json'
+        sources += [orgjson/name for name in ('JSONObject.java', 'JSONArray.java', 'MiniJson.java')]
         sources += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','MediaCache.java')]
         sources.append(ROOT/'tests/java/AudioServiceStateHarness.java')
         subprocess.run(list(map(str, [javac, '-nowarn', '-d', tmp/'classes', *sources])), check=True, timeout=90)
