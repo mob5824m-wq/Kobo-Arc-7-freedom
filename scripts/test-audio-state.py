@@ -22,6 +22,7 @@ STUBS = {
     'android/os/Binder.java': 'package android.os; public class Binder implements IBinder {}',
     'android/os/Build.java': 'package android.os; public class Build {public static class VERSION {public static int SDK_INT=17;}}',
     'android/os/PowerManager.java': 'package android.os; public class PowerManager {public static final int PARTIAL_WAKE_LOCK=1;}',
+    'android/os/SystemClock.java': 'package android.os; public class SystemClock {public static long elapsedRealtime(){return System.currentTimeMillis();}public static long uptimeMillis(){return System.currentTimeMillis();}}',
     'android/os/Looper.java': 'package android.os; public class Looper {public static Looper getMainLooper(){return new Looper();}}',
     'android/os/Handler.java': '''package android.os;
 import java.util.*;

@@ -22,6 +22,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.widget.RemoteViews;
 import android.widget.Toast;
 
@@ -95,6 +96,12 @@ public class Arc7AudioService extends Service {
     private ca.arc7freedom.support.MediaCache.Lease playerCacheLease;
     private String selfTestFormat = "";
     private volatile boolean playerPrepared = false;
+    // Wall-clock position anchor: Android 4.2 Stagefright reports INVALID_OPERATION (or a
+    // stuck 0) from getCurrentPosition() for proxied/adaptive Morphe streams, so the seek
+    // bar would never move. Anchor the position at play/seek time and advance it by elapsed
+    // time while playing; re-anchor whenever the player reports a plausible position.
+    private long posAnchorElapsedMs = 0L;
+    private int posAnchorMs = 0;
     private WifiManager.WifiLock wifiLock;
     private AudioManager audioManager;
     private final AudioFocusPolicy focus = new AudioFocusPolicy();
@@ -357,6 +364,7 @@ public class Arc7AudioService extends Service {
         } catch (Throwable unavailable) { DebugLog.error("audio.media_buttons_unavailable", unavailable); }
         acquireWifiLockSafe(); applyPlayerVolume();
         mp.start();
+        anchorPosition(safePlayerPosition());
         scrobbleOnTrackStarted();
         diagnosticState = "Playing"; playbackStatus = "";
         DebugLog.event("audio.started");
@@ -1277,6 +1285,7 @@ public class Arc7AudioService extends Service {
         diagnosticState = playerPrepared ? "Paused" : "Paused before ready"; DebugLog.event("audio.user_paused");
         if (!playerPrepared) return;
         if (player != null && player.isPlaying()) {
+            anchorPosition(estimatedPositionMs());
             saveCurrentPosition();
             player.pause();
             releaseWifiLockSafe();
@@ -1291,10 +1300,11 @@ public class Arc7AudioService extends Service {
             if (dur <= 1000 && activeMorphePlayback != null && activeMorphePlayback.durationSec > 0L) {
                 dur = (int) Math.min(Integer.MAX_VALUE, activeMorphePlayback.durationSec * 1000L);
             }
-            int current = Math.max(0, player.getCurrentPosition());
+            int current = getPositionMs();
             long upper = dur > 1000 ? (long) dur : 6L * 3600L * 1000L; // unknown length: clamp only from below
             int next = (int) Math.max(0L, Math.min(upper, current + (long) deltaMs));
             player.seekTo(next);
+            anchorPosition(next);
             saveCurrentPosition();
             publishOwnPlaybackState(player.isPlaying());
         } catch (Throwable error) {
@@ -1312,6 +1322,7 @@ public class Arc7AudioService extends Service {
             long upper = dur > 1000 ? (long) dur : 6L * 3600L * 1000L; // unknown length: keep the user's requested offset
             int clamped = (int) Math.max(0L, Math.min(upper, Math.max(0, posMs)));
             player.seekTo(clamped);
+            anchorPosition(clamped);
             saveCurrentPosition();
             publishOwnPlaybackState(player.isPlaying());
             DebugLog.number("audio.seek_to_ms", clamped);
@@ -1386,13 +1397,50 @@ public class Arc7AudioService extends Service {
         return true;
     }
 
-    public synchronized int getPositionMs() {
+    private int safePlayerPosition() {
         if (player == null || !playerPrepared) return 0;
         try {
             return Math.max(0, player.getCurrentPosition());
         } catch (Throwable ignored) {
             return 0;
         }
+    }
+
+    private void anchorPosition(int posMs) {
+        posAnchorMs = Math.max(0, posMs);
+        posAnchorElapsedMs = SystemClock.elapsedRealtime();
+    }
+
+    private int estimatedPositionMs() {
+        int pos = posAnchorMs;
+        if (isPlaying()) {
+            pos += (int) Math.max(0L, SystemClock.elapsedRealtime() - posAnchorElapsedMs);
+        }
+        return Math.max(0, pos);
+    }
+
+    public synchronized int getPositionMs() {
+        if (player == null || !playerPrepared) return 0;
+        int playerPos = 0;
+        try {
+            playerPos = Math.max(0, player.getCurrentPosition());
+        } catch (Throwable ignored) {
+            playerPos = 0;
+        }
+        // Android 4.2 Stagefright reports INVALID_OPERATION (caught above as 0) or a stuck
+        // position for proxied/adaptive Morphe streams, so the seek bar would never move.
+        // Fall back to a wall-clock estimate anchored at play/seek time, and re-anchor
+        // whenever the player reports a plausible position so the estimate cannot drift.
+        if (scrobbleEligibleSource()) {
+            if (playerPos > 0) {
+                anchorPosition(playerPos);
+                return playerPos;
+            }
+            if (isPlaying()) {
+                return estimatedPositionMs();
+            }
+        }
+        return playerPos;
     }
 
     public synchronized int getDurationMs() {
