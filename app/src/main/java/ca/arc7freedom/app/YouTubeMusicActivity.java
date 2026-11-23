@@ -11,10 +11,12 @@ import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -268,7 +270,14 @@ public class YouTubeMusicActivity extends Arc7Activity {
             @Override
             public void onStopTrackingTouch(SeekBar sb) {
                 userScrubbing = false;
-                if (audioService != null) audioService.seekAbsoluteMs(sb.getProgress());
+                if (audioService == null) return;
+                if (!audioService.isSeekableSource()) {
+                    Toast.makeText(YouTubeMusicActivity.this,
+                            "This stream cannot be seeked on Android 4.2", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                audioService.seekAbsoluteMs(sb.getProgress());
+                syncNowPlayingUi();
             }
         });
         playerDeck.addView(seekBar, new LinearLayout.LayoutParams(
@@ -901,9 +910,11 @@ public class YouTubeMusicActivity extends Arc7Activity {
             if (dur > 0) {
                 if (seekBar.getMax() != dur) seekBar.setMax(dur);
                 if (!userScrubbing) seekBar.setProgress(Math.max(0, Math.min(dur, pos)));
+                durTv.setText(NowPlayingManager.formatDurationMs(dur));
+            } else {
+                durTv.setText("--:--");
             }
             posTv.setText(NowPlayingManager.formatDurationMs(pos));
-            durTv.setText(NowPlayingManager.formatDurationMs(dur));
 
             int activeLine = findActiveLyricIndex(pos);
             if (activeLine >= 0 && activeLine < currentLyrics.size()) {
@@ -1046,11 +1057,28 @@ public class YouTubeMusicActivity extends Arc7Activity {
     }
 
     private void showMorpheMusicSettings() {
+        String token = ListenBrainzEngine.getToken(this);
+        String cachedUser = ListenBrainzEngine.getCachedUserName(this);
+        String tokenLabel;
+        if (token.length() == 0) {
+            tokenLabel = "Not set — tap to enter";
+        } else if (cachedUser.length() > 0) {
+            tokenLabel = "Set — user: " + cachedUser;
+        } else {
+            tokenLabel = "Set (" + token.substring(0, Math.min(8, token.length())) + "…) — tap to verify";
+        }
         final String[] opts = new String[]{
                 "SponsorBlock Non-Music Intro/Outro Skip: "
                         + (MorpheEngine.isSponsorBlockEnabled(this) ? "ENABLED" : "OFF"),
                 "Spoof Audio Stream Client: "
-                        + MorpheEngine.SPOOF_CLIENT_LABELS[MorpheEngine.getPreferredSpoofClient(this)]
+                        + MorpheEngine.SPOOF_CLIENT_LABELS[MorpheEngine.getPreferredSpoofClient(this)],
+                "ListenBrainz Scrobble: "
+                        + (ListenBrainzEngine.isEnabled(this) ? "ENABLED" : "OFF"),
+                "ListenBrainz User Token: " + tokenLabel,
+                "ListenBrainz API Host: "
+                        + (ListenBrainzEngine.isCustomApiRoot(this)
+                            ? ListenBrainzEngine.getApiRoot(this) : "api.listenbrainz.org (default)"),
+                "Scrobbling Rules & Privacy"
         };
         new AlertDialog.Builder(this)
                 .setTitle("\u2728 YouTube Music Morphe Patches")
@@ -1060,7 +1088,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
                         if (which == 0) {
                             MorpheEngine.setSponsorBlockEnabled(YouTubeMusicActivity.this,
                                     !MorpheEngine.isSponsorBlockEnabled(YouTubeMusicActivity.this));
-                        } else {
+                        } else if (which == 1) {
                             new AlertDialog.Builder(YouTubeMusicActivity.this)
                                     .setTitle("Spoof Stream Client")
                                     .setSingleChoiceItems(MorpheEngine.SPOOF_CLIENT_LABELS,
@@ -1073,10 +1101,162 @@ public class YouTubeMusicActivity extends Arc7Activity {
                                                 }
                                             })
                                     .show();
+                        } else if (which == 2) {
+                            boolean next = !ListenBrainzEngine.isEnabled(YouTubeMusicActivity.this);
+                            ListenBrainzEngine.setEnabled(YouTubeMusicActivity.this, next);
+                            if (next && ListenBrainzEngine.getToken(YouTubeMusicActivity.this).length() == 0) {
+                                Toast.makeText(YouTubeMusicActivity.this,
+                                        "Scrobbling enabled — now add your ListenBrainz user token",
+                                        Toast.LENGTH_LONG).show();
+                                showListenBrainzTokenDialog();
+                            } else {
+                                Toast.makeText(YouTubeMusicActivity.this,
+                                        next ? "ListenBrainz scrobbling enabled" : "ListenBrainz scrobbling off",
+                                        Toast.LENGTH_SHORT).show();
+                            }
+                        } else if (which == 3) {
+                            showListenBrainzTokenDialog();
+                        } else if (which == 4) {
+                            showListenBrainzApiHostDialog();
+                        } else {
+                            showListenBrainzScrobbleInfoDialog();
                         }
                     }
                 })
                 .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void showListenBrainzTokenDialog() {
+        final EditText input = new EditText(this);
+        input.setHint("Paste your ListenBrainz user token");
+        input.setSingleLine(true);
+        input.setMaxLines(1);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD);
+        input.setText(ListenBrainzEngine.getToken(this));
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(dp(18), dp(6), dp(18), dp(2));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wrap.addView(input, lp);
+        new AlertDialog.Builder(this)
+                .setTitle("ListenBrainz User Token")
+                .setMessage("We send your Morphe (YouTube Music) listens to ListenBrainz with your private user "
+                        + "token. Find it at listenbrainz.org → your profile → “User token”. It is stored only on this tablet.")
+                .setView(wrap)
+                .setPositiveButton("Save & Verify", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        String token = input.getText() == null ? "" : input.getText().toString().trim();
+                        ListenBrainzEngine.setToken(YouTubeMusicActivity.this, token);
+                        if (token.length() == 0) {
+                            Toast.makeText(YouTubeMusicActivity.this, "Token cleared", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        Toast.makeText(YouTubeMusicActivity.this, "Verifying token with ListenBrainz…",
+                                Toast.LENGTH_SHORT).show();
+                        Thread worker = new Thread(new Runnable() {
+                            @Override public void run() {
+                                final ListenBrainzEngine.TokenCheck check =
+                                        ListenBrainzEngine.validateToken(getApplicationContext());
+                                ui.post(new Runnable() {
+                                    @Override public void run() {
+                                        if (!alive) return;
+                                        if (check.ok) {
+                                            Toast.makeText(YouTubeMusicActivity.this,
+                                                    "ListenBrainz connected" + (check.userName.length() > 0
+                                                            ? " as " + check.userName : ""),
+                                                    Toast.LENGTH_LONG).show();
+                                        } else {
+                                            Toast.makeText(YouTubeMusicActivity.this,
+                                                    "Token check failed: " + check.error,
+                                                    Toast.LENGTH_LONG).show();
+                                        }
+                                    }
+                                });
+                            }
+                        }, "ListenBrainzValidate");
+                        worker.setDaemon(true);
+                        worker.start();
+                    }
+                })
+                .setNeutralButton("Get Token…", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        try {
+                            startActivity(new Intent(Intent.ACTION_VIEW,
+                                    Uri.parse(ListenBrainzEngine.TOKEN_INFO_URL)));
+                        } catch (Throwable error) {
+                            Toast.makeText(YouTubeMusicActivity.this,
+                                    "Open " + ListenBrainzEngine.TOKEN_INFO_URL + " in a browser to get your token",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showListenBrainzApiHostDialog() {
+        final EditText input = new EditText(this);
+        input.setHint(ListenBrainzEngine.DEFAULT_API_ROOT);
+        input.setSingleLine(true);
+        input.setMaxLines(1);
+        input.setInputType(InputType.TYPE_CLASS_TEXT
+                | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        input.setText(ListenBrainzEngine.getApiRoot(this));
+        LinearLayout wrap = new LinearLayout(this);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(dp(18), dp(6), dp(18), dp(2));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        wrap.addView(input, lp);
+        new AlertDialog.Builder(this)
+                .setTitle("ListenBrainz API Host")
+                .setMessage("Leave as the default unless you run your own ListenBrainz-compatible server "
+                        + "(e.g. http://127.0.0.1:6240). Must start with http:// or https://.")
+                .setView(wrap)
+                .setPositiveButton("Save", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        String host = input.getText() == null ? "" : input.getText().toString().trim();
+                        if (host.length() > 0 && !host.startsWith("http://") && !host.startsWith("https://")) {
+                            Toast.makeText(YouTubeMusicActivity.this,
+                                    "Host must start with http:// or https://", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        ListenBrainzEngine.setApiRoot(YouTubeMusicActivity.this, host);
+                        Toast.makeText(YouTubeMusicActivity.this,
+                                "API host: " + ListenBrainzEngine.getApiRoot(YouTubeMusicActivity.this),
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNeutralButton("Reset to Default", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int which) {
+                        ListenBrainzEngine.setApiRoot(YouTubeMusicActivity.this, ListenBrainzEngine.DEFAULT_API_ROOT);
+                        Toast.makeText(YouTubeMusicActivity.this, "API host reset to api.listenbrainz.org",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showListenBrainzScrobbleInfoDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("ListenBrainz Scrobble Rules")
+                .setMessage("• Only Morphe (YouTube Music / YouTube) tracks are scrobbled.\n"
+                        + "• Local files and live radio are never sent.\n"
+                        + "• A listen counts once you hear half the track or 4 minutes — whichever first.\n"
+                        + "• Tracks 30 seconds or shorter are never scrobbled.\n"
+                        + "• “Now playing” is sent when the track starts; the scrobble is sent once you qualify.\n"
+                        + "• Track title, artist, release, duration and start time are sent to the API host you chose;\n"
+                        + "  playback never blocks on the network and titles are never written to logs.\n"
+                        + "• Turn Scrobbling off any time in this same Morphe menu.")
+                .setPositiveButton("Got it", null)
                 .show();
     }
 

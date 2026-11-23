@@ -1,4 +1,4 @@
-# certifi=2026.10.23 count=118
+# certifi=2026.11.20 count=113
 89c02a45.0	C = GB, ST = Greater Manchester, L = Salford, O = COMODO CA Limited, CN = COMODO ECC Certification Authority	Jan 18 23:59:59 2038 GMT
 60afe812.0	C = HU, L = Budapest, O = NetLock Kft., OU = Tan\C3\BAs\C3\ADtv\C3\A1nykiad\C3\B3k (Certification Services), CN = NetLock Arany (Class Gold) F\C5\91tan\C3\BAs\C3\ADtv\C3\A1ny	Dec  6 15:08:21 2028 GMT
 e8651083.0	C = HU, L = Budapest, O = Microsec Ltd., CN = Microsec e-Szigno Root CA 2009, emailAddress = info@e-szigno.hu	Dec 30 11:30:18 2029 GMT
@@ -11,8 +11,6 @@ bc3f2570.0	C = US, ST = Arizona, L = Scottsdale, O = "GoDaddy.com, Inc.", CN = G
 b7db1890.0	C = TW, O = TAIWAN-CA, OU = Root CA, CN = TWCA Root Certification Authority	Dec 31 15:59:59 2030 GMT
 d59297b8.0	C = JP, O = "SECOM Trust Systems CO.,LTD.", OU = Security Communication RootCA2	May 29 05:00:39 2029 GMT
 5f47b495.0	C = IT, L = Milan, O = Actalis S.p.A./03358520967, CN = Actalis Authentication Root CA	Sep 22 11:22:02 2030 GMT
-82223c44.0	C = NO, O = Buypass AS-983163327, CN = Buypass Class 2 Root CA	Oct 26 08:38:03 2040 GMT
-2d9dafe4.0	C = NO, O = Buypass AS-983163327, CN = Buypass Class 3 Root CA	Oct 26 08:28:58 2040 GMT
 1e1eab7c.0	C = DE, O = T-Systems Enterprise Services GmbH, OU = T-Systems Trust Center, CN = T-TeleSec GlobalRoot Class 3	Oct  1 23:59:59 2033 GMT
 1df5a75f.0	C = DE, O = D-Trust GmbH, CN = D-TRUST Root Class 3 CA 2 2009	Nov  5 08:35:58 2029 GMT
 d7746a63.0	C = DE, O = D-Trust GmbH, CN = D-TRUST Root Class 3 CA 2 EV 2009	Nov  5 08:50:46 2029 GMT
@@ -20,9 +18,7 @@ d7746a63.0	C = DE, O = D-Trust GmbH, CN = D-TRUST Root Class 3 CA 2 EV 2009	Nov 
 3c9a4d3b.0	CN = ACCVRAIZ1, OU = PKIACCV, O = ACCV, C = ES	Dec 31 09:37:37 2030 GMT
 b0ed035a.0	C = TW, O = TAIWAN-CA, OU = Root CA, CN = TWCA Global Root CA	Dec 31 15:59:59 2030 GMT
 d06393bb.0	C = DE, O = T-Systems Enterprise Services GmbH, OU = T-Systems Trust Center, CN = T-TeleSec GlobalRoot Class 2	Oct  1 23:59:59 2033 GMT
-52b525c7.0	C = BM, O = QuoVadis Limited, CN = QuoVadis Root CA 1 G3	Jan 12 17:27:44 2042 GMT
 1f58a078.0	C = BM, O = QuoVadis Limited, CN = QuoVadis Root CA 2 G3	Jan 12 18:59:32 2042 GMT
-e442e424.0	C = BM, O = QuoVadis Limited, CN = QuoVadis Root CA 3 G3	Jan 12 20:26:32 2042 GMT
 8d6437c3.0	C = US, O = DigiCert Inc, OU = www.digicert.com, CN = DigiCert Assured ID Root G2	Jan 15 12:00:00 2038 GMT
 c491639e.0	C = US, O = DigiCert Inc, OU = www.digicert.com, CN = DigiCert Assured ID Root G3	Jan 15 12:00:00 2038 GMT
 c90bc37d.0	C = US, O = DigiCert Inc, OU = www.digicert.com, CN = DigiCert Global Root G2	Jan 15 12:00:00 2038 GMT
@@ -56,7 +52,6 @@ ab59055e.0	C = CN, O = "GUANG DONG CERTIFICATE AUTHORITY CO.,LTD.", CN = GDCA Tr
 3c899c73.0	C = CH, O = WISeKey, OU = OISTE Foundation Endorsed, CN = OISTE WISeKey Global Root GC CA	May  9 09:58:33 2042 GMT
 304d27c3.0	C = CN, O = UniTrust, CN = UCA Global G2 Root	Dec 31 00:00:00 2040 GMT
 da7377f6.0	C = CN, O = UniTrust, CN = UCA Extended Validation Root	Dec 31 00:00:00 2038 GMT
-302904dd.0	C = FR, O = Dhimyotis, OU = 0002 48146308100036, CN = Certigna Root CA	Oct  1 08:32:27 2033 GMT
 f459871d.0	C = IN, OU = emSign PKI, O = eMudhra Technologies Limited, CN = emSign Root CA - G1	Feb 18 18:30:00 2043 GMT
 bd43e1dd.0	C = HK, ST = Hong Kong, L = Hong Kong, O = Hongkong Post, CN = Hongkong Post Root CA 3	Jun  3 02:29:46 2042 GMT
 01419da9.0	C = US, O = Microsoft Corporation, CN = Microsoft ECC Root Certificate Authority 2017	Jul 18 23:16:04 2042 GMT

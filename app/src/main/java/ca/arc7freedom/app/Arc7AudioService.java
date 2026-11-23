@@ -157,6 +157,7 @@ public class Arc7AudioService extends Service {
             saveCurrentPosition();
             handleSleepFadeTick();
             handleSponsorBlockAudioSkipTick();
+            scrobbleCheckpointTick();
 
             if (isPlaying()) {
                 publishOwnPlaybackState(true);
@@ -199,6 +200,112 @@ public class Arc7AudioService extends Service {
                 }
             }
         } catch (Throwable ignored) {}
+    }
+
+    /* ==================== ListenBrainz Scrobble (Morphe / YT Music) ====================
+     * Opt-in via Morphe settings in YouTube Music. Listens only count real listening:
+     * decoder-position deltas while the player is playing (seeks don't count), submitted once
+     * ≥ half the track (or 4 minutes) has been heard, or the track played to its end.
+     * Only Morphe (YouTube / YouTube Music) tracks are scrobbled; local files and live
+     * radio never are. */
+    private String scrobbleKey = "";
+    private String scrobbleTitle = "";
+    private String scrobbleArtist = "";
+    private String scrobbleAlbum = "";
+    private long scrobbleDurationSec = 0L;
+    private long scrobbleStartedAtSec = 0L;
+    private long scrobbleListenedMs = 0L;
+    private long scrobbleLastPositionMs = -1L;
+    private boolean scrobbleSubmitted = false;
+    private int scrobbleGeneration = -1;
+
+    private boolean scrobbleEligibleSource() {
+        if (activeMorphePlayback != null) return true;
+        return "YouTube Music".equals(activeSourceApp) || "YouTube".equals(activeSourceApp);
+    }
+
+    private void resetScrobbleState() {
+        scrobbleKey = "";
+        scrobbleTitle = "";
+        scrobbleArtist = "";
+        scrobbleAlbum = "";
+        scrobbleDurationSec = 0L;
+        scrobbleStartedAtSec = 0L;
+        scrobbleListenedMs = 0L;
+        scrobbleLastPositionMs = -1L;
+        scrobbleSubmitted = false;
+    }
+
+    /** Call when playback of a track actually starts. Sends `playing_now` when configured. Idempotent per playback generation. */
+    private synchronized void scrobbleOnTrackStarted() {
+        if (scrobbleKey.length() > 0 && scrobbleGeneration == playbackGeneration) return; // already tracking this track
+        resetScrobbleState();
+        scrobbleGeneration = playbackGeneration;
+        if (!scrobbleEligibleSource()) return;
+        MorpheEngine.MediaItem item = (morpheIndex >= 0 && morpheIndex < morpheQueue.size()) ? morpheQueue.get(morpheIndex) : null;
+        String title = activeStreamTitle != null && activeStreamTitle.length() > 0
+                ? activeStreamTitle : (item != null ? item.title : "");
+        String artist = activeStreamArtist != null && activeStreamArtist.length() > 0
+                ? activeStreamArtist : (item != null ? item.author : "");
+        String album = item != null ? item.album : "";
+        long dur = item != null ? item.durationSec : 0L;
+        if (activeMorphePlayback != null && activeMorphePlayback.durationSec > 0L) {
+            dur = dur > 0L ? Math.min(dur, activeMorphePlayback.durationSec) : activeMorphePlayback.durationSec;
+        }
+        if (!ListenBrainzEngine.isScrobblable(title, artist, dur)) return;
+        scrobbleTitle = title == null ? "" : title.trim();
+        scrobbleArtist = artist == null ? "" : artist.trim();
+        scrobbleAlbum = album == null ? "" : album.trim();
+        scrobbleDurationSec = Math.max(0L, dur);
+        scrobbleKey = scrobbleArtist + "\n" + scrobbleTitle + "\n" + System.currentTimeMillis();
+        scrobbleStartedAtSec = System.currentTimeMillis() / 1000L;
+        scrobbleLastPositionMs = -1L;
+        if (ListenBrainzEngine.isConfigured(getApplicationContext())) {
+            ListenBrainzEngine.submitNowPlaying(getApplicationContext(), scrobbleTitle, scrobbleArtist,
+                    scrobbleAlbum, scrobbleDurationSec);
+        }
+    }
+
+    /**
+     * 1-second heartbeat while the player runs; accumulates genuine listened time from the
+     * decoder position, so seeks never count as listening. Forward jumps > 5 s are treated as
+     * seeks (not listened time); backward jumps contribute nothing. Works even when the
+     * platform cannot report a wall-clock-reliable duration.
+     */
+    private synchronized void scrobbleCheckpointTick() {
+        if (scrobbleKey.length() == 0) return;
+        boolean playing = false;
+        long pos = -1L;
+        try {
+            playing = player != null && playerPrepared && player.isPlaying();
+            if (playing) pos = Math.max(0, player.getCurrentPosition());
+        } catch (Throwable ignored) {}
+        if (!playing || pos < 0L) {
+            scrobbleLastPositionMs = pos;
+            return;
+        }
+        if (scrobbleLastPositionMs >= 0L) {
+            long delta = pos - scrobbleLastPositionMs;
+            if (delta > 0L && delta <= 5000L) scrobbleListenedMs += delta;
+        }
+        scrobbleLastPositionMs = pos;
+        maybeSubmitScrobbleLocked(false);
+    }
+
+    private void maybeSubmitScrobbleLocked(boolean naturalEnd) {
+        if (scrobbleSubmitted || scrobbleKey.length() == 0) return;
+        long listened = scrobbleListenedMs;
+        if (naturalEnd && scrobbleDurationSec > 0L) listened = Math.max(listened, scrobbleDurationSec * 1000L);
+        if (listened < ListenBrainzEngine.thresholdMs(scrobbleDurationSec)) return;
+        ListenBrainzEngine.submitScrobble(getApplicationContext(), scrobbleTitle, scrobbleArtist,
+                scrobbleAlbum, scrobbleDurationSec, scrobbleStartedAtSec);
+        scrobbleSubmitted = true;
+    }
+
+    /** Flush a pending scrobble (natural track end counts as fully heard); then reset state. */
+    private synchronized void flushPendingScrobble(boolean naturalEnd) {
+        maybeSubmitScrobbleLocked(naturalEnd);
+        resetScrobbleState();
     }
 
     private synchronized void setPlayerVolumeSafe(float v) {
@@ -250,6 +357,7 @@ public class Arc7AudioService extends Service {
         } catch (Throwable unavailable) { DebugLog.error("audio.media_buttons_unavailable", unavailable); }
         acquireWifiLockSafe(); applyPlayerVolume();
         mp.start();
+        scrobbleOnTrackStarted();
         diagnosticState = "Playing"; playbackStatus = "";
         DebugLog.event("audio.started");
         publishOwnPlaybackState(true);
@@ -929,6 +1037,7 @@ public class Arc7AudioService extends Service {
                     synchronized (Arc7AudioService.this) {
                         if (request != playbackGeneration || player != mp) return;
                         diagnosticState = "Completed"; DebugLog.event("audio.completed");
+                        flushPendingScrobble(true); // natural end counts as fully heard
                         if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty() && repeatMode == REPEAT_ONE
                                 && restartCompletedPlayer(mp)) return;
                         abandonFocus(false);
@@ -1047,6 +1156,7 @@ public class Arc7AudioService extends Service {
         try {
             completed.seekTo(0);
             completed.start();
+            scrobbleOnTrackStarted(); // repeat-one replay = a fresh listen cycle
             playWhenPrepared = true;
             diagnosticState = "Playing"; playbackStatus = "";
             acquireWifiLockSafe(); applyPlayerVolume();
@@ -1178,22 +1288,37 @@ public class Arc7AudioService extends Service {
         if (player == null || !playerPrepared) return;
         try {
             int dur = getDurationMs();
-            if (dur <= 0) return;
-            int next = Math.max(0, Math.min(dur, player.getCurrentPosition() + deltaMs));
+            if (dur <= 1000 && activeMorphePlayback != null && activeMorphePlayback.durationSec > 0L) {
+                dur = (int) Math.min(Integer.MAX_VALUE, activeMorphePlayback.durationSec * 1000L);
+            }
+            int current = Math.max(0, player.getCurrentPosition());
+            long upper = dur > 1000 ? (long) dur : 6L * 3600L * 1000L; // unknown length: clamp only from below
+            int next = (int) Math.max(0L, Math.min(upper, current + (long) deltaMs));
             player.seekTo(next);
             saveCurrentPosition();
             publishOwnPlaybackState(player.isPlaying());
-        } catch (Throwable ignored) {}
+        } catch (Throwable error) {
+            DebugLog.error("audio.seek_relative_failed", error);
+        }
     }
 
     public synchronized void seekAbsoluteMs(int posMs) {
         if (player == null || !playerPrepared) return;
         try {
             int dur = getDurationMs();
-            if (dur <= 0) return;
-            player.seekTo(Math.max(0, Math.min(dur, posMs)));
+            if (dur <= 1000 && activeMorphePlayback != null && activeMorphePlayback.durationSec > 0L) {
+                dur = (int) Math.min(Integer.MAX_VALUE, activeMorphePlayback.durationSec * 1000L);
+            }
+            long upper = dur > 1000 ? (long) dur : 6L * 3600L * 1000L; // unknown length: keep the user's requested offset
+            int clamped = (int) Math.max(0L, Math.min(upper, Math.max(0, posMs)));
+            player.seekTo(clamped);
+            saveCurrentPosition();
             publishOwnPlaybackState(player.isPlaying());
-        } catch (Throwable ignored) {}
+            DebugLog.number("audio.seek_to_ms", clamped);
+        } catch (Throwable error) {
+            // Stagefright cannot seek every container (e.g. ADTS); log the reason instead of failing silently.
+            DebugLog.error("audio.seek_failed", error);
+        }
     }
 
     public synchronized void stepTrack(int delta) {
@@ -1247,6 +1372,20 @@ public class Arc7AudioService extends Service {
         }
     }
 
+    /**
+     * Whether the current source can seek on Android 4.2's Stagefright stack.
+     * Local files and classic MP4/M4A/MP3 jobs served by the local Range-aware media server
+     * can; live HLS relays and ADTS (raw AAC) compatibility streams cannot.
+     */
+    public synchronized boolean isSeekableSource() {
+        if (activeDataSource == null || activeDataSource.length() == 0) return false;
+        String lower = activeDataSource.toLowerCase(Locale.US);
+        if (lower.contains("/hls/")) return false;
+        String mime = MorpheStreamServer.getMimeType(activeDataSource);
+        if ("audio/aac".equals(mime) || "video/mp2t".equals(mime)) return false;
+        return true;
+    }
+
     public synchronized int getPositionMs() {
         if (player == null || !playerPrepared) return 0;
         try {
@@ -1268,6 +1407,10 @@ public class Arc7AudioService extends Service {
         boolean morpheTrack = "YouTube Music".equals(activeSourceApp) || "YouTube".equals(activeSourceApp);
         if (morpheTrack && morpheIndex >= 0 && morpheIndex < morpheQueue.size()) {
             metadataDuration = Math.max(0L, morpheQueue.get(morpheIndex).durationSec) * 1000L;
+        }
+        // Resolved playback reports the provider's own lengthSeconds; it beats a bogus Stagefright 1s.
+        if (metadataDuration <= 0L && activeMorphePlayback != null && activeMorphePlayback.durationSec > 0L) {
+            metadataDuration = activeMorphePlayback.durationSec * 1000L;
         }
         if (metadataDuration > 1000L && (mediaDuration <= 1000
                 || Math.abs((long) mediaDuration - metadataDuration) > Math.max(5000L, metadataDuration / 10L))) {
@@ -1319,6 +1462,7 @@ public class Arc7AudioService extends Service {
     }
 
     private synchronized void releasePlayer() {
+        flushPendingScrobble(false); // track skipped/switched/stopped — keep a qualifying listen, drop the rest
         playerPrepared = false;
         abandonFocus(true);
         if (prepareTimeout != null) { handler.removeCallbacks(prepareTimeout); prepareTimeout = null; }

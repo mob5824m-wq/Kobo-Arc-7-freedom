@@ -16,6 +16,18 @@ Stock Browser (`DownloadManager`) failure modes:
      in `releases/` — plus base64 data-URI `onerror` fallbacks so 100% of images render
      crisply on `http://<lan-ip>:8000`, `https://` cloud previews, AND offline `file://`!
 
+Uploads (`/upload`, multipart/form-data) are hardened: 768 MB default cap
+(`ARC7_SERVE_MAX_UPLOAD` in bytes overrides), an extension allowlist (APK/APKS/XAPK/OBB,
+ROMs, e-books, PDFs, images, text), strict filename sanitizing, atomic publish via a
+`.part` temp file, and uploads NEVER overwrite an existing file (a -2/-3/... suffix is
+chosen instead). The 2013 stock Browser remains the target audience: no JS required for
+downloads, `/lite` text mode for broken pages, and `Range` support including suffix ranges
+with proper `416` responses so the Kobo DownloadManager can resume.
+
+Environment overrides:
+  ARC7_SERVE_DIR         serve an alternate directory (tests use fixtures)
+  ARC7_SERVE_MAX_UPLOAD  upload cap in bytes (default 768 MiB)
+
 Usage:
   python3 tools/serve-over-wifi.py              # Start server on 0.0.0.0:8000
   python3 tools/serve-over-wifi.py 8080         # Custom port
@@ -45,6 +57,45 @@ UPGRADER_APK_NAME = "Upgrade-My-Kobo-To-v2.7.0.apk"
 GITHUB_REPO = "mob5824m-wq/Kobo-Arc-7-freedom"
 GITHUB_LATEST_BASE = f"https://github.com/{GITHUB_REPO}/releases/latest/download"
 GITHUB_RAW_ROOT = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main"
+
+UPLOAD_MAX_BYTES = int(os.environ.get("ARC7_SERVE_MAX_UPLOAD", str(768 * 1024 * 1024)))
+UPLOAD_ALLOWED_EXTS = {
+    ".apk", ".apks", ".xapk", ".obb",  # Android packages / bundles / splits
+    ".zip", ".iso", ".img", ".bin",    # ROM flash images / archives
+    ".epub", ".cbz", ".cbr", ".pdf",   # e-books / comics / documents
+    ".txt", ".md", ".json",            # text
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",  # images
+}
+UPLOAD_ALLOWED_LABEL = ", ".join(sorted(UPLOAD_ALLOWED_EXTS))
+
+
+def sanitize_upload_name(raw_name: str) -> str:
+    clean = os.path.basename((raw_name or "").replace("\\", "/")).strip()
+    clean = re.sub(r"[^A-Za-z0-9._() -]", "_", clean)
+    clean = clean.lstrip(".").strip()
+    if len(clean) > 120:
+        stem, ext = os.path.splitext(clean)
+        clean = stem[:120 - len(ext)] + ext
+    return clean or "uploaded.bin"
+
+
+def unique_upload_path(directory: str, name: str) -> str:
+    candidate = os.path.join(directory, name)
+    if not os.path.exists(candidate) and not os.path.exists(candidate + ".part"):
+        return candidate
+    stem, ext = os.path.splitext(name)
+    for i in range(2, 1000):
+        candidate = os.path.join(directory, f"{stem}-{i}{ext}")
+        if not os.path.exists(candidate) and not os.path.exists(candidate + ".part"):
+            return candidate
+    raise IOError("upload filename space exhausted (999 copies)")
+
+
+class UploadError(Exception):
+    def __init__(self, status: int, message: str):
+        super().__init__(message)
+        self.status = status
+        self.message = message
 
 IMAGE_MIMES = {
     ".png": "image/png",
@@ -263,7 +314,7 @@ def render_lite_html(port: int = DEFAULT_PORT) -> str:
     )
 
 
-def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> str:
+def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT, uploaded: str = "") -> str:
     lan_ips, env_kind = ([], "static") if static_mode else detect_environment_and_lan_ips()
 
     files_meta = []
@@ -493,6 +544,15 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "</div>"
         )
 
+    uploaded_banner = ""
+    if uploaded:
+        uploaded_banner = (
+            "<div class='banner ok'><b>&#9989; Upload received:</b> <code>"
+            + html.escape(uploaded)
+            + "</code> is now served by this Wi-Fi server. Refresh this page on your Kobo — "
+              "it is in the list above (if it is an APK, tap it and install as usual).</div>"
+        )
+
     live_progress_widget = (
         ""
         if static_mode
@@ -512,10 +572,13 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         if static_mode
         else (
             "<div class='card'>"
-            "<h2>&#128228; Drop Any Extra ROM (.zip), E-Book (.epub/.cbz) or App (.apk) into Wi-Fi Server</h2>"
-            "<p>Upload any file from your computer right here — refresh this page on your Kobo Arc 7 to download it over Wi-Fi!</p>"
+            "<h2>&#128228; Drop Any Extra ROM (.zip/.img), E-Book (.epub/.cbz) or App (.apk) into Wi-Fi Server</h2>"
+            "<p>Upload from your computer right here — then refresh this page on your Kobo Arc 7. "
+            "Up to <b>" + str(UPLOAD_MAX_BYTES // (1024 * 1024)) + " MB</b>. Existing files are "
+            "<b>never overwritten</b> (a -2/-3 suffix is used). Allowed: APK/APKS/XAPK/OBB, ZIP/ISO/IMG/BIN, "
+            "EPUB/CBZ/CBR/PDF, TXT/MD/JSON, images.</p>"
             "<form method='POST' action='./upload' enctype='multipart/form-data'>"
-            "<input type='file' name='file' required style='margin:6px 10px 6px 0;color:#e2e8f0;'>"
+            "<input type='file' name='file' required accept='.apk,.apks,.xapk,.obb,.zip,.iso,.img,.bin,.epub,.cbz,.cbr,.pdf,.txt,.md,.json,.png,.jpg,.jpeg,.gif,.webp' style='margin:6px 10px 6px 0;color:#e2e8f0;'>"
             "<button type='submit' class='btn-inline'>Upload to Wi-Fi Server</button>"
             "</form></div>"
         )
@@ -533,7 +596,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
             "    x.open('GET','./api/status?t='+(new Date().getTime()),true);"
             "    x.onreadystatechange=function(){"
             "      if(x.readyState===4&&x.status===200){"
-            "        var d=eval('('+x.responseText+')');"
+            "        var d=null; try{d=JSON.parse(x.responseText);}catch(jerr){return;}"
             "        var box=document.getElementById('xferBox');"
             "        var ttl=document.getElementById('xferTitle');"
             "        var bar=document.getElementById('xferBar');"
@@ -660,6 +723,7 @@ def render_portal_html(static_mode: bool = False, port: int = DEFAULT_PORT) -> s
         "<p>Save the HTML file and open it locally. Browser camera reception requires a secure context "
         "(HTTPS/localhost; local files work in some browsers). Displaying codes for the Kobo camera works offline.</p></div>"
         + top_banner
+        + uploaded_banner
         + upload_section
         + "<div class='card'>"
         "<h2>&#128187; 1-Click Direct Laptop Backup &amp; Restore Over USB ADB (0 MB Tablet Space!)</h2>"
@@ -722,7 +786,14 @@ class Arc7HTTPServer(http.server.ThreadingHTTPServer):
         try:
             request.settimeout(3.0)
             peek = request.recv(1, socket.MSG_PEEK)
-            if not peek or peek[0] in (0x16, 0x80):
+            if not peek:
+                return False
+            first = peek[0]
+            # Accept only HTTP-ish opening bytes (ASCII letter, or '/' for a bare path).
+            # Anything else (TLS 0x16, SSLv2 0x80, SSH banners are filtered by the HTTP parser)
+            # is refused instantly so browsers HTTPS-First Mode falls back to http://.
+            is_httpish = (65 <= first <= 90) or (97 <= first <= 122) or first == 0x2F
+            if not is_httpish:
                 return False
             request.settimeout(60.0)
         except Exception:
@@ -741,6 +812,7 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
     def _send_common_headers(self, mime: str, length: int, extra: dict = None) -> None:
         self.send_header("Content-Type", mime)
         self.send_header("Content-Length", str(length))
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Cache-Control", "public, max-age=120" if mime.startswith("image/") else "no-cache")
         if extra:
@@ -748,6 +820,18 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
                 self.send_header(k, v)
         self.send_header("Connection", "close")
         self.end_headers()
+
+    def do_PUT(self):
+        self._method_not_allowed()
+
+    def do_DELETE(self):
+        self._method_not_allowed()
+
+    def _method_not_allowed(self):
+        msg = b"Method Not Allowed - uploads go to /upload via POST only."
+        self.send_response(405)
+        self._send_common_headers("text/plain; charset=utf-8", len(msg), {"Allow": "GET, HEAD, POST, OPTIONS"})
+        self.wfile.write(msg)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -768,42 +852,144 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             ctype = self.headers.get("Content-Type", "")
-            clen = int(self.headers.get("Content-Length", "0"))
+            clen_raw = self.headers.get("Content-Length")
+            if clen_raw is None:
+                raise UploadError(411, "Content-Length header is required for /upload")
+            try:
+                clen = int(clen_raw)
+            except ValueError:
+                raise UploadError(400, "Invalid Content-Length")
+            if clen <= 4:
+                raise UploadError(400, "Empty upload")
+            if clen > UPLOAD_MAX_BYTES:
+                raise UploadError(413, f"Upload exceeds the {UPLOAD_MAX_BYTES // (1024 * 1024)} MB limit")
             m = re.search(r"boundary=([^;\s]+)", ctype)
-            if not m or clen <= 0:
-                raise ValueError("Invalid multipart upload")
+            if not m:
+                raise UploadError(400, "multipart/form-data with a boundary is required")
             boundary = ("--" + m.group(1).strip('"')).encode("latin-1")
-            raw = self.rfile.read(clen)
-            parts = raw.split(boundary)
-            saved_name = ""
             os.makedirs(RELEASES_DIR, exist_ok=True)
-            for part in parts:
-                if b"\r\n\r\n" not in part:
-                    continue
-                hdr_bytes, body = part.split(b"\r\n\r\n", 1)
-                hdr_str = hdr_bytes.decode("utf-8", errors="ignore")
-                fn_m = re.search(r'filename="([^"]+)"', hdr_str)
-                if not fn_m:
-                    continue
-                clean = os.path.basename(fn_m.group(1)).strip()
-                clean = re.sub(r"[^A-Za-z0-9._() -]", "_", clean) or "uploaded.apk"
-                if body.endswith(b"\r\n--"):
-                    body = body[:-4]
-                elif body.endswith(b"\r\n"):
-                    body = body[:-2]
-                out_path = os.path.join(RELEASES_DIR, clean)
-                with open(out_path, "wb") as wf:
-                    wf.write(body)
-                saved_name = clean
-                print(f"[Wi-Fi Server] Saved uploaded file -> {out_path} ({len(body)} bytes)", flush=True)
-                break
+            saved_name, written = self._stream_upload(boundary, clen)
+            print(f"[Wi-Fi Server] Saved uploaded file -> {os.path.join(RELEASES_DIR, saved_name)} ({written} bytes)", flush=True)
             self.send_response(303)
             self._send_common_headers("text/plain", 0, {"Location": f"./?uploaded={urllib.parse.quote(saved_name)}"})
+        except UploadError as err:
+            msg = err.message.encode("utf-8")
+            self.send_response(err.status)
+            self._send_common_headers("text/plain; charset=utf-8", len(msg))
+            self.wfile.write(msg)
         except Exception as exc:
             msg = f"Upload failed: {exc}".encode("utf-8")
             self.send_response(400)
             self._send_common_headers("text/plain; charset=utf-8", len(msg))
             self.wfile.write(msg)
+
+    def _stream_upload(self, boundary: bytes, clen: int):
+        """
+        Stream a single-file multipart body to disk in 64 KiB chunks.
+        Never holds the payload in memory and never publishes partial content:
+        the file is written to `<name>.part` and atomically renamed on success.
+        """
+        boundary_crlf = b"\r\n" + boundary
+        remaining = clen
+
+        def read_chunk() -> bytes:
+            nonlocal remaining
+            if remaining <= 0:
+                return b""
+            chunk = self.rfile.read(min(65536, remaining))
+            remaining -= len(chunk or b"")
+            return chunk or b""
+
+        buf = b""
+        saved_name = ""
+        out_path = ""
+        out = None
+        written = 0
+        completed = False
+        try:
+            # Phase 1: walk to the end of the part headers (\r\n\r\n) and read filename=.
+            header_bytes = 0
+            while True:
+                chunk = read_chunk()
+                if not chunk:
+                    raise UploadError(400, "Truncated multipart body (part headers never completed)")
+                buf += chunk
+                header_bytes += len(chunk)
+                if header_bytes > 65536:
+                    raise UploadError(400, "Multipart headers exceed 64 KiB")
+                idx = buf.find(b"\r\n\r\n")
+                if idx >= 0:
+                    header_blob = buf[:idx]
+                    match = re.search(rb'filename="([^"]*)"', header_blob)
+                    if not match:
+                        raise UploadError(400, "Multipart part carries no filename=")
+                    saved_name = sanitize_upload_name(match.group(1).decode("utf-8", errors="replace"))
+                    ext = os.path.splitext(saved_name)[1].lower()
+                    if ext not in UPLOAD_ALLOWED_EXTS:
+                        raise UploadError(415, f"'{ext or saved_name}' is not an allowed upload type. Allowed: {UPLOAD_ALLOWED_LABEL}")
+                    out_path = unique_upload_path(RELEASES_DIR, saved_name)
+                    saved_name = os.path.basename(out_path)
+                    out = open(out_path + ".part", "wb")
+                    buf = buf[idx + 4:]
+                    break
+
+            # Phase 2: copy file bytes, stopping at a VALID closing delimiter line:
+            # CRLF--boundary--LF, optionally with SP/HTAB transport padding before the LF.
+            # Anything else (junk after '--', or padding-only tail with more bytes pending)
+            # is payload, not the end — an APK may contain boundary-like bytes.
+            max_pad = 4096
+            keep = len(boundary_crlf) + 2 + max_pad + 2
+            data = buf
+            while True:
+                eof = remaining <= 0
+                idx = data.find(boundary_crlf)
+                valid_idx = -1
+                while idx >= 0:
+                    after = idx + len(boundary_crlf)
+                    if data[after:after + 2] == b"--":
+                        rest = data[after + 2:]
+                        m = re.match(rb"^[ \t]{0,4096}(\r\n|\r|\n)", rest)
+                        padding_only = re.match(rb"^[ \t]{0,4096}$", rest) is not None and eof
+                        if m is not None or padding_only or rest == b"":
+                            # b"" only matches at true EOF; re.match above covers CRLF/CR/LF.
+                            if rest == b"" and not eof:
+                                break  # need one more byte to decide
+                            valid_idx = idx
+                            break
+                    idx = data.find(boundary_crlf, idx + 1)
+                if valid_idx >= 0:
+                    out.write(data[:valid_idx])
+                    written += valid_idx
+                    completed = True
+                    break
+                if len(data) > keep:
+                    out.write(data[:-keep])
+                    written += len(data) - keep
+                    data = data[-keep:]
+                chunk = read_chunk()
+                if not chunk:
+                    break
+                data += chunk
+            if not completed:
+                raise UploadError(400, "Truncated multipart body (connection closed before the closing boundary — file not saved)")
+
+            out.flush()
+            os.fsync(out.fileno())
+            out.close()
+            out = None
+            os.replace(out_path + ".part", out_path)
+            return saved_name, written
+        finally:
+            if out is not None:
+                try:
+                    out.close()
+                except Exception:
+                    pass
+            if out_path and not completed:
+                try:
+                    os.remove(out_path + ".part")
+                except OSError:
+                    pass
 
     def _serve(self, head_only: bool) -> None:
         try:
@@ -896,7 +1082,8 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
                 return
 
             if req_path in ("", "/", "/index.html", "/portal"):
-                body = render_portal_html(static_mode=False, port=self.server_port_num).encode("utf-8")
+                uploaded = os.path.basename(query.get("uploaded", [""])[0])[:120]
+                body = render_portal_html(static_mode=False, port=self.server_port_num, uploaded=uploaded).encode("utf-8")
                 self.send_response(200)
                 self._send_common_headers("text/html; charset=utf-8", len(body))
                 if not head_only:
@@ -954,7 +1141,7 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
                 elif decoded.lower().endswith(".apk"):
                     mime = "application/vnd.android.package-archive"
                     inline_flag = False
-                elif decoded.lower().endswith(".txt"):
+                elif decoded.lower().endswith((".txt", ".md", ".tsv", ".csv")):
                     mime = "text/plain; charset=utf-8"
                     inline_flag = True
                 elif decoded.lower().endswith(".html"):
@@ -974,6 +1161,14 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def _range_not_satisfiable(self, total_size: int, head_only: bool) -> None:
+        msg = b"Requested range not satisfiable"
+        self.send_response(416)
+        self._send_common_headers("text/plain; charset=utf-8", len(msg),
+                                  {"Content-Range": f"bytes */{total_size}"})
+        if not head_only:
+            self.wfile.write(msg)
+
     def _stream_file(self, file_path: str, mime: str, head_only: bool,
                      download_name: str = "", inline: bool = False) -> None:
         total_size = os.path.getsize(file_path)
@@ -981,16 +1176,36 @@ class Arc7Handler(http.server.BaseHTTPRequestHandler):
         end = total_size - 1
         status = 200
 
-        range_hdr = self.headers.get("Range", "")
-        if range_hdr.startswith("bytes=") and total_size > 0:
-            m = re.match(r"bytes=(\d*)-(\d*)", range_hdr)
-            if m:
-                s_str, e_str = m.group(1), m.group(2)
-                if s_str:
-                    start = min(int(s_str), total_size - 1)
-                if e_str:
-                    end = min(int(e_str), total_size - 1)
-                if start <= end:
+        range_hdr = (self.headers.get("Range", "") or "").strip()
+        if range_hdr.startswith("bytes="):
+            if total_size <= 0:
+                range_hdr = ""  # nothing to range over; serve empty 200
+            else:
+                m = re.match(r"^bytes=(\d*)-(\d*)$", range_hdr)
+                if not m:
+                    range_hdr = ""  # unparsable — ignore Range, serve the whole file (200)
+                else:
+                    s_str, e_str = m.group(1), m.group(2)
+                    if not s_str and not e_str:
+                        self._range_not_satisfiable(total_size, head_only)
+                        return
+                    if not s_str:
+                        # Suffix range: last N bytes.
+                        n = int(e_str)
+                        if n <= 0:
+                            self._range_not_satisfiable(total_size, head_only)
+                            return
+                        start = max(0, total_size - n)
+                        end = total_size - 1
+                    else:
+                        start = int(s_str)
+                        if start >= total_size:
+                            self._range_not_satisfiable(total_size, head_only)
+                            return
+                        end = min(int(e_str), total_size - 1) if e_str else total_size - 1
+                        if start > end:
+                            self._range_not_satisfiable(total_size, head_only)
+                            return
                     status = 206
 
         length = (end - start + 1) if total_size > 0 else 0
@@ -1083,6 +1298,10 @@ def main() -> None:
     lan_ips, env_kind = detect_environment_and_lan_ips()
     print("=" * 70)
     print("  Kobo Arc 7 Freedom v2.7.0 — Zero-SSL Local Web Installer READY!")
+    print(f"  Same Wi-Fi & firewall: allow inbound TCP {bound_port} "
+          f"(Windows: Private networks · macOS: approve the prompt · Linux: ufw/firewalld).")
+    print(f"  Uploads: APK/ZIP/EPUB/PDF & friends, up to {UPLOAD_MAX_BYTES // (1024 * 1024)} MB — "
+          f"existing files are never overwritten.")
     if env_kind == "lan" and lan_ips:
         print("  Open Browser on your Kobo Arc 7 and type (plain http://):")
         for ip in lan_ips:
