@@ -158,6 +158,8 @@ public class Arc7AudioService extends Service {
         }
     };
 
+    private int widgetRefreshTick = 0;
+
     private final Runnable checkpointTask = new Runnable() {
         @Override
         public void run() {
@@ -168,7 +170,12 @@ public class Arc7AudioService extends Service {
 
             if (isPlaying()) {
                 publishOwnPlaybackState(true);
+                // Advance the home-screen widget progress bar (~every 2s while playing).
+                if ((++widgetRefreshTick % 2) == 0) {
+                    Arc7AudioWidgetProvider.refreshAll(getApplicationContext(), getCurrentTitle(), true);
+                }
             } else {
+                widgetRefreshTick = 0;
                 // External metadata is for Clock/widgets only. Never mirror another APK's notification.
                 NowPlayingManager.syncExternalAudioIfNeeded(getApplicationContext(), false);
                 updateMediaNotificationFromSnapshot();
@@ -540,7 +547,7 @@ public class Arc7AudioService extends Service {
                 }
                 stepQueue(1);
             } else if (ACTION_REWIND_30.equals(act)) {
-                seekRelativeMs(-15000);
+                seekRelativeMs(-30000);
             } else if (ACTION_FFWD_30.equals(act)) {
                 seekRelativeMs(30000);
             } else if (ACTION_PLAY_STREAM.equals(act)) {

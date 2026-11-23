@@ -64,7 +64,7 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
                 context, 7201, openUi, PendingIntent.FLAG_UPDATE_CURRENT);
 
         Intent rew = new Intent(context, Arc7AudioService.class);
-        rew.setAction(Arc7AudioService.ACTION_PREV);
+        rew.setAction(Arc7AudioService.ACTION_REWIND_30);
         PendingIntent piRew = PendingIntent.getService(
                 context, 7202, rew, PendingIntent.FLAG_UPDATE_CURRENT);
 
@@ -74,7 +74,7 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
                 context, 7203, toggle, PendingIntent.FLAG_UPDATE_CURRENT);
 
         Intent fwd = new Intent(context, Arc7AudioService.class);
-        fwd.setAction(Arc7AudioService.ACTION_NEXT);
+        fwd.setAction(Arc7AudioService.ACTION_FFWD_30);
         PendingIntent piFwd = PendingIntent.getService(
                 context, 7204, fwd, PendingIntent.FLAG_UPDATE_CURRENT);
 
@@ -87,11 +87,25 @@ public class Arc7AudioWidgetProvider extends AppWidgetProvider {
             sub = "Legacy widget — replace with the separate Music app's widget";
         }
 
+        long posMs = 0L, durMs = 0L;
+        if (st != null && st.active) {
+            posMs = st.livePositionMs();
+            durMs = Math.max(0L, st.durationMs);
+        }
+        int progress = 0;
+        if (durMs > 0L) {
+            progress = (int) Math.min(100L, Math.max(0L, (posMs * 100L) / durMs));
+        }
+        String timeText = NowPlayingManager.formatDurationMs(posMs) + " / "
+                + NowPlayingManager.formatDurationMs(durMs);
+
         for (int i = 0; i < ids.length; i++) {
             RemoteViews rv = new RemoteViews(context.getPackageName(), R.layout.widget_arc7_audio);
             rv.setTextViewText(R.id.widget_audio_title, title);
             rv.setTextViewText(R.id.widget_audio_sub, sub);
             rv.setTextViewText(R.id.widget_audio_toggle, isPlaying ? "Pause" : "Play");
+            rv.setProgressBar(R.id.widget_audio_progress, 100, progress, false);
+            rv.setTextViewText(R.id.widget_audio_time, timeText);
             if (st != null && st.active && st.artwork != null && !st.artwork.isRecycled()) {
                 rv.setImageViewBitmap(R.id.widget_audio_icon, st.artwork);
             } else {
