@@ -1257,8 +1257,13 @@ def write_static_pages() -> None:
     os.makedirs(RELEASES_DIR, exist_ok=True)
     icons_dir = os.path.join(RELEASES_DIR, "icons")
     os.makedirs(icons_dir, exist_ok=True)
-    shutil.copyfile(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh"))
-    os.chmod(os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh"), 0o755)
+    # Keep the .sh launcher pair byte-identical (live-gate requirement). Only
+    # meaningful in a repo checkout; skip gracefully in standalone layouts.
+    sh_src = os.path.join(TOOLS_DIR, "serve-over-wifi.sh")
+    if os.path.isfile(sh_src):
+        sh_dst = os.path.join(TOOLS_DIR, "Start-Kobo-WiFi-Server.sh")
+        shutil.copyfile(sh_src, sh_dst)
+        os.chmod(sh_dst, 0o755)
 
     rel_html = render_portal_html(static_mode=True)
     for icon_file in sorted(set(re.findall(r"\./icons/([A-Za-z0-9_.-]+)", rel_html))):
@@ -1275,7 +1280,15 @@ def main() -> None:
         write_static_pages()
         return
 
-    os.chmod(os.path.join(TOOLS_DIR, "serve-over-wifi.sh"), 0o755)
+    # Best-effort: make the sibling launcher executable when running from a repo
+    # checkout. In standalone layouts (no tools/ dir) this file simply does not
+    # exist — never let that stop the server from starting.
+    try:
+        sh_launcher = os.path.join(TOOLS_DIR, "serve-over-wifi.sh")
+        if os.path.isfile(sh_launcher):
+            os.chmod(sh_launcher, 0o755)
+    except OSError:
+        pass
     requested_port = DEFAULT_PORT
     for arg in sys.argv[1:]:
         if arg.isdigit():
