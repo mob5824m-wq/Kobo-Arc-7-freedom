@@ -165,6 +165,13 @@ Actual Kobo speaker/headphone/Bluetooth output and live provider behavior still 
 
 ### YouTube and Shorts
 
+While a video stream is resolved and prepared, an animated bar shows that work is ongoing;
+its duration is unknown, so it is not a percentage. The player shows elapsed, total and
+remaining time, including a preview while dragging. If Android stops reporting position,
+the timeline estimates it while playing, pauses for reported buffering, and resynchronizes
+when reliable positions return. An unknown duration is shown as `--:--` and cannot be
+scrubbed. Availability and actual seeking still depend on the stream and device.
+
 **Pinned Channels** is explicitly local. Add a channel ID, public channel URL or handle;
 view its public recent-video feed, or long-press to unpin. Pins survive restarts but are
 not Google-account subscriptions, subscriber counts or push updates.
@@ -293,11 +300,11 @@ See [setup, protocol, limits and tests](GLASS-MUSIC-QR.md).
 
 ## Validation
 
-**This build passed:** the complete signed build and full `scripts/verify-apks.py`
-run, including the compiled MorpheEngine integration (not skipped), host FFmpeg,
-new feature/catalog/Weather regressions and byte-exact reconstruction of all **38**
-embedded APKs. All **53** release/app/tool checksums were independently checked.
-This is host/binary evidence, not tablet playback or a security audit.
+The preceding release build passed the signed build and full `scripts/verify-apks.py`
+run, including compiled MorpheEngine integration, host FFmpeg, feature/catalog/Weather
+regressions and byte-exact reconstruction of all **38** embedded APKs. The foreground-video
+changes require a fresh signed build and full verifier run before release. These host/binary
+checks are not tablet playback or a security audit.
 
 Exact suite, upgrader, YouTube/Music, Podcasts and other artifact hashes are generated in
 [SHA256SUMS.txt](SHA256SUMS.txt). Use that authoritative manifest for the current signed build;
@@ -313,6 +320,7 @@ Automated host and binary checks are recorded in the ignored build logs and run 
 | API17/ARMv7 build + zipalign/signature/DEX/manifest checks | Old Android packaging and permanent certificate; not decoder/UI execution |
 | `make test-features` | Real PBKDF2/vault authentication/tamper/atomic-save tests, all 18 RFC6238 vectors, Proton/Bitwarden CSV/JSON import fixtures and real QR-share HTTP auth/CSRF/path/upload/download/range/stop tests, plus key grammar, player/collection/pin parsers and real MP4/M4A downloads |
 | `make test-discovery` | Production podcast favorite persistence/filtering/URL validation, safe failure/capacity cases and two-row header allocations/events at 320/360/600/1024dp using host preferences/layout fakes; not physical Android rendering |
+| `make test-video-state` | Production YouTube activity/timeline with recording player/clock/provider fakes: loading, errors, stale requests, seeking, pause/buffering and remaining time; not physical playback |
 | Artist discovery in `make test-features` | Actual filtered request payloads, two-row/responsive artist identities, no song fallback, exact public artist browse, scoped songs/albums/singles and first-page bounds |
 | `make test-optical` | Actual Java/browser QR encoders and camera-luma readers, byte-for-byte cross-language reassembly, rotation/mirror/noise, CRC/SHA, missing/repeated/out-of-order frames, path/size/collision/cancel bounds; not a physical camera test |
 | `make test-glass` | Production lens layers/alpha/pressed states, bounded cached wallpaper frost and screen alignment with recording Android graphics fakes; not GPU screenshots |
@@ -348,8 +356,9 @@ still require testing. Live TLS tests, where run, only establish the tested TLS 
   open a real artist's songs/album, return to results and switch modes during a pending request.
 - Install this build's YouTube.apk and play an accessible video/Short and Music song.
   Use Sound to confirm media volume and the prepared audio-check result; listen on the
-  speaker and headphones/Bluetooth as available. Test pause/seek/stop, audio-focus loss,
-  notifications, screen-off, a real unsupported stream and a real sign-in/bot denial.
+  speaker and headphones/Bluetooth as available. Watch the preparation bar and remaining
+  time, drag and use ±30-second controls, pause/resume and try a quality change. Test
+  audio-focus loss, notifications, screen-off, an unsupported stream and a sign-in/bot denial.
 - Download video and M4A, play both offline, cancel mid-transfer, navigate away, exhaust
   free space safely and confirm no broken partial file appears as a completed download.
 - Pin/unpin two real channels; restart. Open real Music album/community playlists, save/

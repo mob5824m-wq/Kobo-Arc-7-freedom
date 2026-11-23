@@ -15,10 +15,12 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.AudioManager;
 import android.media.MediaPlayer;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -33,6 +35,7 @@ import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -73,7 +76,10 @@ public class YouTubeActivity extends Arc7Activity {
     private FrameLayout playerStage;
     private VideoView videoView;
     private TextView playerOverlayStatusTv;
+    private ProgressBar playerPrepareProgress;
     private SeekBar seekBar;
+    private final VideoPositionTracker videoPosition = new VideoPositionTracker();
+    private boolean videoBuffering;
     private TextView timeLabelTv;
     private Button playPauseBtn;
     private Button qualityBtn;
@@ -112,7 +118,7 @@ public class YouTubeActivity extends Arc7Activity {
         public void onReceive(Context context,Intent intent) {
             if(intent==null||!AudioManager.ACTION_AUDIO_BECOMING_NOISY.equals(intent.getAction())||handedOffToBackgroundAudio)return;
             videoPlayWhenPrepared=false;
-            if(videoPrepared&&videoView!=null)try{videoView.pause();}catch(RuntimeException ignored){}
+            if(videoPrepared&&videoView!=null)try{pauseVideoView();}catch(RuntimeException ignored){}
             releaseVideoAudioFocus();
             ca.arc7freedom.support.DebugLog.event("video.headphones_disconnected");
         }
@@ -140,7 +146,7 @@ public class YouTubeActivity extends Arc7Activity {
             } else if (Arc7AudioService.ACTION_NEXT.equals(cmd)) {
                 stepVideoInFeed(1);
             } else if (Arc7AudioService.ACTION_REWIND_30.equals(cmd)) {
-                seekVideoRelative(-15000);
+                seekVideoRelative(-30000);
             } else if (Arc7AudioService.ACTION_FFWD_30.equals(cmd)) {
                 seekVideoRelative(30000);
             } else if (Arc7AudioService.ACTION_STOP_DISMISS.equals(cmd)) {
@@ -154,39 +160,46 @@ public class YouTubeActivity extends Arc7Activity {
         public void run() {
             if (!alive) return;
             try {
-                if (videoView != null && currentPlayback != null && NowPlayingManager.isYouTubeForegroundVideoActive()) {
-                    int pos = Math.max(0, videoView.getCurrentPosition());
-                    int dur = Math.max(0, videoView.getDuration());
-                    boolean playing = videoView.isPlaying();
+                if (!videoPrepared && !handedOffToBackgroundAudio && videoPrepareTimeout != null
+                        && currentPlayback != null) {
+                    String stage = MorpheStreamServer.getPreparationStatus(currentPlayback.localVideoProxyUrl);
+                    if (stage != null && stage.length() > 0) {
+                        playerOverlayStatusTv.setText("Preparing Android 4.2 video...\n" + stage);
+                    }
+                }
+                if (videoPrepared && videoView != null && currentPlayback != null
+                        && NowPlayingManager.isYouTubeForegroundVideoActive()) {
+                    int pos = effectiveVideoPositionMs();
+                    int dur = effectiveVideoDurationMs();
+                    boolean playing = videoIsPlaying();
                     playPauseBtn.setText(playing ? "\u23F8 Pause" : "\u25B6 Play");
 
-                    if (!userScrubbing && dur > 0) {
-                        seekBar.setMax(dur);
-                        seekBar.setProgress(pos);
-                    }
-                    timeLabelTv.setText(NowPlayingManager.formatDurationMs(pos)
-                            + " / " + NowPlayingManager.formatDurationMs(dur > 0 ? dur : currentPlayback.durationSec * 1000L));
+                    // Never overwrite the user's preview while their finger is on the bar.
+                    if (!userScrubbing) showVideoTimeline(pos, dur);
 
                     // Real-time SponsorBlock segment auto-skip!
-                    if (playing && MorpheEngine.isSponsorBlockEnabled(YouTubeActivity.this)) {
+                    if (playing && !videoBuffering && !userScrubbing
+                            && MorpheEngine.isSponsorBlockEnabled(YouTubeActivity.this)) {
                         float sec = pos / 1000f;
                         synchronized (currentPlayback.skipSegments) {
                             for (int i = 0; i < currentPlayback.skipSegments.size(); i++) {
                                 MorpheEngine.SkipSegment seg = currentPlayback.skipSegments.get(i);
                                 if (sec >= seg.startSec && sec < seg.endSec - 0.7f) {
-                                    int jumpMs = (int) (seg.endSec * 1000f);
-                                    videoView.seekTo(jumpMs);
-                                    Toast.makeText(YouTubeActivity.this,
-                                            "\u23ED SponsorBlock skipped " + seg.category
-                                                    + " (" + Math.round(seg.endSec - seg.startSec) + "s)",
-                                            Toast.LENGTH_SHORT).show();
+                                    int jumpMs = seekVideoTo((int) (seg.endSec * 1000f));
+                                    if (jumpMs >= 0) {
+                                        pos = jumpMs;
+                                        Toast.makeText(YouTubeActivity.this,
+                                                "\u23ED SponsorBlock skipped " + seg.category
+                                                        + " (" + Math.round(seg.endSec - seg.startSec) + "s)",
+                                                Toast.LENGTH_SHORT).show();
+                                    }
                                     break;
                                 }
                             }
                         }
                     }
 
-                    // Publish live audio state to Android Notification & Clock Standby Display!
+                    // Publish the same effective timeline to notification and widget clients.
                     NowPlayingManager.publishBuiltIn(
                             YouTubeActivity.this,
                             "YouTube",
@@ -198,7 +211,7 @@ public class YouTubeActivity extends Arc7Activity {
                             null,
                             playing,
                             pos,
-                            dur > 0 ? dur : currentPlayback.durationSec * 1000L);
+                            dur);
                 }
             } catch (Throwable ignored) {}
             ui.postDelayed(this, 1000L);
@@ -292,6 +305,14 @@ public class YouTubeActivity extends Arc7Activity {
         playerStage.addView(playerOverlayStatusTv, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT, Gravity.CENTER));
 
+        // Resolution and Android's asynchronous prepare have no measurable percentage.
+        playerPrepareProgress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        playerPrepareProgress.setIndeterminate(true);
+        playerPrepareProgress.setContentDescription("Preparing video stream");
+        playerPrepareProgress.setVisibility(View.GONE);
+        playerStage.addView(playerPrepareProgress, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(8), Gravity.BOTTOM));
+
         pageBody.addView(playerStage, stageLp);
 
         // Transport & Scrubber Bar
@@ -305,29 +326,16 @@ public class YouTubeActivity extends Arc7Activity {
         scrubRow.setGravity(Gravity.CENTER_VERTICAL);
 
         seekBar = new SeekBar(this);
-        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
-                if (fromUser && currentPlayback != null) {
-                    timeLabelTv.setText(NowPlayingManager.formatDurationMs(progress)
-                            + " / " + NowPlayingManager.formatDurationMs(sb.getMax()));
-                }
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) { userScrubbing = true; }
-            @Override
-            public void onStopTrackingTouch(SeekBar sb) {
-                userScrubbing = false;
-                if (videoView != null && currentPlayback != null) {
-                    videoView.seekTo(sb.getProgress());
-                }
-            }
-        });
+        seekBar.setMax(1);
+        seekBar.setEnabled(false);
+        wireVideoSeekBar();
         scrubRow.addView(seekBar, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         timeLabelTv = new TextView(this);
-        timeLabelTv.setText("0:00 / 0:00");
+        timeLabelTv.setText("0:00 / --:--\n--:-- left");
         timeLabelTv.setTextColor(0xFFA1A1AA);
         timeLabelTv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f);
+        timeLabelTv.setGravity(Gravity.RIGHT);
         timeLabelTv.setPadding(dp(8), 0, 0, 0);
         scrubRow.addView(timeLabelTv);
         transportBar.addView(scrubRow);
@@ -733,8 +741,12 @@ public class YouTubeActivity extends Arc7Activity {
         stopAudio.setAction(Arc7AudioService.ACTION_STOP_DISMISS);
         startService(stopAudio);
         handedOffToBackgroundAudio = false;
+        videoPrepared = false;
         videoPlayWhenPrepared=true;videoErrorWhat=videoErrorExtra=0;
-        playerOverlayStatusTv.setVisibility(View.GONE);
+        activeResolutionVideoId = "";
+        resetVideoTimeline();
+        playerOverlayStatusTv.setVisibility(View.VISIBLE);
+        playerOverlayStatusTv.setText("Preparing downloaded video...");
         videoTitleTv.setText(it.title);
         videoChannelTv.setText("Offline Downloaded Media  \u2022  " + it.localFilePath);
         MorpheEngine.ResolvedPlayback offline = new MorpheEngine.ResolvedPlayback();
@@ -743,7 +755,7 @@ public class YouTubeActivity extends Arc7Activity {
         offline.author = "Offline Download";
         offline.spoofClientUsed = "OFFLINE_MP4";
         currentPlayback = offline;
-        prepareForegroundVideo(offline, Uri.fromFile(new File(it.localFilePath)), videoRequestGeneration);
+        prepareForegroundVideo(offline, Uri.fromFile(new File(it.localFilePath)), videoRequestGeneration, 0);
     }
 
     private void playVideoById(final String videoId, final String initialTitle, final String initialAuthor) {
@@ -761,6 +773,8 @@ public class YouTubeActivity extends Arc7Activity {
         handedOffToBackgroundAudio = false;
         videoPlayWhenPrepared=true;videoErrorWhat=videoErrorExtra=0;
         activeResolutionVideoId = videoId;
+        resetVideoTimeline();
+        showVideoPreparing(true);
         // Pause background music service so streams never overlap!
         Intent pauseBg = new Intent(this, Arc7AudioService.class);
         pauseBg.setAction(Arc7AudioService.ACTION_STOP_DISMISS);
@@ -790,6 +804,7 @@ public class YouTubeActivity extends Arc7Activity {
                                             if (alive && request == videoRequestGeneration && videoId.equals(activeResolutionVideoId)) {
                                                 playerOverlayStatusTv.setVisibility(View.VISIBLE);
                                                 playerOverlayStatusTv.setText(message);
+                                                showVideoPreparing(true);
                                             }
                                         }
                                     });
@@ -822,13 +837,14 @@ public class YouTubeActivity extends Arc7Activity {
                             MorpheEngine.addOrToggleSavedItem(YouTubeActivity.this, "yt_history", toMediaItem(res), false);
 
                             if (res.localVideoProxyUrl == null || res.localVideoProxyUrl.length() == 0) {
+                                showVideoPreparing(false);
                                 playerOverlayStatusTv.setVisibility(View.VISIBLE);
                                 playerOverlayStatusTv.setText("No playable H.264/AAC stream could be built for this video.\n"
                                         + (res.muxNote.length() > 0 ? res.muxNote : "Try another Morphe client in the \u2728 menu."));
                                 return;
                             }
                             playerOverlayStatusTv.setText("Preparing Android 4.2 video...\n" + res.muxNote);
-                            prepareForegroundVideo(res, Uri.parse(res.localVideoProxyUrl), request);
+                            prepareForegroundVideo(res, Uri.parse(res.localVideoProxyUrl), request, 0);
                             videoView.requestFocus();
                             loadPlaybackMetadataAsync(res, videoId);
                         }
@@ -838,6 +854,7 @@ public class YouTubeActivity extends Arc7Activity {
                         @Override
                         public void run() {
                             if (!alive || request != videoRequestGeneration || !videoId.equals(activeResolutionVideoId)) return;
+                            showVideoPreparing(false);
                             playerOverlayStatusTv.setVisibility(View.VISIBLE);
                             playerOverlayStatusTv.setText("Could not load stream: " + t.getMessage());
                         }
@@ -856,9 +873,13 @@ public class YouTubeActivity extends Arc7Activity {
     }
 
     private void prepareForegroundVideo(final MorpheEngine.ResolvedPlayback playback, Uri uri,
-                                         final int request) {
+                                         final int request, final int resumePositionMs) {
         cancelVideoPrepareTimeout();
         videoPrepared = false;
+        videoBuffering = false;
+        videoPosition.reset(Math.max(0, resumePositionMs), SystemClock.elapsedRealtime());
+        showVideoTimeline(Math.max(0, resumePositionMs), effectiveVideoDurationMs());
+        showVideoPreparing(true);
         foregroundPlayer = null;
         videoAudioStatus = "Checking the prepared stream for an audio track...";
         String localMime=MorpheStreamServer.getMimeType(uri.toString());
@@ -866,21 +887,65 @@ public class YouTubeActivity extends Arc7Activity {
         ca.arc7freedom.support.DebugLog.event("video.prepare_started");
         releaseVideoAudioFocus();
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
+        final boolean[] preparedOnce = new boolean[]{false};
+        final MediaPlayer.OnInfoListener bufferingInfo = new MediaPlayer.OnInfoListener() {
+            @Override public boolean onInfo(MediaPlayer mp, int what, int extra) {
+                if (!alive || request != videoRequestGeneration || currentPlayback != playback
+                        || handedOffToBackgroundAudio) return false;
+                if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START || what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
+                    // Some ROMs report buffering before onPrepared. Remember it without
+                    // querying the unprepared native player, then freeze the clock on start.
+                    if (!videoPrepared) {
+                        videoBuffering = what == MediaPlayer.MEDIA_INFO_BUFFERING_START;
+                        return true;
+                    }
+                    if (foregroundPlayer != mp) return false;
+                    effectiveVideoPositionMs();
+                    videoBuffering = what == MediaPlayer.MEDIA_INFO_BUFFERING_START;
+                    int pos = effectiveVideoPositionMs();
+                    if (!userScrubbing) showVideoTimeline(pos, effectiveVideoDurationMs());
+                    return true;
+                }
+                return false;
+            }
+        };
+        // VideoView exposes this hook only on API 17+. On older supported Android 4
+        // versions, attach the same listener directly to the prepared MediaPlayer below.
+        if (Build.VERSION.SDK_INT >= 17) VideoViewApi17.setOnInfoListener(videoView, bufferingInfo);
         videoView.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
             @Override public void onPrepared(MediaPlayer mp) {
                 if (!alive || request != videoRequestGeneration || currentPlayback != playback
                         || handedOffToBackgroundAudio) return;
                 try {
+                    int startPositionMs = resumePositionMs;
+                    if (preparedOnce[0]) {
+                        // VideoView can recreate its player when the surface is moved (e.g. fullscreen).
+                        // Restore the latest timeline, not the original quality-selection position.
+                        startPositionMs = videoPosition.update(-1, false, SystemClock.elapsedRealtime(),
+                                effectiveVideoDurationMs());
+                        releaseVideoAudioFocus();
+                    }
                     LegacyPlaybackAudio.enable(mp);
                     foregroundPlayer = mp;
+                    if (Build.VERSION.SDK_INT < 17) mp.setOnInfoListener(bufferingInfo);
                     videoAudioStatus = LegacyPlaybackAudio.trackState(mp) == LegacyPlaybackAudio.PRESENT
                             ? "The device reports an audio track. Media volume and the selected output still apply."
                             : "This ROM cannot report prepared audio tracks; audio could not be confirmed by the device.";
                     ca.arc7freedom.support.DebugLog.event("video.prepared_with_audio_check");
                     boolean canStart = videoPlayWhenPrepared && takeVideoAudioFocus();
-                    if (canStart) videoView.start();
                     videoPrepared = true;
+                    if (startPositionMs > 0) {
+                        int dur = effectiveVideoDurationMs();
+                        int target = dur > 0 ? Math.min(startPositionMs, dur) : startPositionMs;
+                        videoView.seekTo(target);
+                        videoPosition.seekTo(target, SystemClock.elapsedRealtime());
+                    }
+                    if (canStart) videoView.start();
+                    preparedOnce[0] = true;
+                    int pos = effectiveVideoPositionMs();
+                    showVideoTimeline(pos, effectiveVideoDurationMs());
                     cancelVideoPrepareTimeout();
+                    showVideoPreparing(false);
                     // Readiness belongs to THIS prepared request, not its metadata response.
                     NowPlayingManager.setYouTubeForegroundVideoActive(true);
                     playerOverlayStatusTv.setVisibility(canStart ? View.GONE : View.VISIBLE);
@@ -903,9 +968,17 @@ public class YouTubeActivity extends Arc7Activity {
         videoView.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
             @Override public void onCompletion(MediaPlayer mp) {
                 if (request != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) return;
+                ++videoRequestGeneration; // Ignore prepared/error callbacks already queued for this finished player.
+                int dur = effectiveVideoDurationMs();
+                int end = dur > 0 ? dur : effectiveVideoPositionMs();
                 releaseVideoAudioFocus();
                 foregroundPlayer = null;
                 videoPrepared = false;
+                videoBuffering = false;
+                videoPosition.reset(end, SystemClock.elapsedRealtime());
+                showVideoTimeline(end, dur);
+                showVideoPreparing(false);
+                playPauseBtn.setText("\u25B6 Play");
                 NowPlayingManager.clearSession(YouTubeActivity.this);
                 stepVideoInFeed(1);
             }
@@ -946,7 +1019,7 @@ public class YouTubeActivity extends Arc7Activity {
                         if(change==AudioManager.AUDIOFOCUS_GAIN){hasVideoAudioFocus=true;owner.setVolume(1f,1f);}
                         else if(change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)owner.setVolume(.2f,.2f);
                         else if(change==AudioManager.AUDIOFOCUS_LOSS||change==AudioManager.AUDIOFOCUS_LOSS_TRANSIENT){
-                            if(videoView.isPlaying())videoView.pause();playPauseBtn.setText("\u25B6 Play");hasVideoAudioFocus=false;
+                            if(videoIsPlaying())pauseVideoView();playPauseBtn.setText("\u25B6 Play");hasVideoAudioFocus=false;
                             if(change==AudioManager.AUDIOFOCUS_LOSS)releaseVideoAudioFocus();
                         }
                     }catch(RuntimeException error){ca.arc7freedom.support.DebugLog.error("video.focus_operation_failed",error);}
@@ -1029,6 +1102,8 @@ public class YouTubeActivity extends Arc7Activity {
         releaseVideoAudioFocus();
         foregroundPlayer = null;
         videoPrepared = false;
+        resetVideoTimeline();
+        showVideoPreparing(true);
         NowPlayingManager.clearSession(this);
         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
         MorpheEngine.cancelPlayback(playback);
@@ -1038,7 +1113,10 @@ public class YouTubeActivity extends Arc7Activity {
         playerOverlayStatusTv.setText("This stream opened without audio. Preparing a combined H.264 + AAC stream...");
         resolutionThread = new Thread(new Runnable() {
             @Override public void run() {
-                final String repaired = MorpheEngine.startVideoWithAudioFallback(YouTubeActivity.this, playback);
+                String result;
+                try { result = MorpheEngine.startVideoWithAudioFallback(YouTubeActivity.this, playback); }
+                catch (Throwable failure) { result = ""; }
+                final String repaired = result != null ? result : "";
                 ui.post(new Runnable() {
                     @Override public void run() {
                         if (!alive || recovery != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) {
@@ -1052,7 +1130,7 @@ public class YouTubeActivity extends Arc7Activity {
                         playback.localVideoProxyUrl = repaired; playback.localAudioProxyUrl = repaired;
                         playback.muxedLocally = true; playback.muxNote = "H.264 + AAC audio recovery";
                         qualityBtn.setText("H.264 + AAC (audio recovery)");
-                        prepareForegroundVideo(playback, Uri.parse(repaired), recovery);
+                        prepareForegroundVideo(playback, Uri.parse(repaired), recovery, 0);
                     }
                 });
             }
@@ -1062,8 +1140,11 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void failForegroundVideo(MorpheEngine.ResolvedPlayback playback, int request, String error) {
         if (!alive || request != videoRequestGeneration || currentPlayback != playback || handedOffToBackgroundAudio) return;
+        ++videoRequestGeneration; // A delayed prepared callback must not revive a failed request.
         cancelVideoPrepareTimeout();
         videoPrepared = false;
+        resetVideoTimeline();
+        showVideoPreparing(false);
         releaseVideoAudioFocus();
         foregroundPlayer = null;
         videoAudioStatus = "Playback failed: " + error;
@@ -1130,6 +1211,8 @@ public class YouTubeActivity extends Arc7Activity {
         releaseVideoAudioFocus();
         foregroundPlayer = null;
         videoPrepared = false;
+        resetVideoTimeline();
+        showVideoPreparing(false);
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
 
@@ -1158,9 +1241,9 @@ public class YouTubeActivity extends Arc7Activity {
 
     private void toggleForegroundVideo() {
         if (videoView == null || currentPlayback == null || !videoPrepared || handedOffToBackgroundAudio) return;
-        if (videoView.isPlaying()) {
+        if (videoIsPlaying()) {
             videoPlayWhenPrepared=false;
-            videoView.pause();
+            pauseVideoView();
             releaseVideoAudioFocus();
             playPauseBtn.setText("\u25B6 Play");
         } else {
@@ -1179,18 +1262,141 @@ public class YouTubeActivity extends Arc7Activity {
                 releaseVideoAudioFocus();
                 return;
             }
+            effectiveVideoPositionMs(); // Exclude the time spent paused from the fallback clock.
             videoView.start();
+            int pos = effectiveVideoPositionMs();
+            if (!userScrubbing) showVideoTimeline(pos, effectiveVideoDurationMs());
             playerOverlayStatusTv.setVisibility(View.GONE);
             NowPlayingManager.setYouTubeForegroundVideoActive(true);
             playPauseBtn.setText("\u23F8 Pause");
         }
     }
 
+    private void wireVideoSeekBar() {
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
+                if (fromUser && currentPlayback != null) {
+                    if (userScrubbing) showVideoTime(progress, effectiveVideoDurationMs());
+                    else seekVideoTo(progress); // D-pad/accessibility changes have no touch-stop callback.
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) { userScrubbing = true; }
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                userScrubbing = false;
+                seekVideoTo(sb.getProgress());
+            }
+        });
+    }
+
+    /** Isolate API-17 VideoView calls so Android 4.0/4.1 can still load this activity. */
+    private static final class VideoViewApi17 {
+        static void setOnInfoListener(VideoView view, MediaPlayer.OnInfoListener listener) {
+            view.setOnInfoListener(listener);
+        }
+    }
+
+    private void showVideoPreparing(boolean preparing) {
+        if (playerPrepareProgress != null) {
+            playerPrepareProgress.setVisibility(preparing ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void showVideoTime(int positionMs, int durationMs) {
+        if (timeLabelTv == null) return;
+        int pos = Math.max(0, positionMs);
+        if (durationMs > 0) pos = Math.min(pos, durationMs);
+        String elapsed = NowPlayingManager.formatDurationMs(pos);
+        String total = durationMs > 0 ? NowPlayingManager.formatDurationMs(durationMs) : "--:--";
+        String remaining = durationMs > 0
+                ? NowPlayingManager.formatDurationMs(durationMs - pos) : "--:--";
+        timeLabelTv.setText(elapsed + " / " + total + "\n" + remaining + " left");
+        timeLabelTv.setContentDescription(elapsed + " elapsed, " + remaining + " remaining");
+    }
+
+    private void showVideoTimeline(int positionMs, int durationMs) {
+        if (seekBar == null) return;
+        if (durationMs > 0) {
+            seekBar.setMax(durationMs);
+            seekBar.setProgress(Math.max(0, Math.min(positionMs, durationMs)));
+        } else {
+            seekBar.setMax(1);
+            seekBar.setProgress(0);
+        }
+        seekBar.setEnabled(videoPrepared && !handedOffToBackgroundAudio && durationMs > 0);
+        showVideoTime(positionMs, durationMs);
+    }
+
+    private void resetVideoTimeline() {
+        videoBuffering = false;
+        userScrubbing = false;
+        videoPosition.reset(0, SystemClock.elapsedRealtime());
+        showVideoTimeline(0, 0);
+        if (playPauseBtn != null) playPauseBtn.setText("\u25B6 Play");
+    }
+
+    private int safeVideoPosition() {
+        if (!videoPrepared || videoView == null) return -1;
+        try { return Math.max(-1, videoView.getCurrentPosition()); }
+        catch (Throwable ignored) { return -1; }
+    }
+
+    private int effectiveVideoDurationMs() {
+        int dur = 0;
+        // Android 4 can asynchronously report INVALID_OPERATION if an unprepared
+        // native player is polled; do not call getters until the prepared callback.
+        if (videoPrepared && videoView != null) {
+            try { dur = Math.max(0, videoView.getDuration()); } catch (Throwable ignored) {}
+        }
+        if (dur <= 1000 && currentPlayback != null && currentPlayback.durationSec > 0L) {
+            long seconds = currentPlayback.durationSec;
+            dur = seconds > Integer.MAX_VALUE / 1000L
+                    ? Integer.MAX_VALUE : (int) (seconds * 1000L);
+        }
+        return dur;
+    }
+
+    private boolean videoIsPlaying() {
+        try { return videoPrepared && videoView != null && videoView.isPlaying(); }
+        catch (Throwable ignored) { return false; }
+    }
+
+    private int effectiveVideoPositionMs() {
+        return videoPosition.update(safeVideoPosition(), videoIsPlaying() && !videoBuffering,
+                SystemClock.elapsedRealtime(), effectiveVideoDurationMs());
+    }
+
+    private void pauseVideoView() {
+        if (!videoPrepared || videoView == null) return;
+        effectiveVideoPositionMs();
+        videoView.pause();
+        int pos = effectiveVideoPositionMs();
+        if (!userScrubbing) showVideoTimeline(pos, effectiveVideoDurationMs());
+    }
+
+    /** Apply every foreground seek, including SponsorBlock and transport buttons, to the anchor. */
+    private int seekVideoTo(int requestedMs) {
+        if (videoView == null || currentPlayback == null || !videoPrepared || handedOffToBackgroundAudio) return -1;
+        int dur = effectiveVideoDurationMs();
+        int target = Math.max(0, requestedMs);
+        if (dur > 0) target = Math.min(dur, target);
+        effectiveVideoPositionMs();
+        try {
+            videoView.seekTo(target);
+            videoPosition.seekTo(target, SystemClock.elapsedRealtime());
+            if (!userScrubbing) showVideoTimeline(target, dur);
+            return target;
+        } catch (RuntimeException failed) {
+            Toast.makeText(this, "Unable to seek this video.", Toast.LENGTH_SHORT).show();
+            return -1;
+        }
+    }
+
     private void seekVideoRelative(int deltaMs) {
-        if (videoView == null || currentPlayback == null) return;
-        int dur = videoView.getDuration();
+        if (videoView == null || currentPlayback == null || !videoPrepared) return;
+        int dur = effectiveVideoDurationMs();
         if (dur <= 0) return;
-        videoView.seekTo(Math.max(0, Math.min(dur, videoView.getCurrentPosition() + deltaMs)));
+        long next = (long) effectiveVideoPositionMs() + deltaMs;
+        seekVideoTo((int) Math.max(0L, Math.min((long) dur, next)));
     }
 
     private void stepVideoInFeed(int delta) {
@@ -1211,6 +1417,8 @@ public class YouTubeActivity extends Arc7Activity {
         foregroundPlayer = null;
         videoAudioStatus = "No foreground player is ready.";
         videoPrepared = false;
+        resetVideoTimeline();
+        showVideoPreparing(false);
         NowPlayingManager.setYouTubeForegroundVideoActive(false);
         try { if (videoView != null) videoView.stopPlayback(); } catch (Throwable ignored) {}
         if (!handedOffToBackgroundAudio) {
@@ -1283,14 +1491,17 @@ public class YouTubeActivity extends Arc7Activity {
                     public void onClick(DialogInterface d, int which) {
                         if (currentPlayback == null) return;
                         final MorpheEngine.ResolvedPlayback selectedPlayback = currentPlayback;
-                        final int curPos = videoPrepared && videoView != null ? videoView.getCurrentPosition() : 0;
+                        final int curPos = videoPrepared && videoView != null ? effectiveVideoPositionMs() : 0;
+                        final int curDur = effectiveVideoDurationMs();
                         final int request = ++videoRequestGeneration;
                         if (resolutionThread != null) resolutionThread.interrupt();
                         // The old focus callback belongs to the old request. Do not leave that
                         // player running unprotected while a new quality resolves, or hold a
                         // completed cache job that prevents admission in the low-RAM profile.
                         cancelVideoPrepareTimeout();releaseVideoAudioFocus();
-                        foregroundPlayer=null;videoPrepared=false;
+                        foregroundPlayer=null;videoPrepared=false;videoBuffering=false;
+                        showVideoTimeline(curPos, curDur);
+                        showVideoPreparing(true);
                         try { videoView.stopPlayback(); } catch (Throwable ignored) {}
                         MorpheEngine.cancelPlayback(selectedPlayback);
                         selectedPlayback.localVideoProxyUrl="";selectedPlayback.localAudioProxyUrl="";
@@ -1303,9 +1514,15 @@ public class YouTubeActivity extends Arc7Activity {
                         resolutionThread = new Thread(new Runnable() {
                             @Override
                             public void run() {
-                                final String slotUrl = soundOnly
-                                        ? MorpheEngine.startAudioForVariant(YouTubeActivity.this, picked)
-                                        : MorpheEngine.startMuxForVariant(YouTubeActivity.this, selectedPlayback, picked);
+                                String builtUrl;
+                                try {
+                                    builtUrl = soundOnly
+                                            ? MorpheEngine.startAudioForVariant(YouTubeActivity.this, picked)
+                                            : MorpheEngine.startMuxForVariant(YouTubeActivity.this, selectedPlayback, picked);
+                                } catch (Throwable failure) {
+                                    builtUrl = "";
+                                }
+                                final String slotUrl = builtUrl;
                                 ui.post(new Runnable() {
                                     @Override
                                     public void run() {
@@ -1313,7 +1530,9 @@ public class YouTubeActivity extends Arc7Activity {
                                             MorpheStreamServer.cancel(slotUrl); MorpheHlsRelay.cancel(slotUrl); return;
                                         }
                                         if (slotUrl == null || slotUrl.length() == 0) {
+                                            showVideoPreparing(false);
                                             qualityBtn.setText("\uD83C\uDF9E Quality unavailable");
+                                            playerOverlayStatusTv.setText("Could not prepare the selected quality. Try another quality or video.");
                                             return;
                                         }
                                         qualityBtn.setText("\uD83C\uDF9E " + picked.label);
@@ -1323,9 +1542,8 @@ public class YouTubeActivity extends Arc7Activity {
                                         selectedPlayback.localAudioProxyUrl = slotUrl;
                                         handedOffToBackgroundAudio = false;
                                         audioRepairAttempted = false;
-                                        prepareForegroundVideo(selectedPlayback, Uri.parse(slotUrl), request);
+                                        prepareForegroundVideo(selectedPlayback, Uri.parse(slotUrl), request, curPos);
                                         videoView.requestFocus();
-                                        if (curPos > 1500) videoView.seekTo(curPos);
                                     }
                                 });
                             }
