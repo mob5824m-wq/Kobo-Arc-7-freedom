@@ -485,6 +485,90 @@ public final class AudioServiceStateHarness {
         }
     }
 
+    private static void ytMusicStuckPositionAndSeek() throws Exception {
+        Arc7AudioService service = create();
+        try {
+            MorpheEngine.MediaItem song = fixtureItem("Stuck Pos Song", 240L);
+            service.playMorpheQueue(Collections.singletonList(song), 0,
+                    "YouTube Music", "ca.arc7freedom.app.YouTubeMusicActivity");
+            MediaPlayer player = resolvedPlayer(service);
+            // Simulate Stagefright returning a small stuck positive buffer sample (23 ms)
+            // even while the song is playing and total duration is 240000 ms.
+            player.position = 23;
+            player.emitPrepared();
+            Handler.drain();
+            check(service.isPlaying(), "YT Music track failed to start");
+            check(service.getDurationMs() == 240000, "YT Music duration mismatch: " + service.getDurationMs());
+            check(service.getPositionMs() == 23, "Initial position mismatch: " + service.getPositionMs());
+
+            android.os.SystemClock.advanceBy(5000L);
+            int p1 = service.getPositionMs();
+            check(p1 >= 5000 && p1 <= 5200, "Stuck 23ms Stagefright position did not advance: " + p1);
+
+            // Pausing freezes position; paused time must not be counted upon resume.
+            service.pausePlayback();
+            android.os.SystemClock.advanceBy(8000L);
+            int pausedPos = service.getPositionMs();
+            check(Math.abs(pausedPos - p1) <= 200, "Paused position drifted: " + pausedPos + " vs " + p1);
+
+            service.togglePlayPause();
+            int resumedPos = service.getPositionMs();
+            check(Math.abs(resumedPos - pausedPos) <= 200, "Resume lost or jumped position: " + resumedPos + " vs " + pausedPos);
+            android.os.SystemClock.advanceBy(3000L);
+            int p2 = service.getPositionMs();
+            check(p2 >= resumedPos + 2900 && p2 <= resumedPos + 3200, "Resumed position did not advance: " + p2);
+
+            // Buffering pauses elapsed clock; BUFFERING_END resumes it cleanly.
+            player.emitInfo(MediaPlayer.MEDIA_INFO_BUFFERING_START, 0);
+            Handler.drain();
+            int bufPos = service.getPositionMs();
+            android.os.SystemClock.advanceBy(4000L);
+            check(Math.abs(service.getPositionMs() - bufPos) <= 200, "Buffering advanced position");
+            player.emitInfo(MediaPlayer.MEDIA_INFO_BUFFERING_END, 0);
+            Handler.drain();
+            android.os.SystemClock.advanceBy(2000L);
+            int afterBuf = service.getPositionMs();
+            check(afterBuf >= bufPos + 1900 && afterBuf <= bufPos + 2200, "Position did not resume after buffering: " + afterBuf);
+
+            // Seeking while Stagefright stays stuck at 23ms must jump to target and continue advancing,
+            // even past the 5s seek-grace window.
+            player.freezePosition = true;
+            service.seekAbsoluteMs(90000);
+            int sought = service.getPositionMs();
+            check(sought >= 89900 && sought <= 90200, "Stuck Stagefright sample overwrote seek: " + sought);
+            android.os.SystemClock.advanceBy(6000L);
+            int afterSeek = service.getPositionMs();
+            check(afterSeek >= 95900 && afterSeek <= 96200, "Position did not advance past seek grace from target: " + afterSeek);
+
+            // Stuck zero on a new track must also advance.
+            MorpheEngine.MediaItem song2 = fixtureItem("Stuck Zero Song", 180L);
+            service.playMorpheQueue(Collections.singletonList(song2), 0,
+                    "YouTube Music", "ca.arc7freedom.app.YouTubeMusicActivity");
+            MediaPlayer player2 = resolvedPlayer(service);
+            player2.position = 0;
+            player2.emitPrepared();
+            Handler.drain();
+            check(service.getDurationMs() == 180000, "Second track duration mismatch");
+            android.os.SystemClock.advanceBy(4000L);
+            int zeroAdvanced = service.getPositionMs();
+            check(zeroAdvanced >= 3900 && zeroAdvanced <= 4200, "Stuck zero position did not advance: " + zeroAdvanced);
+
+            // Repeat One completion restart resets position back to zero.
+            service.setRepeatMode(Arc7AudioService.REPEAT_ONE);
+            player2.emitCompletion();
+            Handler.drain();
+            int restarted = service.getPositionMs();
+            check(restarted >= 0 && restarted <= 200, "Repeat-one restart did not reset position: " + restarted);
+            android.os.SystemClock.advanceBy(3000L);
+            int afterRestart = service.getPositionMs();
+            check(afterRestart >= 2900 && afterRestart <= 3200, "Repeat-one restarted track did not advance: " + afterRestart);
+
+            System.out.println("PASS: YT Music stuck-zero/stuck-positive elapsed time, pause/resume, buffering, seek-grace and repeat-one reset");
+        } finally {
+            close(service);
+        }
+    }
+
     public static void main(String[] args) throws Exception {
         asynchronousErrorModel();
         preparingAndNormalTransport();
@@ -497,5 +581,6 @@ public final class AudioServiceStateHarness {
         focusAndHeadphones();
         headsetButtons();
         listenBrainzScrobbleFlow();
+        ytMusicStuckPositionAndSeek();
     }
 }

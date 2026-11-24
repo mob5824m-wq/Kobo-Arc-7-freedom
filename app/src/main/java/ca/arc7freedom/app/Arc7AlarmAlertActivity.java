@@ -34,6 +34,7 @@ public class Arc7AlarmAlertActivity extends Arc7Activity {
     private TextView kindBadge;
     private TextView liveClockTv;
     private boolean isTimer;
+    private int alarmId = -1;
     private String label;
     private String chimeId;
     private int volumePct = 85;
@@ -123,7 +124,7 @@ public class Arc7AlarmAlertActivity extends Arc7Activity {
                     Arc7ClockStore.saveTimerState(Arc7AlarmAlertActivity.this, true, end, 0L, label);
                     Toast.makeText(Arc7AlarmAlertActivity.this, "Added +1 minute to timer", Toast.LENGTH_SHORT).show();
                 } else {
-                    Arc7ClockStore.scheduleSnooze(Arc7AlarmAlertActivity.this, label, 5, chimeId, volumePct);
+                    Arc7ClockStore.scheduleSnooze(Arc7AlarmAlertActivity.this, label, 5, chimeId, volumePct, alarmId);
                     Toast.makeText(Arc7AlarmAlertActivity.this, "Snoozed for 5 minutes", Toast.LENGTH_SHORT).show();
                 }
                 finish();
@@ -139,6 +140,7 @@ public class Arc7AlarmAlertActivity extends Arc7Activity {
             @Override
             public void onClick(View v) {
                 Arc7ClockStore.stopAlarmRinging();
+                Arc7ClockStore.cancelSnooze(Arc7AlarmAlertActivity.this);
                 finish();
             }
         });
@@ -161,6 +163,7 @@ public class Arc7AlarmAlertActivity extends Arc7Activity {
 
     private void readExtras(Intent intent) {
         isTimer = intent != null && intent.getBooleanExtra("is_timer", false);
+        alarmId = intent != null ? intent.getIntExtra("alarm_id", -1) : -1;
         label = intent != null ? intent.getStringExtra("label") : null;
         if (label == null || label.isEmpty()) label = isTimer ? "Timer Complete!" : "Alarm";
         chimeId = intent != null ? intent.getStringExtra("chime_id") : null;

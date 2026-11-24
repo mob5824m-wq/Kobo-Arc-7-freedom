@@ -96,12 +96,15 @@ public class Arc7AudioService extends Service {
     private ca.arc7freedom.support.MediaCache.Lease playerCacheLease;
     private String selfTestFormat = "";
     private volatile boolean playerPrepared = false;
-    // Wall-clock position anchor: Android 4.2 Stagefright reports INVALID_OPERATION (or a
-    // stuck 0) from getCurrentPosition() for proxied/adaptive Morphe streams, so the seek
-    // bar would never move. Anchor the position at play/seek time and advance it by elapsed
-    // time while playing; re-anchor whenever the player reports a plausible position.
-    private long posAnchorElapsedMs = 0L;
-    private int posAnchorMs = 0;
+    // Monotonic-clock fallback for Android 4.2 Stagefright streams where getCurrentPosition()
+    // returns INVALID_OPERATION, 0, or a stuck initial sample (e.g. 23 ms), so elapsed time
+    // and the seek bar advance smoothly and pause/seek/buffering stay accurate.
+    private final VideoPositionTracker positionTracker = new VideoPositionTracker();
+    private boolean playerBuffering = false;
+    private boolean hasStartedPreparedPlayback = false;
+    private long lastPositionQueryMs = 0L;
+    private int lastNativeSampled = -1;
+    private int lastTrackedPositionMs = 0;
     private WifiManager.WifiLock wifiLock;
     private AudioManager audioManager;
     private final AudioFocusPolicy focus = new AudioFocusPolicy();
@@ -205,11 +208,14 @@ public class Arc7AudioService extends Service {
         }
         try {
             if (!player.isPlaying()) return;
-            float posSec = player.getCurrentPosition() / 1000f;
+            float posSec = getPositionMs() / 1000f;
             for (int i = 0; i < activeSkipSegments.size(); i++) {
                 MorpheEngine.SkipSegment seg = activeSkipSegments.get(i);
                 if (posSec >= seg.startSec && posSec < seg.endSec - 0.6f) {
-                    player.seekTo((int) (seg.endSec * 1000f));
+                    int targetMs = (int) (seg.endSec * 1000f);
+                    player.seekTo(targetMs);
+                    positionTracker.seekTo(targetMs, SystemClock.elapsedRealtime());
+                    lastPositionQueryMs = 0L;
                     break;
                 }
             }
@@ -292,7 +298,7 @@ public class Arc7AudioService extends Service {
         long pos = -1L;
         try {
             playing = player != null && playerPrepared && player.isPlaying();
-            if (playing) pos = Math.max(0, player.getCurrentPosition());
+            if (playing) pos = Math.max(0, getPositionMs());
         } catch (Throwable ignored) {}
         if (!playing || pos < 0L) {
             scrobbleLastPositionMs = pos;
@@ -371,7 +377,15 @@ public class Arc7AudioService extends Service {
         } catch (Throwable unavailable) { DebugLog.error("audio.media_buttons_unavailable", unavailable); }
         acquireWifiLockSafe(); applyPlayerVolume();
         mp.start();
-        anchorPosition(safePlayerPosition());
+        long nowMs = SystemClock.elapsedRealtime();
+        int nativePos = readPlayerPositionOrUnknown();
+        if (!hasStartedPreparedPlayback) {
+            hasStartedPreparedPlayback = true;
+            resetPositionTracking(Math.max(0, nativePos), !playerBuffering);
+        } else {
+            lastPositionQueryMs = 0L;
+            positionTracker.update(nativePos, !playerBuffering, nowMs, getDurationMs());
+        }
         scrobbleOnTrackStarted();
         diagnosticState = "Playing"; playbackStatus = "";
         DebugLog.event("audio.started");
@@ -395,7 +409,12 @@ public class Arc7AudioService extends Service {
         DebugLog.number("audio.focus_change", change);
         if (action == AudioFocusPolicy.PAUSE) {
             if (player != null && playerPrepared && isPlaying()) {
-                try { saveCurrentPosition(); player.pause(); } catch (Throwable e) { DebugLog.error("audio.focus_pause_failed", e); }
+                try {
+                    positionTracker.update(readPlayerPositionOrUnknown(), false, SystemClock.elapsedRealtime(), getDurationMs());
+                    lastPositionQueryMs = 0L;
+                    saveCurrentPosition();
+                    player.pause();
+                } catch (Throwable e) { DebugLog.error("audio.focus_pause_failed", e); }
                 releaseWifiLockSafe(); diagnosticState = "Paused for audio focus"; publishOwnPlaybackState(false);
             }
             if (change == AudioManager.AUDIOFOCUS_LOSS) abandonFocus(true);
@@ -1027,6 +1046,30 @@ public class Arc7AudioService extends Service {
                     if (player == mp && request == playbackGeneration) bufferingPercent = Math.max(0, Math.min(100, percent));
                 }}
             });
+            preparing.setOnInfoListener(new MediaPlayer.OnInfoListener() {
+                @Override public boolean onInfo(MediaPlayer mp, int what, int extra) {
+                    synchronized (Arc7AudioService.this) {
+                        if (player != mp || request != playbackGeneration) return false;
+                        if (what == MediaPlayer.MEDIA_INFO_BUFFERING_START
+                                || what == MediaPlayer.MEDIA_INFO_BUFFERING_END) {
+                            if (playerPrepared) {
+                                positionTracker.update(readPlayerPositionOrUnknown(),
+                                        isPlaying() && !playerBuffering,
+                                        SystemClock.elapsedRealtime(), getDurationMs());
+                            }
+                            playerBuffering = (what == MediaPlayer.MEDIA_INFO_BUFFERING_START);
+                            if (playerPrepared) {
+                                positionTracker.update(readPlayerPositionOrUnknown(),
+                                        isPlaying() && !playerBuffering,
+                                        SystemClock.elapsedRealtime(), getDurationMs());
+                            }
+                            lastPositionQueryMs = 0L;
+                            return true;
+                        }
+                        return false;
+                    }
+                }
+            });
             preparing.setOnErrorListener(new MediaPlayer.OnErrorListener() {
                 @Override public boolean onError(MediaPlayer mp, int what, int extra) {
                     synchronized (Arc7AudioService.this) {
@@ -1052,6 +1095,9 @@ public class Arc7AudioService extends Service {
                     synchronized (Arc7AudioService.this) {
                         if (request != playbackGeneration || player != mp) return;
                         diagnosticState = "Completed"; DebugLog.event("audio.completed");
+                        playerBuffering = false;
+                        positionTracker.update(readPlayerPositionOrUnknown(), false, SystemClock.elapsedRealtime(), getDurationMs());
+                        lastPositionQueryMs = 0L;
                         flushPendingScrobble(true); // natural end counts as fully heard
                         if (autoAdvanceQueueOnComplete && !morpheQueue.isEmpty() && repeatMode == REPEAT_ONE
                                 && restartCompletedPlayer(mp)) return;
@@ -1171,6 +1217,9 @@ public class Arc7AudioService extends Service {
         try {
             completed.seekTo(0);
             completed.start();
+            playerBuffering = false;
+            hasStartedPreparedPlayback = true;
+            resetPositionTracking(0, true);
             scrobbleOnTrackStarted(); // repeat-one replay = a fresh listen cycle
             playWhenPrepared = true;
             diagnosticState = "Playing"; playbackStatus = "";
@@ -1229,6 +1278,9 @@ public class Arc7AudioService extends Service {
                     synchronized (Arc7AudioService.this) {
                     if (player != mp || playbackGeneration != localRequest) return;
                     diagnosticState = "Completed"; DebugLog.event("audio.completed");
+                    playerBuffering = false;
+                    positionTracker.update(readPlayerPositionOrUnknown(), false, SystemClock.elapsedRealtime(), getDurationMs());
+                    lastPositionQueryMs = 0L;
                     getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                             .putInt("pos_" + track.getAbsolutePath().hashCode(), 0).commit();
                     if (repeatMode == REPEAT_ONE && restartCompletedPlayer(mp)) return;
@@ -1292,7 +1344,8 @@ public class Arc7AudioService extends Service {
         diagnosticState = playerPrepared ? "Paused" : "Paused before ready"; DebugLog.event("audio.user_paused");
         if (!playerPrepared) return;
         if (player != null && player.isPlaying()) {
-            anchorPosition(estimatedPositionMs());
+            positionTracker.update(readPlayerPositionOrUnknown(), false, SystemClock.elapsedRealtime(), getDurationMs());
+            lastPositionQueryMs = 0L;
             saveCurrentPosition();
             player.pause();
             releaseWifiLockSafe();
@@ -1311,7 +1364,8 @@ public class Arc7AudioService extends Service {
             long upper = dur > 1000 ? (long) dur : 6L * 3600L * 1000L; // unknown length: clamp only from below
             int next = (int) Math.max(0L, Math.min(upper, current + (long) deltaMs));
             player.seekTo(next);
-            anchorPosition(next);
+            positionTracker.seekTo(next, SystemClock.elapsedRealtime());
+            lastPositionQueryMs = 0L;
             saveCurrentPosition();
             publishOwnPlaybackState(player.isPlaying());
         } catch (Throwable error) {
@@ -1329,7 +1383,8 @@ public class Arc7AudioService extends Service {
             long upper = dur > 1000 ? (long) dur : 6L * 3600L * 1000L; // unknown length: keep the user's requested offset
             int clamped = (int) Math.max(0L, Math.min(upper, Math.max(0, posMs)));
             player.seekTo(clamped);
-            anchorPosition(clamped);
+            positionTracker.seekTo(clamped, SystemClock.elapsedRealtime());
+            lastPositionQueryMs = 0L;
             saveCurrentPosition();
             publishOwnPlaybackState(player.isPlaying());
             DebugLog.number("audio.seek_to_ms", clamped);
@@ -1404,50 +1459,46 @@ public class Arc7AudioService extends Service {
         return true;
     }
 
-    private int safePlayerPosition() {
-        if (player == null || !playerPrepared) return 0;
+    private int readPlayerPositionOrUnknown() {
+        if (player == null || !playerPrepared) return -1;
         try {
             return Math.max(0, player.getCurrentPosition());
         } catch (Throwable ignored) {
-            return 0;
+            return -1;
         }
     }
 
-    private void anchorPosition(int posMs) {
-        posAnchorMs = Math.max(0, posMs);
-        posAnchorElapsedMs = SystemClock.elapsedRealtime();
-    }
-
-    private int estimatedPositionMs() {
-        int pos = posAnchorMs;
-        if (isPlaying()) {
-            pos += (int) Math.max(0L, SystemClock.elapsedRealtime() - posAnchorElapsedMs);
+    private void resetPositionTracking(int initialPositionMs, boolean advancing) {
+        int clamped = Math.max(0, initialPositionMs);
+        long now = SystemClock.elapsedRealtime();
+        positionTracker.reset(clamped, now);
+        if (advancing) {
+            int seeded = positionTracker.update(clamped, true, now, getDurationMs());
+            lastPositionQueryMs = now;
+            lastNativeSampled = clamped;
+            lastTrackedPositionMs = seeded;
+        } else {
+            lastPositionQueryMs = 0L;
+            lastNativeSampled = -1;
+            lastTrackedPositionMs = clamped;
         }
-        return Math.max(0, pos);
     }
 
     public synchronized int getPositionMs() {
         if (player == null || !playerPrepared) return 0;
-        int playerPos = 0;
-        try {
-            playerPos = Math.max(0, player.getCurrentPosition());
-        } catch (Throwable ignored) {
-            playerPos = 0;
+        long now = SystemClock.elapsedRealtime();
+        int nativePos = readPlayerPositionOrUnknown();
+        boolean advancing = isPlaying() && !playerBuffering;
+        if (advancing && lastPositionQueryMs > 0L
+                && now - lastPositionQueryMs < 25L
+                && nativePos == lastNativeSampled) {
+            return lastTrackedPositionMs;
         }
-        // Android 4.2 Stagefright reports INVALID_OPERATION (caught above as 0) or a stuck
-        // position for proxied/adaptive Morphe streams, so the seek bar would never move.
-        // Fall back to a wall-clock estimate anchored at play/seek time, and re-anchor
-        // whenever the player reports a plausible position so the estimate cannot drift.
-        if (scrobbleEligibleSource()) {
-            if (playerPos > 0) {
-                anchorPosition(playerPos);
-                return playerPos;
-            }
-            if (isPlaying()) {
-                return estimatedPositionMs();
-            }
-        }
-        return playerPos;
+        int pos = positionTracker.update(nativePos, advancing, now, getDurationMs());
+        lastPositionQueryMs = now;
+        lastNativeSampled = nativePos;
+        lastTrackedPositionMs = pos;
+        return pos;
     }
 
     public synchronized int getDurationMs() {
@@ -1519,6 +1570,9 @@ public class Arc7AudioService extends Service {
     private synchronized void releasePlayer() {
         flushPendingScrobble(false); // track skipped/switched/stopped — keep a qualifying listen, drop the rest
         playerPrepared = false;
+        playerBuffering = false;
+        hasStartedPreparedPlayback = false;
+        resetPositionTracking(0, false);
         abandonFocus(true);
         if (prepareTimeout != null) { handler.removeCallbacks(prepareTimeout); prepareTimeout = null; }
         MorpheStreamServer.cancel(activeDataSource); MorpheHlsRelay.cancel(activeDataSource);
@@ -1538,6 +1592,7 @@ public class Arc7AudioService extends Service {
             // Detach listeners as well as guarding queued callbacks by player/request identity.
             try { releasing.setOnPreparedListener(null); } catch (Throwable ignored) {}
             try { releasing.setOnBufferingUpdateListener(null); } catch (Throwable ignored) {}
+            try { releasing.setOnInfoListener(null); } catch (Throwable ignored) {}
             try { releasing.setOnErrorListener(null); } catch (Throwable ignored) {}
             try { releasing.setOnCompletionListener(null); } catch (Throwable ignored) {}
             try { releasing.release(); } catch (Throwable ignored) {}
