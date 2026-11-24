@@ -912,6 +912,7 @@ public class YouTubeMusicActivity extends Arc7Activity {
                 if (!userScrubbing) seekBar.setProgress(Math.max(0, Math.min(dur, pos)));
                 durTv.setText(NowPlayingManager.formatDurationMs(dur));
             } else {
+                if (!userScrubbing) seekBar.setProgress(0);
                 durTv.setText("--:--");
             }
             posTv.setText(NowPlayingManager.formatDurationMs(pos));

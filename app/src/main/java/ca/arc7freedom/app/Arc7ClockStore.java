@@ -118,8 +118,12 @@ public class Arc7ClockStore {
     private static final String KEY_TIMER_REM = "timer_paused_rem_ms";
     private static final String KEY_TIMER_RUN = "timer_running";
     private static final String KEY_TIMER_LABEL = "timer_label";
+    private static final String KEY_SNOOZE_ACTIVE = "snooze_active";
+    private static final String KEY_SNOOZE_ALARM_ID = "snooze_alarm_id";
 
+    private static final int SNOOZE_REQ_CODE = 59999;
     private static final int TIMER_REQ_CODE = 990001;
+    private static final String SUITE_PACKAGE = "ca.arc7freedom.app";
 
     private static volatile boolean ringingActive = false;
     private static volatile Thread synthThread = null;
@@ -531,9 +535,19 @@ public class Arc7ClockStore {
         Arc7ClockWidgetProvider.refreshAll(ctx);
     }
 
+    public static boolean isLegacySuitePackage(Context ctx) {
+        return ctx != null && SUITE_PACKAGE.equals(ctx.getPackageName());
+    }
+
     public static int nextAlarmId(Context ctx) {
         SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         int id = sp.getInt(KEY_NEXT_ID, 10);
+        List<AlarmEntry> existing = loadAlarms(ctx);
+        for (int i = 0; i < existing.size(); i++) {
+            if (existing.get(i).id >= id) {
+                id = existing.get(i).id + 1;
+            }
+        }
         sp.edit().putInt(KEY_NEXT_ID, id + 1).commit();
         return id;
     }
@@ -564,9 +578,82 @@ public class Arc7ClockStore {
         return cand.getTimeInMillis();
     }
 
-    public static void scheduleOrCancelAlarm(Context ctx, AlarmEntry e) {
+    public static void cancelAlarmPendingIntent(Context ctx, int alarmId) {
+        if (ctx == null || alarmId <= 0) return;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
+        Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
+        intent.setAction(ACTION_ALARM_TRIGGER);
+        PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, 50000 + alarmId, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+        am.cancel(pi);
+        if (pi != null) pi.cancel();
+    }
+
+    public static void cancelSnooze(Context ctx) {
+        if (ctx == null) return;
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_SNOOZE_ACTIVE, false)
+                .remove(KEY_SNOOZE_ALARM_ID)
+                .commit();
+        AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+        Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
+        intent.setAction(ACTION_ALARM_TRIGGER);
+        PendingIntent pi = PendingIntent.getBroadcast(
+                ctx, SNOOZE_REQ_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+        am.cancel(pi);
+        if (pi != null) pi.cancel();
+    }
+
+    public static void cancelSnoozeForAlarm(Context ctx, int alarmId) {
+        if (ctx == null) return;
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (!sp.getBoolean(KEY_SNOOZE_ACTIVE, false)) return;
+        int snoozedId = sp.getInt(KEY_SNOOZE_ALARM_ID, -1);
+        if (alarmId <= 0 || snoozedId == alarmId || snoozedId <= 0) {
+            cancelSnooze(ctx);
+        }
+    }
+
+    public static boolean consumePendingSnooze(Context ctx, int intentAlarmId) {
+        if (ctx == null || isLegacySuitePackage(ctx)) return false;
+        SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        boolean active = sp.getBoolean(KEY_SNOOZE_ACTIVE, false);
+        int storedId = sp.getInt(KEY_SNOOZE_ALARM_ID, -1);
+        sp.edit().putBoolean(KEY_SNOOZE_ACTIVE, false).remove(KEY_SNOOZE_ALARM_ID).commit();
+        if (!active) return false;
+        int checkId = intentAlarmId > 0 ? intentAlarmId : storedId;
+        if (checkId > 0) {
+            List<AlarmEntry> alarms = loadAlarms(ctx);
+            AlarmEntry match = null;
+            for (int i = 0; i < alarms.size(); i++) {
+                if (alarms.get(i).id == checkId) {
+                    match = alarms.get(i);
+                    break;
+                }
+            }
+            if (match == null) return false;
+            if (match.repeatMask != REPEAT_ONCE && !match.enabled) return false;
+        }
+        return true;
+    }
+
+    public static void scheduleOrCancelAlarm(Context ctx, AlarmEntry e) {
+        if (ctx == null || e == null) return;
+        if (isLegacySuitePackage(ctx)) {
+            cancelAlarmPendingIntent(ctx, e.id);
+            cancelSnoozeForAlarm(ctx, e.id);
+            return;
+        }
+        AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) return;
+        if (!e.enabled) {
+            cancelAlarmPendingIntent(ctx, e.id);
+            cancelSnoozeForAlarm(ctx, e.id);
+            Arc7ClockWidgetProvider.refreshAll(ctx);
+            return;
+        }
         Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
         intent.setAction(ACTION_ALARM_TRIGGER);
         intent.putExtra("alarm_id", e.id);
@@ -575,35 +662,62 @@ public class Arc7ClockStore {
         intent.putExtra("volume_pct", e.volumePercent);
         PendingIntent pi = PendingIntent.getBroadcast(
                 ctx, 50000 + e.id, intent, PendingIntent.FLAG_UPDATE_CURRENT);
-        if (!e.enabled) {
-            am.cancel(pi);
-            Arc7ClockWidgetProvider.refreshAll(ctx);
-            return;
-        }
         long triggerAt = computeNextTriggerMillis(e, System.currentTimeMillis());
         am.set(AlarmManager.RTC_WAKEUP, triggerAt, pi);
         Arc7ClockWidgetProvider.refreshAll(ctx);
     }
 
-    public static void scheduleSnooze(Context ctx, String label, int minutes, String chimeId, int volumePercent) {
+    public static void scheduleSnooze(Context ctx, String label, int minutes, String chimeId, int volumePercent, int sourceAlarmId) {
+        if (ctx == null || isLegacySuitePackage(ctx)) return;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_SNOOZE_ACTIVE, true)
+                .putInt(KEY_SNOOZE_ALARM_ID, sourceAlarmId)
+                .commit();
         Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
         intent.setAction(ACTION_ALARM_TRIGGER);
         intent.putExtra("alarm_id", -1);
+        intent.putExtra("is_snooze", true);
+        intent.putExtra("snooze_alarm_id", sourceAlarmId);
         intent.putExtra("label", (label == null ? "Alarm" : label) + " (Snoozed)");
         intent.putExtra("chime_id", chimeId == null ? CHIME_APPLE_MARIMBA : chimeId);
         intent.putExtra("volume_pct", volumePercent);
         PendingIntent pi = PendingIntent.getBroadcast(
-                ctx, 59999, intent, PendingIntent.FLAG_UPDATE_CURRENT);
+                ctx, SNOOZE_REQ_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         am.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + minutes * 60000L, pi);
     }
 
+    public static void scheduleSnooze(Context ctx, String label, int minutes, String chimeId, int volumePercent) {
+        scheduleSnooze(ctx, label, minutes, chimeId, volumePercent, -1);
+    }
+
     public static void scheduleSnooze(Context ctx, String label, int minutes) {
-        scheduleSnooze(ctx, label, minutes, CHIME_APPLE_MARIMBA, 85);
+        scheduleSnooze(ctx, label, minutes, CHIME_APPLE_MARIMBA, 85, -1);
+    }
+
+    public static void cancelAllAlarmsAndTimers(Context ctx) {
+        if (ctx == null) return;
+        List<AlarmEntry> list = loadAlarms(ctx);
+        for (int i = 0; i < list.size(); i++) {
+            cancelAlarmPendingIntent(ctx, list.get(i).id);
+        }
+        cancelSnooze(ctx);
+        ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_TIMER_RUN, false)
+                .putLong(KEY_TIMER_END, 0L)
+                .commit();
+        cancelCountdownWakeup(ctx);
+        stopAlarmRinging();
+        Arc7ClockWidgetProvider.refreshAll(ctx);
     }
 
     public static void rescheduleAllOnBoot(Context ctx) {
+        if (ctx == null) return;
+        if (isLegacySuitePackage(ctx)) {
+            cancelAllAlarmsAndTimers(ctx);
+            return;
+        }
         List<AlarmEntry> list = loadAlarms(ctx);
         for (AlarmEntry e : list) {
             scheduleOrCancelAlarm(ctx, e);
@@ -674,6 +788,7 @@ public class Arc7ClockStore {
     }
 
     public static void scheduleCountdownWakeup(Context ctx, long endWallMs, String label) {
+        if (ctx == null || isLegacySuitePackage(ctx)) return;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
         Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
@@ -685,6 +800,7 @@ public class Arc7ClockStore {
     }
 
     public static void cancelCountdownWakeup(Context ctx) {
+        if (ctx == null) return;
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
         if (am == null) return;
         Intent intent = new Intent(ctx, Arc7AlarmReceiver.class);
@@ -692,6 +808,7 @@ public class Arc7ClockStore {
         PendingIntent pi = PendingIntent.getBroadcast(
                 ctx, TIMER_REQ_CODE, intent, PendingIntent.FLAG_UPDATE_CURRENT);
         am.cancel(pi);
+        if (pi != null) pi.cancel();
     }
 
     /* ==================== 44.1 kHz CHIME SYNTHESIZER + PER-ALARM VOLUME ==================== */
@@ -939,6 +1056,10 @@ public class Arc7ClockStore {
         if (lock != null) {
             try { if (lock.isHeld()) lock.release(); } catch (Throwable ignored) {}
         }
+    }
+
+    public static boolean isRingingActive() {
+        return ringingActive;
     }
 
     public static synchronized void stopAlarmRinging() {

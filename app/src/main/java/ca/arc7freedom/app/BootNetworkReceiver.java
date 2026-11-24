@@ -58,7 +58,7 @@ public class BootNetworkReceiver extends BroadcastReceiver {
                     // Heavy patches run in the same restartable service as every installer,
                     // not inside a broadcast's short execution window.
                     InstallMaintenanceService.request(context, action);
-                    Arc7ClockStore.rescheduleAllOnBoot(context);
+                    Arc7ClockStore.cancelAllAlarmsAndTimers(context);
 
                     // Restore Warm Night / Amber Reading Filter overlay across reboots if active
                     if (NightFilterService.currentMode(context) != NightFilterService.MODE_OFF) {

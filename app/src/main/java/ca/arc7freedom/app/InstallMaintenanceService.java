@@ -131,7 +131,7 @@ public class InstallMaintenanceService extends IntentService {
                     .getBoolean(TabletOptimizerManager.KEY_BIND_SD_BOOT, false)) {
                 TabletOptimizerManager.applyMicroSdBindMounts(this, shell, log, false);
             }
-            Arc7ClockStore.rescheduleAllOnBoot(this);
+            Arc7ClockStore.cancelAllAlarmsAndTimers(this);
             Arc7CalendarStore.scheduleReminders(this, Arc7CalendarStore.loadSavedEvents(this));
 
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);

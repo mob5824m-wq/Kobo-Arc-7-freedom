@@ -22,7 +22,7 @@ STUBS = {
     'android/os/Binder.java': 'package android.os; public class Binder implements IBinder {}',
     'android/os/Build.java': 'package android.os; public class Build {public static class VERSION {public static int SDK_INT=17;}}',
     'android/os/PowerManager.java': 'package android.os; public class PowerManager {public static final int PARTIAL_WAKE_LOCK=1;}',
-    'android/os/SystemClock.java': 'package android.os; public class SystemClock {public static long elapsedRealtime(){return System.currentTimeMillis();}public static long uptimeMillis(){return System.currentTimeMillis();}}',
+    'android/os/SystemClock.java': 'package android.os; public class SystemClock {public static volatile long offsetMs=0L;public static long elapsedRealtime(){return System.currentTimeMillis()+offsetMs;}public static long uptimeMillis(){return elapsedRealtime();}public static void advanceBy(long ms){offsetMs+=ms;}}',
     'android/os/Looper.java': 'package android.os; public class Looper {public static Looper getMainLooper(){return new Looper();}}',
     'android/os/Handler.java': '''package android.os;
 import java.util.*;
@@ -125,15 +125,20 @@ import android.os.*;
 public class MediaPlayer {
  public interface OnBufferingUpdateListener {void onBufferingUpdate(MediaPlayer p,int percent);}
  public OnBufferingUpdateListener bufferingListener;public void setOnBufferingUpdateListener(OnBufferingUpdateListener l){bufferingListener=l;}
+ public interface OnInfoListener {boolean onInfo(MediaPlayer p,int what,int extra);}
+ public OnInfoListener infoListener;public void setOnInfoListener(OnInfoListener l){infoListener=l;}
+ public static final int MEDIA_INFO_BUFFERING_START=701,MEDIA_INFO_BUFFERING_END=702;
  public interface OnPreparedListener {void onPrepared(MediaPlayer p);}public interface OnErrorListener {boolean onError(MediaPlayer p,int what,int extra);}public interface OnCompletionListener {void onCompletion(MediaPlayer p);}
  public static final int IDLE=0,INITIALIZED=1,PREPARING=2,PREPARED=3,STARTED=4,PAUSED=5,COMPLETED=6,ERROR=7,RELEASED=8;
  public static volatile MediaPlayer latest;public static final List<String> invalidCalls=Collections.synchronizedList(new ArrayList<String>());
  public static final List<String> unlockedCalls=Collections.synchronizedList(new ArrayList<String>());
  public int state=IDLE,starts,stops,queries,volumeWrites,position=3000;public float volume=1f;public String dataSource="";public Object ownerMonitor;
+ public boolean freezePosition;
  public volatile CountDownLatch durationEntered,durationRelease;
  public OnPreparedListener preparedListener;public OnErrorListener errorListener;public OnCompletionListener completionListener;
  public MediaPlayer(){latest=this;}
  public void setOnPreparedListener(OnPreparedListener l){preparedListener=l;}public void setOnErrorListener(OnErrorListener l){errorListener=l;}public void setOnCompletionListener(OnCompletionListener l){completionListener=l;}
+ public void emitInfo(final int what,final int extra){final OnInfoListener l=infoListener;new Handler().post(new Runnable(){public void run(){if(l!=null)l.onInfo(MediaPlayer.this,what,extra);}});}
  private boolean ready(){return state==PREPARED||state==STARTED||state==PAUSED||state==COMPLETED;}
  private void checkMonitor(String op){if(ownerMonitor!=null&&!Thread.holdsLock(ownerMonitor))unlockedCalls.add(op);}
  private boolean requireReady(String op){checkMonitor(op);if(ready())return true;invalidCalls.add(op+" in state "+state);emitError(-38,0);return false;}
@@ -150,7 +155,7 @@ public class MediaPlayer {
  public int getAudioSessionId(){checkMonitor("getAudioSessionId");return 1;}
  public void start(){if(requireReady("start")){starts++;state=STARTED;}}
  public void pause(){if(requireReady("pause"))state=PAUSED;}
- public void seekTo(int n){if(requireReady("seekTo"))position=n;}
+ public void seekTo(int n){if(requireReady("seekTo")&&!freezePosition)position=n;}
  public void stop(){stops++;if(requireReady("stop"))state=INITIALIZED;}
  public void release(){checkMonitor("release");state=RELEASED;}
  public void setVolume(float left,float right){checkMonitor("setVolume");volumeWrites++;volume=left;}
@@ -186,7 +191,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text)
             sources.append(path)
-        sources += [SRC/name for name in ('Arc7AudioService.java', 'Arc7MediaButtonReceiver.java', 'AudioFocusPolicy.java', 'LegacyMediaPolicy.java', 'LegacyPlaybackAudio.java', 'MediaNotificationPolicy.java', 'ListenBrainzEngine.java')]
+        sources += [SRC/name for name in ('Arc7AudioService.java', 'Arc7MediaButtonReceiver.java', 'AudioFocusPolicy.java', 'LegacyMediaPolicy.java', 'LegacyPlaybackAudio.java', 'MediaNotificationPolicy.java', 'ListenBrainzEngine.java', 'VideoPositionTracker.java')]
         orgjson = ROOT/'tests/support/org/json'
         sources += [orgjson/name for name in ('JSONObject.java', 'JSONArray.java', 'MiniJson.java')]
         sources += [ROOT/'shared/java/ca/arc7freedom/support'/name for name in ('DebugLog.java','MediaCache.java')]
